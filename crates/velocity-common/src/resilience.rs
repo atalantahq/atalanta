@@ -432,6 +432,28 @@ impl PlatformDriver for ResilientDriver {
         .await
     }
 
+    async fn tap_xy(&self, device_id: &str, x: i32, y: i32) -> Result<()> {
+        let did = device_id.to_string();
+        self.with_retry(|| {
+            let did = did.clone();
+            let inner = self.inner.clone();
+            async move { inner.tap_xy(&did, x, y).await }
+        })
+        .await
+    }
+
+    async fn input_raw(&self, device_id: &str, text: &str) -> Result<()> {
+        let did = device_id.to_string();
+        let t = text.to_string();
+        self.with_retry(|| {
+            let did = did.clone();
+            let t = t.clone();
+            let inner = self.inner.clone();
+            async move { inner.input_raw(&did, &t).await }
+        })
+        .await
+    }
+
     async fn screenshot(&self, device_id: &str) -> Result<Vec<u8>> {
         let did = device_id.to_string();
         self.with_retry(|| {
@@ -472,6 +494,38 @@ impl PlatformDriver for ResilientDriver {
             let el = el.clone();
             let inner = self.inner.clone();
             async move { inner.is_element_visible(&did, &el).await }
+        })
+        .await
+    }
+
+    async fn navigate(&self, device_id: &str, url: &str) -> Result<()> {
+        let did = device_id.to_string();
+        let u = url.to_string();
+        self.with_retry(|| {
+            let did = did.clone();
+            let u = u.clone();
+            let inner = self.inner.clone();
+            async move { inner.navigate(&did, &u).await }
+        })
+        .await
+    }
+
+    async fn go_back(&self, device_id: &str) -> Result<()> {
+        let did = device_id.to_string();
+        self.with_retry(|| {
+            let did = did.clone();
+            let inner = self.inner.clone();
+            async move { inner.go_back(&did).await }
+        })
+        .await
+    }
+
+    async fn refresh_page(&self, device_id: &str) -> Result<()> {
+        let did = device_id.to_string();
+        self.with_retry(|| {
+            let did = did.clone();
+            let inner = self.inner.clone();
+            async move { inner.refresh_page(&did).await }
         })
         .await
     }

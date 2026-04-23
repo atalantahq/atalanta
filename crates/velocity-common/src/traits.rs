@@ -44,6 +44,11 @@ pub trait PlatformDriver: Send + Sync {
     async fn find_element(&self, device_id: &str, selector: &Selector) -> Result<Element>;
     async fn find_elements(&self, device_id: &str, selector: &Selector) -> Result<Vec<Element>>;
     async fn get_hierarchy(&self, device_id: &str) -> Result<Element>;
+    /// Returns the hierarchy using the driver's internal cache if still valid.
+    /// Platforms with hierarchy caching override this; the default falls back to a fresh dump.
+    async fn get_hierarchy_cached(&self, device_id: &str) -> Result<Element> {
+        self.get_hierarchy(device_id).await
+    }
 
     // Actions
     async fn tap(&self, device_id: &str, element: &Element) -> Result<()>;
@@ -55,6 +60,14 @@ pub trait PlatformDriver: Send + Sync {
     async fn swipe_coords(&self, device_id: &str, from: (i32, i32), to: (i32, i32)) -> Result<()>;
     async fn press_key(&self, device_id: &str, key: Key) -> Result<()>;
 
+    // Raw actions (for WebView / non-accessible UI)
+    async fn tap_xy(&self, _device_id: &str, _x: i32, _y: i32) -> Result<()> {
+        Err(VelocityError::Config("tapXY not supported on this platform".into()))
+    }
+    async fn input_raw(&self, _device_id: &str, _text: &str) -> Result<()> {
+        Err(VelocityError::Config("inputRaw not supported on this platform".into()))
+    }
+
     // Screen
     async fn screenshot(&self, device_id: &str) -> Result<Vec<u8>>;
     async fn screen_size(&self, device_id: &str) -> Result<(i32, i32)>;
@@ -62,6 +75,23 @@ pub trait PlatformDriver: Send + Sync {
     // Element state
     async fn get_element_text(&self, device_id: &str, element: &Element) -> Result<String>;
     async fn is_element_visible(&self, device_id: &str, element: &Element) -> Result<bool>;
+
+    // Web navigation (web platform only — default impls return a clear error on mobile)
+    async fn navigate(&self, _device_id: &str, _url: &str) -> Result<()> {
+        Err(VelocityError::Config(
+            "navigate() not supported on this platform".into(),
+        ))
+    }
+    async fn go_back(&self, _device_id: &str) -> Result<()> {
+        Err(VelocityError::Config(
+            "go_back() not supported on this platform".into(),
+        ))
+    }
+    async fn refresh_page(&self, _device_id: &str) -> Result<()> {
+        Err(VelocityError::Config(
+            "refresh_page() not supported on this platform".into(),
+        ))
+    }
 
     // Resource profiling (opt-in, Android-only for now)
     // Returns (java_heap_kb, native_heap_kb, total_pss_kb, cpu_percent)

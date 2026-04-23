@@ -53,6 +53,8 @@ fn matches(element: &Element, selector: &Selector, opts: &MatchOptions, screen: 
         Selector::Compound(selectors) => {
             selectors.iter().all(|s| matches(element, s, opts, screen))
         }
+        // CSS/XPath are web-only — never match in the Android accessibility tree.
+        Selector::Css(_) | Selector::XPath(_) => false,
     }
 }
 

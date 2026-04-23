@@ -14,6 +14,10 @@ pub enum Selector {
         index: usize,
     },
     Compound(Vec<Selector>),
+    /// CSS selector (web only). E.g. `".btn-primary"` or `"#submit"`.
+    Css(String),
+    /// XPath expression (web only). E.g. `"//button[text()='Submit']"`.
+    XPath(String),
 }
 
 impl std::fmt::Display for Selector {
@@ -29,6 +33,8 @@ impl std::fmt::Display for Selector {
                 let parts: Vec<String> = selectors.iter().map(|s| s.to_string()).collect();
                 write!(f, "compound({})", parts.join(" AND "))
             }
+            Self::Css(q) => write!(f, "css={q:?}"),
+            Self::XPath(q) => write!(f, "xpath={q:?}"),
         }
     }
 }
@@ -153,6 +159,23 @@ pub enum Action {
     RunFlow {
         flow_id: String,
     },
+    /// Tap at absolute screen coordinates (for WebView / non-accessible UI).
+    TapXY {
+        x: i32,
+        y: i32,
+    },
+    /// Type text via ADB input (for WebView fields not in accessibility tree).
+    InputRaw {
+        text: String,
+    },
+    /// Navigate the browser to an absolute URL (web only).
+    Goto {
+        url: String,
+    },
+    /// Navigate the browser back (web only).
+    GoBack,
+    /// Reload the current browser page (web only).
+    Refresh,
 }
 
 /// The target platform.
@@ -161,6 +184,7 @@ pub enum Action {
 pub enum Platform {
     Ios,
     Android,
+    Web,
 }
 
 impl std::fmt::Display for Platform {
@@ -168,6 +192,7 @@ impl std::fmt::Display for Platform {
         match self {
             Self::Ios => write!(f, "ios"),
             Self::Android => write!(f, "android"),
+            Self::Web => write!(f, "web"),
         }
     }
 }

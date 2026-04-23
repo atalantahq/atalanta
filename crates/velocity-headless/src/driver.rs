@@ -68,6 +68,9 @@ impl HeadlessDriver {
             Platform::Ios => {
                 self.inflate_ios(session, app_path.as_deref(), initial_layout.as_deref()).await
             }
+            Platform::Web => Err(VelocityError::Config(
+                "HeadlessDriver does not support web platform; use velocity-web instead".into(),
+            )),
         }
     }
 

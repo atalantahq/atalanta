@@ -436,6 +436,9 @@ fn compute_similarity(
         } => {
             return compute_similarity(inner, snapshot, candidate, hierarchy);
         }
+        // CSS/XPath selectors are web-only and don't contribute to mobile healing scores.
+        // Fall back to snapshot-based comparison below (score stays 0 for selector part).
+        Selector::Css(_) | Selector::XPath(_) => {}
     }
 
     // If we have a previous snapshot, also compare against those attributes

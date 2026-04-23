@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use velocity_common::{
-    Action, Direction, Platform, PlatformDriver, Result, Step, StepResult, StepStatus, SuiteConfig,
-    TestCase, TestResult, TestStatus, VelocityError,
+    Action, Direction, Platform, PlatformDriver, Result, Selector, Step, StepResult, StepStatus,
+    SuiteConfig, SyncMode, TestCase, TestResult, TestStatus, VelocityError,
 };
 
 use crate::dialog_handler::DialogHandler;
@@ -158,6 +158,9 @@ impl<'a> TestExecutor<'a> {
                 | Action::Screenshot { .. }
                 | Action::LaunchApp { .. }
                 | Action::StopApp { .. }
+                | Action::Goto { .. }
+                | Action::GoBack
+                | Action::Refresh
         );
         if !skip_sync {
             // Dismiss any system dialogs before waiting for idle
@@ -193,7 +196,10 @@ impl<'a> TestExecutor<'a> {
         // Post-action sync for actions that modify UI state
         let mutating = matches!(
             step.action,
-            Action::Tap { .. }
+            Action::Goto { .. }
+                | Action::GoBack
+                | Action::Refresh
+                | Action::Tap { .. }
                 | Action::DoubleTap { .. }
                 | Action::LongPress { .. }
                 | Action::InputText { .. }
@@ -203,6 +209,8 @@ impl<'a> TestExecutor<'a> {
                 | Action::PressKey { .. }
                 | Action::LaunchApp { .. }
                 | Action::StopApp { .. }
+                | Action::TapXY { .. }
+                | Action::InputRaw { .. }
         );
 
         let mut resource_delta = None;
@@ -236,10 +244,18 @@ impl<'a> TestExecutor<'a> {
                         resource_delta = profiler.record_after(ResourceProfiler::snapshot_from_raw(raw));
                     }
 
-                    // Check for system dialogs that may have appeared after the action
-                    self.dialog_handler
-                        .dismiss_if_present(self.driver, device_id)
-                        .await;
+                    // Check for system dialogs after the action.
+                    // Skip for coordinate-based actions (TapXY, InputRaw) — these target
+                    // canvas/WebView elements that never trigger system permission dialogs.
+                    let can_trigger_dialog = !matches!(
+                        step.action,
+                        Action::TapXY { .. } | Action::InputRaw { .. }
+                    );
+                    if can_trigger_dialog {
+                        self.dialog_handler
+                            .dismiss_if_present(self.driver, device_id)
+                            .await;
+                    }
                 }
                 Ok(StepResult {
                     step_index,
@@ -271,6 +287,60 @@ impl<'a> TestExecutor<'a> {
         }
     }
 
+    /// When sync mode is None, find_element retries with implicit wait
+    /// instead of failing immediately. This eliminates the need for explicit
+    /// `wait` steps — the test proceeds as soon as the element appears.
+    async fn find_element_smart(
+        &mut self,
+        device_id: &str,
+        selector: &Selector,
+        timeout_ms: u64,
+    ) -> Result<velocity_common::Element> {
+        // Fast path: if sync mode is not None, do a single lookup (sync engine handles waiting)
+        if self.config.sync.mode != SyncMode::None {
+            return self
+                .selector_engine
+                .find_element(self.driver, device_id, selector)
+                .await;
+        }
+
+        // Implicit wait: retry until element found or timeout.
+        // First attempt uses the existing cache (filled by post-action dialog check).
+        // Only subsequent retries invalidate to get a fresh hierarchy.
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let poll_interval = Duration::from_millis(300);
+        let mut last_err = None;
+        let mut first = true;
+
+        loop {
+            if !first {
+                self.selector_engine.invalidate_cache();
+            }
+            first = false;
+            match self
+                .selector_engine
+                .find_element(self.driver, device_id, selector)
+                .await
+            {
+                Ok(el) => return Ok(el),
+                Err(e) => {
+                    last_err = Some(e);
+                    if Instant::now() + poll_interval > deadline {
+                        break;
+                    }
+                    tokio::time::sleep(poll_interval).await;
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| VelocityError::ElementNotFound {
+            selector: format!("{selector}"),
+            timeout_ms,
+            screenshot: None,
+            hierarchy_snapshot: None,
+        }))
+    }
+
     async fn execute_action(
         &mut self,
         action: &Action,
@@ -300,49 +370,37 @@ impl<'a> TestExecutor<'a> {
                 self.driver.stop_app(device_id, id).await
             }
             Action::Tap { selector } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 self.driver.tap(device_id, &element).await
             }
             Action::DoubleTap { selector } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 self.driver.double_tap(device_id, &element).await
             }
             Action::LongPress {
                 selector,
                 duration_ms,
             } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 let ms = duration_ms.unwrap_or(1000);
                 self.driver.long_press(device_id, &element, ms).await
             }
             Action::InputText { selector, text } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 self.driver.input_text(device_id, &element, text).await
             }
             Action::ClearText { selector } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 self.driver.clear_text(device_id, &element).await
             }
             Action::AssertVisible { selector } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 let visible = self.driver.is_element_visible(device_id, &element).await?;
                 if !visible {
                     return Err(VelocityError::AssertionFailed {
@@ -355,6 +413,7 @@ impl<'a> TestExecutor<'a> {
                 Ok(())
             }
             Action::AssertNotVisible { selector } => {
+                // No implicit wait for "not visible" — check once immediately
                 let result = self
                     .selector_engine
                     .find_element(self.driver, device_id, selector)
@@ -376,10 +435,8 @@ impl<'a> TestExecutor<'a> {
                 }
             }
             Action::AssertText { selector, expected } => {
-                let element = self
-                    .selector_engine
-                    .find_element(self.driver, device_id, selector)
-                    .await?;
+                let timeout = self.config.sync.timeout_ms;
+                let element = self.find_element_smart(device_id, selector, timeout).await?;
                 let actual = self.driver.get_element_text(device_id, &element).await?;
                 if actual != *expected {
                     return Err(VelocityError::AssertionFailed {
@@ -458,6 +515,15 @@ impl<'a> TestExecutor<'a> {
                         .to_string(),
                 ))
             }
+            Action::TapXY { x, y } => {
+                self.driver.tap_xy(device_id, *x, *y).await
+            }
+            Action::InputRaw { text } => {
+                self.driver.input_raw(device_id, text).await
+            }
+            Action::Goto { url } => self.driver.navigate(device_id, url).await,
+            Action::GoBack => self.driver.go_back(device_id).await,
+            Action::Refresh => self.driver.refresh_page(device_id).await,
         }
     }
 
@@ -495,6 +561,11 @@ fn action_name(action: &Action) -> String {
         Action::PressKey { .. } => "pressKey".to_string(),
         Action::Wait { .. } => "wait".to_string(),
         Action::RunFlow { .. } => "runFlow".to_string(),
+        Action::TapXY { x, y } => format!("tapXY({x},{y})"),
+        Action::InputRaw { .. } => "inputRaw".to_string(),
+        Action::Goto { url } => format!("goto({url})"),
+        Action::GoBack => "goBack".to_string(),
+        Action::Refresh => "refresh".to_string(),
     }
 }
 

@@ -39,6 +39,8 @@ pub enum SyncMode {
     /// Try native first, fallback to polling if probe unavailable.
     #[default]
     Auto,
+    /// No sync — skip all hierarchy polling, rely on explicit waits.
+    None,
 }
 
 /// Sync engine configuration.
@@ -287,6 +289,30 @@ pub struct FlutterYamlConfig {
     pub port: Option<u16>,
 }
 
+/// Web browser driver configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebConfig {
+    /// Starting URL to open when launching the browser session.
+    #[serde(default)]
+    pub start_url: Option<String>,
+    /// Viewport width in CSS pixels (default: 1280).
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Viewport height in CSS pixels (default: 800).
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// Path to a Chrome/Chromium binary. Uses PATH detection if absent.
+    #[serde(default)]
+    pub chrome_path: Option<String>,
+    /// Run browser headless (default: true).
+    #[serde(default)]
+    pub headless: Option<bool>,
+    /// Extra Chrome launch arguments (e.g. ["--disable-web-security"]).
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+}
+
 /// Suite-level configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SuiteConfig {
@@ -307,6 +333,9 @@ pub struct SuiteConfig {
     /// Flutter bridge configuration.
     #[serde(default)]
     pub flutter: Option<FlutterYamlConfig>,
+    /// Web browser configuration.
+    #[serde(default)]
+    pub web: Option<WebConfig>,
     #[serde(default)]
     pub sync: SyncConfig,
     #[serde(default)]

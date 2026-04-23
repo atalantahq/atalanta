@@ -1,0 +1,43 @@
+appId: https://example.com
+config:
+  platform: web
+  web:
+    width: 1280
+    height: 800
+    headless: true
+    chromePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+tests:
+  - name: "Page loads and title is visible"
+    steps:
+      - launchApp: { appId: "https://example.com" }
+      - assertVisible: { css: "h1" }
+      - assertVisible: { text: "Example Domain" }
+      - screenshot: { filename: "01-loaded.png" }
+
+  - name: "CSS selector finds heading"
+    steps:
+      - goto: { url: "https://example.com" }
+      - assertVisible: { css: "h1" }
+      - assertText:
+          selector: { css: "h1" }
+          expected: "Example Domain"
+
+  - name: "XPath selector finds paragraph"
+    steps:
+      - goto: { url: "https://example.com" }
+      - assertVisible: { xpath: "//p" }
+
+  - name: "Navigation: goto and refresh"
+    steps:
+      - goto: { url: "https://example.com" }
+      - assertVisible: { text: "Example Domain" }
+      - refresh: ~
+      - assertVisible: { text: "Example Domain" }
+
+  - name: "Link is visible and tappable"
+    steps:
+      - goto: { url: "https://example.com" }
+      - assertVisible: { css: "a" }
+      - tap: { css: "a" }
+      - screenshot: { filename: "05-after-tap.png" }

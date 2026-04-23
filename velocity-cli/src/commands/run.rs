@@ -25,6 +25,11 @@ fn parse_framework(value: &str) -> anyhow::Result<Framework> {
 
 /// Auto-detect app framework from the app path.
 fn detect_framework(app_path: Option<&str>, platform: Platform) -> Framework {
+    // Web platform has no app binary; framework is always Native from Velocity's perspective.
+    if platform == Platform::Web {
+        return Framework::Native;
+    }
+
     let Some(path) = app_path else {
         return Framework::Native;
     };
@@ -140,7 +145,8 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
     let platform = match args.platform.as_deref() {
         Some("ios") => Some(Platform::Ios),
         Some("android") => Some(Platform::Android),
-        Some(other) => anyhow::bail!("Unknown platform '{other}'. Use 'ios' or 'android'."),
+        Some("web") => Some(Platform::Web),
+        Some(other) => anyhow::bail!("Unknown platform '{other}'. Use 'ios', 'android', or 'web'."),
         None => None,
     };
 
@@ -273,6 +279,13 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
 
     // Create platform driver wrapped in resilience layer for automatic
     // retries on transient failures and circuit breaking on sustained failures.
+    if effective_driver_mode == DriverMode::Headless && effective_platform == Platform::Web {
+        anyhow::bail!(
+            "Platform 'web' does not support '--driver headless'. \
+            Headless mode is for native/RN/Flutter UI. Omit --driver or use 'device'."
+        );
+    }
+
     let raw_driver: Arc<dyn velocity_common::PlatformDriver> = match effective_driver_mode {
         DriverMode::Headless => {
             match effective_framework {
@@ -349,6 +362,30 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
         DriverMode::Device => match effective_platform {
             Platform::Ios => Arc::new(velocity_ios::IosDriver::new()),
             Platform::Android => Arc::new(velocity_android::AndroidDriver::new()),
+            Platform::Web => {
+                let mut web_config = velocity_web::WebDriverConfig::default();
+                if let Some(ref wc) = suite.config.web {
+                    if let Some(ref url) = wc.start_url {
+                        web_config.start_url = Some(url.clone());
+                    }
+                    if let Some(w) = wc.width { web_config.width = w; }
+                    if let Some(h) = wc.height { web_config.height = h; }
+                    if let Some(ref p) = wc.chrome_path {
+                        web_config.chrome_path = Some(p.clone());
+                    }
+                    if let Some(hl) = wc.headless { web_config.headless = hl; }
+                    web_config.extra_args = wc.extra_args.clone();
+                }
+                println!(
+                    "{} Driver: {} ({}x{}, headless={})",
+                    "=>".cyan().bold(),
+                    "chrome-cdp".yellow(),
+                    web_config.width,
+                    web_config.height,
+                    web_config.headless,
+                );
+                Arc::new(velocity_web::WebDriver::new(web_config))
+            }
         },
     };
     let driver = ResilientDriver::new(raw_driver);

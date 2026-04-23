@@ -59,7 +59,12 @@ fn validate_step(
         | Action::Swipe { .. }
         | Action::Screenshot { .. }
         | Action::PressKey { .. }
-        | Action::Wait { .. } => {}
+        | Action::Wait { .. }
+        | Action::TapXY { .. }
+        | Action::InputRaw { .. }
+        | Action::Goto { .. }
+        | Action::GoBack
+        | Action::Refresh => {}
     }
     Ok(())
 }
@@ -94,6 +99,15 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
             }
             for s in selectors {
                 validate_selector(s, test_name, step_index)?;
+            }
+        }
+        Selector::Css(v) | Selector::XPath(v) => {
+            if v.trim().is_empty() {
+                return Err(VelocityError::InvalidSelector {
+                    test_name: test_name.to_string(),
+                    step_index,
+                    reason: "css/xpath selector value is empty".to_string(),
+                });
             }
         }
     }
