@@ -69,5 +69,7 @@ fn selector_to_yaml(selector: &Selector) -> String {
             let parts: Vec<String> = selectors.iter().map(selector_to_yaml).collect();
             format!("compound:\n      {}", parts.join("\n      "))
         }
+        Selector::Css(q) => format!("css: {q:?}"),
+        Selector::XPath(q) => format!("xpath: {q:?}"),
     }
 }

@@ -188,6 +188,8 @@ where
                         accessibility_id: v.accessibility_id,
                         class_name: v.class_name,
                         index: v.index,
+                        css: None,
+                        xpath: None,
                     }
                     .into_selector()
                     .map_err(de::Error::custom)?
@@ -269,6 +271,30 @@ where
                 flow_id: v.flow_id.unwrap_or(v.flow.unwrap_or_default()),
             })
         }
+        "tapXY" => {
+            let v: TapXYDsl = map.next_value()?;
+            Ok(Action::TapXY { x: v.x, y: v.y })
+        }
+        "inputRaw" => {
+            let v: InputRawDsl = map.next_value()?;
+            Ok(Action::InputRaw { text: v.text })
+        }
+        "goto" => {
+            #[derive(Deserialize)]
+            struct GotoDsl {
+                url: String,
+            }
+            let v: GotoDsl = map.next_value()?;
+            Ok(Action::Goto { url: v.url })
+        }
+        "goBack" => {
+            let _: serde_yaml::Value = map.next_value()?;
+            Ok(Action::GoBack)
+        }
+        "refresh" => {
+            let _: serde_yaml::Value = map.next_value()?;
+            Ok(Action::Refresh)
+        }
         other => Err(de::Error::custom(format!("unknown action: {other}"))),
     }
 }
@@ -290,10 +316,30 @@ struct SelectorDsl {
     class_name: Option<String>,
     #[serde(default)]
     index: Option<usize>,
+    /// CSS selector (web only). E.g. `".btn-primary"` or `"#submit"`.
+    #[serde(default)]
+    css: Option<String>,
+    /// XPath expression (web only). E.g. `"//button[text()='Submit']"`.
+    #[serde(default)]
+    xpath: Option<String>,
 }
 
 impl SelectorDsl {
     fn into_selector(self) -> std::result::Result<Selector, String> {
+        // CSS and XPath selectors are web-only and do not support index wrapping.
+        if let Some(q) = self.css {
+            if self.index.is_some() {
+                return Err("index cannot be combined with css selector".to_string());
+            }
+            return Ok(Selector::Css(q));
+        }
+        if let Some(q) = self.xpath {
+            if self.index.is_some() {
+                return Err("index cannot be combined with xpath selector".to_string());
+            }
+            return Ok(Selector::XPath(q));
+        }
+
         let base = if let Some(id) = self.id {
             Selector::Id(id)
         } else if let Some(text) = self.text {
@@ -305,7 +351,7 @@ impl SelectorDsl {
         } else if let Some(cls) = self.class_name {
             Selector::ClassName(cls)
         } else {
-            return Err("selector must have at least one of: id, text, textContains, accessibilityId, className".to_string());
+            return Err("selector must have at least one of: id, text, textContains, accessibilityId, className, css, xpath".to_string());
         };
 
         Ok(match self.index {
@@ -423,6 +469,17 @@ struct RunFlowDsl {
     flow_id: Option<String>,
     #[serde(default)]
     flow: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TapXYDsl {
+    x: i32,
+    y: i32,
+}
+
+#[derive(Deserialize)]
+struct InputRawDsl {
+    text: String,
 }
 
 #[cfg(test)]

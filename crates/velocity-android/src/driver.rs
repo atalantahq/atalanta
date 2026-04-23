@@ -21,6 +21,7 @@ pub struct AndroidDriver {
     adb: Box<dyn AdbBackend>,
     hierarchy_cache: Arc<Mutex<Option<(Element, Instant)>>>,
     cache_ttl: Duration,
+    screen_size_cache: Arc<Mutex<Option<(i32, i32)>>>,
 }
 
 impl Default for AndroidDriver {
@@ -43,7 +44,8 @@ impl AndroidDriver {
         Self {
             adb,
             hierarchy_cache: Arc::new(Mutex::new(None)),
-            cache_ttl: Duration::from_millis(500),
+            cache_ttl: Duration::from_millis(2000),
+            screen_size_cache: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -69,8 +71,20 @@ impl AndroidDriver {
         });
     }
 
+    async fn get_screen_size_cached(&self, device_id: &str) -> Result<(i32, i32)> {
+        {
+            let cached = self.screen_size_cache.lock().await;
+            if let Some(size) = *cached {
+                return Ok(size);
+            }
+        }
+        let size = self.adb.screen_size(device_id).await?;
+        *self.screen_size_cache.lock().await = Some(size);
+        Ok(size)
+    }
+
     async fn screen_bounds(&self, device_id: &str) -> Result<Rect> {
-        let (w, h) = self.adb.screen_size(device_id).await?;
+        let (w, h) = self.get_screen_size_cached(device_id).await?;
         Ok(Rect {
             x: 0,
             y: 0,
@@ -215,6 +229,10 @@ impl PlatformDriver for AndroidDriver {
         parse_hierarchy_v2(&xml)
     }
 
+    async fn get_hierarchy_cached(&self, device_id: &str) -> Result<Element> {
+        self.get_cached_hierarchy(device_id).await
+    }
+
     async fn tap(&self, device_id: &str, element: &Element) -> Result<()> {
         let (cx, cy) = element.bounds.center();
         self.invalidate_cache();
@@ -265,12 +283,22 @@ impl PlatformDriver for AndroidDriver {
             .await
     }
 
+    async fn tap_xy(&self, device_id: &str, x: i32, y: i32) -> Result<()> {
+        self.invalidate_cache();
+        self.adb.tap(device_id, x, y).await
+    }
+
+    async fn input_raw(&self, device_id: &str, text: &str) -> Result<()> {
+        self.invalidate_cache();
+        self.adb.input_text(device_id, text).await
+    }
+
     async fn screenshot(&self, device_id: &str) -> Result<Vec<u8>> {
         self.adb.screenshot(device_id).await
     }
 
     async fn screen_size(&self, device_id: &str) -> Result<(i32, i32)> {
-        self.adb.screen_size(device_id).await
+        self.get_screen_size_cached(device_id).await
     }
 
     async fn get_element_text(&self, device_id: &str, element: &Element) -> Result<String> {

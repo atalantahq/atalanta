@@ -12,6 +12,7 @@ members = [
     "crates/velocity-inspector",
     "crates/velocity-rn-bridge",
     "crates/velocity-flutter-bridge",
+    "crates/velocity-web",
     "velocity-cli",
 ]
 

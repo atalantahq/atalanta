@@ -21,6 +21,7 @@ velocity-inspector = { path = "../crates/velocity-inspector" }
 velocity-headless = { path = "../crates/velocity-headless" }
 velocity-rn-bridge = { path = "../crates/velocity-rn-bridge" }
 velocity-flutter-bridge = { path = "../crates/velocity-flutter-bridge" }
+velocity-web = { path = "../crates/velocity-web" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

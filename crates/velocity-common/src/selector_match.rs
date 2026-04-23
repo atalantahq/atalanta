@@ -44,6 +44,9 @@ pub fn matches_selector(element: &Element, selector: &Selector, screen: Option<&
         Selector::Compound(selectors) => {
             selectors.iter().all(|s| matches_selector(element, s, screen))
         }
+        // CSS and XPath selectors are resolved by the web driver via CDP,
+        // not by tree-walking. They never match in the mobile tree.
+        Selector::Css(_) | Selector::XPath(_) => false,
     }
 }
 

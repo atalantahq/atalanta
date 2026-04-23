@@ -43,6 +43,9 @@ const ANDROID_ALERT_INDICATORS: &[&str] = &[
     "PermissionDialogActivity",
     "GrantPermissionsActivity",
     "android:id/alertTitle",
+    "com.android.permissioncontroller",
+    "grant_dialog",
+    "grant_singleton",
 ];
 
 /// Handles automatic detection and dismissal of system dialogs
@@ -88,7 +91,7 @@ impl DialogHandler {
         let mut dismissed = 0;
 
         for _ in 0..self.config.max_dismissals {
-            let hierarchy = match driver.get_hierarchy(device_id).await {
+            let hierarchy = match driver.get_hierarchy_cached(device_id).await {
                 Ok(h) => h,
                 Err(_) => break,
             };

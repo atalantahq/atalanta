@@ -135,7 +135,16 @@ fn interpolate_action(action: &mut Action, overrides: &HashMap<String, String>) 
         Action::RunFlow { flow_id } => {
             *flow_id = interpolate(flow_id, overrides)?;
         }
-        Action::Swipe { .. } | Action::PressKey { .. } | Action::Wait { .. } => {}
+        Action::InputRaw { text } => {
+            *text = interpolate(text, overrides)?;
+        }
+        Action::Swipe { .. }
+        | Action::PressKey { .. }
+        | Action::Wait { .. }
+        | Action::TapXY { .. }
+        | Action::Goto { .. }
+        | Action::GoBack
+        | Action::Refresh => {}
     }
     Ok(())
 }
@@ -161,6 +170,10 @@ fn interpolate_selector(
             for s in selectors {
                 interpolate_selector(s, overrides)?;
             }
+        }
+        // CSS/XPath selectors are plain strings; interpolate the value.
+        Selector::Css(v) | Selector::XPath(v) => {
+            *v = interpolate(v, overrides)?;
         }
     }
     Ok(())

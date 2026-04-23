@@ -1,4 +1,5 @@
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::process::Command;
 use tracing::debug;
@@ -7,6 +8,8 @@ use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform, Result, Vel
 /// Wrapper around ADB subprocess calls with optional command batching.
 pub struct Adb {
     adb_path: String,
+    /// Once /dev/tty fails, skip it for all subsequent dumps on this device.
+    dev_tty_works: AtomicBool,
 }
 
 impl Default for Adb {
@@ -19,6 +22,7 @@ impl Adb {
     pub fn new() -> Self {
         Self {
             adb_path: std::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".to_string()),
+            dev_tty_works: AtomicBool::new(true),
         }
     }
 
@@ -199,18 +203,41 @@ impl Adb {
     }
 
     pub async fn dump_hierarchy(&self, device_id: &str) -> Result<String> {
-        let output = self
-            .run(device_id, &["shell", "uiautomator", "dump", "/dev/tty"])
+        // Try /dev/tty first (faster, single command) — skip if previously failed
+        if self.dev_tty_works.load(Ordering::Relaxed) {
+            let output = self
+                .run(device_id, &["shell", "uiautomator", "dump", "/dev/tty"])
+                .await?;
+
+            if let Some(xml_start) = output.find("<?xml") {
+                return Ok(output[xml_start..].to_string());
+            }
+            if let Some(xml_start) = output.find("<hierarchy") {
+                return Ok(output[xml_start..].to_string());
+            }
+
+            // /dev/tty didn't return XML — disable for future calls
+            debug!("/dev/tty dump failed, switching to file-based dump");
+            self.dev_tty_works.store(false, Ordering::Relaxed);
+        }
+
+        // File-based: dump + cat in a single shell invocation for speed
+        let xml = self
+            .run(
+                device_id,
+                &[
+                    "shell",
+                    "uiautomator dump /sdcard/velocity_hierarchy.xml >/dev/null 2>&1 && cat /sdcard/velocity_hierarchy.xml",
+                ],
+            )
             .await?;
 
-        // The output may have a trailing message like "UI hierarchy dumped to: /dev/tty"
-        // We need just the XML part
-        if let Some(xml_start) = output.find("<?xml") {
-            Ok(output[xml_start..].to_string())
-        } else if let Some(xml_start) = output.find("<hierarchy") {
-            Ok(output[xml_start..].to_string())
+        if let Some(xml_start) = xml.find("<?xml") {
+            Ok(xml[xml_start..].to_string())
+        } else if let Some(xml_start) = xml.find("<hierarchy") {
+            Ok(xml[xml_start..].to_string())
         } else {
-            Ok(output)
+            Ok(xml)
         }
     }
 
@@ -328,14 +355,16 @@ impl Adb {
     pub async fn screen_size(&self, device_id: &str) -> Result<(i32, i32)> {
         let output = self.run(device_id, &["shell", "wm", "size"]).await?;
 
-        // Output: "Physical size: 1080x2400"
+        // Output: "Physical size: 800x1340"
         for line in output.lines() {
             if let Some(size_str) = line.strip_prefix("Physical size:") {
                 let size_str = size_str.trim();
                 if let Some((w, h)) = size_str.split_once('x') {
                     let width = w.trim().parse::<i32>().unwrap_or(1080);
                     let height = h.trim().parse::<i32>().unwrap_or(2400);
-                    return Ok((width, height));
+                    // Use max dimension for both to handle landscape/portrait rotation
+                    let max_dim = width.max(height);
+                    return Ok((max_dim, max_dim));
                 }
             }
         }

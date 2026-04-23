@@ -113,6 +113,10 @@ impl IosDriver {
                 let predicate = predicates.join(" AND ");
                 Ok(("class chain", format!("**/XCUIElementTypeAny[{predicate}]")))
             }
+            // CSS/XPath are web-only and not supported by WDA.
+            Selector::Css(_) | Selector::XPath(_) => Err(VelocityError::Config(
+                "css/xpath selectors are not supported on iOS (web platform only)".into(),
+            )),
         }
     }
 
@@ -571,5 +575,7 @@ fn element_matches(element: &Element, selector: &Selector, screen: &Rect) -> boo
         Selector::Compound(selectors) => selectors
             .iter()
             .all(|s| element_matches(element, s, screen)),
+        // CSS/XPath are web-only — never match in the iOS accessibility tree.
+        Selector::Css(_) | Selector::XPath(_) => false,
     }
 }

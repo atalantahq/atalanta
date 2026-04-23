@@ -150,13 +150,25 @@ pub struct SyncManager {
 
 impl SyncManager {
     pub fn new(config: &velocity_common::SyncConfig, platform: velocity_common::Platform) -> Self {
+        // Web platform: CDP responses are synchronous — no native probe needed.
+        // Force native_client to None so the sync manager falls through to polling/none mode.
+        if platform == velocity_common::Platform::Web {
+            return Self {
+                mode: velocity_common::SyncMode::None,
+                native_client: None,
+                polling_engine: crate::sync::AdaptiveSyncEngine::new(config.clone()),
+                native_available: None,
+            };
+        }
+
         let native_port = match platform {
             velocity_common::Platform::Ios => config.native_port_ios,
             velocity_common::Platform::Android => config.native_port_android,
+            velocity_common::Platform::Web => unreachable!(),
         };
 
         let native_client = match config.mode {
-            velocity_common::SyncMode::Polling => None,
+            velocity_common::SyncMode::Polling | velocity_common::SyncMode::None => None,
             _ => Some(NativeSyncClient::new(
                 native_port,
                 config.probe_connect_timeout_ms,
@@ -178,6 +190,7 @@ impl SyncManager {
         device_id: &str,
     ) -> Result<()> {
         match self.mode {
+            velocity_common::SyncMode::None => Ok(()),
             velocity_common::SyncMode::Native => self.native_wait_for_idle().await,
             velocity_common::SyncMode::Polling => {
                 self.polling_engine.wait_for_idle(driver, device_id).await
@@ -206,6 +219,7 @@ impl SyncManager {
         key: &str,
     ) -> Result<()> {
         match self.mode {
+            velocity_common::SyncMode::None => Ok(()),
             velocity_common::SyncMode::Native => self.native_wait_for_idle().await,
             velocity_common::SyncMode::Polling => {
                 self.polling_engine
