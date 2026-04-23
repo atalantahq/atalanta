@@ -309,7 +309,6 @@ impl<'a> TestExecutor<'a> {
         // Only subsequent retries invalidate to get a fresh hierarchy.
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         let poll_interval = Duration::from_millis(300);
-        let mut last_err = None;
         let mut first = true;
 
         loop {
@@ -324,21 +323,13 @@ impl<'a> TestExecutor<'a> {
             {
                 Ok(el) => return Ok(el),
                 Err(e) => {
-                    last_err = Some(e);
                     if Instant::now() + poll_interval > deadline {
-                        break;
+                        return Err(e);
                     }
                     tokio::time::sleep(poll_interval).await;
                 }
             }
         }
-
-        Err(last_err.unwrap_or_else(|| VelocityError::ElementNotFound {
-            selector: format!("{selector}"),
-            timeout_ms,
-            screenshot: None,
-            hierarchy_snapshot: None,
-        }))
     }
 
     async fn execute_action(
