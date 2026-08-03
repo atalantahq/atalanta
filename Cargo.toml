@@ -10,16 +10,27 @@ members = [
     "crates/velocity-migrate",
     "crates/velocity-headless",
     "crates/velocity-inspector",
-    "crates/velocity-rn-bridge",
     "crates/velocity-flutter-bridge",
     "crates/velocity-web",
+    "crates/velocity-nl",
+    "crates/velocity-doctor",
+    "crates/velocity-explore",
+    "crates/velocity-api",
     "velocity-cli",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+# The oldest toolchain Velocity builds with (`File::lock` needs 1.89; clippy's
+# incompatible_msrv lint flags newer std APIs);
+# `cargo install` on an older one fails with a clear message.
+rust-version = "1.89"
 license = "Apache-2.0"
+repository = "https://github.com/omkar-dev/velocity"
+homepage = "https://github.com/omkar-dev/velocity"
+readme = "README.md"
+authors = ["omkar-dev"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -31,10 +42,10 @@ anyhow = "1"
 async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-reqwest = { version = "0.12", features = ["json"] }
+# rustls instead of the platform TLS: no OpenSSL to link or ship on Linux.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "charset"] }
 quick-xml = { version = "0.37", features = ["serialize"] }
 regex = "1"
-lru = "0.12"
 clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
 colored = "2"
@@ -45,3 +56,52 @@ axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
 rust-embed = { version = "8" }
 mime_guess = "2"
+# Declared once here; crates use `{ workspace = true }`.
+libc = "0.2"
+tempfile = "3"
+png = "0.18.1"
+sha2 = "0.10"
+ring = "0.17"
+
+# The workspace's own crates. Published together (`cargo publish --workspace`),
+# so each path dependency also carries the version crates.io resolves it to.
+# `velocity-mcp` is taken on crates.io: that crate is published as
+# `velocity-mcp-server` and keeps its `velocity_mcp` library name.
+velocity-common = { path = "crates/velocity-common", version = "=0.2.0" }
+velocity-android = { path = "crates/velocity-android", version = "=0.2.0" }
+velocity-ios = { path = "crates/velocity-ios", version = "=0.2.0" }
+velocity-core = { path = "crates/velocity-core", version = "=0.2.0" }
+velocity-runner = { path = "crates/velocity-runner", version = "=0.2.0" }
+velocity-mcp = { package = "velocity-mcp-server", path = "crates/velocity-mcp", version = "=0.2.0" }
+velocity-migrate = { path = "crates/velocity-migrate", version = "=0.2.0" }
+velocity-headless = { path = "crates/velocity-headless", version = "=0.2.0" }
+velocity-inspector = { path = "crates/velocity-inspector", version = "=0.2.0" }
+velocity-flutter-bridge = { path = "crates/velocity-flutter-bridge", version = "=0.2.0" }
+velocity-web = { path = "crates/velocity-web", version = "=0.2.0" }
+velocity-nl = { path = "crates/velocity-nl", version = "=0.2.0" }
+velocity-doctor = { path = "crates/velocity-doctor", version = "=0.2.0" }
+velocity-explore = { path = "crates/velocity-explore", version = "=0.2.0" }
+velocity-api = { path = "crates/velocity-api", version = "=0.2.0" }
+
+# Every crate opts in with `[lints] workspace = true`. Only lints with no
+# false positives here: CI runs clippy with `-D warnings`.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+await_holding_lock = "deny"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+# One static binary: size and startup matter more than build time here.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
+
+# Install-by-hash reads the whole app build; unoptimized SHA-256 runs at
+# ~40 MB/s, optimized at several hundred.
+[profile.dev.package.sha2]
+opt-level = 3
