@@ -19,6 +19,10 @@ pub enum ErrorKind {
     // Ambiguous — retry once, then escalate
     Timeout,
     Unknown,
+
+    /// The device's circuit breaker is open: never retried (that is what the
+    /// breaker is for), and a device failure, not the app's.
+    DeviceUnresponsive,
 }
 
 impl ErrorKind {
@@ -52,7 +56,7 @@ impl ErrorKind {
 #[derive(thiserror::Error, Debug)]
 pub enum VelocityError {
     // Configuration Errors (exit code 2)
-    #[error("YAML parse error at {file}:{line}:{col}: {message}")]
+    #[error("{}", yaml_parse_message(file, *line, *col, message))]
     YamlParse {
         file: PathBuf,
         line: usize,
@@ -83,8 +87,19 @@ pub enum VelocityError {
     #[error("Failed to boot device '{id}': {reason}")]
     DeviceBootFailed { id: String, reason: String },
 
+    /// The lock screen needs a PIN, pattern or password: nothing launched
+    /// behind it can be seen, and Velocity won't enter a credential.
+    #[error("Device '{id}' is locked with a PIN, pattern or password; unlock it (or set the lock screen to None/Swipe) and run again")]
+    DeviceLocked { id: String },
+
     #[error("WDA health check failed after {timeout_s}s on device '{device_id}'")]
     WdaUnhealthy { device_id: String, timeout_s: u64 },
+
+    /// The iOS runner can't be started on the device: its port is held by
+    /// a process Velocity won't stop, or it failed to come up several
+    /// times in a row (a crash loop). Relaunching won't help: fail fast.
+    #[error("The iOS runner can't start on device '{device_id}': {detail}")]
+    RunnerFailing { device_id: String, detail: String },
 
     #[error("WDA session lost during test '{test_name}' (restart attempt {attempt}/{max})")]
     WdaSessionLost {
@@ -93,8 +108,55 @@ pub enum VelocityError {
         max: u32,
     },
 
+    /// WebDriverAgent didn't accept the connection (crashed or not started).
+    /// The request never reached it, so it is safe to replay after a restart.
+    #[error("WebDriverAgent at {url} is not reachable: {detail}")]
+    WdaUnreachable { url: String, detail: String },
+
+    /// The connection to WebDriverAgent broke mid-request (reset, closed,
+    /// timed out): the request may have run, so an action is not replayed.
+    #[error("Lost the connection to WebDriverAgent at {url}: {detail}")]
+    WdaLost { url: String, detail: String },
+
+    /// Too many driver failures in a row on this device; calls fail fast
+    /// until the breaker's cool-down passes.
+    #[error("Circuit breaker is open for device '{device_id}' — driver unresponsive")]
+    CircuitOpen { device_id: String },
+
+    /// The DevTools connection to the web driver's Chrome is gone (Chrome
+    /// crashed or was killed). Transient: the session is restarted.
+    #[error("Chrome DevTools connection lost: {detail}")]
+    BrowserConnectionLost { detail: String },
+
     #[error("ADB connection lost to device '{device_id}': {reason}")]
     AdbConnectionLost { device_id: String, reason: String },
+
+    /// A device-side command ran and failed (non-zero exit, error output).
+    /// The connection is fine, so this is not retried as a lost connection.
+    /// The command line and its output are redacted when shown: they can
+    /// hold a typed password or a token.
+    #[error(
+        "Command failed on device '{device_id}' ({}): {}",
+        crate::redact::redact(command),
+        crate::redact::redact(detail)
+    )]
+    CommandFailed {
+        device_id: String,
+        command: String,
+        detail: String,
+    },
+
+    /// The device's screenshots kept coming back as something other than
+    /// an image (a truncated transfer): the device failed, not the app
+    /// (exit 3, and the test counts as an infrastructure failure).
+    #[error("Screen capture failed on device '{device_id}': {detail}")]
+    ScreenCaptureFailed { device_id: String, detail: String },
+
+    /// An external service the run depends on (e.g. the model API for
+    /// natural-language steps) stayed unavailable through its retries: a
+    /// transient infrastructure condition, not a test failure.
+    #[error("{service} is unavailable: {detail}")]
+    ServiceUnavailable { service: String, detail: String },
 
     // Test Failures (exit code 1)
     #[error("Element not found: {selector} after {timeout_ms}ms")]
@@ -105,6 +167,15 @@ pub enum VelocityError {
         hierarchy_snapshot: Option<String>,
     },
 
+    /// The target was found but refused the action: a disabled web control,
+    /// or one that stayed covered (VEL-274: this read "Element not found").
+    #[error("Element {selector} is not actionable: {reason}")]
+    NotActionable { selector: String, reason: String },
+
+    /// The app under test crashed during the step (Android's crash log).
+    #[error("App {app_id} crashed: {detail}")]
+    AppCrashed { app_id: String, detail: String },
+
     #[error("Assertion failed: expected {expected:?}, got {actual:?}")]
     AssertionFailed {
         expected: String,
@@ -112,6 +183,21 @@ pub enum VelocityError {
         selector: String,
         screenshot: Option<PathBuf>,
     },
+
+    /// An `http` step's response failed its `expect:` checks: every failed
+    /// check, and the start of the body.
+    #[error("{}", http_check_message(request, *status, failures, body))]
+    HttpCheckFailed {
+        request: String,
+        status: u16,
+        failures: Vec<String>,
+        body: String,
+    },
+
+    /// An `http` step got no response (refused, DNS, TLS, timeout). A test
+    /// failure, not the device's: the API under test didn't answer.
+    #[error("{request}: no response: {detail}")]
+    HttpUnreachable { request: String, detail: String },
 
     #[error(
         "Sync timeout: UI did not stabilize within {timeout_ms}ms \
@@ -141,13 +227,28 @@ pub enum VelocityError {
     // Internal Errors (exit code 5)
     #[error("Internal error: {0}")]
     Internal(#[from] anyhow::Error),
+
+    /// An error from one step, with where that step is written:
+    /// `tests/app.yaml:42: tap { text: "Pay" }: Element not found ...`.
+    /// Exit code and retry class are the inner error's.
+    #[error("{pos}: {step}: {inner}")]
+    AtSource {
+        pos: crate::SourcePos,
+        step: String,
+        inner: Box<VelocityError>,
+    },
 }
 
 impl VelocityError {
     pub fn exit_code(&self) -> i32 {
         match self {
+            Self::AtSource { inner, .. } => inner.exit_code(),
             Self::ElementNotFound { .. }
+            | Self::NotActionable { .. }
             | Self::AssertionFailed { .. }
+            | Self::AppCrashed { .. }
+            | Self::HttpCheckFailed { .. }
+            | Self::HttpUnreachable { .. }
             | Self::SyncTimeout { .. }
             | Self::StepTimeout { .. } => 1,
 
@@ -159,9 +260,18 @@ impl VelocityError {
 
             Self::DeviceNotFound { .. }
             | Self::DeviceBootFailed { .. }
+            | Self::DeviceLocked { .. }
             | Self::WdaUnhealthy { .. }
+            | Self::RunnerFailing { .. }
             | Self::WdaSessionLost { .. }
-            | Self::AdbConnectionLost { .. } => 3,
+            | Self::WdaUnreachable { .. }
+            | Self::WdaLost { .. }
+            | Self::AdbConnectionLost { .. }
+            | Self::BrowserConnectionLost { .. }
+            | Self::CircuitOpen { .. }
+            | Self::CommandFailed { .. }
+            | Self::ScreenCaptureFailed { .. }
+            | Self::ServiceUnavailable { .. } => 3,
 
             Self::SuiteTimeout { .. } => 4,
 
@@ -173,15 +283,36 @@ impl VelocityError {
 impl VelocityError {
     pub fn kind(&self) -> ErrorKind {
         match self {
-            Self::AdbConnectionLost { .. } => ErrorKind::ConnectionLost,
+            Self::AtSource { inner, .. } => inner.kind(),
+            Self::AdbConnectionLost { .. }
+            | Self::WdaUnreachable { .. }
+            | Self::WdaLost { .. }
+            | Self::BrowserConnectionLost { .. }
+            | Self::ServiceUnavailable { .. } => ErrorKind::ConnectionLost,
+            // Ambiguous: a read may be retried once; actions never are.
+            Self::CommandFailed { .. } => ErrorKind::Unknown,
             Self::WdaSessionLost { .. } => ErrorKind::SessionExpired,
+            Self::CircuitOpen { .. } => ErrorKind::DeviceUnresponsive,
+            // Another launch would fail the same way (or crash-loop).
+            Self::RunnerFailing { .. } => ErrorKind::DeviceUnresponsive,
             Self::WdaUnhealthy { .. } => ErrorKind::DeviceNotReady,
             Self::DeviceBootFailed { .. } => ErrorKind::DeviceNotReady,
             Self::DeviceNotFound { .. } => ErrorKind::DeviceNotReady,
+            Self::ScreenCaptureFailed { .. } => ErrorKind::DeviceNotReady,
+            // Retrying can't unlock it: fail at once.
+            Self::DeviceLocked { .. } => ErrorKind::ConfigError,
 
             Self::ElementNotFound { .. } => ErrorKind::ElementNotFound,
             Self::InvalidSelector { .. } => ErrorKind::InvalidSelector,
             Self::AssertionFailed { .. } => ErrorKind::AssertionFailed,
+            Self::NotActionable { .. } => ErrorKind::AssertionFailed,
+            // A test failure (exit 1), never retried within the step.
+            Self::AppCrashed { .. } => ErrorKind::AssertionFailed,
+            Self::HttpCheckFailed { .. } => ErrorKind::AssertionFailed,
+            // Down or slow, can't tell; never the device's fault, so an
+            // `optional` step forgives it and no device is quarantined. The
+            // step's own `retry:` is what sends it again.
+            Self::HttpUnreachable { .. } => ErrorKind::Unknown,
 
             Self::SyncTimeout { .. } | Self::StepTimeout { .. } => ErrorKind::Timeout,
             Self::SuiteTimeout { .. } => ErrorKind::Timeout,
@@ -201,3 +332,30 @@ impl VelocityError {
 }
 
 pub type Result<T> = std::result::Result<T, VelocityError>;
+
+/// `POST https://x.dev/orders answered 500: 2 checks failed: …; body: …`.
+fn http_check_message(request: &str, status: u16, failures: &[String], body: &str) -> String {
+    let n = failures.len();
+    let mut out = format!(
+        "{request} answered {status}: {n} check{} failed: {}",
+        if n == 1 { "" } else { "s" },
+        failures.join("; ")
+    );
+    if !body.is_empty() {
+        out.push_str("; body: ");
+        out.push_str(body);
+    }
+    out
+}
+
+/// `tests/app.yaml:12:9: message` (the form editors and CI logs link), with
+/// the parts that are unknown left out.
+fn yaml_parse_message(file: &std::path::Path, line: usize, col: usize, message: &str) -> String {
+    let file = file.display().to_string();
+    match (file.is_empty(), line) {
+        (true, 0) => format!("YAML parse error: {message}"),
+        (true, _) => format!("line {line}:{col}: {message}"),
+        (false, 0) => format!("{file}: {message}"),
+        (false, _) => format!("{file}:{line}:{col}: {message}"),
+    }
+}
