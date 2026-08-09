@@ -3,20 +3,38 @@ name = "velocity-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "mobile", "yaml", "e2e", "automation"]
+categories = ["development-tools::testing"]
 description = "Core engine for Velocity: YAML parser, validator, sync engine, executor"
 
 [dependencies]
-velocity-common = { path = "../velocity-common" }
+velocity-common = { workspace = true }
+velocity-nl = { workspace = true }
+velocity-api = { workspace = true }
+anyhow = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 serde_yaml = { workspace = true }
+# serde_yaml's own backend; a second pass over its events gives each
+# test and step its line (serde_yaml keeps no spans).
+unsafe-libyaml = "0.2.11"
 tracing = { workspace = true }
-regex = { workspace = true }
-lru = { workspace = true }
 chrono = { workspace = true }
+png = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 async-trait = { workspace = true }
-tempfile = "3"
+tempfile = { workspace = true }
+# Only the tests compile regexes (the schema check, the probe-regex tests).
+regex = { workspace = true }
+
+[lints]
+workspace = true
