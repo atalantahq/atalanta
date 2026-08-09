@@ -126,8 +126,11 @@ impl PartialHeader {
 fn extract_yaml_string_value(line: &str, prefix: &str) -> String {
     let raw = line[prefix.len()..].trim();
     // Strip surrounding quotes if present
-    if (raw.starts_with('"') && raw.ends_with('"'))
-        || (raw.starts_with('\'') && raw.ends_with('\''))
+    // At least two characters: a lone `"` both starts and ends with a quote
+    // and panicked on the slice (VEL-199).
+    if raw.len() >= 2
+        && ((raw.starts_with('"') && raw.ends_with('"'))
+            || (raw.starts_with('\'') && raw.ends_with('\'')))
     {
         raw[1..raw.len() - 1].to_string()
     } else {
@@ -180,5 +183,12 @@ tests:
         assert_eq!(headers[1].tags, vec!["e2e"]);
         assert!(!headers[1].isolated);
         assert_eq!(headers[1].step_count, 2);
+    }
+
+    #[test]
+    fn a_lone_quote_does_not_panic() {
+        // VEL-199.
+        assert_eq!(extract_yaml_string_value("- name: \"", "- name:"), "\"");
+        assert_eq!(extract_yaml_string_value("- name: ''", "- name:"), "");
     }
 }
