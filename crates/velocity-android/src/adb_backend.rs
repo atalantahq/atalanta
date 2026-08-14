@@ -5,6 +5,11 @@ use velocity_common::{DeviceInfo, Result};
 #[async_trait::async_trait]
 pub trait AdbBackend: Send + Sync {
     async fn list_devices(&self) -> Result<Vec<DeviceInfo>>;
+    /// [`list_devices`](Self::list_devices), but an error when a listing
+    /// failed instead of "no devices" (the up-front `--device` check).
+    async fn list_devices_strict(&self) -> Result<Vec<DeviceInfo>> {
+        self.list_devices().await
+    }
     async fn install_app(&self, device_id: &str, apk_path: &str) -> Result<()>;
     async fn launch_app(&self, device_id: &str, package: &str, clear_state: bool) -> Result<()>;
     async fn stop_app(&self, device_id: &str, package: &str) -> Result<()>;
@@ -43,6 +48,9 @@ pub trait AdbBackend: Send + Sync {
 impl AdbBackend for crate::adb::Adb {
     async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
         self.list_devices().await
+    }
+    async fn list_devices_strict(&self) -> Result<Vec<DeviceInfo>> {
+        self.list_devices_strict().await
     }
     async fn install_app(&self, device_id: &str, apk_path: &str) -> Result<()> {
         self.install_app(device_id, apk_path).await
