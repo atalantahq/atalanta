@@ -23,4 +23,6 @@ android {
 
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
+    // VelocityOkHttpInterceptor only: loads in apps that have OkHttp (3.x/4.x).
+    compileOnly("com.squareup.okhttp3:okhttp:4.12.0")
 }
