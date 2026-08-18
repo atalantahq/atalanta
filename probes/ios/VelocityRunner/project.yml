@@ -1,0 +1,28 @@
+# Velocity's own iOS runner (see VelocityRunnerUITests/VelocityRunner.swift).
+# Generate and build:  xcodegen generate && xcodebuild build-for-testing \
+#   -project VelocityRunner.xcodeproj -scheme VelocityRunner \
+#   -destination 'generic/platform=iOS Simulator'
+# Velocity does this itself on first use (VELOCITY_IOS_RUNNER=velocity).
+name: VelocityRunner
+options:
+  bundleIdPrefix: dev.velocity
+  deploymentTarget:
+    iOS: "15.0"
+targets:
+  VelocityRunnerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [VelocityRunnerUITests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.velocity.runner
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  VelocityRunner:
+    build:
+      targets:
+        VelocityRunnerUITests: [test]
+    test:
+      targets: [VelocityRunnerUITests]
