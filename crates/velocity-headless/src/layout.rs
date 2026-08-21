@@ -1,25 +1,41 @@
+use std::sync::Arc;
+
 use taffy::prelude::*;
 
-use crate::render_tree::{ComputedLayout, EdgeSizes, NodeStyle, Position, RenderNode};
+use crate::render_tree::{self, ComputedLayout, EdgeSizes, NodeStyle, Position, RenderNode};
 use crate::text::TextMeasurer;
 
-/// Layout engine that uses Taffy for flexbox computation.
-pub struct LayoutEngine {
-    taffy: TaffyTree<()>,
-    text_measurer: TextMeasurer,
+/// What taffy needs to measure a leaf during layout.
+enum NodeContext {
+    Text {
+        text: String,
+        font_size: f32,
+        font_weight: u16,
+    },
 }
 
-// SAFETY: TaffyTree contains taffy 0.9 CompactLength types that use `*const ()` as tagged
-// pointers encoding float values — not real heap pointers. They are safe to send/share.
-unsafe impl Send for LayoutEngine {}
-unsafe impl Sync for LayoutEngine {}
+/// Layout engine that uses Taffy for flexbox computation.
+///
+/// The taffy tree lives only for one `compute_layout` call, so nothing holding taffy's
+/// tagged-pointer lengths outlives it and the engine is `Send + Sync` without `unsafe`.
+pub struct LayoutEngine {
+    text_measurer: Arc<TextMeasurer>,
+}
+
+impl Default for LayoutEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl LayoutEngine {
     pub fn new() -> Self {
-        Self {
-            taffy: TaffyTree::new(),
-            text_measurer: TextMeasurer::new(),
-        }
+        Self::with_measurer(Arc::new(TextMeasurer::new()))
+    }
+
+    /// An engine that measures text with `text_measurer`, the same one used to paint it.
+    pub fn with_measurer(text_measurer: Arc<TextMeasurer>) -> Self {
+        Self { text_measurer }
     }
 
     /// Compute layout for the entire render tree at the given viewport size.
@@ -29,125 +45,75 @@ impl LayoutEngine {
         viewport_width: f32,
         viewport_height: f32,
     ) -> Result<(), LayoutError> {
-        // Clear previous layout state
-        self.taffy = TaffyTree::new();
+        let mut taffy: TaffyTree<NodeContext> = TaffyTree::new();
 
         // Build Taffy tree recursively
-        let root_id = self.build_taffy_node(root)?;
+        let root_id = Self::build_taffy_node(&mut taffy, root)?;
 
-        // Compute layout
-        self.taffy.compute_layout(
+        // Text is measured inside layout (VEL-103): taffy asks for the size under the
+        // width it is actually offering, so wrapped text gets the height it paints at.
+        let measurer = &self.text_measurer;
+        taffy.compute_layout_with_measure(
             root_id,
             Size {
                 width: AvailableSpace::Definite(viewport_width),
                 height: AvailableSpace::Definite(viewport_height),
             },
+            |known, available, _node, context, _style| match context {
+                Some(NodeContext::Text {
+                    text,
+                    font_size,
+                    font_weight,
+                }) => measure_text(measurer, text, *font_size, *font_weight, known, available),
+                None => Size::ZERO,
+            },
         )?;
 
         // Write computed positions back to render nodes
-        self.apply_layout(root, root_id, 0.0, 0.0)?;
+        Self::apply_layout(&taffy, root, root_id, 0.0, 0.0)?;
 
         Ok(())
     }
 
     /// Recursively build Taffy nodes from the render tree.
-    fn build_taffy_node(&mut self, node: &mut RenderNode) -> Result<NodeId, LayoutError> {
-        let style = self.convert_style(&node.style);
+    fn build_taffy_node(
+        taffy: &mut TaffyTree<NodeContext>,
+        node: &mut RenderNode,
+    ) -> Result<NodeId, LayoutError> {
+        let style = convert_style(&node.style);
 
         if node.is_leaf() {
-            // Leaf node: use measure function for text sizing
-            let text = node.text.clone().unwrap_or_default();
-            let font_size = node.style.font_size;
-            let text_measurer = &self.text_measurer;
-
-            let measured_size = text_measurer.measure(&text, font_size, None);
-
-            let leaf_id = self.taffy.new_leaf_with_context(style, ())?;
-
-            // Apply text measurement for auto-sized dimensions
-            let needs_width = node.style.width.is_auto();
-            let needs_height = node.style.height.is_auto();
-            if needs_width || needs_height {
-                let mut current_style = self.taffy.style(leaf_id)?.clone();
-                if needs_width {
-                    current_style.size.width = length(measured_size.0);
-                }
-                if needs_height {
-                    current_style.size.height = length(measured_size.1);
-                }
-                self.taffy.set_style(leaf_id, current_style)?;
-            }
-
+            let context = NodeContext::Text {
+                text: node.text.clone().unwrap_or_default(),
+                font_size: node.style.font_size,
+                font_weight: node.style.font_weight,
+            };
+            let leaf_id = taffy.new_leaf_with_context(style, context)?;
             node.taffy_id = Some(leaf_id);
             Ok(leaf_id)
         } else {
             // Container node: build children first
             let mut child_ids = Vec::with_capacity(node.children.len());
             for child in &mut node.children {
-                let child_id = self.build_taffy_node(child)?;
+                let child_id = Self::build_taffy_node(taffy, child)?;
                 child_ids.push(child_id);
             }
 
-            let node_id = self.taffy.new_with_children(style, &child_ids)?;
+            let node_id = taffy.new_with_children(style, &child_ids)?;
             node.taffy_id = Some(node_id);
             Ok(node_id)
         }
     }
 
-    /// Convert our NodeStyle to Taffy Style.
-    fn convert_style(&self, style: &NodeStyle) -> Style {
-        Style {
-            display: if style.visible { Display::Flex } else { Display::None },
-            position: match style.position {
-                Position::Relative => taffy::Position::Relative,
-                Position::Absolute => taffy::Position::Absolute,
-            },
-            flex_direction: style.flex_direction,
-            flex_wrap: style.flex_wrap,
-            flex_grow: style.flex_grow,
-            flex_shrink: style.flex_shrink,
-            flex_basis: convert_dimension(style.flex_basis),
-            justify_content: style.justify_content,
-            align_items: style.align_items,
-            align_self: style.align_self,
-            justify_self: style.justify_self,
-            size: Size {
-                width: convert_dimension(style.width),
-                height: convert_dimension(style.height),
-            },
-            min_size: Size {
-                width: convert_dimension(style.min_width),
-                height: convert_dimension(style.min_height),
-            },
-            max_size: Size {
-                width: convert_dimension(style.max_width),
-                height: convert_dimension(style.max_height),
-            },
-            margin: convert_edges_auto(&style.margin),
-            padding: convert_edges(&style.padding),
-            gap: Size {
-                width: length(style.gap),
-                height: length(style.gap),
-            },
-            inset: Rect {
-                top: convert_inset(style.inset.top),
-                right: convert_inset(style.inset.right),
-                bottom: convert_inset(style.inset.bottom),
-                left: convert_inset(style.inset.left),
-            },
-            ..Default::default()
-        }
-    }
-
     /// Write computed layout positions back to render nodes (absolute coordinates).
     fn apply_layout(
-        &self,
+        taffy: &TaffyTree<NodeContext>,
         node: &mut RenderNode,
         taffy_id: NodeId,
         parent_x: f32,
         parent_y: f32,
     ) -> Result<(), LayoutError> {
-        let layout = self.taffy.layout(taffy_id)?;
+        let layout = taffy.layout(taffy_id)?;
 
         let abs_x = parent_x + layout.location.x;
         let abs_y = parent_y + layout.location.y;
@@ -160,10 +126,10 @@ impl LayoutEngine {
         });
 
         // Apply to children
-        let child_ids: Vec<NodeId> = self.taffy.children(taffy_id)?.to_vec();
+        let child_ids: Vec<NodeId> = taffy.children(taffy_id)?.to_vec();
         for (i, child) in node.children.iter_mut().enumerate() {
             if let Some(&child_taffy_id) = child_ids.get(i) {
-                self.apply_layout(child, child_taffy_id, abs_x, abs_y)?;
+                Self::apply_layout(taffy, child, child_taffy_id, abs_x, abs_y)?;
             }
         }
 
@@ -171,9 +137,90 @@ impl LayoutEngine {
     }
 }
 
+/// The size of a text leaf under taffy's constraints. A definite width wraps the text;
+/// min-content wraps at every opportunity (the longest word); max-content is one line.
+fn measure_text(
+    measurer: &TextMeasurer,
+    text: &str,
+    font_size: f32,
+    font_weight: u16,
+    known: Size<Option<f32>>,
+    available: Size<AvailableSpace>,
+) -> Size<f32> {
+    if let (Some(width), Some(height)) = (known.width, known.height) {
+        return Size { width, height };
+    }
+    let wrap = known.width.or(match available.width {
+        AvailableSpace::Definite(w) => Some(w),
+        AvailableSpace::MinContent => Some(0.0),
+        AvailableSpace::MaxContent => None,
+    });
+    // `measure` treats a zero wrap width as unbounded; wrap as tightly as it allows.
+    let wrap = wrap.map(|w| w.max(1.0));
+    let (w, h) = measurer.measure_weighted(text, font_size, font_weight, wrap);
+    Size {
+        width: known.width.unwrap_or(w),
+        height: known.height.unwrap_or(h),
+    }
+}
+
+/// Convert our NodeStyle to Taffy Style.
+fn convert_style(style: &NodeStyle) -> Style {
+    Style {
+        // Only `gone` leaves the layout; `invisible` keeps its space (VEL-106).
+        display: if style.gone {
+            Display::None
+        } else {
+            Display::Flex
+        },
+        position: match style.position {
+            Position::Relative => taffy::Position::Relative,
+            Position::Absolute => taffy::Position::Absolute,
+        },
+        flex_direction: style.flex_direction,
+        flex_wrap: style.flex_wrap,
+        flex_grow: style.flex_grow,
+        flex_shrink: style.flex_shrink,
+        flex_basis: convert_dimension(style.flex_basis),
+        justify_content: style.justify_content,
+        align_items: style.align_items,
+        align_self: style.align_self,
+        justify_self: style.justify_self,
+        size: Size {
+            width: convert_dimension(style.width),
+            height: convert_dimension(style.height),
+        },
+        min_size: Size {
+            width: convert_dimension(style.min_width),
+            height: convert_dimension(style.min_height),
+        },
+        max_size: Size {
+            width: convert_dimension(style.max_width),
+            height: convert_dimension(style.max_height),
+        },
+        margin: convert_edges_auto(&style.margin),
+        padding: convert_edges(&style.padding),
+        gap: Size {
+            width: length(style.gap),
+            height: length(style.gap),
+        },
+        inset: Rect {
+            top: convert_inset(style.inset.top),
+            right: convert_inset(style.inset.right),
+            bottom: convert_inset(style.inset.bottom),
+            left: convert_inset(style.inset.left),
+        },
+        ..Default::default()
+    }
+}
+
 /// Convert our Dimension to Taffy Dimension.
-fn convert_dimension(dim: Dimension) -> taffy::Dimension {
-    dim
+fn convert_dimension(dim: render_tree::Dimension) -> taffy::Dimension {
+    match dim {
+        render_tree::Dimension::Auto => taffy::Dimension::auto(),
+        render_tree::Dimension::Length(px) => taffy::Dimension::length(px),
+        render_tree::Dimension::Percent(fraction) => taffy::Dimension::percent(fraction),
+    }
 }
 
 /// Convert EdgeSizes to Taffy Rect<LengthPercentage>.
@@ -212,7 +259,7 @@ pub enum LayoutError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render_tree::RenderNode;
+    use crate::render_tree::{Dimension, RenderNode};
 
     #[test]
     fn test_simple_vertical_layout() {

@@ -3,11 +3,18 @@ name = "velocity-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "browser", "cdp", "chrome", "automation"]
+categories = ["development-tools::testing"]
 description = "Web browser driver for Velocity using Chrome DevTools Protocol"
 
 [dependencies]
-velocity-common = { path = "../velocity-common" }
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
+velocity-common = { workspace = true }
+chromiumoxide = { version = "0.9", default-features = false, features = ["bytes"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -15,5 +22,10 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 anyhow = { workspace = true }
-thiserror = { workspace = true }
 futures = { workspace = true }
+# The cross-origin frames' own DevTools connection (W4, `frames.rs`): the
+# same crate and features chromiumoxide uses, so nothing new is built.
+async-tungstenite = { version = "0.32", features = ["tokio-runtime"] }
+
+[lints]
+workspace = true

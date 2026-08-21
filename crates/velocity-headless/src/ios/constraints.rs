@@ -1,6 +1,6 @@
 use taffy::prelude::*;
 
-use crate::render_tree::{NodeStyle, SafeAreaInsets};
+use crate::render_tree::{Dimension, NodeStyle, SafeAreaInsets};
 
 use super::xib::XibConstraint;
 
@@ -57,13 +57,11 @@ impl SimpleConstraintSolver {
                 }
                 // Proportional width
                 "width" if constraint.second_item.is_some() => {
-                    style.width =
-                        Dimension::percent(constraint.multiplier);
+                    style.width = Dimension::percent(constraint.multiplier);
                 }
                 // Proportional height
                 "height" if constraint.second_item.is_some() => {
-                    style.height =
-                        Dimension::percent(constraint.multiplier);
+                    style.height = Dimension::percent(constraint.multiplier);
                 }
                 // Center X
                 "centerX" => {
@@ -109,7 +107,9 @@ impl SimpleConstraintSolver {
                 }
                 // Safe area bottom
                 "bottomAnchor" => {
-                    style.margin.bottom = constraint.constant.max(safe_area_insets.bottom.unwrap_or(0.0));
+                    style.margin.bottom = constraint
+                        .constant
+                        .max(safe_area_insets.bottom.unwrap_or(0.0));
                 }
                 _ => {
                     tracing::debug!(
@@ -201,7 +201,14 @@ mod tests {
         ];
 
         let mut style = NodeStyle::default();
-        SimpleConstraintSolver::apply_constraints(&constraints, "label1", Some("root"), FlexDirection::Column, SafeAreaInsets::default(), &mut style);
+        SimpleConstraintSolver::apply_constraints(
+            &constraints,
+            "label1",
+            Some("root"),
+            FlexDirection::Column,
+            SafeAreaInsets::default(),
+            &mut style,
+        );
 
         assert_eq!(style.width, Dimension::length(200.0));
         assert_eq!(style.height, Dimension::length(44.0));
@@ -221,7 +228,14 @@ mod tests {
         }];
 
         let mut style = NodeStyle::default();
-        SimpleConstraintSolver::apply_constraints(&constraints, "label1", Some("root"), FlexDirection::Column, SafeAreaInsets::default(), &mut style);
+        SimpleConstraintSolver::apply_constraints(
+            &constraints,
+            "label1",
+            Some("root"),
+            FlexDirection::Column,
+            SafeAreaInsets::default(),
+            &mut style,
+        );
 
         assert_eq!(style.align_self, Some(AlignSelf::Center));
     }

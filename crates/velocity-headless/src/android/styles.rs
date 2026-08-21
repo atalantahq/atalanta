@@ -1,6 +1,6 @@
 use taffy::prelude::*;
 
-use crate::render_tree::{Color, EdgeSizes, NodeStyle, Position};
+use crate::render_tree::{Color, Dimension, EdgeSizes, NodeStyle};
 
 use super::resources::ResourceTable;
 
@@ -57,61 +57,67 @@ impl AndroidStyleMapper {
 
         // Padding
         if let Some(val) = attrs.get("padding") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.padding = EdgeSizes::uniform(px);
             }
         }
         if let Some(val) = attrs.get("paddingTop") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.padding.top = px;
             }
         }
         if let Some(val) = attrs.get("paddingBottom") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.padding.bottom = px;
             }
         }
         if let Some(val) = attrs.get("paddingLeft").or(attrs.get("paddingStart")) {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.padding.left = px;
             }
         }
         if let Some(val) = attrs.get("paddingRight").or(attrs.get("paddingEnd")) {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.padding.right = px;
             }
         }
 
         // Margin
         if let Some(val) = attrs.get("layout_margin") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.margin = EdgeSizes::uniform(px);
             }
         }
         if let Some(val) = attrs.get("layout_marginTop") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.margin.top = px;
             }
         }
         if let Some(val) = attrs.get("layout_marginBottom") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.margin.bottom = px;
             }
         }
-        if let Some(val) = attrs.get("layout_marginLeft").or(attrs.get("layout_marginStart")) {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+        if let Some(val) = attrs
+            .get("layout_marginLeft")
+            .or(attrs.get("layout_marginStart"))
+        {
+            if let Some(px) = resources.dimension(val) {
                 style.margin.left = px;
             }
         }
-        if let Some(val) = attrs.get("layout_marginRight").or(attrs.get("layout_marginEnd")) {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+        if let Some(val) = attrs
+            .get("layout_marginRight")
+            .or(attrs.get("layout_marginEnd"))
+        {
+            if let Some(px) = resources.dimension(val) {
                 style.margin.right = px;
             }
         }
 
         // Text properties
         if let Some(val) = attrs.get("textSize") {
-            if let Some(px) = ResourceTable::parse_dimension(val) {
+            if let Some(px) = resources.dimension(val) {
                 style.font_size = px;
             }
         }
@@ -133,10 +139,25 @@ impl AndroidStyleMapper {
 
         // Visibility
         if let Some(val) = attrs.get("visibility") {
-            style.visible = match val.as_str() {
-                "gone" | "2" | "invisible" | "1" => false,
-                _ => true,
-            };
+            // `invisible` keeps its space; only `gone` leaves the layout (VEL-106).
+            style.gone = matches!(val.as_str(), "gone" | "2");
+            style.visible = !style.gone && !matches!(val.as_str(), "invisible" | "1");
+        }
+
+        // Bold: `textStyle="bold"`, `"bold|italic"`, or the flag 1 in binary XML.
+        if let Some(val) = attrs.get("textStyle") {
+            let bold = val.split('|').any(|f| f.trim() == "bold")
+                || parse_int(val).is_some_and(|v| v & 1 != 0);
+            if bold {
+                style.font_weight = 700;
+            }
+        }
+
+        // Password fields show bullets (VEL-254).
+        if attrs.get("password").is_some_and(|v| v == "true")
+            || attrs.get("inputType").is_some_and(|v| is_password_input(v))
+        {
+            style.password = true;
         }
 
         // Alpha/opacity
@@ -156,7 +177,8 @@ impl AndroidStyleMapper {
             "wrap_content" | "-2" => Dimension::auto(),
             _ => {
                 let resolved = resources.resolve(value);
-                ResourceTable::parse_dimension(&resolved)
+                resources
+                    .dimension(&resolved)
                     .map(Dimension::length)
                     .unwrap_or(Dimension::auto())
             }
@@ -167,7 +189,10 @@ impl AndroidStyleMapper {
     fn apply_gravity(gravity: &str, style: &mut NodeStyle) {
         let gravity = gravity.to_lowercase();
 
-        let is_row = matches!(style.flex_direction, FlexDirection::Row | FlexDirection::RowReverse);
+        let is_row = matches!(
+            style.flex_direction,
+            FlexDirection::Row | FlexDirection::RowReverse
+        );
         let main_start = match style.flex_direction {
             FlexDirection::RowReverse | FlexDirection::ColumnReverse => JustifyContent::FlexEnd,
             _ => JustifyContent::FlexStart,
@@ -239,6 +264,30 @@ impl AndroidStyleMapper {
             set_horizontal(style, false, &gravity);
         }
     }
+}
+
+/// A decimal or `0x` hex integer attribute (binary XML stores flags as numbers).
+fn parse_int(v: &str) -> Option<u32> {
+    match v.strip_prefix("0x") {
+        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+        None => v.parse().ok(),
+    }
+}
+
+/// `inputType` hides what is typed: `textPassword`, `numberPassword` or
+/// `textWebPassword` (`textVisiblePassword` shows it), by name or by number.
+fn is_password_input(v: &str) -> bool {
+    if let Some(n) = parse_int(v) {
+        let (class, variation) = (n & 0xf, n & 0xff0);
+        return (class == 1 && matches!(variation, 0x80 | 0xe0))
+            || (class == 2 && variation == 0x10);
+    }
+    v.split('|').any(|f| {
+        matches!(
+            f.trim(),
+            "textPassword" | "numberPassword" | "textWebPassword"
+        )
+    })
 }
 
 #[cfg(test)]
