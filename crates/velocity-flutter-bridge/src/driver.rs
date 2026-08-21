@@ -1,23 +1,38 @@
+use std::collections::HashMap;
+
 use base64::Engine;
 use tokio::sync::RwLock;
-use velocity_common::{
-    DeviceInfo, DeviceState, DeviceType, Direction, Element, HealthStatus, Key,
-    Platform, PlatformDriver, Rect, Selector, VelocityError,
-};
 use velocity_common::selector_match::{find_all_in_tree, find_in_tree};
+use velocity_common::{
+    DeviceInfo, DeviceState, DeviceType, Direction, Element, HealthStatus, Key, Platform,
+    PlatformDriver, Rect, Selector, VelocityError,
+};
 
-use crate::config::FlutterBridgeConfig;
+use crate::config::{FlutterBridgeConfig, HierarchyMode};
 use crate::process::FlutterProcess;
-use crate::protocol::{FlutterCommand, FlutterElement, FlutterResponse};
+use crate::protocol::{node_key, FlutterCommand, FlutterResponse, Hierarchy, NodeKey, Target};
+
+const DEVICE: &str = "flutter-0";
 
 /// Flutter platform driver that communicates with a Dart test process
 /// running `flutter test --machine` + WidgetTester.
 pub struct FlutterDriver {
+    /// What each device's last successful lookup counted on screen (R5).
+    match_counts: velocity_common::selector_match::MatchCounts,
     platform: Platform,
     config: FlutterBridgeConfig,
     process: RwLock<FlutterProcess>,
     hierarchy_cache: RwLock<Option<Element>>,
+    /// Node ids from the last hierarchy fetch, so an action can name the
+    /// element it was given. Kept across cache invalidation: the Dart side
+    /// checks a node is still mounted and falls back to the id and point.
+    node_ids: RwLock<(HashMap<NodeKey, i64>, Option<u64>)>,
     screenshot_cache: RwLock<Option<Vec<u8>>>,
+    /// The logical surface size the bridge reported on `init` (VEL-S39).
+    surface: RwLock<Option<(i32, i32)>>,
+    /// A hash of the tree the last settle saw, to tell whether the next
+    /// action changed the screen.
+    settled_tree: std::sync::Mutex<Option<u64>>,
 }
 
 impl FlutterDriver {
@@ -26,19 +41,80 @@ impl FlutterDriver {
         let process = FlutterProcess::new(config.clone());
         Self {
             platform,
+            match_counts: Default::default(),
             config,
             process: RwLock::new(process),
             hierarchy_cache: RwLock::new(None),
+            node_ids: RwLock::new((HashMap::new(), None)),
             screenshot_cache: RwLock::new(None),
+            surface: RwLock::new(None),
+            settled_tree: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// The screen actions and hierarchies use: what the bridge reported,
+    /// else the configured size (an older bridge).
+    async fn surface(&self) -> (i32, i32) {
+        self.surface
+            .read()
+            .await
+            .unwrap_or((self.config.width as i32, self.config.height as i32))
+    }
+
+    async fn screen_rect(&self) -> Rect {
+        let (width, height) = self.surface().await;
+        Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
         }
     }
 
     /// Send a command to the Flutter test process.
     async fn send_cmd(&self, cmd: &FlutterCommand) -> velocity_common::Result<FlutterResponse> {
         let mut process = self.process.write().await;
+        // A timed-out command drops the connection; open a fresh one.
+        if !process.is_running() {
+            process.start().await.map_err(|e| {
+                VelocityError::Internal(anyhow::anyhow!("Flutter bridge reconnect failed: {e}"))
+            })?;
+        }
         process.send(cmd).await.map_err(|e| {
             VelocityError::Internal(anyhow::anyhow!("Flutter bridge command failed: {}", e))
         })
+    }
+
+    /// Send a command; an error reply fails it as `op`.
+    async fn call(
+        &self,
+        cmd: &FlutterCommand,
+        op: &str,
+    ) -> velocity_common::Result<Option<serde_json::Value>> {
+        self.send_cmd(cmd).await?.into_result(op, DEVICE)
+    }
+
+    /// Run an action. The Dart side settles (bounded) before it answers, so
+    /// no extra pump follows (VEL-280). The UI may have changed even when
+    /// the action failed, so the caches go either way.
+    async fn act(&self, cmd: &FlutterCommand, op: &str) -> velocity_common::Result<()> {
+        let result = self.call(cmd, op).await;
+        self.invalidate_cache().await;
+        result.map(|_| ())
+    }
+
+    /// The target sent with an element action.
+    async fn target(&self, element: &Element) -> Target {
+        let (x, y) = element.bounds.center();
+        let ids = self.node_ids.read().await;
+        let node = ids.0.get(&node_key(element)).copied();
+        Target {
+            node,
+            id: (!element.platform_id.is_empty()).then(|| element.platform_id.clone()),
+            generation: node.and(ids.1),
+            x,
+            y,
+        }
     }
 
     /// Invalidate cached hierarchy and screenshot so the next query fetches fresh data.
@@ -47,15 +123,33 @@ impl FlutterDriver {
         *self.screenshot_cache.write().await = None;
     }
 
-    /// Send PumpFrames after an interaction to advance Flutter's frame pipeline.
-    async fn pump(&self) -> velocity_common::Result<()> {
-        let resp = self.send_cmd(&FlutterCommand::PumpFrames { count: 1 }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => Ok(()),
-            FlutterResponse::Error { message } => {
-                Err(VelocityError::Internal(anyhow::anyhow!("PumpFrames failed: {}", message)))
-            }
+    /// Mount the app afresh (`clear` also runs the app's reset hook).
+    async fn init(&self, clear: bool) -> velocity_common::Result<()> {
+        let data = self
+            .call(
+                &FlutterCommand::Init {
+                    target: self.config.target.clone(),
+                    width: self.config.width,
+                    height: self.config.height,
+                    clear,
+                    dpr: self.config.device_pixel_ratio,
+                },
+                "init",
+            )
+            .await?;
+        if let Some(p) = data.as_ref().and_then(|d| d.get("protocol")) {
+            tracing::debug!("Flutter bridge protocol {p}");
         }
+        let size = data.as_ref().and_then(|d| d.get("size")).and_then(|s| {
+            let dim = |k| s.get(k)?.as_i64().and_then(|v| i32::try_from(v).ok());
+            Some((dim("width")?, dim("height")?)).filter(|(w, h)| *w > 0 && *h > 0)
+        });
+        if let Some((w, h)) = size {
+            tracing::debug!("Flutter test surface {w}x{h}");
+        }
+        *self.surface.write().await = size;
+        self.invalidate_cache().await;
+        Ok(())
     }
 
     /// Fetch and cache the hierarchy from the Flutter process.
@@ -67,23 +161,31 @@ impl FlutterDriver {
             }
         }
 
-        let resp = self.send_cmd(&FlutterCommand::GetHierarchy).await?;
-        match resp {
-            FlutterResponse::Ok { data: Some(value) } => {
-                let flutter_el: FlutterElement = serde_json::from_value(value).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Failed to parse hierarchy: {}", e))
-                })?;
-                let element = flutter_el.to_element();
-                *self.hierarchy_cache.write().await = Some(element.clone());
-                Ok(element)
+        let mode = match self.config.hierarchy_mode() {
+            HierarchyMode::Widgets => None,
+            HierarchyMode::Semantics => Some("semantics".to_string()),
+        };
+        let value = self
+            .call(&FlutterCommand::GetHierarchy { mode }, "get_hierarchy")
+            .await?
+            .ok_or_else(|| {
+                VelocityError::Internal(anyhow::anyhow!("GetHierarchy returned no data"))
+            })?;
+        let hierarchy = match Hierarchy::from_value(value) {
+            Ok(h) => h,
+            Err(e) => {
+                // The Dart side has already replaced its snapshot: node ids
+                // from the previous one could name other elements now.
+                *self.node_ids.write().await = (HashMap::new(), None);
+                return Err(VelocityError::Internal(anyhow::anyhow!(
+                    "Failed to parse hierarchy: {}",
+                    e
+                )));
             }
-            FlutterResponse::Ok { data: None } => {
-                Err(VelocityError::Internal(anyhow::anyhow!("GetHierarchy returned no data")))
-            }
-            FlutterResponse::Error { message } => {
-                Err(VelocityError::Internal(anyhow::anyhow!("GetHierarchy failed: {}", message)))
-            }
-        }
+        };
+        *self.node_ids.write().await = (hierarchy.nodes, hierarchy.generation);
+        *self.hierarchy_cache.write().await = Some(hierarchy.root.clone());
+        Ok(hierarchy.root)
     }
 
     /// Fetch and cache a screenshot from the Flutter process.
@@ -95,33 +197,65 @@ impl FlutterDriver {
             }
         }
 
-        let resp = self.send_cmd(&FlutterCommand::Screenshot).await?;
-        match resp {
-            FlutterResponse::Ok { data: Some(value) } => {
-                let b64 = value.as_str().ok_or_else(|| {
-                    VelocityError::Internal(anyhow::anyhow!("Screenshot data is not a string"))
-                })?;
-                let bytes = base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Failed to decode screenshot base64: {}", e))
-                })?;
-                *self.screenshot_cache.write().await = Some(bytes.clone());
-                Ok(bytes)
-            }
-            FlutterResponse::Ok { data: None } => {
-                Err(VelocityError::Internal(anyhow::anyhow!("Screenshot returned no data")))
-            }
-            FlutterResponse::Error { message } => {
-                Err(VelocityError::Internal(anyhow::anyhow!("Screenshot failed: {}", message)))
-            }
-        }
+        let value = self
+            .call(&FlutterCommand::Screenshot, "screenshot")
+            .await?
+            .ok_or_else(|| {
+                VelocityError::Internal(anyhow::anyhow!("Screenshot returned no data"))
+            })?;
+        let b64 = value.as_str().ok_or_else(|| {
+            VelocityError::Internal(anyhow::anyhow!("Screenshot data is not a string"))
+        })?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| {
+                VelocityError::Internal(anyhow::anyhow!(
+                    "Failed to decode screenshot base64: {}",
+                    e
+                ))
+            })?;
+        *self.screenshot_cache.write().await = Some(bytes.clone());
+        Ok(bytes)
     }
 }
-
 
 // --- PlatformDriver implementation ---
 
 #[async_trait::async_trait]
 impl PlatformDriver for FlutterDriver {
+    async fn invalidate_hierarchy_cache(&self) {
+        self.invalidate_cache().await;
+    }
+
+    /// The Dart side settles every action before it answers and nothing
+    /// moves between commands (virtual time only advances when it pumps),
+    /// so polling for a change after an action could only wait out the
+    /// reaction window. One read (cached for the sync engine's own) tells
+    /// whether the action changed the screen.
+    async fn settle_on_device(
+        &self,
+        _device_id: &str,
+        _reaction_ms: u64,
+        _quiet_ms: u64,
+        _cap_ms: u64,
+    ) -> Option<velocity_common::DeviceSettle> {
+        use std::hash::{Hash, Hasher};
+        let tree = self.fetch_hierarchy().await.ok()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        serde_json::to_vec(&tree).ok()?.hash(&mut hasher);
+        let hash = hasher.finish();
+        let before = self
+            .settled_tree
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .replace(hash);
+        Some(velocity_common::DeviceSettle {
+            settled: true,
+            reacted: before != Some(hash),
+            elapsed_ms: 0,
+        })
+    }
+
     async fn prepare(&self, _device_id: &str) -> velocity_common::Result<()> {
         let mut process = self.process.write().await;
         process.start().await.map_err(|e| {
@@ -130,22 +264,10 @@ impl PlatformDriver for FlutterDriver {
 
         drop(process);
 
-        // Send Init command to boot the widget
-        let resp = self.send_cmd(&FlutterCommand::Init {
-            target: self.config.target.clone(),
-            width: self.config.width,
-            height: self.config.height,
-        }).await?;
-
-        match resp {
-            FlutterResponse::Ok { .. } => {
-                tracing::info!("Flutter bridge initialized");
-                Ok(())
-            }
-            FlutterResponse::Error { message } => {
-                Err(VelocityError::Internal(anyhow::anyhow!("Flutter Init failed: {}", message)))
-            }
-        }
+        // Boot the app widget.
+        self.init(false).await?;
+        tracing::info!("Flutter bridge initialized");
+        Ok(())
     }
 
     async fn cleanup(&self) {
@@ -165,12 +287,12 @@ impl PlatformDriver for FlutterDriver {
     async fn restart_session(&self) -> velocity_common::Result<()> {
         self.cleanup().await;
         self.invalidate_cache().await;
-        self.prepare("flutter-0").await
+        self.prepare(DEVICE).await
     }
 
     async fn list_devices(&self) -> velocity_common::Result<Vec<DeviceInfo>> {
         Ok(vec![DeviceInfo {
-            id: "flutter-0".to_string(),
+            id: DEVICE.to_string(),
             name: format!(
                 "Flutter Headless ({}x{})",
                 self.config.width, self.config.height
@@ -191,11 +313,7 @@ impl PlatformDriver for FlutterDriver {
         Ok(())
     }
 
-    async fn install_app(
-        &self,
-        _device_id: &str,
-        _app_path: &str,
-    ) -> velocity_common::Result<()> {
+    async fn install_app(&self, _device_id: &str, _app_path: &str) -> velocity_common::Result<()> {
         // Flutter apps are loaded via the test harness target, no separate install step.
         Ok(())
     }
@@ -204,48 +322,54 @@ impl PlatformDriver for FlutterDriver {
         &self,
         device_id: &str,
         _app_id: &str,
-        _clear_state: bool,
+        clear_state: bool,
     ) -> velocity_common::Result<()> {
-        // Ensure process is connected and initialized.
         let process = self.process.read().await;
         if !process.is_running() {
             drop(process);
             self.prepare(device_id).await?;
+            if !clear_state {
+                return Ok(());
+            }
+        } else {
+            drop(process);
         }
-        self.invalidate_cache().await;
-        Ok(())
+        // A launch starts the app afresh; clearState also resets its state
+        // (VEL-141).
+        self.init(clear_state).await
     }
 
-    async fn stop_app(
-        &self,
-        _device_id: &str,
-        _app_id: &str,
-    ) -> velocity_common::Result<()> {
-        self.cleanup().await;
-        Ok(())
+    async fn stop_app(&self, _device_id: &str, _app_id: &str) -> velocity_common::Result<()> {
+        // Unmount the app but keep the bridge serving, so the next launch
+        // works (VEL-140).
+        self.act(&FlutterCommand::Reset, "stop_app").await
     }
 
     async fn find_element(
         &self,
-        _device_id: &str,
+        device_id: &str,
         selector: &Selector,
     ) -> velocity_common::Result<Element> {
         let hierarchy = self.fetch_hierarchy().await?;
-        let screen = Rect {
-            x: 0,
-            y: 0,
-            width: self.config.width as i32,
-            height: self.config.height as i32,
-        };
+        let screen = self.screen_rect().await;
 
-        find_in_tree(&hierarchy, selector, Some(&screen)).ok_or_else(|| {
-            VelocityError::ElementNotFound {
-                selector: format!("{:?}", selector),
-                timeout_ms: 0,
-                screenshot: None,
-                hierarchy_snapshot: None,
-            }
+        let found = find_in_tree(&hierarchy, selector, Some(&screen));
+        if found.is_some() {
+            let n = velocity_common::selector_match::ambiguity(&hierarchy, selector, Some(&screen));
+            self.match_counts.record(device_id, selector, n);
+        } else {
+            self.match_counts.clear(device_id);
+        }
+        found.ok_or_else(|| VelocityError::ElementNotFound {
+            selector: format!("{:?}", selector),
+            timeout_ms: 0,
+            screenshot: None,
+            hierarchy_snapshot: None,
         })
+    }
+
+    fn last_match_count(&self, device_id: &str, selector: &Selector) -> Option<usize> {
+        self.match_counts.get(device_id, selector)
     }
 
     async fn find_elements(
@@ -254,59 +378,35 @@ impl PlatformDriver for FlutterDriver {
         selector: &Selector,
     ) -> velocity_common::Result<Vec<Element>> {
         let hierarchy = self.fetch_hierarchy().await?;
-        let screen = Rect {
-            x: 0,
-            y: 0,
-            width: self.config.width as i32,
-            height: self.config.height as i32,
-        };
+        let screen = self.screen_rect().await;
 
         let mut results = Vec::new();
         find_all_in_tree(&hierarchy, selector, Some(&screen), &mut results);
         Ok(results)
     }
 
-    async fn get_hierarchy(
-        &self,
-        _device_id: &str,
-    ) -> velocity_common::Result<Element> {
+    async fn get_hierarchy(&self, _device_id: &str) -> velocity_common::Result<Element> {
         self.fetch_hierarchy().await
     }
 
-    async fn tap(
-        &self,
-        _device_id: &str,
-        element: &Element,
-    ) -> velocity_common::Result<()> {
-        let (cx, cy) = element.bounds.center();
-        let resp = self.send_cmd(&FlutterCommand::Tap { x: cx, y: cy }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("Tap failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+    async fn tap(&self, _device_id: &str, element: &Element) -> velocity_common::Result<()> {
+        let target = self.target(element).await;
+        let cmd = FlutterCommand::Tap {
+            x: target.x,
+            y: target.y,
+            target: Some(target),
+        };
+        self.act(&cmd, "tap").await
     }
 
-    async fn double_tap(
-        &self,
-        _device_id: &str,
-        element: &Element,
-    ) -> velocity_common::Result<()> {
-        let (cx, cy) = element.bounds.center();
-        let resp = self.send_cmd(&FlutterCommand::DoubleTap { x: cx, y: cy }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("DoubleTap failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+    async fn double_tap(&self, _device_id: &str, element: &Element) -> velocity_common::Result<()> {
+        let target = self.target(element).await;
+        let cmd = FlutterCommand::DoubleTap {
+            x: target.x,
+            y: target.y,
+            target: Some(target),
+        };
+        self.act(&cmd, "double_tap").await
     }
 
     async fn long_press(
@@ -315,68 +415,43 @@ impl PlatformDriver for FlutterDriver {
         element: &Element,
         duration_ms: u64,
     ) -> velocity_common::Result<()> {
-        let (cx, cy) = element.bounds.center();
-        let resp = self.send_cmd(&FlutterCommand::LongPress {
-            x: cx,
-            y: cy,
+        let target = self.target(element).await;
+        let cmd = FlutterCommand::LongPress {
+            x: target.x,
+            y: target.y,
             duration_ms,
-        }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("LongPress failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+            target: Some(target),
+        };
+        self.act(&cmd, "long_press").await
     }
 
     async fn input_text(
         &self,
         _device_id: &str,
-        _element: &Element,
+        element: &Element,
         text: &str,
     ) -> velocity_common::Result<()> {
-        let resp = self.send_cmd(&FlutterCommand::InputText {
+        // The Dart side types into the text field under the target, never
+        // the first one on screen (VEL-024).
+        let cmd = FlutterCommand::InputText {
             text: text.to_string(),
-        }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("InputText failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+            target: Some(self.target(element).await),
+        };
+        self.act(&cmd, "input_text").await
     }
 
-    async fn clear_text(
-        &self,
-        _device_id: &str,
-        _element: &Element,
-    ) -> velocity_common::Result<()> {
-        let resp = self.send_cmd(&FlutterCommand::ClearText).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("ClearText failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+    async fn clear_text(&self, _device_id: &str, element: &Element) -> velocity_common::Result<()> {
+        let cmd = FlutterCommand::ClearText {
+            target: Some(self.target(element).await),
+        };
+        self.act(&cmd, "clear_text").await
     }
 
-    async fn swipe(
-        &self,
-        _device_id: &str,
-        direction: Direction,
-    ) -> velocity_common::Result<()> {
-        let mid_x = self.config.width as i32 / 2;
-        let mid_y = self.config.height as i32 / 2;
-        let distance = self.config.height as i32 / 3;
+    async fn swipe(&self, _device_id: &str, direction: Direction) -> velocity_common::Result<()> {
+        let (width, height) = self.surface().await;
+        let mid_x = width / 2;
+        let mid_y = height / 2;
+        let distance = height / 3;
 
         let (from_x, from_y, to_x, to_y) = match direction {
             Direction::Up => (mid_x, mid_y + distance / 2, mid_x, mid_y - distance / 2),
@@ -385,18 +460,13 @@ impl PlatformDriver for FlutterDriver {
             Direction::Right => (mid_x - distance / 2, mid_y, mid_x + distance / 2, mid_y),
         };
 
-        let resp = self.send_cmd(&FlutterCommand::Swipe {
-            from_x, from_y, to_x, to_y,
-        }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("Swipe failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+        let cmd = FlutterCommand::Swipe {
+            from_x,
+            from_y,
+            to_x,
+            to_y,
+        };
+        self.act(&cmd, "swipe").await
     }
 
     async fn swipe_coords(
@@ -405,61 +475,29 @@ impl PlatformDriver for FlutterDriver {
         from: (i32, i32),
         to: (i32, i32),
     ) -> velocity_common::Result<()> {
-        let resp = self.send_cmd(&FlutterCommand::Swipe {
+        let cmd = FlutterCommand::Swipe {
             from_x: from.0,
             from_y: from.1,
             to_x: to.0,
             to_y: to.1,
-        }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("SwipeCoords failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
-    }
-
-    async fn press_key(
-        &self,
-        _device_id: &str,
-        key: Key,
-    ) -> velocity_common::Result<()> {
-        let key_str = match key {
-            Key::Back => "back",
-            Key::Home => "home",
-            Key::Enter => "enter",
-            Key::VolumeUp => "volumeUp",
-            Key::VolumeDown => "volumeDown",
         };
-        let resp = self.send_cmd(&FlutterCommand::PressKey {
-            key: key_str.to_string(),
-        }).await?;
-        match resp {
-            FlutterResponse::Ok { .. } => {}
-            FlutterResponse::Error { message } => {
-                return Err(VelocityError::Internal(anyhow::anyhow!("PressKey failed: {}", message)));
-            }
-        }
-        self.pump().await?;
-        self.invalidate_cache().await;
-        Ok(())
+        self.act(&cmd, "swipe").await
     }
 
-    async fn screenshot(
-        &self,
-        _device_id: &str,
-    ) -> velocity_common::Result<Vec<u8>> {
+    async fn press_key(&self, _device_id: &str, key: Key) -> velocity_common::Result<()> {
+        // The sidecar answers `unsupported` for a key it can't send.
+        let cmd = FlutterCommand::PressKey {
+            key: key.name().to_string(),
+        };
+        self.act(&cmd, "press_key").await
+    }
+
+    async fn screenshot(&self, _device_id: &str) -> velocity_common::Result<Vec<u8>> {
         self.fetch_screenshot().await
     }
 
-    async fn screen_size(
-        &self,
-        _device_id: &str,
-    ) -> velocity_common::Result<(i32, i32)> {
-        Ok((self.config.width as i32, self.config.height as i32))
+    async fn screen_size(&self, _device_id: &str) -> velocity_common::Result<(i32, i32)> {
+        Ok(self.surface().await)
     }
 
     async fn get_element_text(
@@ -475,7 +513,19 @@ impl PlatformDriver for FlutterDriver {
         _device_id: &str,
         element: &Element,
     ) -> velocity_common::Result<bool> {
-        Ok(element.visible)
+        // The shared rule (D-1): rendered, a box, on the surface.
+        let shown = velocity_common::selector_match::shown_on(element, &self.screen_rect().await);
+        if !shown || !self.config.hit_test_visibility() {
+            return Ok(shown);
+        }
+        // Opt-in: visible means a tap at its centre would reach it.
+        let target = self.target(element).await;
+        let data = self
+            .call(&FlutterCommand::HitTest { target }, "hit_test")
+            .await?;
+        Ok(data
+            .and_then(|d| d.get("hittable").and_then(|h| h.as_bool()))
+            .unwrap_or(true))
     }
 
     async fn collect_resource_metrics(

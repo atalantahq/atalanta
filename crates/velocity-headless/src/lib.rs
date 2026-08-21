@@ -22,8 +22,10 @@
 pub mod element_map;
 pub mod layout;
 pub mod render_tree;
+pub mod scroll;
 pub mod surface;
 pub mod text;
+pub mod unrendered;
 
 // Platform adapters
 pub mod android;
@@ -33,7 +35,6 @@ pub mod ios;
 pub mod config;
 pub mod driver;
 pub mod session;
-pub mod snapshot;
 
 // Public re-exports
 pub use config::HeadlessConfig;
