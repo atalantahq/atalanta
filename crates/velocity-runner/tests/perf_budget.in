@@ -1,0 +1,23 @@
+// (step, [(driver call, budget)]): the counts measured on 2026-10-16.
+// A call not listed is budgeted at 0.
+vec![
+    ("launchApp: { appId: com.example.app }", vec![("launch_app", 1), ("get_hierarchy", 14)]),
+    ("tap: { text: \"Log in\" }", vec![("find_element", 1), ("get_hierarchy", 6), ("tap", 1)]),
+    ("tap: { id: login }", vec![("find_element", 1), ("get_hierarchy", 6), ("tap", 1)]),
+    (
+        "inputText: { selector: { id: email }, text: \"a@b.c\" }",
+        vec![("find_element", 1), ("get_hierarchy", 6), ("input_text", 1)],
+    ),
+    (
+        "assertVisible: { text: \"Welcome\" }",
+        vec![("find_element", 1), ("get_hierarchy", 3), ("is_element_visible", 1)],
+    ),
+    ("assertNotVisible: { text: \"Error\" }", vec![("find_element", 1), ("get_hierarchy", 3)]),
+    (
+        "swipe: { direction: up }",
+        vec![("get_hierarchy", 6), ("screen_size", 1), ("swipe_coords", 1)],
+    ),
+    ("pressKey: { key: back }", vec![("get_hierarchy", 6), ("press_key", 1)]),
+    ("doubleTap: { id: login }", vec![("double_tap", 1), ("find_element", 1), ("get_hierarchy", 6)]),
+    ("longPress: { id: login }", vec![("find_element", 1), ("get_hierarchy", 6), ("long_press", 1)]),
+]
