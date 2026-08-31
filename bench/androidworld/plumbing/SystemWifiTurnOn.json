@@ -1,0 +1,10 @@
+{
+  "steps": [
+    { "op": "openApp", "value": "Settings" },
+    { "op": "tap", "target": "Network & internet" },
+    { "op": "tap", "target": "Internet" },
+    { "op": "tap", "target": "Wi-Fi" },
+    { "op": "done", "outcome": "success", "reason": "Wi-Fi is on" }
+  ],
+  "check": { "holds": true, "evidence": ["Wi-Fi"], "reason": "the switch is on" }
+}

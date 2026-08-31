@@ -1,0 +1,17 @@
+appId: com.android.settings
+tests:
+- name: open Network & internet
+  description: open Network & internet
+  steps:
+  - launchApp:
+      clearState: true
+  - tap:
+      text: Network & internet
+  - assertVisible:
+      id: com.android.settings:id/collapsing_toolbar
+  - assertVisible:
+      text: Internet
+  - assertVisible:
+      text: SIMs
+  - assertVisible:
+      text: Airplane mode
