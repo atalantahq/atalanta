@@ -1,0 +1,9 @@
+{
+  "steps": [
+    { "op": "openApp", "value": "Clock", "reason": "the stopwatch is in Clock" },
+    { "op": "tap", "target": "Stopwatch" },
+    { "op": "tap", "target": "Start" },
+    { "op": "done", "outcome": "success", "reason": "the stopwatch runs" }
+  ],
+  "check": { "holds": true, "evidence": ["Pause"], "reason": "Pause is offered, so it runs" }
+}
