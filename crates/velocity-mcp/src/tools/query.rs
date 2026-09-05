@@ -4,7 +4,12 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use velocity_common::{Element, PlatformDriver, Result, Selector, VelocityError};
 
-fn flatten_elements(root: &Element, out: &mut Vec<Value>, filter: Option<&str>) {
+fn flatten_elements<'a>(
+    root: &'a Element,
+    out: &mut Vec<Value>,
+    nodes: &mut Vec<&'a Element>,
+    filter: Option<&str>,
+) {
     let matches_filter = filter.is_none_or(|f| {
         let f_lower = f.to_lowercase();
         root.label
@@ -18,7 +23,7 @@ fn flatten_elements(root: &Element, out: &mut Vec<Value>, filter: Option<&str>) 
     });
 
     if matches_filter {
-        out.push(serde_json::json!({
+        let mut entry = serde_json::json!({
             "platform_id": root.platform_id,
             "label": root.label,
             "text": root.text,
@@ -26,23 +31,95 @@ fn flatten_elements(root: &Element, out: &mut Vec<Value>, filter: Option<&str>) 
             "bounds": root.bounds,
             "enabled": root.enabled,
             "visible": root.visible
-        }));
+        });
+        // S1/S2: what a `role:` selector and the state filters see.
+        if let Some(role) = velocity_common::role::role_of(root) {
+            entry["role"] = role.into();
+        }
+        if let Some(c) = root.checked {
+            entry["checked"] = c.into();
+        }
+        if root.selected == Some(true) {
+            entry["selected"] = true.into();
+        }
+        if root.focused == Some(true) {
+            entry["focused"] = true.into();
+        }
+        out.push(entry);
+        nodes.push(root);
     }
 
     for child in &root.children {
-        flatten_elements(child, out, filter);
+        flatten_elements(child, out, nodes, filter);
     }
 }
 
+/// `e3 Button "Sign in" label="Log in" id=login @(10,20 300x48) role=button`;
+/// a disabled, checked or selected element says so.
+fn compact_line(r: &str, e: &Element) -> String {
+    let mut line = format!("{r} {}", e.element_type);
+    if let Some(t) = e.text.as_deref().filter(|t| !t.is_empty()) {
+        line.push_str(&format!(" {t:?}"));
+    }
+    if let Some(l) = e.label.as_deref().filter(|l| !l.is_empty()) {
+        if e.text.as_deref() != Some(l) {
+            line.push_str(&format!(" label={l:?}"));
+        }
+    }
+    if let Some(id) = e.platform_id.rsplit_once(":id/").map(|(_, s)| s) {
+        line.push_str(&format!(" id={id}"));
+    }
+    let b = &e.bounds;
+    line.push_str(&format!(" @({},{} {}x{})", b.x, b.y, b.width, b.height));
+    // S1: the role a `role:` selector matches, after the box so the
+    // listing's familiar prefix stays as it was.
+    if let Some(role) = velocity_common::role::role_of(e) {
+        line.push_str(&format!(" role={role}"));
+    }
+    if !e.enabled {
+        line.push_str(" disabled");
+    }
+    match e.checked {
+        Some(true) => line.push_str(" checked"),
+        Some(false) => line.push_str(" unchecked"),
+        None => {}
+    }
+    if e.selected == Some(true) {
+        line.push_str(" selected");
+    }
+    line
+}
+
+/// Each element that a selector built from its id or text can find gets a
+/// `ref` the other tools accept as `{"ref": "eN"}` (see [`crate::refs`]).
 pub async fn list_elements(
     driver: &Arc<dyn PlatformDriver>,
     device_id: &str,
     args: &Value,
+    refs: &mut crate::refs::Refs,
 ) -> Result<Value> {
     let filter = args.get("filter").and_then(|v| v.as_str());
     let hierarchy = driver.get_hierarchy(device_id).await?;
+    let screen = crate::refs::screen_rect(driver, device_id).await;
     let mut elements = Vec::new();
-    flatten_elements(&hierarchy, &mut elements, filter);
+    let mut nodes = Vec::new();
+    flatten_elements(&hierarchy, &mut elements, &mut nodes, filter);
+    refs.start_listing();
+    let mut lines = Vec::new();
+    for (json, node) in elements.iter_mut().zip(nodes) {
+        if let Some(r) = refs.mint(&hierarchy, node, screen.as_ref()) {
+            lines.push(compact_line(&r, node));
+            json["ref"] = Value::String(r);
+        }
+    }
+    // `format: "text"`: one line per element an agent can act on, a fraction
+    // of the JSON's tokens (P-7).
+    if args.get("format").and_then(Value::as_str) == Some("text") {
+        return Ok(serde_json::json!({
+            "count": lines.len(),
+            "elements": lines.join("\n")
+        }));
+    }
     Ok(serde_json::json!({
         "count": elements.len(),
         "elements": elements
@@ -54,14 +131,9 @@ pub async fn get_element(
     device_id: &str,
     args: &Value,
 ) -> Result<Value> {
-    let selector_val = args
-        .get("selector")
-        .ok_or_else(|| VelocityError::Config("Missing 'selector' argument".to_string()))?;
+    let selector: Selector = super::interaction::parse_selector(args)?;
 
-    let selector: Selector = serde_json::from_value(selector_val.clone())
-        .map_err(|e| VelocityError::Config(format!("Invalid selector: {e}")))?;
-
-    let element = driver.find_element(device_id, &selector).await?;
+    let element = super::interaction::find_live(driver, device_id, &selector).await?;
     serde_json::to_value(&element)
         .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Serialization error: {e}")))
 }
@@ -71,14 +143,9 @@ pub async fn assert_visible(
     device_id: &str,
     args: &Value,
 ) -> Result<Value> {
-    let selector_val = args
-        .get("selector")
-        .ok_or_else(|| VelocityError::Config("Missing 'selector' argument".to_string()))?;
+    let selector: Selector = super::interaction::parse_selector(args)?;
 
-    let selector: Selector = serde_json::from_value(selector_val.clone())
-        .map_err(|e| VelocityError::Config(format!("Invalid selector: {e}")))?;
-
-    let element = driver.find_element(device_id, &selector).await?;
+    let element = super::interaction::find_live(driver, device_id, &selector).await?;
     let visible = driver.is_element_visible(device_id, &element).await?;
 
     if !visible {
@@ -105,14 +172,28 @@ pub async fn assert_visible(
 // --- get_screen_summary ---
 
 const INTERACTIVE_TYPES: &[&str] = &[
-    "Button", "TextField", "EditText", "Switch", "Toggle",
-    "Link", "Input", "Slider", "Checkbox", "Radio",
-    "SecureTextField", "SearchField", "TextInput",
+    "Button",
+    "TextField",
+    "EditText",
+    "Switch",
+    "Toggle",
+    "Link",
+    "Input",
+    "Slider",
+    "Checkbox",
+    "Radio",
+    "SecureTextField",
+    "SearchField",
+    "TextInput",
 ];
 
 const NAV_TYPES: &[&str] = &[
-    "TabBar", "NavigationBar", "Toolbar", "BottomNavigation",
-    "BottomBar", "TabView",
+    "TabBar",
+    "NavigationBar",
+    "Toolbar",
+    "BottomNavigation",
+    "BottomBar",
+    "TabView",
 ];
 
 const HEADER_TYPES: &[&str] = &["NavigationBar", "Header", "NavBar"];
@@ -236,31 +317,22 @@ pub async fn wait_for_element(
     device_id: &str,
     args: &Value,
 ) -> Result<Value> {
-    let selector_val = args
-        .get("selector")
-        .ok_or_else(|| VelocityError::Config("Missing 'selector' argument".to_string()))?;
+    let selector: Selector = super::interaction::parse_selector(args)?;
 
-    let selector: Selector = serde_json::from_value(selector_val.clone())
-        .map_err(|e| VelocityError::Config(format!("Invalid selector: {e}")))?;
+    let timeout_ms = u64_arg(args, "timeout_ms")?.unwrap_or(10_000).min(30_000);
 
-    let timeout_ms = args
-        .get("timeout_ms")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10_000)
-        .min(30_000);
-
-    let poll_interval_ms = args
-        .get("poll_interval_ms")
-        .and_then(|v| v.as_u64())
+    // Bounded both ways: a huge interval slept past the timeout and wedged
+    // the server (VEL-083).
+    let poll_interval_ms = u64_arg(args, "poll_interval_ms")?
         .unwrap_or(500)
-        .max(100);
+        .clamp(100, 5_000);
 
     let start = Instant::now();
     let timeout = Duration::from_millis(timeout_ms);
     let poll_interval = Duration::from_millis(poll_interval_ms);
 
     loop {
-        match driver.find_element(device_id, &selector).await {
+        match super::interaction::find_live(driver, device_id, &selector).await {
             Ok(element) => {
                 let visible = driver.is_element_visible(device_id, &element).await?;
                 if visible {
@@ -284,7 +356,8 @@ pub async fn wait_for_element(
             Err(e) => return Err(e), // Real driver error — propagate
         }
 
-        if start.elapsed() >= timeout {
+        let elapsed = start.elapsed();
+        if elapsed >= timeout {
             return Err(VelocityError::ElementNotFound {
                 selector: selector.to_string(),
                 timeout_ms,
@@ -293,6 +366,206 @@ pub async fn wait_for_element(
             });
         }
 
-        tokio::time::sleep(poll_interval).await;
+        tokio::time::sleep(poll_interval.min(timeout - elapsed)).await;
+    }
+}
+
+/// An optional non-negative integer argument. A value of the wrong type is
+/// an error, not silently the default (VEL-245).
+fn u64_arg(args: &Value, name: &str) -> Result<Option<u64>> {
+    match args.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_u64().map(Some).ok_or_else(|| {
+            VelocityError::Config(format!("'{name}' must be a non-negative integer, got {v}"))
+        }),
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    /// A headless device showing an empty screen.
+    async fn driver() -> Arc<dyn PlatformDriver> {
+        let d: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
+            velocity_common::Platform::Android,
+            Default::default(),
+        ));
+        d.launch_app("headless", "app", false).await.unwrap();
+        d
+    }
+
+    // VEL-083: a huge poll interval can't sleep past the timeout.
+    #[tokio::test]
+    async fn huge_poll_interval_is_clamped_to_the_timeout() {
+        let args = serde_json::json!({
+            "selector": { "text": "never-there" },
+            "timeout_ms": 100,
+            "poll_interval_ms": 10_000_000_000u64
+        });
+        let start = Instant::now();
+        let r = tokio::time::timeout(
+            Duration::from_secs(8),
+            wait_for_element(&driver().await, "headless", &args),
+        )
+        .await;
+        assert!(matches!(r, Ok(Err(_))), "{r:?}");
+        assert!(start.elapsed() < Duration::from_secs(2));
+    }
+
+    /// A device whose screen changes after its first read (a page
+    /// transition), behind a tree cache as the Android and iOS drivers keep
+    /// one: a lookup is served from the cache until it is invalidated.
+    #[derive(Default)]
+    struct CachingDevice {
+        reads: std::sync::Mutex<u32>,
+        cached: std::sync::Mutex<Option<Element>>,
+    }
+
+    impl CachingDevice {
+        fn read(&self) -> Element {
+            let mut reads = self.reads.lock().unwrap();
+            *reads += 1;
+            let text = if *reads == 1 {
+                "Network & internet"
+            } else {
+                "Airplane mode"
+            };
+            let bounds = velocity_common::Rect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 40,
+            };
+            Element {
+                children: vec![Element {
+                    text: Some(text.into()),
+                    bounds,
+                    visible: true,
+                    enabled: true,
+                    ..Default::default()
+                }],
+                bounds,
+                visible: true,
+                ..Default::default()
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PlatformDriver for CachingDevice {
+        async fn find_element(&self, _: &str, selector: &Selector) -> Result<Element> {
+            let tree = self
+                .cached
+                .lock()
+                .unwrap()
+                .get_or_insert_with(|| self.read())
+                .clone();
+            tree.children
+                .into_iter()
+                .find(|e| matches!(selector, Selector::Text(t) if e.text.as_ref() == Some(t)))
+                .ok_or_else(|| VelocityError::ElementNotFound {
+                    selector: selector.to_string(),
+                    timeout_ms: 0,
+                    screenshot: None,
+                    hierarchy_snapshot: None,
+                })
+        }
+        async fn invalidate_hierarchy_cache(&self) {
+            *self.cached.lock().unwrap() = None;
+        }
+        async fn is_element_visible(&self, _: &str, _: &Element) -> Result<bool> {
+            Ok(true)
+        }
+        async fn list_devices(&self) -> Result<Vec<velocity_common::DeviceInfo>> {
+            unreachable!()
+        }
+        async fn boot_device(&self, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        async fn shutdown_device(&self, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        async fn install_app(&self, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        async fn launch_app(&self, _: &str, _: &str, _: bool) -> Result<()> {
+            unreachable!()
+        }
+        async fn stop_app(&self, _: &str, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        async fn find_elements(&self, _: &str, _: &Selector) -> Result<Vec<Element>> {
+            unreachable!()
+        }
+        async fn get_hierarchy(&self, _: &str) -> Result<Element> {
+            unreachable!()
+        }
+        async fn tap(&self, _: &str, _: &Element) -> Result<()> {
+            unreachable!()
+        }
+        async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
+            unreachable!()
+        }
+        async fn long_press(&self, _: &str, _: &Element, _: u64) -> Result<()> {
+            unreachable!()
+        }
+        async fn input_text(&self, _: &str, _: &Element, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        async fn clear_text(&self, _: &str, _: &Element) -> Result<()> {
+            unreachable!()
+        }
+        async fn swipe(&self, _: &str, _: velocity_common::Direction) -> Result<()> {
+            unreachable!()
+        }
+        async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
+            unreachable!()
+        }
+        async fn press_key(&self, _: &str, _: velocity_common::Key) -> Result<()> {
+            unreachable!()
+        }
+        async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+        async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
+            unreachable!()
+        }
+        async fn get_element_text(&self, _: &str, _: &Element) -> Result<String> {
+            unreachable!()
+        }
+    }
+
+    // DV-1 (emulator-5554, 2026-10-25): after a tap, wait_for_element kept
+    // matching against the tree read mid-transition for the driver's 2 s
+    // cache life, and assert_visible / get_element / tap read it too.
+    #[tokio::test]
+    async fn lookups_read_the_live_screen_not_the_driver_cache() {
+        let device = Arc::new(CachingDevice::default());
+        // Prime the cache with the pre-transition screen.
+        let _ = device.find_element("d", &Selector::Text("x".into())).await;
+        let d: Arc<dyn PlatformDriver> = device;
+        let args = serde_json::json!({
+            "selector": { "text": "Airplane mode" },
+            "timeout_ms": 1000,
+            "poll_interval_ms": 100
+        });
+        let found = wait_for_element(&d, "d", &args).await.unwrap();
+        assert_eq!(found["waited_ms"], 0, "{found}");
+        assert_visible(&d, "d", &args).await.unwrap();
+        get_element(&d, "d", &args).await.unwrap();
+    }
+
+    // VEL-245: a wrong-typed number is reported, not silently the default.
+    #[tokio::test]
+    async fn wrong_typed_timeout_is_an_error() {
+        let args = serde_json::json!({
+            "selector": { "text": "x" },
+            "timeout_ms": "5000"
+        });
+        let e = wait_for_element(&driver().await, "headless", &args)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("timeout_ms"), "{e}");
     }
 }

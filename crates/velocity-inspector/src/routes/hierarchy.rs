@@ -15,7 +15,7 @@ pub async fn get(
         .driver
         .get_hierarchy(&device_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
 
     Ok(Json(hierarchy))
 }

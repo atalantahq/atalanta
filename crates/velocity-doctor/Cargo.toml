@@ -1,0 +1,30 @@
+[package]
+name = "velocity-doctor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "diagnostics", "android", "ios", "doctor"]
+categories = ["development-tools::testing"]
+description = "Environment diagnostics for Velocity: the probes behind `velocity doctor` (and the MCP diagnose tool)"
+
+[dependencies]
+velocity-common = { workspace = true }
+velocity-core = { workspace = true }
+velocity-runner = { workspace = true }
+velocity-android = { workspace = true }
+velocity-ios = { workspace = true }
+velocity-nl = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

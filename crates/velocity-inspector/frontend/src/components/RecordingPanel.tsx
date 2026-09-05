@@ -127,20 +127,16 @@ export function RecordingPanel() {
   );
 }
 
+// Same layout as the server's `yaml_gen::flow_yaml`, so Copy and Save agree
+// and the copied flow parses (VEL-114). Steps are single-line list items.
 function buildFullYaml(name: string, appId: string, stepYamls: string[]): string {
-  const stepsBlock = stepYamls
-    .map((y) =>
-      y
-        .split("\n")
-        .map((line) => `  ${line}`)
-        .join("\n")
-    )
-    .join("\n");
+  const stepsBlock = stepYamls.map((y) => `      ${y}`).join("\n");
 
-  return `name: ${yamlDoubleQuoted(name)}
-appId: ${yamlDoubleQuoted(appId)}
+  return `appId: ${yamlDoubleQuoted(appId)}
 
-steps:
+tests:
+  - name: ${yamlDoubleQuoted(name)}
+    steps:
 ${stepsBlock}
 `;
 }
@@ -148,7 +144,7 @@ ${stepsBlock}
 function yamlDoubleQuoted(value: string): string {
   return `"${value
     .replace(/\\/g, "\\\\")
-    .replace(/\"/g, '\\\"')
+    .replace(/"/g, '\\"')
     .replace(/\n/g, "\\n")
     .replace(/\r/g, "\\r")}"`;
 }

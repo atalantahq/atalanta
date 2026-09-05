@@ -3,16 +3,40 @@ name = "velocity-inspector"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "inspector", "mobile", "accessibility", "ui"]
+categories = ["development-tools::testing"]
 description = "Visual inspector Web UI for Velocity mobile testing framework"
 
+# The published crate carries the built web UI (`frontend/dist`, gitignored
+# and produced by `npm ci && npm run build` before packaging) and none of the
+# frontend's sources, so `cargo install` never needs npm.
+include = ["/src/**", "/tests/**", "/build.rs", "/frontend/dist/**", "/Cargo.toml", "/README.md"]
+
 [dependencies]
-velocity-common = { path = "../velocity-common" }
+velocity-common = { workspace = true }
+velocity-core = { workspace = true }
+# The live H.264 stream's types (`velocity_android::video`).
+velocity-android = { workspace = true }
+async-trait = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 axum = { workspace = true }
-tower-http = { workspace = true }
 rust-embed = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 mime_guess = { workspace = true }
+serde_yaml = { workspace = true }
+libc = { workspace = true }
+
+[dev-dependencies]
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+futures = { workspace = true }
+
+[lints]
+workspace = true
