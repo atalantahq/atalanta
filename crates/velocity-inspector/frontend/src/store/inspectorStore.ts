@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { resolveKey } from "../tree";
 import type { DeviceInfo, Element, GenerateResponse, PerfSample, RecordedStep } from "../api/types";
 
 interface InspectorState {
@@ -14,9 +15,13 @@ interface InspectorState {
 
   // Hierarchy
   hierarchy: Element | null;
-  setHierarchy: (hierarchy: Element | null) => void;
+  /** Snapshot version of `hierarchy` (null before the first one). */
+  hierarchyVersion: number | null;
+  setHierarchy: (hierarchy: Element | null, version?: number | null) => void;
 
-  // Selection
+  // Selection: held by node key, and re-resolved on every new hierarchy so
+  // it never shows an element from an older screen (VEL-S27).
+  selectedKey: string | null;
   selectedElement: Element | null;
   setSelectedElement: (element: Element | null) => void;
 
@@ -49,16 +54,32 @@ export const useInspectorStore = create<InspectorState>((set) => ({
   devices: [],
   currentDeviceId: null,
   setDevices: (devices) => set({ devices }),
-  setCurrentDeviceId: (id) => set({ currentDeviceId: id, selectedElement: null, generated: null }),
+  setCurrentDeviceId: (id) =>
+    set({
+      currentDeviceId: id,
+      selectedKey: null,
+      selectedElement: null,
+      generated: null,
+      hierarchy: null,
+      hierarchyVersion: null,
+    }),
 
   screenshotUrl: null,
   setScreenshotUrl: (url) => set({ screenshotUrl: url }),
 
   hierarchy: null,
-  setHierarchy: (hierarchy) => set({ hierarchy }),
+  hierarchyVersion: null,
+  setHierarchy: (hierarchy, version = null) =>
+    set((state) => ({
+      hierarchy,
+      hierarchyVersion: version,
+      selectedElement: resolveKey(hierarchy, state.selectedKey),
+    })),
 
+  selectedKey: null,
   selectedElement: null,
-  setSelectedElement: (element) => set({ selectedElement: element }),
+  setSelectedElement: (element) =>
+    set({ selectedElement: element, selectedKey: element?.nodeKey ?? null }),
 
   generated: null,
   setGenerated: (gen) => set({ generated: gen }),

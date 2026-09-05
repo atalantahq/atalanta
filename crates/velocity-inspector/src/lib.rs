@@ -1,20 +1,34 @@
+//! The Velocity inspector and console: an axum server with a web UI and
+//! API for looking at a device's screen and element tree, building
+//! selectors, running and exploring tests as `velocity` child processes
+//! (`console`), and reviewing failed `assertScreenshot` baselines
+//! (`/review`). Internal to the `velocity` CLI (`velocity inspect`,
+//! `velocity baselines review`); its API has no stability promise.
+
+pub mod console;
 pub mod embedded;
+pub mod no_device;
 pub mod routes;
+pub mod security;
 pub mod selector_gen;
 pub mod server;
+pub mod snapshot;
 pub mod state;
 pub mod ws;
 pub mod yaml_gen;
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use velocity_common::PlatformDriver;
 
+use security::HostPolicy;
 use state::AppState;
 
 pub struct InspectorServer {
-    state: Arc<AppState>,
+    state: AppState,
 }
 
 impl InspectorServer {
@@ -24,21 +38,107 @@ impl InspectorServer {
         app_id: Option<String>,
     ) -> Self {
         Self {
-            state: Arc::new(AppState::new(driver, device_id, app_id)),
+            state: AppState::new(driver, device_id, app_id),
         }
     }
 
+    /// The per-session token `/api` requests must carry.
+    pub fn token(&self) -> &str {
+        &self.state.token
+    }
+
+    /// The URL to open the UI with: it carries the token, which the server
+    /// turns into a session cookie.
+    pub fn url(&self, addr: SocketAddr) -> String {
+        let host = match addr.ip() {
+            ip if ip.is_loopback() || ip.is_unspecified() => "localhost".to_string(),
+            IpAddr::V4(v4) => v4.to_string(),
+            IpAddr::V6(v6) => format!("[{v6}]"),
+        };
+        format!("http://{host}:{}/?token={}", addr.port(), self.state.token)
+    }
+
+    /// An inspector with no device, serving only the screenshot review
+    /// page for `results_dir` (`velocity baselines review --serve`).
+    pub fn review_only(results_dir: impl Into<PathBuf>) -> Self {
+        Self::new(Arc::new(no_device::NoDevice), None, None).with_results_dir(results_dir)
+    }
+
+    /// The screenshot review page's URL (with the token, like [`Self::url`]).
+    pub fn review_url(&self, addr: SocketAddr) -> String {
+        self.url(addr)
+            .replacen("/?token=", &format!("{}?token=", server::REVIEW_PATH), 1)
+    }
+
+    /// Where the screenshot review page finds failed `assertScreenshot`
+    /// comparisons (default `velocity-results`).
+    pub fn with_results_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.state.results_dir = dir.into();
+        self
+    }
+
+    /// Make the review page's Accept write into this `velocity-baselines`
+    /// folder rather than the absolute path the run recorded (CI artifacts).
+    pub fn with_baselines_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.state.baselines_dir = dir;
+        self
+    }
+
+    /// The console's hooks: live video, leases, diagnostics, explore, the
+    /// suite launcher and the project folder (see [`console`]).
+    pub fn with_console(mut self, hooks: console::ConsoleHooks) -> Self {
+        self.state.console = hooks;
+        self
+    }
+
+    /// `device_id` was already prepared by the caller (WDA started).
+    pub fn with_prepared(mut self, device_id: &str) -> Self {
+        self.state.prepared.get_mut().insert(device_id.to_string());
+        self
+    }
+
+    /// Directory recorded flows are saved under (default `./flows`).
+    pub fn with_flows_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.state.flows_dir = Some(dir.into());
+        self
+    }
+
+    /// Bind to the loopback interface on `port`.
+    pub async fn bind(port: u16) -> anyhow::Result<TcpListener> {
+        Self::bind_on(IpAddr::V4(Ipv4Addr::LOCALHOST), port).await
+    }
+
+    /// Bind to `ip:port`. Anything but loopback exposes the device to the
+    /// network (still behind the token), so callers should make it opt-in.
+    ///
+    /// A port in use, or an address this host can't bind, is a config error
+    /// (exit 2), not an internal one (VEL-171).
+    pub async fn bind_on(ip: IpAddr, port: u16) -> anyhow::Result<TcpListener> {
+        let addr = SocketAddr::new(ip, port);
+        TcpListener::bind(addr).await.map_err(|e| match e.kind() {
+            std::io::ErrorKind::AddrInUse
+            | std::io::ErrorKind::AddrNotAvailable
+            | std::io::ErrorKind::PermissionDenied => {
+                anyhow::Error::new(velocity_common::VelocityError::Config(format!(
+                    "Can't listen on {addr}: {e}; pick another --port or --host"
+                )))
+            }
+            _ => e.into(),
+        })
+    }
+
     pub async fn start(self, port: u16) -> anyhow::Result<()> {
-        let listener = TcpListener::bind(format!("0.0.0.0:{port}")).await?;
+        let listener = Self::bind(port).await?;
 
         self.start_with_listener(listener).await
     }
 
-    pub async fn start_with_listener(self, listener: TcpListener) -> anyhow::Result<()> {
-        let port = listener.local_addr()?.port();
-        let router = server::build_router(self.state);
+    pub async fn start_with_listener(mut self, listener: TcpListener) -> anyhow::Result<()> {
+        let addr = listener.local_addr()?;
+        self.state.host_policy = HostPolicy::for_bind_addr(addr.ip());
+        let router = server::build_router(Arc::new(self.state));
 
-        tracing::info!("Inspector server listening on http://localhost:{port}");
+        tracing::info!("Inspector server listening on {addr}");
 
         axum::serve(listener, router).await?;
 

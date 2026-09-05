@@ -22,7 +22,7 @@ pub async fn open_inspector(
     if let Some(port) = session.inspector_port {
         return Ok(serde_json::json!({
             "status": "already_running",
-            "url": format!("http://localhost:{port}"),
+            "url": session.inspector_url.clone().unwrap_or_else(|| format!("http://localhost:{port}")),
             "port": port
         }));
     }
@@ -44,23 +44,22 @@ pub async fn open_inspector(
         .unwrap_or(DEFAULT_PORT);
 
     // Find an available port
-    let listener = find_available_port(requested_port).await.map_err(|_| {
-        VelocityError::Config(format!(
-            "No available port found in range {requested_port}-{}",
-            requested_port + MAX_PORT_ATTEMPTS
-        ))
-    })?;
-    let port = listener
+    let listener = find_available_port(requested_port)
+        .await
+        .map_err(|_| VelocityError::Config(no_port_message(requested_port)))?;
+    let addr = listener
         .local_addr()
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to inspect listener: {e}")))?
-        .port();
+        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to inspect listener: {e}")))?;
+    let port = addr.port();
 
     let driver_clone = driver.clone();
     let device_id_owned = device_id.to_string();
     let (ready_tx, ready_rx) = oneshot::channel();
+    // The URL carries the per-session token the inspector API requires.
+    let server = InspectorServer::new(driver_clone, Some(device_id_owned), None);
+    let url = server.url(addr);
 
     let handle = tokio::spawn(async move {
-        let server = InspectorServer::new(driver_clone, Some(device_id_owned), None);
         let _ = ready_tx.send(Ok(port));
         if let Err(e) = server.start_with_listener(listener).await {
             tracing::error!("Inspector server exited with error: {e}");
@@ -88,22 +87,21 @@ pub async fn open_inspector(
     };
 
     session.inspector_port = Some(ready_port);
+    session.inspector_url = Some(url.clone());
     session.inspector_handle = Some(handle);
 
     Ok(serde_json::json!({
         "status": "started",
-        "url": format!("http://localhost:{ready_port}"),
+        "url": url,
         "port": ready_port
     }))
 }
 
-pub async fn close_inspector(
-    session: &mut McpSession,
-    _args: &Value,
-) -> Result<Value> {
+pub async fn close_inspector(session: &mut McpSession, _args: &Value) -> Result<Value> {
     if let Some(handle) = session.inspector_handle.take() {
         handle.abort();
         session.inspector_port = None;
+        session.inspector_url = None;
         Ok(serde_json::json!({
             "status": "stopped"
         }))
@@ -114,6 +112,12 @@ pub async fn close_inspector(
     }
 }
 
+/// `start + MAX_PORT_ATTEMPTS` overflowed (and panicked) near 65535 (VEL-246).
+fn no_port_message(start: u16) -> String {
+    let end = start.saturating_add(MAX_PORT_ATTEMPTS.saturating_sub(1));
+    format!("No available port found in range {start}-{end}")
+}
+
 async fn find_available_port(start: u16) -> std::result::Result<TcpListener, ()> {
     let end = start.saturating_add(MAX_PORT_ATTEMPTS.saturating_sub(1));
     for port in start..=end {
@@ -122,4 +126,21 @@ async fn find_available_port(start: u16) -> std::result::Result<TcpListener, ()>
         }
     }
     Err(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_port_message_does_not_overflow_near_u16_max() {
+        assert_eq!(
+            no_port_message(65535),
+            "No available port found in range 65535-65535"
+        );
+        assert_eq!(
+            no_port_message(9876),
+            "No available port found in range 9876-9885"
+        );
+    }
 }

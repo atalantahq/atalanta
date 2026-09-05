@@ -15,7 +15,7 @@ pub async fn list(
         .driver
         .list_devices()
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
     Ok(Json(devices))
 }
 
@@ -33,7 +33,7 @@ pub async fn select(
         .driver
         .list_devices()
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
 
     let device = devices
         .iter()
@@ -48,7 +48,26 @@ pub async fn select(
     let info = serde_json::to_value(device)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Bootstrap the device's services once (WDA on iOS, the browser on
+    // the web), as `velocity inspect` does for the device it starts with.
+    let mut prepared = state.prepared.lock().await;
+    if !prepared.contains(&req.device_id) {
+        state
+            .driver
+            .prepare(&req.device_id)
+            .await
+            .map_err(super::api_error)?;
+        prepared.insert(req.device_id.clone());
+    }
+    drop(prepared);
+
     *state.current_device.write().await = Some(req.device_id);
 
     Ok(Json(info))
+}
+
+/// `GET /api/devices/current`: the device the server has selected (the
+/// one `velocity inspect` started with, or the page's last pick).
+pub async fn current(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "deviceId": state.device_id().await }))
 }
