@@ -1,0 +1,13 @@
+# Test impact map for `velocity run --changed-since <ref>`: which source paths each
+# test exercises. Changed files select the tests mapped to them, plus tests that
+# failed or flaked recently, are new, or are unmapped (impact.unmapped: run).
+# Fill in path patterns, e.g.:
+# tests:
+#   settings opens on its first screen:
+#   - app/src/main/**
+#   - app/build.gradle
+tests: {}
+flows: {}
+runAll: []
+impact:
+  unmapped: run

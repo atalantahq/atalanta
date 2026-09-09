@@ -1,17 +1,76 @@
+/// `bail!` for a usage or configuration error: exit 2, not the generic
+/// internal-error code.
+macro_rules! usage_bail {
+    ($($t:tt)*) => {
+        return Err($crate::commands::usage(format!($($t)*)))
+    };
+}
+
+/// `anyhow!` for a usage or configuration error (exit 2).
+macro_rules! usage_err {
+    ($($t:tt)*) => {
+        $crate::commands::usage(format!($($t)*))
+    };
+}
+
+pub mod api;
+pub mod baselines;
+pub mod daemon;
 pub mod device;
+pub mod doctor;
+pub mod env_file;
+pub mod explore;
+pub mod heal;
+pub mod history;
+pub mod init;
 pub mod inspect;
 pub mod lint;
 pub mod mcp;
 pub mod migrate;
+pub mod nl_eval;
+pub mod provision;
+pub mod repl;
 pub mod run;
+pub mod schema;
+pub mod settings;
+pub mod shard_plan;
+pub mod signing;
+pub mod trace;
 pub mod validate;
 
-use velocity_common::{Platform, PlatformDriver};
+use velocity_common::{Platform, PlatformDriver, VelocityError};
+
+/// A usage or configuration error as an `anyhow::Error` that exits 2.
+pub fn usage(message: String) -> anyhow::Error {
+    VelocityError::Config(message).into()
+}
+
+/// "No device to use" as an error that exits 3 (a device problem), with
+/// `message` as what is printed.
+pub fn no_device(message: &str, available: Vec<String>) -> anyhow::Error {
+    anyhow::Error::new(VelocityError::DeviceNotFound {
+        id: String::new(),
+        available,
+    })
+    .context(message.to_string())
+}
+
+/// The exit code for a command's error. A `VelocityError` (anywhere in the
+/// chain) has its own; anything else is an internal error, 5 — it used to
+/// be 1, which says "tests failed".
+pub fn exit_code_for(e: &anyhow::Error) -> i32 {
+    e.chain()
+        .find_map(|c| c.downcast_ref::<VelocityError>())
+        .map_or(5, VelocityError::exit_code)
+}
 
 pub fn create_driver(platform: Platform) -> Box<dyn PlatformDriver> {
     match platform {
         Platform::Ios => Box::new(velocity_ios::IosDriver::new()),
         Platform::Android => Box::new(velocity_android::AndroidDriver::new()),
-        Platform::Web => panic!("Web platform must be created via velocity_web::WebDriver, not create_driver"),
+        // Default window and headless Chrome; `run` applies a suite's `web:`.
+        Platform::Web => Box::new(velocity_web::WebDriver::new(
+            velocity_web::WebDriverConfig::default(),
+        )),
     }
 }
