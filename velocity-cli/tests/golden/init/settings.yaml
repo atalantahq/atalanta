@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=./velocity.schema.json
+# Starter suite written by `velocity init`. Run it: velocity run velocity/settings.yaml
+# The assertions were read from com.android.settings's first screen; `velocity inspect` shows
+# the live tree to pick more. Reference: `velocity schema --markdown`.
+
+appId: com.android.settings
+config:
+  platform: android
+tests:
+- name: settings opens on its first screen
+  tags:
+  - smoke
+  steps:
+  - launchApp:
+      appId: com.android.settings
+  - assertVisible:
+      id: search_action_bar
+  - assertVisible:
+      text: Network & internet
+
+# Next steps for this test, e.g. (pass values with `--env TEST_EMAIL=…`):
+# - tap:
+#     id: search_action_bar
+# - inputText:
+#     selector:
+#       id: email
+#     text: ${TEST_EMAIL}
+# - inputText:
+#     selector:
+#       id: password
+#     text: ${TEST_PASSWORD}
+# - assertVisible:
+#     textContains: Welcome

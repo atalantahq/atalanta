@@ -1,0 +1,26 @@
+# Device smoke suite for CI (C5): drives the emulator's own Settings app,
+# so it needs no private app build. Run by .github/workflows/device-smoke.yml
+# (API 34 Google APIs image: the home screen lists "Network & internet").
+appId: com.android.settings
+
+config:
+  platform: android
+  retry:
+    count: 1
+
+tests:
+  - name: settings_opens_and_navigates
+    tags: [smoke]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "Network" }
+      - tap: { textContains: "Network" }
+      # textContains ignores case, so "Internet" also matched the home row
+      # "Network & internet": check a row only the sub-page has (seen on an
+      # API 34 emulator, 2026-10-25).
+      - assertVisible: { text: "Airplane mode" }
+      - pressKey: { key: back }
+      - assertNotVisible: { text: "Airplane mode" }
+      - assertVisible: { textContains: "Network" }

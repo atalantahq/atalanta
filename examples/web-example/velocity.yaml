@@ -1,4 +1,8 @@
-appId: https://example.com
+# Self-contained: the page is a data: URL, so the example needs no network and
+# doesn't depend on example.com (which dropped its <h1> in 2026 and asks not to
+# be used for testing). Chrome blocks links to data: URLs, so "More" swaps
+# the page content in place.
+appId: "data:text/html,%3Ch1%3EExample%20Domain%3C%2Fh1%3E%3Cp%3EA%20self-contained%20page%20for%20the%20Velocity%20web%20example.%3C%2Fp%3E%3Ca%20href%3D%22%23%22%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3ESecond%20page%3C%2Fh1%3E%27%3Breturn%20false%22%3EMore%3C%2Fa%3E"
 config:
   platform: web
   web:
@@ -10,14 +14,14 @@ config:
 tests:
   - name: "Page loads and title is visible"
     steps:
-      - launchApp: { appId: "https://example.com" }
+      - launchApp: { appId: "data:text/html,%3Ch1%3EExample%20Domain%3C%2Fh1%3E%3Cp%3EA%20self-contained%20page%20for%20the%20Velocity%20web%20example.%3C%2Fp%3E%3Ca%20href%3D%22%23%22%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3ESecond%20page%3C%2Fh1%3E%27%3Breturn%20false%22%3EMore%3C%2Fa%3E" }
       - assertVisible: { css: "h1" }
       - assertVisible: { text: "Example Domain" }
       - screenshot: { filename: "01-loaded.png" }
 
   - name: "CSS selector finds heading"
     steps:
-      - goto: { url: "https://example.com" }
+      - goto: { url: "data:text/html,%3Ch1%3EExample%20Domain%3C%2Fh1%3E%3Cp%3EA%20self-contained%20page%20for%20the%20Velocity%20web%20example.%3C%2Fp%3E%3Ca%20href%3D%22%23%22%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3ESecond%20page%3C%2Fh1%3E%27%3Breturn%20false%22%3EMore%3C%2Fa%3E" }
       - assertVisible: { css: "h1" }
       - assertText:
           selector: { css: "h1" }
@@ -25,19 +29,20 @@ tests:
 
   - name: "XPath selector finds paragraph"
     steps:
-      - goto: { url: "https://example.com" }
+      - goto: { url: "data:text/html,%3Ch1%3EExample%20Domain%3C%2Fh1%3E%3Cp%3EA%20self-contained%20page%20for%20the%20Velocity%20web%20example.%3C%2Fp%3E%3Ca%20href%3D%22%23%22%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3ESecond%20page%3C%2Fh1%3E%27%3Breturn%20false%22%3EMore%3C%2Fa%3E" }
       - assertVisible: { xpath: "//p" }
 
   - name: "Navigation: goto and refresh"
     steps:
-      - goto: { url: "https://example.com" }
+      - goto: { url: "data:text/html,%3Ch1%3EExample%20Domain%3C%2Fh1%3E%3Cp%3EA%20self-contained%20page%20for%20the%20Velocity%20web%20example.%3C%2Fp%3E%3Ca%20href%3D%22%23%22%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3ESecond%20page%3C%2Fh1%3E%27%3Breturn%20false%22%3EMore%3C%2Fa%3E" }
       - assertVisible: { text: "Example Domain" }
       - refresh: ~
       - assertVisible: { text: "Example Domain" }
 
   - name: "Link is visible and tappable"
     steps:
-      - goto: { url: "https://example.com" }
+      - goto: { url: "data:text/html,%3Ch1%3EExample%20Domain%3C%2Fh1%3E%3Cp%3EA%20self-contained%20page%20for%20the%20Velocity%20web%20example.%3C%2Fp%3E%3Ca%20href%3D%22%23%22%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3ESecond%20page%3C%2Fh1%3E%27%3Breturn%20false%22%3EMore%3C%2Fa%3E" }
       - assertVisible: { css: "a" }
       - tap: { css: "a" }
+      - assertVisible: { text: "Second page" }
       - screenshot: { filename: "05-after-tap.png" }

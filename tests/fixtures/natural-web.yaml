@@ -1,0 +1,42 @@
+# Natural-language web test (passmark-style).
+#
+# Steps are written in plain English and resolved to concrete actions at run time
+# by the LLM planner. Requires ANTHROPIC_API_KEY to be set; the first run plans
+# each step and caches the result to .velocity/nl-cache.json, so reruns replay
+# instantly with no model calls. A step that later fails is dropped from the
+# cache and re-planned on the next run (self-healing).
+#
+#   export ANTHROPIC_API_KEY=sk-ant-...
+#   velocity run tests/fixtures/natural-web.yaml --platform web
+
+appId: "https://demo.vercel.store"
+config:
+  platform: web
+
+tests:
+  - name: "Shopping cart — add product"
+    steps:
+      # Bare strings are natural-language actions.
+      - "Navigate to https://demo.vercel.store"
+      - "Click the Acme Circles T-Shirt product"
+
+      # `do:` is the explicit form; `data` supplies a value, `waitUntil` a
+      # follow-up condition to settle on.
+      - do: "Select the shirt color"
+        data: { value: "White" }
+      - do: "Select the size"
+        data: { value: "S" }
+      - do: "Add the shirt to the cart"
+        waitUntil: "the cart drawer is visible"
+
+      # `assert:` / `expect:` are natural-language checks.
+      - assert: "the cart shows the Acme Circles T-Shirt"
+      - expect: "the cart subtotal is visible"
+
+  # Natural steps interoperate freely with the explicit selector DSL — mix per
+  # step, using whichever is clearer.
+  - name: "Mixed natural + explicit"
+    steps:
+      - "Open the search box"
+      - inputText: { selector: { css: "input[type='search']" }, text: "hoodie" }
+      - "Assert that search results are shown"
