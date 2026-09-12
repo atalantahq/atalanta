@@ -1,0 +1,119 @@
+# Device smoke tests (C5). Opt-in: they need a simulator or an emulator,
+# take 15-30 minutes, and must never turn the regular CI red. Run them from
+# the Actions tab (workflow_dispatch) or by adding the `device-ci` label to
+# a pull request.
+#
+# With no app given, each job drives the platform's own Settings app with a
+# tiny suite (tests/smoke/*.yaml). Give `app_url` (a zipped simulator .app)
+# and `suite` (a suite in this repository) to run your own app instead.
+name: Device smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: "URL of a zipped iOS simulator build of an app (optional)"
+        required: false
+        default: ""
+      suite:
+        description: "Suite to run against that app (with app_url)"
+        required: false
+        default: "tests/smoke/ios-settings.yaml"
+  pull_request:
+    types: [labeled, synchronize, reopened]
+
+# A run started by an unrelated label gets a group of its own: sharing the
+# PR's group would cancel the device run in progress even though every job
+# of the new run is skipped.
+concurrency:
+  group: device-smoke-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'device-ci' && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ios-simulator:
+    name: iOS simulator smoke
+    # Another label being added is not a reason to run (or restart).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (contains(github.event.pull_request.labels.*.name, 'device-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'device-ci'))
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build velocity
+        run: cargo build --release -p velocity-cli
+      - name: Boot a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; print(next(x["udid"] for r,v in d.items() if "iOS" in r for x in v if x["name"].startswith("iPhone")))')
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+      - name: Install the app (when given)
+        if: inputs.app_url != ''
+        env:
+          APP_URL: ${{ inputs.app_url }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "$APP_URL" -o app.zip
+          unzip -q app.zip -d app
+          xcrun simctl install "${{ steps.sim.outputs.udid }}" "$(find app -name '*.app' -maxdepth 3 | head -1)"
+      - name: Run the suite
+        env:
+          SUITE: ${{ inputs.app_url != '' && inputs.suite || 'tests/smoke/ios-settings.yaml' }}
+        run: |
+          ./target/release/velocity run "$SUITE" \
+            --device "${{ steps.sim.outputs.udid }}" \
+            --report junit,json,github --artifacts-dir velocity-results
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-smoke-results
+          path: velocity-results
+          retention-days: 7
+
+  android-emulator:
+    name: Android emulator smoke
+    # Another label being added is not a reason to run (or restart).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (contains(github.event.pull_request.labels.*.name, 'device-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'device-ci'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build velocity
+        run: cargo build --release -p velocity-cli
+      - name: Run the suite on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: ./target/release/velocity run tests/smoke/android-settings.yaml --report junit,json,github --artifacts-dir velocity-results
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke-results
+          path: velocity-results
+          retention-days: 7

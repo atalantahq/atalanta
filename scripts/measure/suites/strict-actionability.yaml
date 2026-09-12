@@ -1,0 +1,33 @@
+# Measurement suite for scripts/measure/strict-actionability.sh (P5): what
+# the pre-action checks cost per action. The script runs it with
+# selectors.strict on and off and with actionableWaitMs 0 / default, and
+# prints the per-tap difference.
+#
+# Defaults to the emulator's Settings app (Android). APP_ID, MEASURE_TAP
+# (a row to open) and MEASURE_BACK_TO (text on the first screen) point it
+# at another app; on iOS set PLATFORM=ios and an app whose back key works.
+# Not run by CI: needs a device.
+appId: com.android.settings
+
+config:
+  platform: android
+  retry:
+    count: 0
+
+tests:
+  - name: strict_actionability_cost
+    tags: [measure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "${MEASURE_BACK_TO:-Network}" }
+      - tap: { textContains: "${MEASURE_TAP:-Network}" }
+      - pressKey: { key: back }
+      - tap: { textContains: "${MEASURE_TAP:-Network}" }
+      - pressKey: { key: back }
+      - tap: { textContains: "${MEASURE_TAP:-Network}" }
+      - pressKey: { key: back }
+      - tap: { textContains: "${MEASURE_TAP:-Network}" }
+      - pressKey: { key: back }
+      - assertVisible: { textContains: "${MEASURE_BACK_TO:-Network}" }

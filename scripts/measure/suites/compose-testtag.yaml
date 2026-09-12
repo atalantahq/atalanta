@@ -1,0 +1,31 @@
+# Measurement suite for scripts/measure/compose-testtag.sh (P5): the cost of
+# reading Compose testTags (android.composeTestTag) per full tree dump.
+# Every assertVisible is one dump; the script runs this with the setting
+# on and off and prints the per-step difference.
+#
+# Defaults to the emulator's Settings app; for a real measurement point it
+# at a Compose app: APP_ID=<package> MEASURE_TEXT=<text on its first screen>.
+# Not run by CI: needs a device.
+appId: com.android.settings
+
+config:
+  platform: android
+  retry:
+    count: 0
+
+tests:
+  - name: compose_testtag_dump_cost
+    tags: [measure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      # The first dump reads every node's testTag; later ones hit the
+      # tree server's per-node cache. Both costs are printed.
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      - assertNotVisible: { text: "velocity-measure-no-such-element" }

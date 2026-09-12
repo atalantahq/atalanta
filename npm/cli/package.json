@@ -1,0 +1,29 @@
+{
+  "name": "@velocity-test/cli",
+  "version": "0.0.0-dev",
+  "description": "Velocity: fast, reliable mobile UI testing (Android, iOS, web) from YAML. Installs the prebuilt `velocity` binary.",
+  "keywords": ["testing", "mobile", "android", "ios", "e2e", "mcp"],
+  "homepage": "https://github.com/omkar-dev/velocity",
+  "bugs": "https://github.com/omkar-dev/velocity/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omkar-dev/velocity.git",
+    "directory": "npm/cli"
+  },
+  "license": "AGPL-3.0-only",
+  "bin": {
+    "velocity": "bin/velocity.js"
+  },
+  "files": [
+    "bin/velocity.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "@velocity-test/cli-darwin-arm64": "0.0.0-dev",
+    "@velocity-test/cli-darwin-x64": "0.0.0-dev",
+    "@velocity-test/cli-linux-arm64": "0.0.0-dev",
+    "@velocity-test/cli-linux-x64": "0.0.0-dev"
+  }
+}

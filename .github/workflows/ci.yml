@@ -6,19 +6,43 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  check:
-    name: Check
+  # The inspector's web UI is built here, never by build.rs. The Rust
+  # jobs below build without it (the inspector then serves its API and a
+  # "UI not built" page); the release job embeds this same build.
+  frontend:
+    name: Inspector frontend
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/velocity-inspector/frontend
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: crates/velocity-inspector/frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: test -f dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+          retention-days: 7
 
   fmt:
     name: Format
@@ -54,8 +78,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
+  # The release profile (fat LTO, one codegen unit) is the slowest job by
+  # far and catches nothing clippy and the tests don't, except a link or
+  # LTO failure: checked on main, not on every pull request.
   build:
     name: Build (${{ matrix.os }})
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -65,3 +93,58 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace --release
+
+  # The toolchain floor in Cargo.toml's `rust-version`.
+  msrv:
+    name: MSRV (1.89)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --locked
+
+  # What the release workflow relies on: the installer and release scripts,
+  # the formula renderer, the changelog entry for the workspace version, and
+  # crates that package (the published inspector carries the built UI).
+  release-files:
+    name: Release files
+    needs: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+      - run: shellcheck install.sh scripts/*.sh
+      - name: Changelog entry and formula for the workspace version
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          scripts/changelog-section.sh "$version" > /dev/null
+          scripts/render-formula.sh "$version" > /dev/null
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Package every crate
+        run: |
+          cargo package --workspace --locked --no-verify --allow-dirty
+          cargo package -p velocity-inspector --list --allow-dirty | grep -qx 'frontend/dist/index.html'
+
+  # Licences, bans and sources must pass. Advisories are reported but don't
+  # fail the build yet: lru, quick-xml and zip need major-version bumps
+  # (docs/SECURITY.md, supply chain).
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - checks: licenses bans sources
+            advisory: false
+          - checks: advisories
+            advisory: true
+    continue-on-error: ${{ matrix.advisory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
