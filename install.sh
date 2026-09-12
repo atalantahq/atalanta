@@ -1,123 +1,216 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+# Velocity installer: downloads a prebuilt release binary, checks it against
+# the release's SHA256SUMS, and puts it in a directory you own (no sudo).
+#
+#   curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | sh
+#   curl -fsSL .../install.sh | sh -s -- --version 0.2.0 --dir ~/bin
+#
+# Options (each also has an environment variable):
+#   --version X.Y.Z     VELOCITY_VERSION      release to install (default: latest)
+#   --dir DIR           VELOCITY_INSTALL_DIR  where to put `velocity` (default: ~/.velocity/bin)
+#   --no-modify-path    VELOCITY_NO_MODIFY_PATH=1  don't add DIR to your shell profile
+#   --verify-attestation  VELOCITY_VERIFY_ATTESTATION=1  also check the build's
+#                       provenance with `gh attestation verify` (needs the GitHub CLI)
+#
+# Supported: macOS (Apple silicon, Intel) and Linux (x86_64, arm64; static
+# binaries, any distribution). Windows is not supported.
+set -eu
 
-# Velocity installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | bash
-
+REPO="${VELOCITY_REPO:-omkar-dev/velocity}"
+# Where release assets live; overridable for mirrors and for testing.
+DOWNLOAD_BASE="${VELOCITY_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/download}"
 VERSION="${VELOCITY_VERSION:-latest}"
 INSTALL_DIR="${VELOCITY_INSTALL_DIR:-$HOME/.velocity/bin}"
-REPO="omkar-dev/velocity"
+MODIFY_PATH=1
+[ "${VELOCITY_NO_MODIFY_PATH:-0}" = 1 ] && MODIFY_PATH=0
+VERIFY_ATTESTATION="${VELOCITY_VERIFY_ATTESTATION:-0}"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m'
+if [ -t 2 ]; then
+    BOLD=$(printf '\033[1m'); RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+    BOLD=''; RED=''; GREEN=''; RESET=''
+fi
 
-info() { echo -e "${BLUE}${BOLD}info:${NC} $1"; }
-success() { echo -e "${GREEN}${BOLD}success:${NC} $1"; }
-error() { echo -e "${RED}${BOLD}error:${NC} $1" >&2; exit 1; }
-
-# Detect OS and architecture
-detect_platform() {
-    local os arch
-
-    case "$(uname -s)" in
-        Linux*)  os="linux" ;;
-        Darwin*) os="macos" ;;
-        *)       error "Unsupported OS: $(uname -s). Velocity supports macOS and Linux." ;;
-    esac
-
-    case "$(uname -m)" in
-        x86_64|amd64)  arch="x86_64" ;;
-        arm64|aarch64) arch="aarch64" ;;
-        *)             error "Unsupported architecture: $(uname -m)" ;;
-    esac
-
-    echo "${os}-${arch}"
+info() { printf '%s\n' "$*" >&2; }
+ok() { printf '%s%s%s\n' "$GREEN" "$*" "$RESET" >&2; }
+die() {
+    printf '%serror:%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2
+    exit 1
 }
 
-# Get the download URL for the latest release
-get_download_url() {
-    local platform="$1"
+usage() {
+    sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' >&2 || true
+    exit "${1:-0}"
+}
 
-    if [ "$VERSION" = "latest" ]; then
-        local url="https://api.github.com/repos/${REPO}/releases/latest"
-        local release_info
-        release_info=$(curl -fsSL "$url" 2>/dev/null) || error "Failed to fetch latest release info"
-        VERSION=$(echo "$release_info" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')
+while [ $# -gt 0 ]; do
+    case $1 in
+        --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION=$2; shift 2 ;;
+        --version=*) VERSION=${1#*=}; shift ;;
+        --dir) [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR=$2; shift 2 ;;
+        --dir=*) INSTALL_DIR=${1#*=}; shift ;;
+        --no-modify-path) MODIFY_PATH=0; shift ;;
+        --verify-attestation) VERIFY_ATTESTATION=1; shift ;;
+        -h|--help) usage 0 ;;
+        *) die "unknown option: $1 (see --help)" ;;
+    esac
+done
+
+need() { command -v "$1" >/dev/null 2>&1; }
+
+# download URL FILE
+download() {
+    if need curl; then
+        curl --proto '=https,file' --tlsv1.2 -fsSL --retry 3 -o "$2" "$1"
+    elif need wget; then
+        wget -q -O "$2" "$1"
+    else
+        die "need curl or wget to download Velocity"
     fi
+}
 
-    echo "https://github.com/${REPO}/releases/download/${VERSION}/velocity-${platform}.tar.gz"
+detect_target() {
+    os=$(uname -s)
+    arch=$(uname -m)
+    case $os in
+        Darwin)
+            # A shell under Rosetta reports x86_64 on Apple silicon: use the
+            # native build.
+            if [ "$arch" = x86_64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = 1 ]; then
+                arch=arm64
+            fi
+            case $arch in
+                arm64|aarch64) echo aarch64-apple-darwin ;;
+                x86_64) echo x86_64-apple-darwin ;;
+                *) die "unsupported macOS architecture: $arch" ;;
+            esac
+            ;;
+        Linux)
+            case $arch in
+                x86_64|amd64) echo x86_64-unknown-linux-musl ;;
+                aarch64|arm64) echo aarch64-unknown-linux-musl ;;
+                *) die "unsupported Linux architecture: $arch (prebuilt binaries: x86_64, arm64). Build from source: cargo install velocity-cli" ;;
+            esac
+            ;;
+        MINGW*|MSYS*|CYGWIN*|Windows_NT)
+            die "Windows is not supported. Velocity runs on macOS and Linux (WSL2 counts as Linux)." ;;
+        *)
+            die "unsupported OS: $os. Velocity runs on macOS and Linux." ;;
+    esac
+}
+
+resolve_version() {
+    if [ "$VERSION" = latest ]; then
+        need curl || die "resolving the latest release needs curl; set VELOCITY_VERSION instead"
+        # The /releases/latest page redirects to /releases/tag/vX.Y.Z; no API
+        # call, so no rate limit.
+        url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest") ||
+            die "could not find the latest release of ${REPO} (none published yet, or GitHub unreachable); set VELOCITY_VERSION=X.Y.Z"
+        VERSION=${url##*/}
+        case $VERSION in
+            v[0-9]*) ;;
+            *) die "could not find the latest release of ${REPO} (got '$url')" ;;
+        esac
+    fi
+    VERSION=${VERSION#v}
+    case $VERSION in
+        [0-9]*.[0-9]*.[0-9]*) ;;
+        *) die "invalid version '$VERSION' (expected X.Y.Z)" ;;
+    esac
+}
+
+sha256_of() {
+    if need sha256sum; then
+        sha256sum "$1" | awk '{print $1}'
+    elif need shasum; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    elif need openssl; then
+        openssl dgst -sha256 "$1" | awk '{print $NF}'
+    else
+        die "need sha256sum, shasum or openssl to verify the download"
+    fi
+}
+
+add_to_path() {
+    case ":${PATH}:" in
+        *":${INSTALL_DIR}:"*) return 0 ;;
+    esac
+    if [ "$MODIFY_PATH" != 1 ]; then
+        info "Add ${INSTALL_DIR} to your PATH to run velocity."
+        return 0
+    fi
+    case ${SHELL:-} in
+        */zsh) profile="${ZDOTDIR:-$HOME}/.zshrc"; line="export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+        */bash)
+            profile="$HOME/.bashrc"
+            [ "$(uname -s)" = Darwin ] && profile="$HOME/.bash_profile"
+            line="export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+        */fish) profile="$HOME/.config/fish/config.fish"; line="fish_add_path \"${INSTALL_DIR}\"" ;;
+        *) info "Add ${INSTALL_DIR} to your PATH to run velocity."; return 0 ;;
+    esac
+    if [ -f "$profile" ] && grep -F "$INSTALL_DIR" "$profile" >/dev/null 2>&1; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$profile")"
+    printf '\n# Velocity\n%s\n' "$line" >>"$profile"
+    info "Added ${INSTALL_DIR} to PATH in ${profile} (open a new terminal, or: . ${profile})."
 }
 
 main() {
-    echo ""
-    echo -e "${BOLD}  ⚡ Velocity Installer${NC}"
-    echo ""
+    target=$(detect_target)
+    resolve_version
+    archive="velocity-${VERSION}-${target}.tar.gz"
+    base="${DOWNLOAD_BASE}/v${VERSION}"
 
-    local platform
-    platform=$(detect_platform)
-    info "Detected platform: ${platform}"
+    info "${BOLD}Installing Velocity ${VERSION} (${target})${RESET} into ${INSTALL_DIR}"
 
-    local download_url
-    download_url=$(get_download_url "$platform")
-    info "Downloading velocity ${VERSION}..."
+    tmp=$(mktemp -d 2>/dev/null || mktemp -d -t velocity)
+    trap 'rm -rf "$tmp"' EXIT INT TERM
 
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
+    download "${base}/${archive}" "${tmp}/${archive}" ||
+        die "download failed: ${base}/${archive} (is ${VERSION} a release with a build for ${target}?)"
+    download "${base}/SHA256SUMS" "${tmp}/SHA256SUMS" ||
+        die "could not download SHA256SUMS for ${VERSION}; refusing to install an unverified binary"
 
-    # Download and extract
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap "rm -rf $tmp_dir" EXIT
+    expected=$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "${tmp}/SHA256SUMS")
+    [ -n "$expected" ] || die "SHA256SUMS has no entry for ${archive}"
+    actual=$(sha256_of "${tmp}/${archive}")
+    [ "$expected" = "$actual" ] ||
+        die "checksum mismatch for ${archive}: expected ${expected}, got ${actual}"
+    info "Checksum verified (sha256 ${actual})."
 
-    if curl -fsSL "$download_url" -o "${tmp_dir}/velocity.tar.gz" 2>/dev/null; then
-        tar -xzf "${tmp_dir}/velocity.tar.gz" -C "$INSTALL_DIR"
-        chmod +x "${INSTALL_DIR}/velocity"
-    else
-        # If no release binary, fall back to cargo install
-        info "No pre-built binary found. Building from source via cargo..."
-        if ! command -v cargo &>/dev/null; then
-            error "cargo not found. Install Rust first: https://rustup.rs"
-        fi
-        cargo install --git "https://github.com/${REPO}.git" velocity-cli --root "${INSTALL_DIR%/bin}"
+    if [ "$VERIFY_ATTESTATION" = 1 ]; then
+        need gh || die "--verify-attestation needs the GitHub CLI (gh)"
+        gh attestation verify "${tmp}/${archive}" --repo "$REPO" >/dev/null ||
+            die "build provenance attestation did not verify for ${archive}"
+        info "Build provenance attestation verified."
     fi
 
-    # Add to PATH
-    local shell_config=""
-    case "${SHELL:-}" in
-        */zsh)  shell_config="$HOME/.zshrc" ;;
-        */bash) shell_config="$HOME/.bashrc" ;;
-        */fish) shell_config="$HOME/.config/fish/config.fish" ;;
-    esac
+    tar -xzf "${tmp}/${archive}" -C "$tmp" || die "could not unpack ${archive}"
+    bin="${tmp}/velocity-${VERSION}-${target}/velocity"
+    [ -f "$bin" ] || die "${archive} has no velocity binary"
 
-    local path_entry="export PATH=\"${INSTALL_DIR}:\$PATH\""
-    if [ -n "$shell_config" ] && ! grep -q ".velocity/bin" "$shell_config" 2>/dev/null; then
-        echo "" >> "$shell_config"
-        echo "# Velocity" >> "$shell_config"
-        if [[ "$shell_config" == *"fish"* ]]; then
-            echo "set -gx PATH ${INSTALL_DIR} \$PATH" >> "$shell_config"
-        else
-            echo "$path_entry" >> "$shell_config"
-        fi
-        info "Added ${INSTALL_DIR} to PATH in ${shell_config}"
+    if ! mkdir -p "$INSTALL_DIR" 2>/dev/null || [ ! -w "$INSTALL_DIR" ]; then
+        die "${INSTALL_DIR} is not writable. Pick a directory you own (--dir ~/bin), or run this script with sudo yourself if you really want a system directory."
+    fi
+    # Write next to the target and rename, so a running velocity is never
+    # half-overwritten.
+    cp "$bin" "${INSTALL_DIR}/.velocity.tmp.$$"
+    chmod 755 "${INSTALL_DIR}/.velocity.tmp.$$"
+    mv -f "${INSTALL_DIR}/.velocity.tmp.$$" "${INSTALL_DIR}/velocity"
+
+    if [ "$(uname -s)" = Darwin ]; then
+        # Downloaded with curl, so normally not quarantined; clear it anyway.
+        xattr -d com.apple.quarantine "${INSTALL_DIR}/velocity" 2>/dev/null || true
     fi
 
-    export PATH="${INSTALL_DIR}:$PATH"
+    "${INSTALL_DIR}/velocity" --version >/dev/null 2>&1 ||
+        die "installed ${INSTALL_DIR}/velocity but it does not run on this machine"
 
-    echo ""
-    success "Velocity installed successfully!"
-    echo ""
-    echo -e "  Run ${BOLD}velocity version${NC} to verify."
-    echo -e "  Run ${BOLD}velocity run tests/${NC} to start testing."
-    echo ""
-
-    if [ -n "$shell_config" ]; then
-        echo -e "  ${BLUE}Restart your terminal or run:${NC} source ${shell_config}"
-        echo ""
-    fi
+    add_to_path
+    ok "Velocity ${VERSION} installed: ${INSTALL_DIR}/velocity"
+    info "Next: velocity doctor   (checks adb, Xcode, devices)"
+    info "      velocity init     (writes a starter suite)"
 }
 
 main

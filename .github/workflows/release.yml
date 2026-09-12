@@ -1,39 +1,133 @@
 name: Release
 
+# A tag vX.Y.Z builds the four release binaries (the inspector web UI
+# embedded), checksums and attests them, and publishes a GitHub release
+# whose notes are CHANGELOG.md's `## [X.Y.Z]` section, with the rendered
+# Homebrew formula attached.
+#
+# Assets: velocity-<version>-<target>.tar.gz (a velocity-<version>-<target>/
+# directory holding velocity, LICENSE, NOTICE, README.md, CHANGELOG.md),
+# SHA256SUMS, velocity.rb. install.sh, the Homebrew formula and the npm
+# packages all read these names.
+#
+# The publish jobs (crates.io, npm, Homebrew tap) are off until the owner
+# turns each on with a repository variable (Settings > Secrets and
+# variables > Actions > Variables):
+#   PUBLISH_CRATES=true   needs secret CARGO_REGISTRY_TOKEN
+#   PUBLISH_NPM=true      needs secret NPM_TOKEN (an npm automation token for
+#                         the @velocity-test scope)
+#   PUBLISH_HOMEBREW=true needs secret HOMEBREW_TAP_TOKEN (contents:write on
+#                         omkar-dev/homebrew-velocity)
+# Windows is not supported, so there is no Windows build.
+
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # The tag, the workspace version and the changelog must agree before
+  # anything is built.
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches Cargo.toml and CHANGELOG.md
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          cargo_version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ "$version" != "$cargo_version" ]; then
+            echo "::error::tag $tag does not match the workspace version $cargo_version"
+            exit 1
+          fi
+          scripts/changelog-section.sh "$version" > /dev/null
+          if grep -q "^## \[$version\] - unreleased" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md still says $version is unreleased; give it the release date"
+            exit 1
+          fi
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  # The inspector's web UI, built once and embedded in every binary
+  # (build.rs never runs npm).
+  frontend:
+    name: Inspector frontend
+    needs: preflight
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/velocity-inspector/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: crates/velocity-inspector/frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: test -f dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+          if-no-files-found: error
+
   build:
     name: Build (${{ matrix.target }})
+    needs: [preflight, frontend]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # build provenance attestation
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          # Static musl binaries, cross-built with zig as the C compiler and
+          # linker (ring is the only C in the tree): they run on any Linux.
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: velocity-linux-x86_64
-          - target: aarch64-unknown-linux-gnu
+            zig: true
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
-            artifact: velocity-linux-aarch64
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            artifact: velocity-macos-x86_64
+            zig: true
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact: velocity-macos-aarch64
-
+          - target: x86_64-apple-darwin
+            os: macos-latest
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+      TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+
+      # The inspector UI is embedded at compile time from this folder.
+      - name: Download inspector frontend
+        uses: actions/download-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+      - name: Check the inspector frontend is in place
+        shell: bash
+        run: test -f crates/velocity-inspector/frontend/dist/index.html
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -43,104 +137,213 @@ jobs:
         with:
           key: ${{ matrix.target }}
 
-      # Cross-compilation toolchain for Linux ARM64
-      - name: Install cross-compilation tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} -p velocity-cli
-
-      - name: Package artifact
+      - name: Install zig and cargo-zigbuild
+        if: matrix.zig
         shell: bash
         run: |
-          mkdir -p staging
-          cp target/${{ matrix.target }}/release/velocity staging/
-          cd staging
-          tar czf ../${{ matrix.artifact }}.tar.gz velocity
-          cd ..
-          shasum -a 256 ${{ matrix.artifact }}.tar.gz > ${{ matrix.artifact }}.tar.gz.sha256
+          python3 -m pip install --user ziglang==0.13.0.post1
+          cargo install --locked cargo-zigbuild@0.20.1
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Build release binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.zig }}" = "true" ]; then
+            cargo zigbuild --release --locked --target "$TARGET" -p velocity-cli
+          else
+            cargo build --release --locked --target "$TARGET" -p velocity-cli
+          fi
+
+      - name: Check the binary
+        shell: bash
+        run: |
+          bin="target/$TARGET/release/velocity"
+          file "$bin"
+          # A binary without the UI would serve "UI not built": refuse to ship it.
+          grep -aq '<title>Velocity Inspector</title>' "$bin"
+          case "$TARGET" in
+            *linux-musl)
+              file "$bin" | grep -Eq 'statically linked|static-pie linked' ||
+                { echo "::error::$bin is not statically linked"; exit 1; } ;;
+          esac
+          # Run it where the runner can (Apple silicon runs x86_64 via Rosetta).
+          case "$TARGET" in
+            x86_64-unknown-linux-musl|*-apple-darwin)
+              "$bin" --version
+              "$bin" --version | grep -q "$VERSION" ;;
+          esac
+
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          name="velocity-${VERSION}-${TARGET}"
+          mkdir -p "dist/$name"
+          cp "target/$TARGET/release/velocity" LICENSE NOTICE README.md CHANGELOG.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          echo "archive=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
         with:
-          name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.artifact }}.tar.gz
-            ${{ matrix.artifact }}.tar.gz.sha256
+          subject-path: ${{ steps.package.outputs.archive }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
 
   release:
-    name: Create Release
-    needs: build
+    name: GitHub release
+    needs: [preflight, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      # Only the release tarballs: `inspector-dist` is a build input.
+      - name: Download release archives
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: assets
+          pattern: velocity-*
           merge-multiple: true
 
-      - name: Generate changelog
-        id: changelog
+      - name: Checksums, formula and notes
+        shell: bash
         run: |
-          # Get previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
-          CURRENT_TAG=${GITHUB_REF#refs/tags/}
-
-          echo "## What's Changed" > changelog.md
-          echo "" >> changelog.md
-
-          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$CURRENT_TAG" ]; then
-            git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s (%h)" --no-merges >> changelog.md
-          else
-            git log --pretty=format:"- %s (%h)" --no-merges -20 >> changelog.md
+          cd assets
+          count=$(find . -maxdepth 1 -name "velocity-${VERSION}-*.tar.gz" | wc -l)
+          if [ "$count" -ne 4 ]; then
+            echo "::error::expected 4 archives, found $count"; ls -l; exit 1
           fi
+          sha256sum velocity-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+          cd ..
+          scripts/render-formula.sh "$VERSION" assets/SHA256SUMS > assets/velocity.rb
+          {
+            scripts/changelog-section.sh "$VERSION"
+            echo
+            echo "## Install"
+            echo
+            echo '```sh'
+            echo "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh"
+            echo "brew install omkar-dev/velocity/velocity"
+            echo "npx @velocity-test/cli --version"
+            echo "cargo install velocity-cli --locked"
+            echo '```'
+            echo
+            echo "Binaries: macOS (Apple silicon, Intel) and Linux (x86_64, arm64; static). Windows is not supported."
+            echo "Check a download: \`sha256sum -c SHA256SUMS --ignore-missing\`, and its provenance: \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`."
+          } > notes.md
 
-          echo "" >> changelog.md
-          echo "" >> changelog.md
-          echo "## Installation" >> changelog.md
-          echo "" >> changelog.md
-          echo '```bash' >> changelog.md
-          echo "curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | bash" >> changelog.md
-          echo '```' >> changelog.md
-          echo "" >> changelog.md
-          echo "Or download the binary for your platform below." >> changelog.md
+      - name: Attest the checksum file
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: assets/SHA256SUMS
 
-      - name: Create GitHub Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: changelog.md
-          files: artifacts/*
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Velocity ${{ needs.preflight.outputs.version }}
+          body_path: notes.md
+          prerelease: ${{ needs.preflight.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true
+          files: |
+            assets/velocity-*.tar.gz
+            assets/SHA256SUMS
+            assets/velocity.rb
 
-  # Optional: publish to crates.io (uncomment when ready)
-  # publish:
-  #   name: Publish to crates.io
-  #   needs: release
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: dtolnay/rust-toolchain@stable
-  #     - name: Publish crates
-  #       env:
-  #         CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-  #       run: |
-  #         cargo publish -p velocity-common
-  #         sleep 30
-  #         cargo publish -p velocity-core
-  #         sleep 30
-  #         cargo publish -p velocity-android
-  #         cargo publish -p velocity-ios
-  #         sleep 30
-  #         cargo publish -p velocity-runner
-  #         cargo publish -p velocity-mcp
-  #         cargo publish -p velocity-migrate
-  #         sleep 30
-  #         cargo publish -p velocity-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: formula
+          path: assets/velocity.rb
+
+  crates:
+    name: Publish to crates.io
+    needs: [preflight, release]
+    if: vars.PUBLISH_CRATES == 'true' && needs.preflight.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # velocity-inspector's package carries the built UI (its `include`).
+      - uses: actions/download-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+      - run: test -f crates/velocity-inspector/frontend/dist/index.html
+      - uses: dtolnay/rust-toolchain@stable
+      # Every workspace crate, in dependency order; `--allow-dirty` only
+      # because frontend/dist is gitignored.
+      - run: cargo publish --workspace --locked --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  npm:
+    name: Publish to npm
+    needs: [preflight, release]
+    if: vars.PUBLISH_NPM == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          pattern: velocity-*
+          merge-multiple: true
+      - run: node npm/assemble.mjs --version "$VERSION" --artifacts assets --out npm/dist
+      # Platform packages before the launcher that depends on them.
+      - name: Publish
+        shell: bash
+        run: |
+          tag=latest
+          [ "${{ needs.preflight.outputs.prerelease }}" = "true" ] && tag=next
+          for dir in npm/dist/cli-*/ npm/dist/cli/; do
+            npm publish "$dir" --access public --provenance --tag "$tag"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  homebrew:
+    name: Update the Homebrew tap
+    needs: [preflight, release]
+    if: vars.PUBLISH_HOMEBREW == 'true' && needs.preflight.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: formula
+      - uses: actions/checkout@v4
+        with:
+          repository: omkar-dev/homebrew-velocity
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Commit the formula
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          mkdir -p tap/Formula
+          cp velocity.rb tap/Formula/velocity.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/velocity.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "velocity ${VERSION}"
+          git push
