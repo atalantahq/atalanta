@@ -1,210 +1,152 @@
 # Velocity
 
-**The fastest mobile UI testing framework. Written in Rust.**
+**Mobile UI tests that an AI writes once and CI replays for free. Written in Rust.**
 
-[Install](#installation) | [Quick Start](#quick-start) | [Why Velocity](#why-velocity) | [Contributing](CONTRIBUTING.md)
+Velocity runs YAML test suites on Android emulators and devices, iOS simulators and devices, and Chrome. It is one static binary: no JVM, no Node, no Appium server. An AI agent can explore your app and write a deterministic test; the test then runs at native speed with no model in the loop.
 
----
+[Install](#install) · [The story](#from-zero-to-ci) · [Console](#the-console) · [Agents (MCP)](#agents-mcp) · [API tests](#api-tests) · [Failure evidence](#failure-evidence) · [AI providers](#ai-providers) · [Security](#security-notes) · [Docs](docs/README.md)
 
-Velocity is a cross-platform mobile testing framework built for speed and reliability. It drives iOS simulators and Android emulators through a simple YAML-based test format — no compilation, no flaky waits, no Java runtime required.
-
-## Installation
-
-### Homebrew (macOS / Linux)
+## Install
 
 ```bash
-brew tap omkar-dev/velocity https://github.com/omkar-dev/velocity.git
-brew install velocity
+curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | sh   # macOS / Linux, x86_64 / arm64
+brew install omkar-dev/velocity/velocity
+npm install --save-dev @velocity-test/cli        # or: npx @velocity-test/cli --version
+cargo install velocity-cli --locked
 ```
 
-### Shell script
+Every route installs the same release, console web UI included. The script downloads the binary for your machine, checks it against the release's `SHA256SUMS`, and installs into `~/.velocity/bin` without sudo (`--dir DIR`, `--version X.Y.Z` or `VELOCITY_VERSION` to choose; `--no-modify-path` to leave your shell profile alone). Release archives are `velocity-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (static); each has a build provenance attestation (`gh attestation verify <file> --repo omkar-dev/velocity`). Windows is not supported (WSL2 works as Linux). `brew install --HEAD omkar-dev/velocity/velocity` builds `main` from source with the UI. A plain `cargo build` from a checkout has no UI until you run `npm ci && npm run build` in `crates/velocity-inspector/frontend`; it then serves the API with a page saying so.
+
+Needs: Android SDK platform-tools (`adb`) for Android; macOS with Xcode for iOS (WebDriverAgent is cloned at a pinned tag and built once per Xcode); Chrome for the web.
+
+## From zero to CI
+
+### 1. Check the machine, write a first test
+
+With an emulator or simulator running and your app on it:
 
 ```bash
-curl -fsSL "https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh" | bash
+velocity doctor            # adb, Xcode, devices, runner builds, Chrome, AI keys, your suites; --fix applies the safe fixes
+velocity init --run        # reads the app's launch screen, writes velocity/<app>.yaml and a CI example, runs it
 ```
 
-Works on **macOS** and **Linux** (x86_64 and ARM64). No JVM required.
+`velocity init` asserts one or two stable elements of the first screen (an id first, else a short unique text). It asks what it needs on a terminal; in CI pass everything: `velocity init --platform android --app-id com.example.app --yes --run`. It never overwrites a file without `--force`.
 
-### Cargo
+### 2. Let an agent explore a goal
 
 ```bash
-cargo install --git https://github.com/omkar-dev/velocity.git velocity-cli
+velocity explore "open Network & internet" --app-id com.android.settings
 ```
 
-## Quick Start
+An agent works through the goal on the device, one operation per turn. The model only picks an operation and an element number; code builds every selector and fills every value. The session is written as plain YAML with an `assertVisible` after each screen change and assertions on the evidence the checker cited for the goal. Volatile text (times, prices, counters) is never asserted and `--secret` values are written only as `${NAME}`. The test is then replayed with **zero model calls** to prove it holds, and repaired once if a replay fails. `--script plan.json` plays a fixed plan instead of a model. Details: [docs/EXPLORE.md](docs/EXPLORE.md).
 
-**Write a test** in simple YAML:
+### 3. Run it, review it, commit it
+
+```bash
+velocity run open-network-internet.yaml
+```
+
+The test is ordinary YAML; you can also write one by hand:
 
 ```yaml
-# login_test.yaml
-name: Login Flow
-platform: ios
-
-steps:
-  - launchApp:
-      id: "com.example.app"
-  - tapOn:
-      id: "email_field"
-  - inputText:
-      text: "user@example.com"
-  - tapOn:
-      id: "password_field"
-  - inputText:
-      text: "secret123"
-  - tapOn:
-      id: "login_button"
-  - assertVisible:
-      id: "welcome_screen"
+appId: com.example.app
+tests:
+  - name: Log in
+    steps:
+      - launchApp: { clearState: true }
+      - inputText: { selector: { id: email }, text: "qa@example.com" }
+      - inputText: { selector: { id: password }, text: "${LOGIN_PASSWORD}" }
+      - tap: { id: login_button }
+      - assertVisible: { text: "Welcome" }
+      - do: "open the first order"          # a natural-language step, resolved by a model and cached once verified
 ```
 
-**Run it:**
+Every step waits for its element and for the screen to settle (no sleeps); a target must be enabled and still before it is tapped. Failures point at `file:line`. A test that passes only on a retry is reported as flaky. Suite format: [docs/DSL.md](docs/DSL.md) and the generated [DSL reference](docs/DSL-REFERENCE.md).
+
+### 4. CI
 
 ```bash
-velocity run login_test.yaml
+velocity run tests/ --parallel 4 --report junit,github --retries 1   # every booted device, failed tests retried on another device
+velocity run tests/ --shard 2/4 --shard-timings history/             # one CI shard, balanced by past durations
+velocity run tests/ --changed-since origin/main                      # only the tests a change can affect
 ```
 
-**That's it.** No setup, no boilerplate, no waiting.
+Devices are leased across processes, so parallel runs, the console and an MCP agent never drive the same device. `velocity init` writes a sharded GitHub Actions example to `velocity/ci/`. Exit codes: 0 passed, 1 a test failed, 2 configuration, 3 device, 4 suite timeout, 5 internal. Sharing history between jobs, cancelled jobs, secrets and baselines: [docs/CI.md](docs/CI.md).
 
-## Why Velocity
-
-### Built on the lessons of Appium, Espresso, UITest, and Maestro
-
-We studied every major mobile testing tool and built something faster.
-
-| Feature | Velocity | Maestro | Appium |
-| --- | :---: | :---: | :---: |
-| Language | Rust | Kotlin/JVM | Node.js/Java |
-| Startup time | **~50ms** | ~3s | ~10s |
-| No JVM required | **Yes** | No | No |
-| YAML test format | **Yes** | Yes | No |
-| Built-in flakiness tolerance | **Yes** | Yes | No |
-| Parallel execution | **Yes** | Cloud only | Plugin |
-| Built-in sharding | **Yes** | Cloud only | No |
-| AI-native (MCP server) | **Yes** | Studio only | No |
-| Circuit breaker / retry | **Yes** | Basic | No |
-| Real-time streaming | **Yes** | No | No |
-| JUnit + JSON reports | **Yes** | Yes | Plugin |
-| Migrate from Maestro | **Yes** | — | — |
-| Single binary, zero deps | **Yes** | No | No |
-| Memory footprint | **~15MB** | ~200MB+ | ~500MB+ |
-
-### Rust-native performance
-
-Velocity is a single static binary with no runtime dependencies. No JVM warmup, no garbage collection pauses, no `node_modules`. Tests start executing in milliseconds, not seconds.
-
-### Built-in flakiness tolerance
-
-Every interaction automatically waits for elements to become available with configurable timeouts. The driver layer includes retry policies with exponential backoff and circuit breakers that prevent cascading failures when a device becomes unresponsive.
-
-### Parallel-first execution
-
-Run tests across multiple devices simultaneously with intelligent sharding — locally, not just in the cloud:
+## The console
 
 ```bash
-# Run across 4 devices in parallel
-velocity run tests/ --parallel --shards 4
+velocity inspect --open
 ```
 
-### AI-native testing via MCP
+One browser page for every booted Android device, iOS simulator and the web browser:
 
-Velocity includes a built-in MCP (Model Context Protocol) server that exposes device interaction as tools. Connect any LLM agent to autonomously explore and test your mobile app:
+- **Live mirror.** Android streams H.264 from Velocity's on-device encoder (~30 fps, decoded by WebCodecs); iOS simulators stream WebDriverAgent's MJPEG (~26 fps); the web streams Chrome's screencast. Click, drag, scroll and type on it; driving takes the device's lease, watching doesn't.
+- **Element overlay.** Hover the mirror to see the element and the selector Velocity would use, with "copy as YAML".
+- **Run panel.** Run a suite or one test from the project; steps stream in live, and a failure's `trace.html`, video and logs are a click away.
+- **Explore panel.** Type a goal, watch the agent's turns, steer it with an instruction, then read the YAML it wrote, its replays (no model calls) and the tokens it spent, and save it into the project.
+- **Diagnostics.** `velocity doctor`'s checks, with their fixes.
+
+Flags and the HTTP API: [docs/CLI.md](docs/CLI.md#inspect).
+
+## Agents (MCP)
 
 ```bash
-velocity mcp --port 3000
+velocity mcp install         # registers the server with every client found (Claude Code, Cursor, Codex, Windsurf, VS Code, Cline, Gemini CLI) and installs the agent rules
 ```
 
-Exposed tools: `tap`, `type`, `swipe`, `scroll`, `query_elements`, `assert_visible`, `run_flow`, `screenshot`, `device_info` — everything an AI agent needs to drive your app.
+The server (`velocity mcp`, JSON-RPC over stdio) has 31 tools. An agent reads the screen with `snapshot` (one line per element with a ref like `@e12`; `mode: "delta"` returns only what changed), acts by ref, exports what it did as YAML with assertions, and debugs with `describe_failure`, `inspect_trace` and `diagnose`. `run_task` runs a suite in the background, or with a `goal` runs `velocity explore`: the agent steers it with `task_inject`, polls `task_status` for the turn, then reviews the YAML it wrote and runs it. Passwords are typed by environment variable name and never returned. [docs/MCP.md](docs/MCP.md).
 
-### Migrate from Maestro in one command
+## API tests
 
-Already using Maestro? Switch in seconds:
-
-```bash
-velocity migrate maestro ./maestro-flows/
-```
-
-Converts your existing Maestro YAML flows to Velocity format automatically.
-
-## Features
-
-- **Cross-platform** — iOS (WebDriverAgent + simctl) and Android (ADB + UIAutomator)
-- **YAML test format** — human-readable, no compilation needed
-- **Parallel execution** — local multi-device sharding with smart scheduling
-- **Resilient drivers** — circuit breakers, retry policies, exponential backoff
-- **MCP server** — AI agents can drive mobile devices as tools
-- **Real-time streaming** — live test output and device state streaming
-- **Device farm** — manage and orchestrate pools of simulators/emulators
-- **Rich reporting** — JSON, JUnit XML, test history, artifact collection
-- **Framework migration** — one-command migration from Maestro
-- **Config validation** — validate test files before execution
-- **Environment support** — variable substitution and per-environment configs
-- **Smart selectors** — ID, text, accessibility label, XPath, class, and index selectors
-
-## Commands
-
-```text
-velocity run <path>                   Run test files or directories
-velocity run <path> --parallel        Run tests in parallel
-velocity run <path> --shards N        Split tests across N devices
-velocity device list                  List available simulators/emulators
-velocity device boot <id>             Boot a simulator/emulator
-velocity device shutdown <id>         Shut down a device
-velocity migrate maestro <path>       Convert Maestro flows to Velocity
-velocity mcp                          Start the MCP server
-velocity validate <path>              Validate test configuration
-velocity version                      Print version info
-```
-
-## Configuration
+An `http` step sends a request, checks the response (status, headers, JSONPath values, body, time), and captures values as `${NAME}` for later steps, UI steps included:
 
 ```yaml
-# velocity.yaml
-platform: ios
-timeout: 30s
-retry:
-  max_attempts: 3
-  backoff: exponential
-parallel:
-  max_workers: 4
-reporters:
-  - json
-  - junit
-artifacts:
-  screenshots: on_failure
-  logs: always
+- http:
+    method: POST
+    url: /orders                    # after config.http.baseUrl
+    json: { sku: "A1", qty: 2 }
+    expect: { status: 201, json: { items[0].sku: A1, total: { gt: 0 } } }
+    capture: { ORDER_ID: id }
+- tap: { text: "Orders" }
+- assertVisible: { text: "${ORDER_ID}" }
 ```
 
-## Architecture
+A suite with only `http` steps is an API test suite: it runs without a device, in parallel with `--parallel`, into the same reports. A failure lists every check that failed and the start of the body. [docs/DSL.md](docs/DSL.md#http-and-api-tests).
 
-```text
-velocity-cli            CLI entry point (single binary)
-  ├── velocity-core       Test parsing, execution engine, selectors
-  ├── velocity-runner     Orchestration, parallel sharding, reporters
-  ├── velocity-android    Android driver (ADB / UIAutomator)
-  ├── velocity-ios        iOS driver (WebDriverAgent / simctl)
-  ├── velocity-mcp        MCP server for AI-driven testing
-  ├── velocity-migrate    Framework migration (Maestro → Velocity)
-  └── velocity-common     Shared types, errors, traits, resilience
+## Failure evidence
+
+A failed test keeps, next to its trace in `velocity-results/traces/<test>/`:
+
+- **`video.mp4`**: on Android from Velocity's own scrcpy-style encoder, muxed in Velocity (no ffmpeg), cut from a ring buffer of the last 30 s; on iOS simulators from `simctl io recordVideo`; on the web the screencast frames.
+- **Logs**: logcat (the device's and the app's own lines; crashes and ANRs are named in the failure), the simulator's log stream for the app, or the browser console and failed requests. Secrets are masked.
+- **`trace.html`**: one self-contained page with every step, its screenshot with the tap point marked, the selector and the element it resolved to, the video seeked to the selected step and the log lines around it. `velocity trace view velocity-results` opens an index.
+
+A passing test keeps nothing (`--video always`/`--logs always` keeps them anyway). `--pause-on-failure` stops at the first failing step with the device untouched: Enter goes on, `r` retries the step, `q` aborts. Reports (`html`, `junit`, `json`, `allure`) link it all. [docs/CLI.md](docs/CLI.md#failure-evidence).
+
+## AI providers
+
+Natural-language steps, `verify:` checks and `velocity explore` use one model service, chosen by name: 19 presets over three wire formats, including Anthropic, OpenAI, Azure OpenAI, Gemini, Bedrock, Vertex, OpenRouter, Groq, Mistral, DeepSeek, xAI, Ollama, LM Studio, vLLM and any OpenAI-compatible endpoint.
+
+```bash
+VELOCITY_NL_MODEL=gemini:gemini-3.8-flash velocity run app.yaml   # set only that provider's key variable
+velocity explore "add a card" --app-id com.example.app --model anthropic:claude-sonnet-5-5
 ```
 
-## Platform Requirements
+Whatever the provider, model output never becomes a selector or a typed value: code builds and checks both. Plans are cached once a run verifies them, so a stable screen replays without calling the model. The default models are provisional (unmeasured); `velocity nl-eval --model … --recommend` compares models on a fixed task set. [docs/AI-PROVIDERS.md](docs/AI-PROVIDERS.md).
 
-### iOS
+## Security notes
 
-- macOS with Xcode installed
-- Xcode Command Line Tools
-- WebDriverAgent (auto-bootstrapped on first run)
+- **The console** listens on 127.0.0.1 by default. Every request and WebSocket needs the per-session token from the printed URL, and `Host`/`Origin` are checked, so other sites and DNS rebinding can't reach it. `--host 0.0.0.0` exposes the device to the network behind the token, with a warning.
+- **WebDriverAgent on simulators.** A simulator shares the Mac's network. Velocity binds WDA's HTTP server to loopback (`USE_IP`), and patches its WDA clone so the MJPEG screen stream, which upstream opens on every interface without authentication, listens on loopback too. A WDA you start yourself (`VELOCITY_WDA_URL`), or one an older Velocity launched and kept running (`VELOCITY_KEEP_WDA`), still serves the simulator's screen to the LAN on its MJPEG port until it is restarted.
+- **Real iPhones.** The runner and WDA's stream bind the phone's loopback, reached through the USB forward (`VELOCITY_IOS_DEVICE_LOOPBACK=0` binds every interface). A Wi-Fi-only iPhone needs `ios.allowWifiRunner` with VelocityRunner, which requires its per-launch token on every request ([docs/DRIVERS.md](docs/DRIVERS.md)).
+- **Secrets** are read from environment variables, masked in every report, log and trace, never sent to a model, and written into generated YAML only as `${NAME}`. Over MCP an agent can type only the names listed in `VELOCITY_SECRETS`.
 
-### Android
+## More
 
-- Android SDK with platform-tools
-- `adb` available in PATH
-- An emulator or connected device
+- [docs/GUIDE.md](docs/GUIDE.md): the long form (selectors and roles, natural-language steps, visual checks, healing, sharding, app state and caching, headless, configuration, a command cheat sheet).
+- [docs/](docs/README.md): architecture, drivers, CLI and exit codes, CI, MCP, explore, AI providers.
+- [docs/STATUS.md](docs/STATUS.md): what has been verified on real emulators, simulators and browsers, and what has not. Real iPhones and Android hardware have not been used yet.
+- `velocity migrate maestro ./flows/` converts Maestro flows.
 
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
-
-## License
-
-GNU Affero General Public License v3 (AGPL-3.0-only) — see [LICENSE](LICENSE) for details.
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). License: GNU AGPL v3 ([LICENSE](LICENSE)).

@@ -1,967 +1,275 @@
-# Velocity — Architecture & Internals
+# Architecture
 
-## Project Tree
+Velocity is a Rust workspace that builds one binary, `velocity`. Tests are YAML suites. The engine runs them through a platform driver (Android, iOS, the web, or a headless renderer) and the runner orchestrates the devices and writes the reports.
 
-```
-velocity/
-├── Cargo.toml                          # Workspace root — defines all crate members
-├── Cargo.lock
-├── install.sh                          # One-line installer (curl | bash)
-├── Formula/velocity.rb                 # Homebrew formula
-├── LICENSE                             # AGPL-3.0-only
-├── README.md
-├── CONTRIBUTING.md
-│
-├── velocity-cli/                       # CLI binary — entry point for everything
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs                     # Arg parsing, command dispatch, exit codes
-│       └── commands/
-│           ├── mod.rs
-│           ├── run.rs                  # `velocity run` — execute test suites
-│           ├── device.rs               # `velocity device` — list/boot/shutdown
-│           ├── validate.rs             # `velocity validate` — check YAML
-│           ├── migrate.rs              # `velocity migrate maestro` — convert flows
-│           └── mcp.rs                  # `velocity mcp` — start MCP server
-│
-├── crates/
-│   ├── velocity-common/                # Shared foundation — types, traits, errors
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs                  # Re-exports everything
-│   │       ├── types.rs                # Selector, Element, Rect, Action, Direction, Key
-│   │       ├── test_types.rs           # TestCase, TestSuite, Flow, Step, SuiteConfig
-│   │       ├── error.rs                # VelocityError, ErrorKind (transient/permanent)
-│   │       ├── result.rs               # TestResult, StepResult, SuiteResult, TestStatus
-│   │       ├── config.rs               # RuntimeConfig, ReportFormat
-│   │       ├── traits.rs               # PlatformDriver trait, HealthStatus
-│   │       └── resilience.rs           # RetryPolicy, CircuitBreaker, ResilientDriver
-│   │
-│   ├── velocity-core/                  # Test engine — parsing, execution, sync
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── parser.rs              # YAML → TestSuite (serde + custom visitor)
-│   │       ├── validator.rs           # Validates selectors, flow references
-│   │       ├── env.rs                 # ${VAR}, ${VAR:-default}, ${VAR:?err}
-│   │       ├── selector.rs            # SelectorEngine — LRU cache + generation
-│   │       ├── sync.rs                # AdaptiveSyncEngine — UI idle detection
-│   │       ├── streaming.rs           # Fast header-only parser for test discovery
-│   │       ├── executor.rs            # TestExecutor — runs steps against driver
-│   │       └── resolver.rs            # Resolves flow references into inline steps
-│   │
-│   ├── velocity-android/               # Android platform driver
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── adb.rs                 # ADB command wrapper (shell, tap, swipe, etc.)
-│   │       ├── driver.rs              # AndroidDriver — PlatformDriver impl
-│   │       ├── parser.rs              # UIAutomator XML → Element tree
-│   │       └── selector.rs            # Selector → Element matching for Android
-│   │
-│   ├── velocity-ios/                   # iOS platform driver
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── simctl.rs              # xcrun simctl wrapper (boot, shutdown, list)
-│   │       ├── wda.rs                 # WebDriverAgent HTTP client
-│   │       ├── wda_bootstrap.rs       # Auto-builds and launches WDA on first run
-│   │       ├── wda_manager.rs         # WDA session lifecycle + reconnection
-│   │       ├── driver.rs              # IosDriver — PlatformDriver impl
-│   │       └── parser.rs              # WDA XML → Element tree
-│   │
-│   ├── velocity-runner/                # Test orchestration layer
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── runner.rs              # SuiteRunner — top-level test execution
-│   │       ├── scheduler.rs           # Tag filter, name filter, shard assignment
-│   │       ├── parallel.rs            # Multi-device parallel execution
-│   │       ├── farm.rs                # DeviceFarm — pooled device management (semaphore)
-│   │       ├── history.rs             # TestHistory — duration tracking for smart sharding
-│   │       ├── artifacts.rs           # Screenshot + log collection
-│   │       └── reporter/
-│   │           ├── mod.rs
-│   │           ├── json.rs            # JSON reporter
-│   │           └── junit.rs           # JUnit XML reporter
-│   │
-│   ├── velocity-mcp/                   # MCP server for AI agents
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── server.rs              # JSON-RPC stdio server (stdin/stdout)
-│   │       ├── session.rs             # McpSession — device state, caching
-│   │       ├── tool_registry.rs       # ToolDefinition, ToolResponse (LLM-friendly)
-│   │       └── tools/
-│   │           ├── mod.rs
-│   │           ├── device.rs          # list, boot, shutdown, select device
-│   │           ├── interaction.rs     # tap, input_text, screenshot
-│   │           ├── query.rs           # get_hierarchy, find_element
-│   │           └── flow.rs            # run_flow, list_flows
-│   │
-│   └── velocity-migrate/               # Framework migration tools
-│       ├── Cargo.toml
-│       └── src/
-│           ├── lib.rs
-│           ├── maestro.rs             # Maestro YAML → Velocity YAML converter
-│           └── compat.rs              # MigrationReport, severity, issue tracking
-│
-└── tests/
-    └── fixtures/
-        ├── simple_login.yaml           # Basic login flow with env vars
-        ├── multi_flow.yaml             # Multiple reusable flows
-        ├── sharding_test.yaml          # Sharding demonstration
-        └── maestro_compat/
-            ├── login.yaml              # Maestro migration input sample
-            └── checkout.yaml           # Maestro migration input sample
+Related docs:
+
+- [DSL.md](DSL.md) and [DSL-REFERENCE.md](DSL-REFERENCE.md): the suite format.
+- [DRIVERS.md](DRIVERS.md): platforms.
+- [CLI.md](CLI.md): commands and exit codes.
+- [CI.md](CI.md): CI usage.
+- [MCP.md](MCP.md): the MCP server.
+- [STATUS.md](STATUS.md): what has been verified where.
+- [research/](research/README.md): design rationale and literature.
+
+## Crates
+
+```text
+velocity-cli               the `velocity` binary: argument parsing, commands, exit codes, signals
+├── velocity-runner        suite orchestration, scheduling, sharding, parallel devices, retries,
+│                          quarantine, result cache, history, leases, reporters
+├── velocity-core          parser, validator, schema, executor, selector engine, sync, dialogs,
+│                          healing, visual comparison, baselines, traces, impact selection
+│   └── velocity-nl        natural-language steps and goal turns: 19 provider presets over three
+│                          wire formats, grounding, cache, `verify:` checker, nl-eval
+├── velocity-explore       `velocity explore`: the agent loop, the YAML writer, replay and repair
+├── velocity-doctor        environment checks behind `velocity doctor` and the MCP `diagnose`
+├── velocity-android       Android driver (adb + embedded on-device tree server and video server)
+├── velocity-ios           iOS driver (simctl/devicectl + WebDriverAgent or VelocityRunner)
+├── velocity-web           Chrome driver over the DevTools protocol
+├── velocity-headless      CPU layout renderer for Android XML / iOS xib (no emulator)
+├── velocity-flutter-bridge  headless Flutter via a `flutter test` process
+├── velocity-inspector     axum web UI and API: the console (live mirror, input, run and explore
+│                          panels, tasks, diagnostics), selectors, recording, screenshot review
+├── velocity-mcp           MCP server (JSON-RPC over stdio), background tasks, `mcp install`
+├── velocity-migrate       Maestro → Velocity converter
+├── velocity-api           `http` steps: requests, JSONPath checks, captures, the no-device driver
+└── velocity-common        shared types (Selector, Action, Element, Step), PlatformDriver trait,
+                           errors and exit codes, settings table, resilience, redaction,
+                           live events (`live_events`)
 ```
 
----
-
-## Dependency Graph
-
-```
-                         ┌─────────────────┐
-                         │  velocity-cli    │
-                         │  (binary entry)  │
-                         └────────┬─────────┘
-                                  │
-           ┌──────────┬───────────┼───────────┬───────────┐
-           ▼          ▼           ▼           ▼           ▼
-    ┌────────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
-    │  velocity-  │ │velocity│ │velocity│ │velocity│ │ velocity- │
-    │   runner    │ │  -mcp  │ │-android│ │  -ios  │ │ migrate   │
-    │(orchestrate)│ │(AI svr)│ │ (ADB)  │ │ (WDA)  │ │(maestro)  │
-    └──────┬──────┘ └───┬────┘ └───┬────┘ └───┬────┘ └─────┬─────┘
-           │            │          │           │            │
-           ▼            ▼          │           │            │
-    ┌─────────────┐     │          │           │            │
-    │ velocity-   │     │          │           │            │
-    │    core     │◄────┘          │           │            │
-    │  (engine)   │                │           │            │
-    └──────┬──────┘                │           │            │
-           │                       │           │            │
-           ▼                       ▼           ▼            ▼
-    ┌──────────────────────────────────────────────────────────┐
-    │                     velocity-common                      │
-    │        (types, traits, errors, resilience)                │
-    └──────────────────────────────────────────────────────────┘
-```
-
-Every crate depends on `velocity-common`. The `core` crate is used by `runner` and `mcp`. The platform crates (`android`, `ios`) only depend on `common` and implement the `PlatformDriver` trait.
-
----
-
-## Module Deep Dive
-
-### 1. `velocity-common` — The Foundation
-
-Everything starts here. This crate defines the vocabulary that every other crate speaks.
-
-#### Types (`types.rs`)
-
-```
-Selector ─────────────────────────────────────────────────────
-  │
-  ├── Id(String)              match by resource ID / accessibility ID
-  ├── Text(String)            exact text match
-  ├── TextContains(String)    substring match
-  ├── AccessibilityId(String) accessibility label
-  ├── ClassName(String)       element type (UIButton, EditText, etc.)
-  ├── Index { selector, index }   Nth match of inner selector
-  └── Compound(Vec<Selector>)     AND combination of multiple selectors
-
-
-Action ───────────────────────────────────────────────────────
-  │
-  ├── LaunchApp { app_id, clear_state }
-  ├── StopApp { app_id }
-  ├── Tap { selector }
-  ├── DoubleTap { selector }
-  ├── LongPress { selector, duration_ms }
-  ├── InputText { selector, text }
-  ├── ClearText { selector }
-  ├── AssertVisible { selector }
-  ├── AssertNotVisible { selector }
-  ├── AssertText { selector, expected }
-  ├── ScrollUntilVisible { selector, direction, max_scrolls }
-  ├── Swipe { direction, from, to }
-  ├── Screenshot { filename }
-  ├── PressKey { key }
-  ├── Wait { ms }
-  └── RunFlow { flow_id }
-
-
-Element ──────────────────────────────────────────────────────
-  │
-  ├── platform_id: String        driver-specific element ID
-  ├── label: Option<String>      accessibility label
-  ├── text: Option<String>       visible text
-  ├── element_type: String       class name (UIButton, android.widget.TextView)
-  ├── bounds: Rect { x, y, width, height }
-  ├── enabled: bool
-  ├── visible: bool
-  └── children: Vec<Element>     recursive hierarchy
-```
-
-#### Error Classification (`error.rs`)
-
-Errors are classified by recoverability, which drives the retry engine:
-
-```
-                    ┌─────────────┐
-                    │  ErrorKind  │
-                    └──────┬──────┘
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-    │  Transient  │ │  Permanent  │ │  Ambiguous   │
-    │ (auto-retry)│ │ (fail fast) │ │ (retry once) │
-    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
-           │               │               │
-    ConnectionLost   ElementNotFound    Timeout
-    SessionExpired   InvalidSelector    Unknown
-    ElementStale     AssertionFailed
-    DeviceNotReady   PlatformNotSupported
-                     ConfigError
-
-
-Exit Codes:
-  1 → Test failure (assertion, element not found)
-  2 → Config error (bad YAML, invalid selector)
-  3 → Device error (not found, WDA unhealthy)
-  4 → Suite timeout
-  5 → Internal error
-```
-
-#### PlatformDriver Trait (`traits.rs`)
-
-The core abstraction. Both `AndroidDriver` and `IosDriver` implement this:
-
-```
-PlatformDriver (async_trait)
-  │
-  │  Lifecycle
-  ├── prepare(device_id)         boot WDA, connect ADB, etc.
-  ├── cleanup()                  tear down sessions
-  ├── health_check() → HealthStatus
-  ├── restart_session()          recover from session errors
-  │
-  │  Device Management
-  ├── list_devices() → Vec<DeviceInfo>
-  ├── boot_device(device_id)
-  ├── shutdown_device(device_id)
-  ├── install_app(device_id, app_path)
-  ├── launch_app(device_id, app_id, clear_state)
-  ├── stop_app(device_id, app_id)
-  │
-  │  Element Queries
-  ├── find_element(device_id, selector) → Element
-  ├── find_elements(device_id, selector) → Vec<Element>
-  ├── get_hierarchy(device_id) → Element (full tree)
-  │
-  │  Interactions
-  ├── tap(device_id, element)
-  ├── double_tap(device_id, element)
-  ├── long_press(device_id, element, duration_ms)
-  ├── input_text(device_id, element, text)
-  ├── clear_text(device_id, element)
-  ├── swipe(device_id, direction)
-  ├── swipe_coords(device_id, from, to)
-  ├── press_key(device_id, key)
-  │
-  │  Screen
-  ├── screenshot(device_id) → Vec<u8>    (PNG bytes)
-  ├── screen_size(device_id) → (i32, i32)
-  ├── get_element_text(device_id, element) → String
-  └── is_element_visible(device_id, element) → bool
-```
-
-#### Resilience Layer (`resilience.rs`)
-
-Wraps any `PlatformDriver` with automatic retry + circuit breaker:
-
-```
-┌───────────────────────────────────────────────────────────┐
-│                    ResilientDriver                         │
-│                                                           │
-│  ┌─────────────┐    ┌─────────────────┐                   │
-│  │ RetryPolicy │    │ CircuitBreaker  │                   │
-│  │             │    │                 │                   │
-│  │ max: 3      │    │ States:         │                   │
-│  │ initial:100ms│   │  CLOSED → normal│                   │
-│  │ max: 5s     │    │  OPEN → reject  │                   │
-│  │ multiplier:2│    │  HALF_OPEN →    │                   │
-│  └──────┬──────┘    │   test 1 req    │                   │
-│         │           └────────┬────────┘                   │
-│         ▼                    ▼                             │
-│  ┌──────────────────────────────────────┐                  │
-│  │           with_retry(action)         │                  │
-│  │                                      │                  │
-│  │  1. Check circuit breaker            │                  │
-│  │  2. Execute action                   │                  │
-│  │  3. On success → reset breaker       │                  │
-│  │  4. On transient error →             │                  │
-│  │     sleep(backoff + jitter)          │                  │
-│  │     retry up to error.max_retries()  │                  │
-│  │  5. On permanent error → fail fast   │                  │
-│  │  6. On session error → restart_session│                 │
-│  └──────────────────────────────────────┘                  │
-│                         │                                  │
-│                         ▼                                  │
-│              ┌──────────────────┐                           │
-│              │  Inner Driver    │                           │
-│              │ (Android or iOS) │                           │
-│              └──────────────────┘                           │
-└───────────────────────────────────────────────────────────┘
-```
-
----
-
-### 2. `velocity-core` — The Engine
-
-This is where YAML becomes test execution.
-
-#### Parser (`parser.rs`)
-
-Converts YAML test files into typed `TestSuite` objects:
-
-```
-                    YAML File
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   serde_yaml    │
-              │  deserialize    │
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │  Custom Visitor │  ← Handles flexible YAML structure
-              │  (DslStep)      │    e.g. "tap:" vs "tapOn:" vs nested
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │  SelectorDsl →  │  ← Converts flat fields to Selector enum
-              │  Selector       │    { id: "foo" } → Selector::Id("foo")
-              └────────┬────────┘
-                       │
-                       ▼
-              ┌─────────────────┐
-              │   TestSuite     │
-              │  ├── app_id     │
-              │  ├── config     │
-              │  ├── flows[]    │
-              │  └── tests[]    │
-              └─────────────────┘
-```
-
-#### Validator (`validator.rs`)
-
-Runs after parsing, before execution:
-
-```
-validate_suite(suite)
-  │
-  ├── For each test → For each step:
-  │     ├── Selector actions → validate_selector()
-  │     │     ├── Check value not empty
-  │     │     ├── Index: validate inner selector
-  │     │     └── Compound: validate all children
-  │     │
-  │     └── RunFlow actions → verify flow_id exists in suite.flows
-  │
-  └── Returns Ok(()) or ConfigError
-```
-
-#### Environment Resolution (`env.rs`)
-
-Interpolates variables before execution:
-
-```
-Input:  "Hello ${USER}, env is ${ENV:-staging}"
-                │                    │
-                ▼                    ▼
-         1. Check overrides    1. Check overrides
-         2. Check std::env     2. Check std::env
-         3. Error if missing   3. Use default "staging"
-                │                    │
-                ▼                    ▼
-Output: "Hello omkar, env is staging"
-
-Supported patterns:
-  ${VAR}              → required, error if missing
-  ${VAR:-default}     → fallback to "default"
-  ${VAR:?Custom err}  → required, custom error message
-```
-
-#### Selector Engine (`selector.rs`)
-
-LRU cache with generation-based invalidation:
-
-```
-┌─────────────────────────────────────────────┐
-│              SelectorEngine                  │
-│                                              │
-│  cache: HashMap<key, CachedElement>          │
-│  generation: AtomicU64                       │
-│  max_size: 256 entries                       │
-│  ttl: 30 seconds                             │
-│                                              │
-│  find_element(driver, device, selector):     │
-│    │                                         │
-│    ├── Cache HIT?                            │
-│    │    ├── Generation matches?              │
-│    │    ├── TTL not expired?                 │
-│    │    ├── Still visible on screen?         │
-│    │    └── YES to all → return cached       │
-│    │                                         │
-│    └── Cache MISS → query driver             │
-│         ├── Store result in cache            │
-│         └── LRU evict if full                │
-│                                              │
-│  invalidate_generation():                    │
-│    └── Atomic increment → all entries stale  │
-│                                              │
-│  invalidate_cache():                         │
-│    └── Full clear (after app launch/stop)    │
-└─────────────────────────────────────────────┘
-```
-
-#### Adaptive Sync Engine (`sync.rs`)
-
-The secret to flakiness-free testing. Detects when the UI is stable before acting:
-
-```
-wait_for_idle(driver, device_id)
-  │
-  ├── FAST PATH (if history available):
-  │     predicted_time = average(recent_samples) * 1.2
-  │     if predicted < 200ms:
-  │       sleep(predicted)
-  │       verify UI hash unchanged
-  │       if stable → return (skip polling)
-  │
-  └── POLLING PATH:
-        interval = min_interval (config.interval / 4)
-        consecutive_stable = 0
-        required = config.stability_count (default 3)
-
-        loop:
-          ┌─────────────────────────┐
-          │  Get UI hierarchy hash  │
-          └────────────┬────────────┘
-                       │
-               ┌───────┴────────┐
-               │ Same as last?  │
-               └───────┬────────┘
-                  YES  │  NO
-              ┌────────┤────────┐
-              ▼                 ▼
-        stable_count++     stable_count = 0
-        interval *= 1.5    interval = min_interval
-              │                 │
-              ▼                 │
-        count >= required?      │
-          YES → return          │
-          NO  ──────────────────┘
-                       │
-                       ▼
-                 elapsed > timeout?
-                   YES → SyncTimeout error
-                   NO  → sleep(interval), continue loop
-
-  Hash function:
-    hash_element(element) → u64
-      Combines: platform_id + text + bounds + child_count
-      Recursively hashes entire subtree
-      Identical trees → identical hash
-```
-
-#### Executor (`executor.rs`)
-
-The core execution loop that runs each test:
-
-```
-execute_test(test, device_id, app_id)
-  │
-  │  For each Step in test.steps:
-  │    │
-  │    ├── 1. PRE-SYNC
-  │    │     └── sync_engine.wait_for_idle()
-  │    │         (skip for Wait/Screenshot actions)
-  │    │
-  │    ├── 2. EXECUTE ACTION
-  │    │     ├── LaunchApp → driver.launch_app()
-  │    │     ├── Tap → selector_engine.find() → driver.tap()
-  │    │     ├── InputText → find() → driver.clear() → driver.input()
-  │    │     ├── AssertVisible → find() → is_visible?
-  │    │     ├── AssertText → find() → get_text() → compare
-  │    │     ├── ScrollUntilVisible → loop { find → swipe → sync }
-  │    │     ├── Screenshot → driver.screenshot() → save to disk
-  │    │     └── ... (all Action variants handled)
-  │    │
-  │    ├── 3. POST-SYNC (if action mutates UI)
-  │    │     ├── selector_engine.invalidate_generation()
-  │    │     └── sync_engine.wait_for_idle() (best-effort)
-  │    │
-  │    └── 4. COLLECT RESULT
-  │          └── StepResult { status, duration, error?, screenshot? }
-  │
-  └── Return TestResult { status, steps[], duration, retries }
-```
-
-#### Streaming Parser (`streaming.rs`)
-
-Lightweight header-only parser for fast test discovery (used by scheduler):
-
-```
-Full Parser:     Reads entire YAML, allocates all steps    ~5ms per file
-Streaming Parser: Single pass, extracts headers only       ~0.1ms per file
-
-TestHeader:
-  name, tags, isolated, step_count, byte_offset
-
-Used by: scheduler to determine test count + tags
-         before doing expensive full parse
-```
-
----
-
-### 3. `velocity-android` — Android Driver
-
-```
-┌──────────────────────────────────────────────────────┐
-│                   AndroidDriver                       │
-│                                                       │
-│  ┌─────────┐   ┌───────────────┐   ┌──────────────┐  │
-│  │   Adb   │   │ XML Parser    │   │  Selector    │  │
-│  │ wrapper │   │ (UIAutomator) │   │  Matcher     │  │
-│  └────┬────┘   └───────┬───────┘   └──────┬───────┘  │
-│       │                │                   │          │
-│       ▼                ▼                   ▼          │
-│  adb -s <id>    quick_xml →         DFS matching     │
-│  shell <cmd>    Element tree        with visibility   │
-│                                     checks            │
-│  Commands:      Attributes:         Strategies:       │
-│  - input tap    - resource-id       - ID (substring)  │
-│  - input text   - text              - Text (exact)    │
-│  - input swipe  - content-desc      - TextContains    │
-│  - screencap    - class             - AccessibilityId │
-│  - uiautomator  - bounds [x,y][x,y] - ClassName      │
-│    dump         - enabled/visible   - Compound (AND)  │
-│                                     - Index (Nth)     │
-│  Hierarchy Cache:                                     │
-│  TTL = 500ms (avoids repeated dumps)                  │
-└──────────────────────────────────────────────────────┘
-```
-
-**How Android element finding works:**
-
-```
-find_element(device_id, Selector::Id("login_btn"))
-  │
-  ├── Check hierarchy cache (500ms TTL)
-  │     MISS → adb shell uiautomator dump
-  │            parse XML → Element tree
-  │            store in cache
-  │
-  ├── DFS traverse Element tree
-  │     For each element:
-  │       is_visible(element, screen_bounds)?
-  │       resource_id contains "login_btn"?
-  │       OR label == "login_btn"?
-  │
-  └── Return first match or ElementNotFound
-```
-
----
-
-### 4. `velocity-ios` — iOS Driver
-
-```
-┌──────────────────────────────────────────────────────┐
-│                     IosDriver                         │
-│                                                       │
-│  ┌──────────┐   ┌──────────────┐   ┌──────────────┐  │
-│  │  Simctl  │   │  WdaClient   │   │WdaBootstrap  │  │
-│  │ (xcrun)  │   │  (HTTP API)  │   │(auto-build)  │  │
-│  └────┬─────┘   └──────┬───────┘   └──────┬───────┘  │
-│       │                │                   │          │
-│       ▼                ▼                   ▼          │
-│  xcrun simctl   POST /session/     Clone WDA repo    │
-│  list/boot/     {id}/element/      xcodebuild        │
-│  shutdown       {eid}/click        xcrun simctl spawn │
-│                                    Health check loop  │
-│                                                       │
-│  Selector Translation:                                │
-│  ┌──────────────────┬──────────────────────────────┐  │
-│  │ Velocity         │ WDA                          │  │
-│  ├──────────────────┼──────────────────────────────┤  │
-│  │ Id("foo")        │ ("accessibility id", "foo")  │  │
-│  │ Text("bar")      │ ("name", "bar")              │  │
-│  │ TextContains("x")│ ("class chain", predicate)   │  │
-│  │ AccessibilityId  │ ("accessibility id", aid)    │  │
-│  │ ClassName("Btn") │ ("class name", "Btn")        │  │
-│  │ Compound(a,b)    │ ("class chain", combined)    │  │
-│  └──────────────────┴──────────────────────────────┘  │
-│                                                       │
-│  WDA Lifecycle:                                       │
-│  prepare() → ensure WDA running on device             │
-│  cleanup() → kill WDA process                         │
-│  restart_session() → create new WDA session           │
-└──────────────────────────────────────────────────────┘
-```
-
-**WDA Bootstrap flow (first run):**
-
-```
-ensure_running(device_id)
-  │
-  ├── Is WDA already responding? → YES → done
-  │
-  └── NO
-       ├── Clone WebDriverAgent repo (if missing)
-       ├── xcodebuild build-for-testing
-       ├── xcrun simctl spawn <device_id> WDA
-       └── Poll health endpoint until ready
-```
-
----
-
-### 5. `velocity-runner` — Orchestration
-
-#### SuiteRunner — End-to-end execution
-
-```
-SuiteRunner::run(suite, config, driver)
-  │
-  ├── 1. Parse YAML → TestSuite
-  ├── 2. Validate structure
-  ├── 3. Interpolate env vars
-  ├── 4. Resolve flow references (inline steps)
-  ├── 5. Filter tests
-  │       ├── filter_by_tags(tests, config.tags)
-  │       └── filter_by_name(tests, config.test_filter)
-  ├── 6. Shard tests (if config.shard_index set)
-  │       └── shard_tests(tests, index, total, history)
-  ├── 7. Select device
-  │       ├── config.device_id if set
-  │       └── or first booted device from list_devices()
-  ├── 8. Execute tests sequentially
-  │       for test in tests:
-  │         ├── Check suite timeout
-  │         ├── TestExecutor::execute_test()
-  │         ├── If failed + retries configured → retry
-  │         └── Collect TestResult
-  └── 9. Return SuiteResult
-```
-
-#### Scheduler — Smart test distribution
-
-```
-Tag Filtering:
-  tests: [A(tags:["smoke"]), B(tags:["regression"]), C(tags:["smoke","e2e"])]
-  filter: ["smoke"]
-  result: [A, C]
-
-Name Filtering (glob):
-  tests: ["Login_Basic", "Login_SSO", "Checkout_Cart"]
-  pattern: "Login*"
-  result: ["Login_Basic", "Login_SSO"]
-
-Sharding:
-
-  WITHOUT history (hash-based):
-    tests: [A, B, C, D, E]
-    shards: 3
-    shard 0: [A, D]      (hash(name) % 3 == 0)
-    shard 1: [B, E]      (hash(name) % 3 == 1)
-    shard 2: [C]          (hash(name) % 3 == 2)
-
-  WITH history (duration-balanced bin packing):
-    tests: [A(10s), B(5s), C(8s), D(3s), E(12s)]
-    shards: 2
-    Sort descending: [E(12s), A(10s), C(8s), B(5s), D(3s)]
-    Greedy assign to lightest shard:
-      shard 0: E(12s) → E+C(20s) → E+C+D(23s)
-      shard 1: A(10s) → A+B(15s)
-    Result: Near-equal execution time per shard
-```
-
-#### DeviceFarm — Pooled device management
-
-```
-┌───────────────────────────────────────────────────┐
-│                  DeviceFarm                        │
-│                                                    │
-│  ┌─────────────┐     ┌───────────────────┐         │
-│  │  Semaphore   │     │    FarmState      │         │
-│  │ (max_devices)│     │                   │         │
-│  └──────┬──────┘     │ devices:           │         │
-│         │            │   "iPhone-15": ✓   │         │
-│         │            │   "iPhone-14": ✗   │ (in_use)│
-│         │            │   "Pixel-7":   ✓   │         │
-│         │            └───────────────────┘         │
-│         ▼                                          │
-│  acquire():                                        │
-│    1. Acquire semaphore permit (blocks if full)    │
-│    2. Find device where in_use == false            │
-│    3. Mark in_use = true                           │
-│    4. Return Lease { device_id, permit }           │
-│                                                    │
-│  Lease (RAII):                                     │
-│    On drop → mark in_use = false                   │
-│              release semaphore permit               │
-└───────────────────────────────────────────────────┘
-```
-
----
-
-### 6. `velocity-mcp` — AI Agent Interface
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                      MCP Server                          │
-│                                                          │
-│   stdin ──────► JSON-RPC Parser ──────► Tool Router      │
-│                                              │           │
-│                ┌─────────────────────────────┬┘           │
-│                ▼              ▼              ▼            │
-│         ┌──────────┐  ┌───────────┐  ┌──────────┐       │
-│         │  Device   │  │Interaction│  │  Query   │       │
-│         │  Tools    │  │  Tools    │  │  Tools   │       │
-│         ├──────────┤  ├───────────┤  ├──────────┤       │
-│         │list      │  │tap        │  │hierarchy │       │
-│         │boot      │  │input_text │  │find_elem │       │
-│         │shutdown  │  │screenshot │  │          │       │
-│         │select    │  │           │  │          │       │
-│         └──────────┘  └───────────┘  └──────────┘       │
-│                ▼              ▼              ▼            │
-│         ┌──────────┐                                     │
-│         │  Flow    │  McpSession:                        │
-│         │  Tools   │    current_device                   │
-│         ├──────────┤    device_list_cache (30s TTL)      │
-│         │run_flow  │    last_screenshot                  │
-│         │list_flows│    config_path                      │
-│         └──────────┘                                     │
-│                                                          │
-│   ToolResponse ──────► JSON-RPC Response ──────► stdout  │
-│     summary: "Tapped login button at (120, 340)"         │
-│     data: { element: { ... } }                           │
-│     next_steps: ["Assert welcome screen visible"]        │
-└─────────────────────────────────────────────────────────┘
-```
-
-**How an LLM uses it:**
-
-```
-LLM                           Velocity MCP Server
- │                                    │
- ├── tools/list ─────────────────────►│ Returns available tools
- │◄── [{tap, input_text, ...}] ──────│
- │                                    │
- ├── tools/call {                     │
- │     "tap": {selector:{id:"login"}} │
- │   } ─────────────────────────────►│ Finds element, taps
- │◄── {summary:"Tapped login at      │
- │     (120,340)", next_steps:[...]}──│
- │                                    │
- ├── tools/call {                     │
- │     "screenshot": {}               │
- │   } ─────────────────────────────►│ Captures screen
- │◄── {summary:"Screenshot saved",   │
- │     data:{path:"/tmp/shot.png"}} ──│
-```
-
----
-
-### 7. `velocity-migrate` — Framework Migration
-
-```
-velocity migrate maestro ./maestro-flows/ ./velocity-tests/
-
-Input (Maestro):                    Output (Velocity):
-┌──────────────────────┐            ┌──────────────────────┐
-│ appId: com.app       │            │ app_id: com.app      │
-│ ---                  │     ──►    │ config:              │
-│ - launchApp          │            │   platform: ios      │
-│ - tapOn:             │            │ tests:               │
-│     id: "login"      │            │   - name: login      │
-│ - inputText: "hello" │            │     steps:           │
-│ - assertVisible:     │            │       - launchApp:   │
-│     id: "welcome"    │            │           id: com.app│
-└──────────────────────┘            │       - tap:         │
-                                    │           id: "login"│
-                                    │       - inputText:   │
-                                    │           text:"hello│
-                                    │       - assertVisible│
-                                    │           id:"welcome│
-                                    └──────────────────────┘
-
-Unsupported Maestro constructs (logged as warnings):
-  runScript, evalScript, onFlowStart, onFlowComplete,
-  repeat, condition, copyTextFrom, eraseText,
-  hideKeyboard, openLink, setLocation,
-  startRecording, stopRecording, waitForAnimationToEnd
-```
-
----
-
-## Full Execution Flow
-
-End-to-end: from `velocity run tests/login.yaml` to exit code.
-
-```
-┌─────────────┐
-│  CLI Parse   │  velocity run tests/login.yaml --platform ios --parallel
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Load YAML  │  velocity_core::parse_suite("tests/login.yaml")
-│  (Parser)   │  → TestSuite { app_id, config, flows, tests }
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Validate   │  velocity_core::validate_suite(&suite)
-│             │  Check selectors valid, flow refs exist
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Env Resolve│  velocity_core::interpolate_suite(&mut suite, overrides)
-│             │  ${API_URL:-localhost} → "localhost"
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Flow Inline│  Replace RunFlow { flow_id } → actual flow steps
-│  (Resolver) │
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Create     │  Platform::Ios → IosDriver → ResilientDriver
-│  Driver     │  Platform::Android → AndroidDriver → ResilientDriver
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Prepare    │  driver.prepare(device_id)
-│  Device     │  iOS: WDA bootstrap + session
-│             │  Android: verify ADB connection
-└──────┬──────┘
-       ▼
-┌─────────────┐
-│  Filter &   │  filter_by_tags() → filter_by_name() → shard_tests()
-│  Shard      │
-└──────┬──────┘
-       ▼
-┌─────────────────────────────────────────────────┐
-│  Execute Tests                                   │
-│                                                  │
-│  for each test:                                  │
-│    ┌─────────────────────────────────────┐       │
-│    │  for each step:                     │       │
-│    │    ├── wait_for_idle()   (sync)     │       │
-│    │    ├── execute_action()  (action)   │       │
-│    │    │    ├── find_element (cache)    │       │
-│    │    │    ├── driver.tap/type/assert  │       │
-│    │    │    └── retry if transient err  │       │
-│    │    ├── invalidate_cache (if mutating)│      │
-│    │    └── wait_for_idle()  (post-sync) │       │
-│    └─────────────────────────────────────┘       │
-│                                                  │
-│    If failed + retries > 0: re-run test          │
-│    Collect TestResult                            │
-└──────────────────────┬──────────────────────────┘
-                       ▼
-              ┌─────────────┐
-              │  Report     │  write_junit() or write_json()
-              │  Generate   │  → ./velocity-results/report.xml
-              └──────┬──────┘
-                     ▼
-              ┌─────────────┐
-              │  Cleanup    │  driver.cleanup()
-              │  & Exit     │  iOS: kill WDA
-              └──────┬──────┘  Android: no-op
-                     ▼
-              exit(suite_result.exit_code())
-              0 = all passed, 1 = failures
-```
-
----
-
-## Usage Examples
-
-### Basic test run
-
-```bash
-velocity run tests/login.yaml
-```
-
-### Specify platform and device
-
-```bash
-velocity run tests/ --platform android --device emulator-5554
-```
-
-### Parallel with sharding (CI)
-
-```bash
-# Machine 1:
-velocity run tests/ --parallel --shard-index 0 --shard-total 3
-
-# Machine 2:
-velocity run tests/ --parallel --shard-index 1 --shard-total 3
-
-# Machine 3:
-velocity run tests/ --parallel --shard-index 2 --shard-total 3
-```
-
-### Filter by tags
-
-```bash
-velocity run tests/ --tags smoke,critical
-```
-
-### Filter by name
-
-```bash
-velocity run tests/ --filter "Login*"
-```
-
-### With retries and JUnit output
-
-```bash
-velocity run tests/ --retries 2 --report junit --artifacts-dir ./results
-```
-
-### Environment variable overrides
-
-```bash
-velocity run tests/ --env API_URL=https://staging.example.com --env USER=testuser
-```
-
-### Validate without running
-
-```bash
-velocity validate --config tests/login.yaml
-```
-
-### Migrate from Maestro
-
-```bash
-velocity migrate maestro ./maestro-flows/ ./velocity-tests/
-```
-
-### Start MCP server for AI agents
-
-```bash
-velocity mcp --device "iPhone 15 Pro"
-```
-
-### Device management
-
-```bash
-velocity device list
-velocity device boot "iPhone 15 Pro"
-velocity device shutdown "iPhone 15 Pro"
-```
+There are also native components that cargo does not build (see [DRIVERS.md](DRIVERS.md)):
+
+- `probes/android/velocity-tree-server`: Java, embedded as a jar.
+- `probes/ios/VelocityRunner`: Swift XCUITest.
+- `probes/*/velocity-sync-probe`: in-app idle probes.
+
+## A run, end to end
+
+1. **Parse.** `velocity-core::parser` reads the YAML into a `TestSuite`.
+   - Unknown step keys are errors, with a "did you mean".
+   - Unknown `config:` keys are warnings (`config_keys.rs`, derived from the serde structs).
+   - `source_map.rs` remembers `file:line` for each step.
+   - `${VAR}`, `${VAR:-default}` and `${VAR:?message}` are expanded from `--env`, then from the environment (`env.rs`). `$${` is a literal `${`. Values of variables with secret-looking names are masked in all output.
+2. **Validate.** `validator.rs` checks:
+   - selectors;
+   - platform capabilities (for example `mockRequest` on the web only, keys a platform can't press);
+   - framework and driver combinations.
+
+   Errors exit 2.
+3. **Resolve.** `resolver.rs` inlines `runFlow`. It rejects cycles and limits nesting to 32 levels.
+4. **Select and schedule.** `velocity-runner::scheduler` does the following:
+   - filters by tags, name and `--changed-since`;
+   - adds `dependsOn` prerequisites and orders them;
+   - shards: by count with stable tie-breaks, or by duration with `--shard-timings`;
+   - orders the tests longest-first or failed-first.
+5. **Run.**
+   - **Sequential:** `SuiteRunner` takes one device.
+   - **Parallel:** `ParallelRunner` has a supervisor that owns the queue, retries, quarantine and results, plus one actor per leased device with a warm executor.
+     - A retry goes to another device when it can.
+     - An infrastructure failure gets one extra attempt elsewhere.
+     - A device with two infrastructure failures in a row is quarantined and re-probed.
+   - **Leases:** `lease.rs` takes a `flock` per device under `~/.velocity/leases`, so two runs never share a device.
+6. **Execute a test.** `velocity-core::executor` runs each step: see below.
+7. **Report.**
+   - JUnit, JSON, HTML, GitHub and Allure reporters (`velocity-runner/src/reporter`).
+   - `velocity-history.json` (durations and outcomes) and traces for failed tests.
+   - The exit code comes from the results: see [CLI.md](CLI.md#exit-codes).
+
+**Live events.** With `VELOCITY_EVENTS_FILE` set, the executor appends one JSON line per test and step start and end to that file (`velocity_common::live_events`: `testStarted` with the step count, `stepStarted` with index and total, `stepFinished` with status, duration and error, `testFinished`), and `velocity explore` adds its own turn events. A supervisor tails it: the MCP server's `run_task` (task progress) and the console's Run and Explore panels. It is the only progress channel; the executor's hook is four one-line calls.
+
+## Executing a step
+
+For each step, `TestExecutor` does the following.
+
+1. **Before the action.**
+   - Dismisses system dialogs, unless the step targets something inside one.
+   - Waits for the app to settle. It skips this for `wait`, `screenshot`, `launchApp`/`stopApp`, navigation, `setConfig`, mocks and `settle: none`.
+2. **Find the element** (`find_element_smart`).
+   - Polls the tree with back-off (0, 20, 50, 100, 250, then 500 ms) until the step timeout (`timeoutMs`, else `sync.timeoutMs`, default 10 s).
+   - At the deadline it tries one loose match: one part of a merged label, with a warning.
+   - Then it tries self-healing once, if healing is allowed.
+3. **Actionability** (`actionability: strict`, the default).
+   - The target must be enabled, and in the same place in two reads.
+   - It waits up to 2 s for this (`VELOCITY_ACTIONABLE_WAIT_MS`).
+   - `force: true` skips the check. `actionability: lenient` acts anyway, with a warning.
+4. **Act**, through the driver.
+5. **After the action.**
+   - Invalidates the tree cache.
+   - Settles the screen.
+   - Checks for an app crash, and dialogs again.
+   - A settle that reaches its cap warns. It never fails the step.
+6. **Sticky crash.** Once the app is known to have crashed (a crash report, or the iOS device crash watcher that polls the app's state every second on a real iPhone), every later step that needs the app fails at once with that crash instead of waiting out its timeout. `launchApp` (of the suite's app) clears it; `launchApp`, `stopApp`, `restoreState`, `setConfig`, `mockRequest` and `clearMocks` still run. *The device crash watcher is unverified on hardware.*
+
+Other per-step rules:
+
+- **Watchdog:** a step fails with `StepTimeout` after 3× its timeout, and never sooner than 30 s.
+- **Ambiguous selectors:** when a selector matches several elements, the first match in tree order is used, with a warning that suggests `childOf:`/`index:`. With `selectors.strict` it fails instead.
+- **`optional: true`:** the step's failure becomes a warning. Infrastructure failures and crashes are still failures.
+- **On failure:** a screenshot is saved, and a trace (`traces/<test>/`) holding each step's tree, settle reads, start time and the elements closest to the failed selector, with a self-contained viewer `trace.html` next to it (`trace_html.rs`).
+- **Failure evidence:** at each test's start the executor asks the driver for an `EvidenceSession` (`velocity-common/src/evidence.rs`): video and device logs (`artifacts.video`/`logs`: `off`, `on-failure`, `always`). At the end it is finished with what to keep; the files go next to the trace, crashes the logs saw are added to the failure message, and the files are linked from every report (`TestResult.attachments`). `--pause-on-failure` stops at the first failing step on an interactive terminal, writes what there is so far and waits (Enter, `r` retry, `q` abort).
+- **Step screenshots:** with `stepScreenshots: true`, the screen after every step is kept, but written only when the test fails.
+
+Retries live in the runner (`retry.rs`, at most 10). A test that passes on a retry is reported as flaky. `--fail-on-flaky` or `retry.flakyResult: fail` makes that exit 1.
+
+## Sync
+
+The goal is to act only when the app is ready, without fixed sleeps. The code is in `sync.rs` (`AdaptiveSyncEngine`) and `native_sync.rs` (`SyncManager`).
+
+**Polling** compares UI-tree hashes:
+
+1. The action has *reacted* once the tree changes, or once `reactionMs` (300) passes with no change.
+2. The screen is *settled* once it is quiet for `quietMs` (150).
+3. `settleCapMs` (3000) is the cap. Reaching it warns and moves on.
+
+A loading spinner that appeared after the action holds the settle.
+
+`sync.mode`:
+
+- `auto` (default): uses the in-app probe when one answers, otherwise polling. It stops trying the probe after 3 failed connects, until the next launch.
+- `native`: the probe only, falling back to polling if the probe belongs to another app.
+- `polling`: tree diffs only.
+- `none`: no settle.
+
+**Native probes** are optional libraries compiled into a debug build of the app. They answer `wait_for_idle` over loopback TCP:
+
+- iOS: port 19400. It tracks the run loop, animations, URL requests, timers (`sync.maxTimerMs`) and `performSelector:afterDelay:` work (swizzled after checking the argument encodings; cancels pass through).
+- Android: port 19401. It tracks the main looper, animations and delayed main-looper messages due within the horizon (1.5 s, or `sync.maxTimerMs`). Network calls are counted by `VelocityOkHttpInterceptor` when the app adds it to its OkHttp client; otherwise the app reports its own.
+- React Native (both probes): with `framework: react_native` the probe also waits for JS timers within the horizon, Fabric mounts, native animations, RN network calls and RN loading.
+
+Both probes speak protocol 4: `config` takes `"framework"`, and the reply carries `framework` (null when the probe has no tracking for it) and `unknown` (trackers that couldn't read their state). The `hello` must name the app under test. `web.networkIgnore` patterns are sent to the probe. *All of this is host-checked with fakes only: unverified on devices and in a real React Native app* (see [STATUS.md](STATUS.md)).
+
+**Per step:** `settle: none | auto | { reactionMs, quietMs, capMs }`.
+
+**On the web**, the page itself reports DOM mutations and animations, and then Velocity waits for network idle. The defaults are a 30 ms reaction and a 1 s cap, and `web.settle` overrides them.
+
+## Selectors
+
+Matching is in `velocity-common/src/selector_match.rs`. The cache and healing wrapper is `velocity-core/src/selector.rs`. Every key is listed in [DSL-REFERENCE.md](DSL-REFERENCE.md#selectors).
+
+- **Text matching.** Text is normalised: zero-width characters are dropped and whitespace is collapsed.
+  - `text:` is tried exactly, then case-folded.
+  - `textContains` ignores case.
+  - `textMatches`/`idMatches` are whole-value regexes, case-insensitive, linear-time.
+- **Candidates.** Only visible elements that intersect the screen are considered. The innermost match wins. `index:` counts in reading order.
+- **Relations.** `below`, `above`, `leftOf` and `rightOf` pick the nearest match. `childOf` and `containsChild` use containment.
+- **Lint.** `velocity lint` flags fragile selectors: volatile ids, positional XPath, long texts, indexes, fixed waits and foreign syntax.
+
+## Dialogs
+
+`dialog_handler.rs` dismisses **system** dialogs only:
+
+- iOS: SpringBoard permission alerts.
+- Android: the permission controller and system-package alert dialogs.
+
+It presses the most permissive button (for example "Allow While Using App" or "While using the app"). The app's own dialogs are left alone.
+
+Config: `dialog: { enabled, maxDismissals, customDismissLabels }`.
+
+## Self-healing
+
+`healing.rs`. When a selector finds nothing at its deadline, the healer scores the on-screen elements. The score is a weighted similarity, Similo-style, against snapshots of the element from earlier passing runs (`.velocity/healer-snapshots.json`). A candidate is used only if all of these hold:
+
+- it reaches `confidenceThreshold` (0.8);
+- it beats the runner-up by 0.05;
+- the rewritten selector picks exactly that element.
+
+Assertions and scrolls never heal.
+
+`healing.mode`:
+
+- `auto` (the default locally): use the heal, pass, and warn.
+- `report` (the default in CI): fail the step and show the proposed patch.
+- `off`.
+
+Heals are written to `.velocity/healed-selectors.json`. `velocity heal --accept` rewrites the suite and keeps its comments. `--reject` stores the pair in `.velocity/heal-rejected.json`, and that pair is never proposed again.
+
+## Natural-language steps
+
+`do:`/`act:` and `assert:`/`expect:` steps, and bare string steps, go through `velocity-nl`.
+
+**The model picks and code decides.**
+
+- The screen is sent as a numbered element list.
+- The planner returns only `{op, element}`.
+- `grounding.rs` builds the selector (stable id, then label, then exact text, then index if needed) and checks that it picks that element.
+- Values come from the step's `data:` or are quoted from the step text. Model output never becomes a selector or a value directly.
+
+**Model.** Any of the provider presets in `provider.rs` ([AI-PROVIDERS.md](AI-PROVIDERS.md)), on three wire formats:
+
+- Anthropic Messages (`anthropic.rs`, also Claude on Vertex);
+- OpenAI Chat Completions (`openai.rs`: OpenAI, Azure, Gemini, OpenRouter, Groq, Ollama, …);
+- Bedrock Converse (`bedrock.rs`, SigV4 in `sigv4.rs`).
+
+`AiSettings` resolves the provider, the step model and the goal model from `VELOCITY_NL_*` and `config.ai`. The default step model is a small one (`claude-haiku-5-5`), and it is provisional. `VELOCITY_NL_EFFORT` sets Anthropic's effort.
+
+**Cache.** Plans are cached in `.velocity/nl-cache.json` (format v3), per test and per step occurrence.
+
+- **Written only once verified.** The executor holds a plan whose action and `waitUntil` passed, and commits it when the next step passes or the test passes (`PendingPlan`). With `verify:` on, it commits only when the whole test, checks included, passes. A test that fails drops its unverified plans.
+- **No test data in the key.** The key is the step as written (`${VAR}`s unresolved, quoted values that were typed replaced by slots), whether it has `data:`, the platform and the occurrence. Values are placeholders in the stored action and are filled in on replay. A selector that holds only part of a value is bound to a fingerprint of it, so another value re-plans. Secrets never reach the file.
+- **Old cache files.** A v2 file is ignored with a warning and rewritten.
+- **Self-healing.** A cached action that stops working is invalidated and re-planned once, and the new plan is cached only after it verifies.
+- **Concurrency.** Saves merge with the file on disk under a lock (`fsutil::with_lock`).
+- **CI modes.** `VELOCITY_NL_CACHE=read-only|frozen|prune`. With no API key, an existing cache is replayed read-only.
+
+**Verification.** `verify: off|final|checkpoints|strict` (`checker.rs`) asks the model whether a claim holds on the screen: the test's `description` at the end, and with `checkpoints` also `assert:` steps and `checkpoint:` steps. The model returns `{holds, evidence_element_ids, reason}`. Code keeps only the cited elements that are on the screen list, and a "holds" that cites none counts as unknown, not as a pass. Results are in `TestResult.verification` and in the JSON, JUnit and HTML reports.
+
+**Data.** `nl.dataPolicy: describe` shows the model only a description of each value. `nl.allowCrossOrigin` lets an NL `goto` leave the page's origin.
+
+**Consistency.** `velocity nl-eval` measures pass^k on saved traces (`.velocity/nl-traces`). With `--model provider:model` (repeatable), it runs the built-in task set (`crates/velocity-nl/fixtures/eval/tasks.json`) across models and prints pass^k, latency, tokens and cost. `--recommend` names a default.
+
+## Exploration and diagnostics
+
+- **`velocity explore`** (`crates/velocity-explore`) runs an agent loop on the same executor: each turn the goal model returns an operation and an element number (`velocity-nl/src/goal.rs`), code grounds and runs it, and the session is written as deterministic YAML with assertions, replayed with no planner attached, and repaired once if a replay fails. See [EXPLORE.md](EXPLORE.md).
+- **`velocity doctor`** (`crates/velocity-doctor`): `run_checks(&Options) -> Report` (host, Android, iOS, web, AI, project; every external command with a deadline) and `apply_safe_fixes`. The MCP `diagnose` tool and the console's diagnostics call it in process.
+
+## Visual assertions
+
+`assertScreenshot` (`executor.rs`, `visual.rs`, `baselines.rs`):
+
+- **Baselines** are kept at `<suite dir>/velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`, where W×H is the device's full capture.
+- **Capturing.** A first frame that matches passes at once. Otherwise Velocity waits for two identical frames in a row. A screen that never holds still fails and is never written as a baseline.
+- **Comparing.**
+  - `threshold` is the share of pixels that must match (default 0.98).
+  - Any changed cluster of `clusterPx` (20) pixels fails the step.
+  - `comparator: strict` uses a per-channel `tolerance` (16). `perceptual` uses pixelmatch's YIQ distance.
+  - `mask:` and `crop:` take selectors.
+  - On devices the status bar is masked, or frozen with `screenshots.freezeStatusBar`.
+- **Missing baselines.** A missing baseline is written and the step fails, on every machine. `--update-baselines=missing` writes it and passes. `--update-baselines` also rewrites changed ones.
+- **Failures** leave `diffs/<name>-expected|actual|diff.png` and a `-review.json` in the artifacts folder. Review them with `velocity baselines review` or the inspector's `/review` page; accepting writes the actual frame over the baseline atomically.
+
+## Inspector
+
+`velocity inspect` (`crates/velocity-inspector`) serves:
+
+- **A React UI**, built by CI and the release job into `frontend/dist` and embedded with rust-embed. `build.rs` never runs npm, so a source build without `dist/` serves the API and a "UI not built" page (D-42).
+- **A JSON API** under `/api`: devices, screenshots, hierarchy, actions, selector generation, flow saving, and a WebSocket live view.
+- **`/review`**: a server-rendered screenshot review page that needs no frontend build. `velocity baselines review --serve` serves it without a device.
+- **The console** (`src/console/`): a live mirror over `/api/mirror/<device>` (H.264 from the Android video server for WebCodecs; WDA MJPEG on iOS simulators; the CDP screencast on the web; changed screenshots otherwise), input on the mirror under the device's lease (`control.rs`), and a task queue (`tasks.rs`) running `velocity run` and `velocity explore --json` children with live events (`VELOCITY_EVENTS_FILE`), the page's instructions appended to explore's `--inject-file`, a finished exploration's YAML saved into the project on request, and artifacts served from the task's folder. Diagnostics are `velocity doctor`'s checks in process. `routing.rs` puts the Android, iOS and web drivers behind one `PlatformDriver`, by device id. The CLI plugs in the real hooks (`velocity-cli/src/commands/inspect.rs`: live sources, leases, `ExploreChild`, the doctor); the defaults need no device and answer 501 for explore and diagnostics.
+
+**Security:**
+
+- It binds to loopback by default.
+- Every `/api` request and `/review` needs the per-session token from the printed URL. The token can come as a header, a query parameter, or a Strict cookie set when the URL is opened.
+- `Host` and `Origin` are checked, which defeats DNS rebinding and cross-site requests. The guard is one middleware over every route, so it covers each WebSocket upgrade (live view, mirror, task events) too.
+- Served run artifacts are confined to the run's folder and carry a CSP with `connect-src 'none'`.
+- WDA's MJPEG stream (the iOS mirror) has no authentication; Velocity's WDA build is patched so it listens where `USE_IP` says, loopback on simulators ([CLI.md](CLI.md#inspect)).
+
+## Errors and resilience
+
+- **Error kinds.** `VelocityError` (`velocity-common/src/error.rs`) classifies each error as transient (retried by `ResilientDriver`), permanent or ambiguous, and maps it to an exit code.
+- **Circuit breaker.** Each device has one. It opens after repeated failures (`VELOCITY_BREAKER_THRESHOLD`), and an open breaker is an infrastructure failure (exit 3).
+- **Command deadline.** Device commands time out after `VELOCITY_COMMAND_TIMEOUT_MS` (60 s).
+- **Panics** are caught and exit 5.
+
+## Settings
+
+Named driver and runtime settings live in one table (`velocity-common/src/settings.rs`). Each has a key, an environment variable, a default and its allowed values. They can be set:
+
+- in the suite (`config: settings:`);
+- per run (`--set`);
+- per test (`setConfig`);
+- from the environment.
+
+`velocity settings` prints the table, and [DSL-REFERENCE.md](DSL-REFERENCE.md#settings) is generated from it.

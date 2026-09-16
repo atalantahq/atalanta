@@ -1,0 +1,156 @@
+Velocity
+Copyright the Velocity authors. Licensed under the GNU Affero General Public License, version 3 only
+(AGPL-3.0-only); the full text is in LICENSE.
+
+This file lists third-party material that is copied into, adapted into, or
+compiled into Velocity. Rust crate dependencies are listed with their
+licenses in docs/licenses/THIRD-PARTY-RUST.md and the inspector frontend's
+npm packages in docs/licenses/THIRD-PARTY-NPM.md.
+
+-------------------------------------------------------------------------------
+1. Playwright device descriptors (data, unmodified)
+-------------------------------------------------------------------------------
+
+This product includes data from Playwright (https://github.com/microsoft/playwright):
+
+  crates/velocity-common/data/playwright-devices.json
+    Playwright's device descriptor list (lib/server/deviceDescriptorsSource.json,
+    playwright-core 1.61.1), used unmodified for `web.device` and compiled
+    into the binary.
+    Copyright (c) Microsoft Corporation.
+    Licensed under the Apache License, Version 2.0; a copy of the licence is in
+    crates/velocity-common/data/playwright-LICENSE.
+
+  Playwright's own NOTICE reads:
+    Playwright
+    Copyright (c) Microsoft Corporation
+
+    This software contains code derived from the Puppeteer project
+    (https://github.com/puppeteer/puppeteer), available under the Apache 2.0
+    license (https://github.com/puppeteer/puppeteer/blob/master/LICENSE).
+
+-------------------------------------------------------------------------------
+2. scrcpy (adapted code)
+-------------------------------------------------------------------------------
+
+This product includes code adapted from scrcpy (https://github.com/Genymobile/scrcpy):
+
+  probes/android/velocity-tree-server/src/com/velocity/tree/VideoServer.java
+  (compiled into crates/velocity-android/assets/velocity-tree.jar, which is
+  embedded in the velocity binary)
+    The screen capture and H.264 streaming design (a DisplayManager virtual
+    display or SurfaceControl display mirroring the screen onto a MediaCodec
+    input surface, the encoder format keys, the size fallbacks, and the
+    12-byte packet header with config/key-frame flags and the session
+    packet), adapted from scrcpy's server
+    (server/src/main/java/com/genymobile/scrcpy/: video/SurfaceEncoder.java,
+    video/ScreenCapture.java, device/Streamer.java,
+    wrappers/DisplayManager.java, wrappers/SurfaceControl.java).
+    Copyright (C) 2018 Genymobile
+    Copyright (C) 2018-2025 Romain Vimont
+    Licensed under the Apache License, Version 2.0.
+    Modified for Velocity: one client per process, H.264 only, no audio,
+    control or OpenGL filters, a key-frame request from the host, and the
+    process exits when its client goes.
+
+  The host side (crates/velocity-android/src/video.rs, mp4.rs) and the
+  on-device animation guard (animations.rs) follow scrcpy's approach of a
+  server started with `app_process` over `adb forward`; they are Velocity's
+  own code.
+
+-------------------------------------------------------------------------------
+3. pixelmatch (adapted algorithm)
+-------------------------------------------------------------------------------
+
+This product includes an algorithm adapted from pixelmatch
+(https://github.com/mapbox/pixelmatch):
+
+  crates/velocity-core/src/visual.rs (`antialiased`, `brightness`)
+    The anti-aliased pixel detector (after V. Vysniauskas, "Anti-aliased
+    Pixel and Intensity Slope Detector", 2009) and its YIQ brightness
+    weights, ported to Rust.
+    Copyright (c) Mapbox
+    Licensed under the ISC License:
+
+      Permission to use, copy, modify, and/or distribute this software for any
+      purpose with or without fee is hereby granted, provided that the above
+      copyright notice and this permission notice appear in all copies.
+
+      THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+      WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+      MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+      ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+      WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+      ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+      OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+-------------------------------------------------------------------------------
+4. Noto Sans fonts (bundled, unmodified)
+-------------------------------------------------------------------------------
+
+  crates/velocity-headless/fonts/NotoSans-Regular.ttf
+  crates/velocity-headless/fonts/NotoSans-Bold.ttf
+    Embedded in the binary (include_bytes!) for headless text rendering.
+    Copyright 2022 The Noto Project Authors
+    (https://github.com/notofonts/latin-greek-cyrillic)
+    Licensed under the SIL Open Font License, Version 1.1; the full licence
+    is in crates/velocity-headless/fonts/OFL-LICENSE.txt. The fonts are not
+    modified and are not sold on their own.
+
+-------------------------------------------------------------------------------
+5. Inspector frontend (bundled JavaScript)
+-------------------------------------------------------------------------------
+
+The inspector's web UI (crates/velocity-inspector/frontend) is bundled by
+Vite and embedded in the binary. The bundle contains:
+
+  react 19.2.4, react-dom 19.2.4, scheduler 0.27.0
+    Copyright (c) Meta Platforms, Inc. and affiliates.
+    Licensed under the MIT License.
+  zustand 5.0.11
+    Copyright (c) 2019 Paul Henschel
+    Licensed under the MIT License.
+
+  MIT License text (applies to each package above with its own copyright line):
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to permit
+    persons to whom the Software is furnished to do so, subject to the
+    following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+    NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+    DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+    OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+    USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+6. Rust crates
+-------------------------------------------------------------------------------
+
+The velocity binary statically links the Rust crates listed in
+docs/licenses/THIRD-PARTY-RUST.md, all under permissive licenses (MIT,
+Apache-2.0, BSD-2/3-Clause, ISC, Zlib, Unicode-3.0, BSL-1.0, CC0-1.0,
+Unlicense, 0BSD, MIT-0, CDLA-Permissive-2.0) except `colored`, which is
+MPL-2.0 and used unmodified; its source is available at
+https://github.com/colored-rs/colored. `cargo deny check licenses` (deny.toml)
+keeps that list enforced.
+
+-------------------------------------------------------------------------------
+Acknowledgements (no code copied)
+-------------------------------------------------------------------------------
+
+probes/ios/VelocityRunner implements the subset of WebDriverAgent's HTTP API
+(https://github.com/appium/WebDriverAgent) that Velocity's client uses, and
+borrows ideas (not code) from WebDriverAgent and Maestro
+(https://github.com/mobile-dev-inc/maestro), such as the deep-tree snapshot
+recovery depth. At build time Velocity can also clone WebDriverAgent at a
+pinned tag and patch it locally; WebDriverAgent is not redistributed.
