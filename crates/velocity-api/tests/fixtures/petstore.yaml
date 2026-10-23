@@ -1,0 +1,106 @@
+# A small spec for `velocity api scaffold`: a create, a read by id, a list,
+# a delete, an enum, a uuid id, a date-time, `$ref`s and `allOf`, and an
+# order that needs a pet created by another resource.
+openapi: 3.0.3
+info:
+  title: Petstore
+  version: 1.0.0
+servers:
+  - url: https://petstore.example.com/v1
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    PetId:
+      name: petId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Status:
+      type: string
+      enum: [available, pending, sold]
+    NewPet:
+      type: object
+      required: [name, status]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 50 }
+        status: { $ref: '#/components/schemas/Status' }
+        tag: { type: string }
+    Pet:
+      allOf:
+        - $ref: '#/components/schemas/NewPet'
+        - type: object
+          required: [id, createdAt]
+          properties:
+            id: { type: string, format: uuid, readOnly: true }
+            createdAt: { type: string, format: date-time }
+    NewOrder:
+      type: object
+      required: [petId, quantity]
+      properties:
+        petId: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 10 }
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      parameters:
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        '200':
+          description: the pets
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Pet' }
+    post:
+      operationId: createPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewPet' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+  /pets/{petId}:
+    parameters:
+      - $ref: '#/components/parameters/PetId'
+    get:
+      operationId: getPet
+      responses:
+        '200':
+          description: the pet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+        '404':
+          description: no such pet
+    delete:
+      operationId: deletePet
+      responses:
+        '204':
+          description: gone
+  /stores/{storeId}/orders:
+    post:
+      operationId: placeOrder
+      parameters:
+        - { name: storeId, in: path, required: true, schema: { type: string } }
+        - { name: X-Request-Id, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NewOrder' }
+            example: { petId: replaced-by-the-link, quantity: 2 }
+      responses:
+        '201':
+          description: placed
