@@ -1,0 +1,17 @@
+# Head-to-head flow, Maestro side. Step for step the same as
+# settings.velocity.yaml. Maestro matches `text` as a regex against the whole
+# label, so "Network.*" stands in for Velocity's textContains "Network" (both
+# hit the home row "Network & internet").
+appId: com.android.settings
+---
+- stopApp: com.android.settings
+- launchApp:
+    appId: com.android.settings
+    clearState: false
+    stopApp: false          # stopped explicitly above, as on the Velocity side
+- assertVisible: "Network.*"
+- tapOn: "Network.*"
+- assertVisible: "Airplane mode"
+- back
+- assertNotVisible: "Airplane mode"
+- assertVisible: "Network.*"

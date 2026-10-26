@@ -1,0 +1,22 @@
+# Head-to-head flow, Velocity side. Step for step the same as
+# settings.maestro.yaml; based on tests/smoke/android-settings.yaml.
+# No retries here: run.sh also passes --retries 0.
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: settings_network_round_trip
+    steps:
+      - stopApp: { appId: com.android.settings }
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "Network" }
+      - tap: { textContains: "Network" }
+      # "Airplane mode" is only on the Network & internet sub-page.
+      - assertVisible: { text: "Airplane mode" }
+      - pressKey: { key: back }
+      - assertNotVisible: { text: "Airplane mode" }
+      - assertVisible: { textContains: "Network" }
