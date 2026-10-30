@@ -193,10 +193,29 @@ pub(crate) mod fake {
             let dir = tempfile::tempdir().unwrap();
             std::fs::create_dir_all(dir.path().join("bin")).unwrap();
             std::fs::create_dir_all(dir.path().join("home")).unwrap();
+            // Only the utilities the fake scripts use, linked into `sys/`:
+            // with all of /usr/bin on PATH, a CI runner's real
+            // `google-chrome` (or adb, xcrun …) was found before a fake.
+            let sys = dir.path().join("sys");
+            std::fs::create_dir_all(&sys).unwrap();
+            for tool in [
+                "sh", "[", "test", "echo", "printf", "cat", "cp", "mv", "rm", "mkdir", "touch",
+                "ls", "ln", "chmod", "sleep", "env", "true", "false", "grep", "sed", "awk", "head",
+                "tail", "cut", "tr", "wc", "sort", "uniq", "basename", "dirname", "date", "uname",
+                "kill", "mktemp", "tee", "xargs", "expr",
+            ] {
+                if let Some(real) = ["/bin", "/usr/bin"]
+                    .iter()
+                    .map(|d| Path::new(d).join(tool))
+                    .find(|p| p.exists())
+                {
+                    let _ = std::os::unix::fs::symlink(real, sys.join(tool));
+                }
+            }
             let mut vars = HashMap::new();
             vars.insert(
                 "PATH".into(),
-                format!("{}:/bin:/usr/bin", dir.path().join("bin").display()),
+                format!("{}:{}", dir.path().join("bin").display(), sys.display()),
             );
             vars.insert(
                 "HOME".into(),

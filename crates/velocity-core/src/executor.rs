@@ -2472,6 +2472,19 @@ impl<'a> TestExecutor<'a> {
         let key = place.read.clone().unwrap_or_else(|| place.write.clone());
         // Lower-cased: "Home" and "home" are one file on macOS and Windows.
         let key = key.to_string_lossy().to_lowercase();
+        // Names that differ only in case are one file on macOS and Windows
+        // but two on Linux: refuse them everywhere, so a suite recorded on
+        // one OS can't silently share or split baselines on another.
+        if let Some(other) = self
+            .baseline_names
+            .values()
+            .find(|o| *o != name && o.to_lowercase() == name.to_lowercase())
+        {
+            return Err(VelocityError::Config(format!(
+                "assertScreenshot names {other:?} and {name:?} differ only in case: both map \
+                 to one baseline file on macOS and Windows; rename one"
+            )));
+        }
         match self.baseline_names.get(&key) {
             Some(other) if other != name => {
                 return Err(VelocityError::Config(format!(

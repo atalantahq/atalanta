@@ -755,7 +755,7 @@ mod tests {
                 before in "\\PC{0,16}",
                 after in "\\PC{0,16}",
             ) {
-                let secret = unique("PTlong", &tail);
+                let secret = unique("PTlongsecret", &tail);
                 prop_assert!(secret.chars().count() >= WORD_ONLY_BELOW);
                 register_secret(&secret);
                 for text in [
