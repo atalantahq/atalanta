@@ -6,6 +6,14 @@
 # a moving target tapped before it stopped).
 chrome = { max-threads = 2 }
 
+# The first matching override applies: the specific one comes first.
+
+# A moving target tapped where it stops: it missed on a loaded macOS runner
+# even beside one other browser, so it runs with nothing else at all.
+[[profile.default.overrides]]
+filter = "test(a_moving_element_is_tapped_where_it_stops)"
+threads-required = "num-cpus"
+
 [[profile.default.overrides]]
 filter = "(package(velocity-web) & kind(test)) | binary(web_parallel)"
 test-group = "chrome"
