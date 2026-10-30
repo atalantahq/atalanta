@@ -154,9 +154,11 @@ fn kill_all_pids() {
         }
     }
     // A dying Chrome's helpers can still write into the profile for a
-    // moment: retry briefly until the dirs stay gone.
+    // moment: retry until the dirs stay gone. 500 ms left profiles behind
+    // on a loaded Linux CI runner, where the helpers outlive the browser
+    // longer; this returns as soon as they are gone.
     let dirs: Vec<_> = entries.into_iter().filter_map(|(_, _, d)| d).collect();
-    let deadline = std::time::Instant::now() + Duration::from_millis(500);
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
     loop {
         for d in &dirs {
             let _ = std::fs::remove_dir_all(d);

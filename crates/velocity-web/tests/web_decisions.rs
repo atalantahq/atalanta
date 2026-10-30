@@ -201,6 +201,20 @@ async fn scroll(d: &velocity_web::WebDriver, axis: &str) -> f64 {
         .unwrap_or_default()
 }
 
+/// The scroll position once `done` holds, or after 3 s. A swipe's wheel
+/// event is dispatched, not awaited, and a loaded runner's Chrome applies it
+/// a moment later (a run settles after a swipe; this test doesn't).
+async fn scroll_until(d: &velocity_web::WebDriver, axis: &str, done: impl Fn(f64) -> bool) -> f64 {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        let v = scroll(d, axis).await;
+        if done(v) || std::time::Instant::now() >= until {
+            return v;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 /// D-W4 (VEL-265): `swipe: up` is the finger moving up, as on devices:
 /// the page scrolls down and shows what is below. It scrolled the page up
 /// (at the top: not at all).
@@ -218,7 +232,7 @@ async fn swipe_up_reveals_content_below() {
     d.swipe("web", velocity_common::Direction::Up)
         .await
         .unwrap();
-    let after_up = scroll(&d, "scrollY").await;
+    let after_up = scroll_until(&d, "scrollY", |y| y > 0.0).await;
     assert!(
         after_up > 0.0,
         "finger up scrolls the page down: {after_up}"
@@ -227,13 +241,13 @@ async fn swipe_up_reveals_content_below() {
         .await
         .unwrap();
     assert!(
-        scroll(&d, "scrollY").await < after_up,
+        scroll_until(&d, "scrollY", |y| y < after_up).await < after_up,
         "finger down scrolls back up"
     );
     d.swipe("web", velocity_common::Direction::Left)
         .await
         .unwrap();
-    let x = scroll(&d, "scrollX").await;
+    let x = scroll_until(&d, "scrollX", |x| x > 0.0).await;
     assert!(x > 0.0, "finger left shows what's right: {x}");
     d.cleanup().await;
 }
