@@ -5391,6 +5391,19 @@ mod tests {
     /// `change` runs once. Counts lookups, dumps and taps.
     type ScreenChange = Box<dyn FnOnce(&mut Element) + Send>;
 
+    /// Take one from a countdown; false once it is at zero. A compare-exchange
+    /// loop: `fetch_update` is deprecated in newer Rust.
+    fn take_one(a: &AtomicUsize) -> bool {
+        let mut cur = a.load(Ordering::SeqCst);
+        while cur > 0 {
+            match a.compare_exchange_weak(cur, cur - 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return true,
+                Err(seen) => cur = seen,
+            }
+        }
+        false
+    }
+
     struct ScriptDriver {
         /// Capture video and logs: the notes its logs report.
         evidence: Option<Vec<String>>,
@@ -5638,11 +5651,7 @@ mod tests {
                     .clone()
             });
             self.advance();
-            if self
-                .lose_after
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_err()
-            {
+            if !take_one(&self.lose_after) {
                 self.lost.store(true, Ordering::SeqCst);
             }
             if self.lost.load(Ordering::SeqCst) {
@@ -5651,11 +5660,7 @@ mod tests {
                     reason: "device offline".into(),
                 });
             }
-            if self
-                .unreadable
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_ok()
-            {
+            if take_one(&self.unreadable) {
                 return Err(VelocityError::CommandFailed {
                     device_id: "d".into(),
                     command: "uiautomator dump".into(),

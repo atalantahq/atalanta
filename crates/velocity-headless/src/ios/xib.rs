@@ -254,17 +254,40 @@ impl XibParser {
                         _ => {}
                     }
                 }
+                // Since quick-xml 0.38 a text with an entity in it comes as
+                // pieces (`Line one `, `&amp;`, ` two`): append each one.
                 Ok(Event::Text(e)) => {
                     if let (Some(parent), Some(key)) =
                         (stack.last_mut(), current_string_key.as_ref())
                     {
                         let text = e
-                            .unescape()
-                            .map(|value| value.into_owned())
+                            .decode()
+                            .map(|t| t.into_owned())
                             .unwrap_or_else(|_| String::from_utf8_lossy(e.as_ref()).to_string());
                         if !text.is_empty() {
-                            parent.properties.insert(key.clone(), text);
+                            parent
+                                .properties
+                                .entry(key.clone())
+                                .or_default()
+                                .push_str(&text);
                         }
+                    }
+                }
+                Ok(Event::GeneralRef(e)) => {
+                    if let (Some(parent), Some(key)) =
+                        (stack.last_mut(), current_string_key.as_ref())
+                    {
+                        let name = String::from_utf8_lossy(e.as_ref()).to_string();
+                        let resolved = match e.resolve_char_ref() {
+                            Ok(Some(c)) => c.to_string(),
+                            _ => quick_xml::escape::resolve_predefined_entity(&name)
+                                .map_or_else(|| format!("&{name};"), str::to_string),
+                        };
+                        parent
+                            .properties
+                            .entry(key.clone())
+                            .or_default()
+                            .push_str(&resolved);
                     }
                 }
                 Ok(Event::End(e)) => {
@@ -305,7 +328,7 @@ impl XibParser {
             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
             // `Terms &amp; Conditions` is the text `Terms & Conditions` (VEL-104).
             let val = attr
-                .unescape_value()
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .map(|v| v.into_owned())
                 .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
             attrs.insert(key, val);

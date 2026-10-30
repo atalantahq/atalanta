@@ -22,11 +22,13 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 unmaintained = "all"
 yanked = "deny"
 ignore = [
-    # serde_yaml is archived upstream ("0.9.34+deprecated"). It is still the
-    # YAML parser for the DSL; replacing it (serde_yml / serde-saphyr) is a
-    # tracked follow-up, not a security fix. Uncomment once the advisory
-    # actually exists in the DB and a decision is recorded:
-    # { id = "RUSTSEC-XXXX-XXXX", reason = "serde_yaml unmaintained, migration tracked" },
+    # Both are "unmaintained" notices with no safe upgrade, not vulnerabilities.
+    # serde_yaml (0.9.34+deprecated) is still the DSL's YAML parser; moving to a
+    # maintained parser that reports spans is in docs/research/PLAN-v3.md.
+    { id = "RUSTSEC-2024-0449", reason = "serde_yaml unmaintained; migration tracked in PLAN-v3" },
+    # ttf-parser, through cosmic-text/fontdb in the headless renderer. Its
+    # suggested replacement (skrifa) needs cosmic-text to move first.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained via cosmic-text; no upgrade yet" },
 ]
 
 # ---------------------------------------------------------------------------

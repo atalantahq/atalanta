@@ -144,6 +144,13 @@ impl StoryboardParser {
                 Ok(Event::Text(e)) if in_scene => {
                     scene_content.push_str(&String::from_utf8_lossy(e.as_ref()));
                 }
+                // quick-xml 0.38+ reports `&amp;` and the like as their own
+                // events; this rebuilds the scene's XML, so write them back.
+                Ok(Event::GeneralRef(e)) if in_scene => {
+                    scene_content.push('&');
+                    scene_content.push_str(&String::from_utf8_lossy(e.as_ref()));
+                    scene_content.push(';');
+                }
                 Ok(Event::CData(e)) if in_scene => {
                     scene_content.push_str(&escape_xml_attr(&String::from_utf8_lossy(e.as_ref())));
                 }
@@ -160,7 +167,7 @@ impl StoryboardParser {
 /// An attribute's value with its entities decoded, so re-escaping it once
 /// reproduces the source instead of double-escaping it.
 fn attr_value(attr: &quick_xml::events::attributes::Attribute) -> String {
-    attr.unescape_value()
+    attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
         .map(|v| v.into_owned())
         .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string())
 }

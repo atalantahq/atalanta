@@ -196,7 +196,7 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
         }
         // Decode entities: "Network &amp; internet" must match text="Network & internet".
         let val = attr
-            .unescape_value()
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map(|v| v.into_owned())
             .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
         let non_empty = |v: String| (!v.is_empty()).then_some(v);

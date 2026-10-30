@@ -61,6 +61,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
   - `velocity run`'s 846-line `execute_file` split into named steps.
   - The console's routing driver forwards every driver method.
   - CI no longer runs a duplicate `check` job, or the fat-LTO release build on pull requests.
+- **CI:**
+  - The toolchain is pinned (1.98.1), so a new Rust release can't break every open PR; a weekly canary runs newest stable and beta, and the advisories.
+  - Tests run under cargo-nextest (one process per test, binaries in parallel, a JUnit report per OS, a retry reported as flaky), with doctests run separately.
+  - A docs-only change skips the Rust jobs. Every job has a timeout and `--locked`. One `CI OK` gate job serves branch protection. actionlint checks the workflows.
+  - cargo-deny advisories pass, with the two unfixable "unmaintained" notices (serde_yaml, ttf-parser) ignored with reasons. Dependabot opens grouped weekly updates for cargo, npm and the actions.
 
 ### Security
 
@@ -70,6 +75,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Fixed
 
+- The workspace builds on the newest Rust toolchains: `AtomicU32::fetch_update`, deprecated there, is replaced by a compare-exchange loop that also works on the 1.89 MSRV.
+- quick-xml 0.41 (RUSTSEC-2026-0194, -0195) and zip 9 (RUSTSEC-2026-0367, -0368, -0369). Since quick-xml 0.38, a text with an entity in it comes as separate events; the xib and storyboard parsers now keep `&amp;` and the like (`Line one & two` read as `Line one  two`).
 - **A secret leak in redaction.** A short secret (a PIN or OTP under 8 characters) written right next to a long secret or a token shape was left in clear: `LONGSECRETpin` became `[redacted]pin`. Found by new property tests.
 - iOS `launchApp` waits at most 5 s for the runner to stop the app before falling back to `simctl`, instead of the client's 30 s timeout.
 - A crash or ANR message with a multi-byte character at byte 300 (CJK, emoji) panicked Android's logcat reader, and the crash evidence was lost. Also fixed: the same kind of panic in AWS request signing (a `%` escape before a multi-byte character) and in shortening an app hash.

@@ -658,7 +658,7 @@ fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
                         let mut ms = None;
                         for a in e.attributes().flatten() {
                             let v = a
-                                .unescape_value()
+                                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                 .map(|v| v.into_owned())
                                 .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).into_owned());
                             match a.key.as_ref() {

@@ -44,7 +44,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # rustls instead of the platform TLS: no OpenSSL to link or ship on Linux.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "charset"] }
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.41", features = ["serialize"] }
 regex = "1"
 clap = { version = "4", features = ["derive"] }
 base64 = "0.22"
