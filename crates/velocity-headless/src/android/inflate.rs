@@ -185,7 +185,7 @@ impl AndroidInflater {
                     for attr in e.attributes().flatten() {
                         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                         let val = attr
-                            .unescape_value()
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                             .map(|v| v.into_owned())
                             .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
                         // Strip android: namespace prefix
@@ -207,7 +207,7 @@ impl AndroidInflater {
                     for attr in e.attributes().flatten() {
                         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                         let val = attr
-                            .unescape_value()
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                             .map(|v| v.into_owned())
                             .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
                         let key = key.strip_prefix("android:").unwrap_or(&key).to_string();

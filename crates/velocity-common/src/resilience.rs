@@ -153,12 +153,7 @@ impl CircuitBreaker {
         if !take {
             return self.half_open_inflight.load(Ordering::SeqCst) >= max;
         }
-        let refused = self
-            .half_open_inflight
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n < max).then_some(n + 1)
-            })
-            .is_err();
+        let refused = update(&self.half_open_inflight, |n| (n < max).then_some(n + 1)).is_err();
         *took = !refused;
         refused
     }
@@ -169,9 +164,7 @@ impl CircuitBreaker {
         if self.half_open_generation.load(Ordering::SeqCst) != generation {
             return;
         }
-        let _ = self
-            .half_open_inflight
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+        let _ = update(&self.half_open_inflight, |n| n.checked_sub(1));
     }
 
     /// Half-open with every probe slot taken.
@@ -1034,6 +1027,19 @@ impl PlatformDriver for ResilientDriver {
             async move { inner.refresh_page(&did).await }
         })
         .await
+    }
+}
+
+/// `AtomicU32::fetch_update` as a compare-exchange loop: that method is
+/// deprecated in newer Rust (renamed `try_update`, which the MSRV lacks).
+fn update(a: &AtomicU32, f: impl Fn(u32) -> Option<u32>) -> std::result::Result<u32, u32> {
+    let mut cur = a.load(Ordering::SeqCst);
+    loop {
+        let Some(next) = f(cur) else { return Err(cur) };
+        match a.compare_exchange_weak(cur, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(prev) => return Ok(prev),
+            Err(seen) => cur = seen,
+        }
     }
 }
 

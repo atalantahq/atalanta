@@ -154,7 +154,7 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
         // Decode entities: label="Network &amp; internet" must match the text.
         let val = attr
-            .unescape_value()
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map(|v| v.into_owned())
             .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
 

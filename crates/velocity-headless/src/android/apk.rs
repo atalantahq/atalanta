@@ -30,7 +30,12 @@ impl ApkLoader {
 
         // Collect file names first to avoid borrow issues
         let file_names: Vec<String> = (0..archive.len())
-            .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+            .filter_map(|i| {
+                archive
+                    .by_index(i)
+                    .ok()
+                    .and_then(|f| f.name().ok().map(|n| n.to_string()))
+            })
             .collect();
 
         for name in &file_names {

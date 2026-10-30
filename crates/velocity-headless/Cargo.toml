@@ -22,7 +22,7 @@ cosmic-text = "0.16.0"
 fontdb = { version = "0.23", default-features = false }
 
 # Android adapter
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # iOS adapter (quick-xml already in workspace)
 quick-xml = { workspace = true }
