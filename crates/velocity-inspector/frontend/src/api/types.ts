@@ -14,6 +14,8 @@ export interface Element {
   enabled: boolean;
   visible: boolean;
   children: Element[];
+  /** Tree path the server assigned in this snapshot ("0/3/1"). */
+  nodeKey?: string;
 }
 
 export type Selector =
@@ -27,7 +29,7 @@ export type Selector =
 
 export type Direction = "up" | "down" | "left" | "right";
 
-export type Platform = "ios" | "android";
+export type Platform = "ios" | "android" | "web";
 
 export type DeviceState = "booted" | "shutdown" | "unknown";
 
@@ -42,16 +44,27 @@ export interface DeviceInfo {
   device_type: DeviceType;
 }
 
+export interface SelectorCandidate {
+  selector: Selector;
+  yaml: string;
+  /** How many elements on the screen it matches; 1 means unique. */
+  matchCount: number;
+}
+
 export interface GenerateResponse {
   selector: Selector;
   yaml_tap: string;
   yaml_assert: string;
+  yaml_input?: string;
+  candidates?: SelectorCandidate[];
 }
 
 export interface WsMessage {
-  type: "screenshot" | "hierarchy" | "error" | "performance";
+  type: "screenshot" | "hierarchy" | "error" | "ok" | "performance";
   url?: string;
   root?: Element;
+  /** Snapshot version of a hierarchy; selectors are generated against it. */
+  version?: number;
   message?: string;
   // Performance fields (only when type === "performance")
   javaHeapKb?: number;

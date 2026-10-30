@@ -70,8 +70,8 @@ impl XibParser {
                     let attrs = Self::parse_attributes(&e);
 
                     match tag.as_str() {
-                        "view" | "label" | "imageView" | "stackView" | "scrollView"
-                        | "button" | "textField" | "switch" | "slider" | "tableView" => {
+                        "view" | "label" | "imageView" | "stackView" | "scrollView" | "button"
+                        | "textField" | "switch" | "slider" | "tableView" => {
                             let obj = Self::create_object(&tag, &attrs);
                             stack.push(obj);
                         }
@@ -104,10 +104,19 @@ impl XibParser {
                             let key = attrs.get("key").unwrap().clone();
                             if let Some(parent) = stack.last_mut() {
                                 if let Some(hex) = Self::color_to_hex(&attrs) {
-                                    parent
-                                        .properties
-                                        .insert(format!("color_{}", key), hex);
+                                    parent.properties.insert(format!("color_{}", key), hex);
                                 }
+                            }
+                        }
+                        // A button's title lives in `<state key="normal" title=…>` (VEL-105).
+                        "state" if attrs.get("key").map(String::as_str) == Some("normal") => {
+                            if let (Some(parent), Some(title)) =
+                                (stack.last_mut(), attrs.get("title"))
+                            {
+                                parent
+                                    .properties
+                                    .entry("title".to_string())
+                                    .or_insert_with(|| title.clone());
                             }
                         }
                         "fontDescription" => {
@@ -122,6 +131,20 @@ impl XibParser {
                                         .properties
                                         .insert("fontName".to_string(), name.clone());
                                 }
+                                for key in ["type", "weight"] {
+                                    if let Some(v) = attrs.get(key) {
+                                        parent.properties.insert(format!("font_{key}"), v.clone());
+                                    }
+                                }
+                            }
+                        }
+                        "textInputTraits" => {
+                            if let (Some(parent), Some(v)) =
+                                (stack.last_mut(), attrs.get("secureTextEntry"))
+                            {
+                                parent
+                                    .properties
+                                    .insert("secureTextEntry".to_string(), v.clone());
                             }
                         }
                         "string" if attrs.contains_key("key") => {
@@ -141,8 +164,8 @@ impl XibParser {
                     let attrs = Self::parse_attributes(&e);
 
                     match tag.as_str() {
-                        "view" | "label" | "imageView" | "stackView" | "scrollView"
-                        | "button" | "textField" | "switch" | "slider" | "tableView" => {
+                        "view" | "label" | "imageView" | "stackView" | "scrollView" | "button"
+                        | "textField" | "switch" | "slider" | "tableView" => {
                             let obj = Self::create_object(&tag, &attrs);
                             if let Some(parent) = stack.last_mut() {
                                 parent.subviews.push(obj);
@@ -179,10 +202,19 @@ impl XibParser {
                             let key = attrs.get("key").unwrap().clone();
                             if let Some(parent) = stack.last_mut() {
                                 if let Some(hex) = Self::color_to_hex(&attrs) {
-                                    parent
-                                        .properties
-                                        .insert(format!("color_{}", key), hex);
+                                    parent.properties.insert(format!("color_{}", key), hex);
                                 }
+                            }
+                        }
+                        // A button's title lives in `<state key="normal" title=…>` (VEL-105).
+                        "state" if attrs.get("key").map(String::as_str) == Some("normal") => {
+                            if let (Some(parent), Some(title)) =
+                                (stack.last_mut(), attrs.get("title"))
+                            {
+                                parent
+                                    .properties
+                                    .entry("title".to_string())
+                                    .or_insert_with(|| title.clone());
                             }
                         }
                         "fontDescription" => {
@@ -197,6 +229,20 @@ impl XibParser {
                                         .properties
                                         .insert("fontName".to_string(), name.clone());
                                 }
+                                for key in ["type", "weight"] {
+                                    if let Some(v) = attrs.get(key) {
+                                        parent.properties.insert(format!("font_{key}"), v.clone());
+                                    }
+                                }
+                            }
+                        }
+                        "textInputTraits" => {
+                            if let (Some(parent), Some(v)) =
+                                (stack.last_mut(), attrs.get("secureTextEntry"))
+                            {
+                                parent
+                                    .properties
+                                    .insert("secureTextEntry".to_string(), v.clone());
                             }
                         }
                         "string" if attrs.contains_key("key") => {
@@ -208,15 +254,40 @@ impl XibParser {
                         _ => {}
                     }
                 }
+                // Since quick-xml 0.38 a text with an entity in it comes as
+                // pieces (`Line one `, `&amp;`, ` two`): append each one.
                 Ok(Event::Text(e)) => {
-                    if let (Some(parent), Some(key)) = (stack.last_mut(), current_string_key.as_ref()) {
+                    if let (Some(parent), Some(key)) =
+                        (stack.last_mut(), current_string_key.as_ref())
+                    {
                         let text = e
-                            .unescape()
-                            .map(|value| value.into_owned())
+                            .decode()
+                            .map(|t| t.into_owned())
                             .unwrap_or_else(|_| String::from_utf8_lossy(e.as_ref()).to_string());
                         if !text.is_empty() {
-                            parent.properties.insert(key.clone(), text);
+                            parent
+                                .properties
+                                .entry(key.clone())
+                                .or_default()
+                                .push_str(&text);
                         }
+                    }
+                }
+                Ok(Event::GeneralRef(e)) => {
+                    if let (Some(parent), Some(key)) =
+                        (stack.last_mut(), current_string_key.as_ref())
+                    {
+                        let name = String::from_utf8_lossy(e.as_ref()).to_string();
+                        let resolved = match e.resolve_char_ref() {
+                            Ok(Some(c)) => c.to_string(),
+                            _ => quick_xml::escape::resolve_predefined_entity(&name)
+                                .map_or_else(|| format!("&{name};"), str::to_string),
+                        };
+                        parent
+                            .properties
+                            .entry(key.clone())
+                            .or_default()
+                            .push_str(&resolved);
                     }
                 }
                 Ok(Event::End(e)) => {
@@ -226,8 +297,8 @@ impl XibParser {
                         "string" => {
                             current_string_key = None;
                         }
-                        "view" | "label" | "imageView" | "stackView" | "scrollView"
-                        | "button" | "textField" | "switch" | "slider" | "tableView" => {
+                        "view" | "label" | "imageView" | "stackView" | "scrollView" | "button"
+                        | "textField" | "switch" | "slider" | "tableView" => {
                             if let Some(obj) = stack.pop() {
                                 if let Some(parent) = stack.last_mut() {
                                     parent.subviews.push(obj);
@@ -251,22 +322,21 @@ impl XibParser {
         })
     }
 
-    fn parse_attributes(
-        event: &quick_xml::events::BytesStart,
-    ) -> HashMap<String, String> {
+    fn parse_attributes(event: &quick_xml::events::BytesStart) -> HashMap<String, String> {
         let mut attrs = HashMap::new();
         for attr in event.attributes().flatten() {
             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-            let val = String::from_utf8_lossy(&attr.value).to_string();
+            // `Terms &amp; Conditions` is the text `Terms & Conditions` (VEL-104).
+            let val = attr
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .map(|v| v.into_owned())
+                .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
             attrs.insert(key, val);
         }
         attrs
     }
 
-    fn create_object(
-        tag: &str,
-        attrs: &HashMap<String, String>,
-    ) -> XibObject {
+    fn create_object(tag: &str, attrs: &HashMap<String, String>) -> XibObject {
         let class = match tag {
             "view" => "UIView",
             "label" => "UILabel",
@@ -286,11 +356,23 @@ impl XibParser {
         // Copy relevant attributes
         for (key, val) in attrs {
             match key.as_str() {
-                "text" | "placeholder" | "title" | "numberOfLines" | "textAlignment"
-                | "contentMode" | "axis" | "distribution" | "alignment" | "spacing"
-                | "hidden" | "userInteractionEnabled" | "opaque" | "alpha"
+                "text"
+                | "placeholder"
+                | "title"
+                | "numberOfLines"
+                | "textAlignment"
+                | "contentMode"
+                | "axis"
+                | "distribution"
+                | "alignment"
+                | "spacing"
+                | "hidden"
+                | "userInteractionEnabled"
+                | "opaque"
+                | "alpha"
                 | "translatesAutoresizingMaskIntoConstraints"
-                | "accessibilityIdentifier" | "accessibilityLabel" => {
+                | "accessibilityIdentifier"
+                | "accessibilityLabel" => {
                     properties.insert(key.clone(), val.clone());
                 }
                 _ => {}
@@ -332,15 +414,24 @@ impl XibParser {
     fn color_to_hex(attrs: &HashMap<String, String>) -> Option<String> {
         // Handle named system colors
         if let Some(name) = attrs.get("systemColor") {
-            return Some(match name.as_str() {
-                "systemBackgroundColor" => "#FFFFFF".to_string(),
-                "labelColor" => "#000000".to_string(),
-                _ => "#000000".to_string(),
-            });
+            return Some(system_color_hex(name).to_string());
+        }
+
+        // Grayscale colours (`colorSpace="calibratedWhite"`), e.g. `white="1"` (VEL-105).
+        if let Some(white) = attrs.get("white").and_then(|v| v.parse::<f32>().ok()) {
+            let w = (white.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let a = attrs
+                .get("alpha")
+                .and_then(|v| v.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            let a = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
+            return Some(format!("#{:02x}{:02x}{:02x}{:02x}", a, w, w, w));
         }
 
         // Handle custom RGBA colors
-        if let (Some(r), Some(g), Some(b)) = (attrs.get("red"), attrs.get("green"), attrs.get("blue")) {
+        if let (Some(r), Some(g), Some(b)) =
+            (attrs.get("red"), attrs.get("green"), attrs.get("blue"))
+        {
             let r = (r.parse::<f32>().unwrap_or(0.0) * 255.0) as u8;
             let g = (g.parse::<f32>().unwrap_or(0.0) * 255.0) as u8;
             let b = (b.parse::<f32>().unwrap_or(0.0) * 255.0) as u8;
@@ -352,10 +443,46 @@ impl XibParser {
             return Some(format!("#{:02x}{:02x}{:02x}{:02x}", a, r, g, b));
         }
 
-        attrs.get("customColorSpace").and_then(|_| {
-            // Handle custom color space — default to black
-            Some("#FF000000".to_string())
-        })
+        attrs
+            .get("customColorSpace")
+            .map(|_| "#FF000000".to_string())
+    }
+}
+
+/// UIKit's dynamic system colours in light mode, as `#AARRGGBB`.
+fn system_color_hex(name: &str) -> &'static str {
+    match name {
+        "systemBackgroundColor"
+        | "secondarySystemGroupedBackgroundColor"
+        | "tertiarySystemBackgroundColor" => "#FFFFFFFF",
+        "secondarySystemBackgroundColor"
+        | "systemGroupedBackgroundColor"
+        | "tertiarySystemGroupedBackgroundColor" => "#FFF2F2F7",
+        "labelColor" | "darkTextColor" => "#FF000000",
+        "secondaryLabelColor" => "#993C3C43",
+        "tertiaryLabelColor" => "#4D3C3C43",
+        "quaternaryLabelColor" => "#2E3C3C43",
+        "placeholderTextColor" => "#4D3C3C43",
+        "separatorColor" => "#4A3C3C43",
+        "opaqueSeparatorColor" => "#FFC6C6C8",
+        "linkColor" | "systemBlueColor" | "tintColor" => "#FF007AFF",
+        "systemRedColor" => "#FFFF3B30",
+        "systemGreenColor" => "#FF34C759",
+        "systemOrangeColor" => "#FFFF9500",
+        "systemYellowColor" => "#FFFFCC00",
+        "systemPinkColor" => "#FFFF2D55",
+        "systemPurpleColor" => "#FFAF52DE",
+        "systemTealColor" => "#FF30B0C7",
+        "systemIndigoColor" => "#FF5856D6",
+        "systemGrayColor" => "#FF8E8E93",
+        "systemGray2Color" => "#FFAEAEB2",
+        "systemGray3Color" => "#FFC7C7CC",
+        "systemGray4Color" => "#FFD1D1D6",
+        "systemGray5Color" => "#FFE5E5EA",
+        "systemGray6Color" => "#FFF2F2F7",
+        "whiteColor" | "lightTextColor" => "#FFFFFFFF",
+        "clearColor" => "#00000000",
+        _ => "#FF000000",
     }
 }
 

@@ -1,91 +1,71 @@
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpStream;
 use tokio::process::Child;
-use tokio::time::{timeout, Duration};
+use tokio::time::Duration;
+use velocity_common::jsonline::JsonLineClient;
 
 use crate::config::FlutterBridgeConfig;
 use crate::protocol::{FlutterCommand, FlutterResponse};
 
-/// Manages the Flutter test process and TCP communication.
+/// Manages the connection to the Flutter test process.
 pub struct FlutterProcess {
     config: FlutterBridgeConfig,
+    /// The process, when the driver started it. Only then may it be shut down.
     child: Option<Child>,
-    stream: Option<TcpStream>,
+    client: JsonLineClient,
 }
 
 impl FlutterProcess {
     pub fn new(config: FlutterBridgeConfig) -> Self {
+        let mut client = JsonLineClient::new("Flutter bridge", config.port);
+        client.timeout = Duration::from_secs(config.reply_timeout_secs.max(1));
         Self {
             config,
             child: None,
-            stream: None,
+            client,
         }
     }
 
-    /// Start the Flutter test process and connect via TCP.
+    /// Connect to the bridge the app's test entry point is running.
     pub async fn start(&mut self) -> anyhow::Result<()> {
-        let addr = format!("127.0.0.1:{}", self.config.port);
-
-        // Try connecting to existing process first
-        match timeout(Duration::from_secs(2), TcpStream::connect(&addr)).await {
-            Ok(Ok(stream)) => {
-                tracing::info!("Connected to existing Flutter test process at {addr}");
-                self.stream = Some(stream);
-                return Ok(());
-            }
-            _ => {
-                tracing::info!("No existing Flutter process, will need to start one");
-            }
+        if let Err(e) = self.client.connect().await {
+            tracing::info!("No Flutter bridge to connect to: {e}");
+            anyhow::bail!(
+                "Flutter bridge not running on port {} for project {}. \
+                 Add the velocity_bridge Dart package (crates/velocity-flutter-bridge/dart) \
+                 to the app and start it before tests — see the velocity-flutter-bridge README.",
+                self.config.port,
+                self.config.project_path
+            )
         }
-
-        anyhow::bail!(
-            "Flutter test process not running on port {}. \
-             Start it with: velocity flutter-bridge --port {} --project {}",
-            self.config.port,
-            self.config.port,
-            self.config.project_path
-        )
+        Ok(())
     }
 
-    /// Send a command and receive a response.
+    /// Send a command and receive its reply.
+    ///
+    /// Requests carry ids, so a late reply is never taken for the answer to
+    /// a later command; a timed-out or failed command also drops the
+    /// connection.
     pub async fn send(&mut self, cmd: &FlutterCommand) -> anyhow::Result<FlutterResponse> {
-        let stream = self.stream.as_mut().ok_or_else(|| {
-            anyhow::anyhow!("Not connected to Flutter test process")
-        })?;
-
-        let mut payload = serde_json::to_string(cmd)?;
-        payload.push('\n');
-
-        let (reader, mut writer) = stream.split();
-        writer.write_all(payload.as_bytes()).await?;
-        writer.flush().await?;
-
-        let mut buf_reader = BufReader::new(reader);
-        let mut line = String::new();
-
-        let read_result = timeout(Duration::from_secs(30), buf_reader.read_line(&mut line)).await
-            .map_err(|_| anyhow::anyhow!("Flutter process response timed out after 30s"))??;
-
-        if read_result == 0 {
-            anyhow::bail!("Flutter process disconnected");
-        }
-
-        let response: FlutterResponse = serde_json::from_str(line.trim())?;
-        Ok(response)
+        self.client.request(cmd).await
     }
 
-    /// Stop the Flutter test process.
+    /// Disconnect. The bridge is shut down only if this driver started it:
+    /// one the user started keeps serving the next run (VEL-140).
     pub async fn stop(&mut self) {
-        if self.stream.is_some() {
-            let _ = self.send(&FlutterCommand::Shutdown).await;
-            self.stream = None;
-        }
         if let Some(mut child) = self.child.take() {
+            if self.client.is_connected() {
+                let _ = self.send(&FlutterCommand::Shutdown).await;
+            }
             let _ = child.kill().await;
         }
+        self.client.disconnect();
     }
 
     pub fn is_running(&self) -> bool {
-        self.stream.is_some()
+        self.client.is_connected()
+    }
+
+    /// Whether this driver started the bridge process.
+    pub fn owns_process(&self) -> bool {
+        self.child.is_some()
     }
 }

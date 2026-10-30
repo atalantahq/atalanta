@@ -1,0 +1,21 @@
+# Device smoke suite for CI (C5): drives the iOS Simulator's own Settings
+# app, so it needs no private app build. Run by .github/workflows/device-smoke.yml.
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+  retry:
+    count: 1
+
+tests:
+  - name: settings_opens_and_navigates
+    tags: [smoke]
+    steps:
+      - launchApp:
+          appId: com.apple.Preferences
+          clearState: false
+      - assertVisible: { text: "General" }
+      - tap: { text: "General" }
+      - assertVisible: { text: "About" }
+      - tap: { text: "About" }
+      - assertVisible: { textContains: "iOS Version" }

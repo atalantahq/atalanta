@@ -3,9 +3,10 @@ use std::sync::Arc;
 use velocity_common::Element;
 
 use crate::config::HeadlessConfig;
-use crate::element_map::render_tree_to_element;
+use crate::element_map::{element_path, render_tree_to_element_on_screen};
 use crate::layout::LayoutEngine;
 use crate::render_tree::RenderNode;
+use crate::scroll::ScrollState;
 use crate::surface::SoftwareSurface;
 use crate::text::TextMeasurer;
 
@@ -16,7 +17,7 @@ use crate::text::TextMeasurer;
 pub struct HeadlessSession {
     /// Session configuration.
     pub config: HeadlessConfig,
-    /// Current render tree (set after layout inflation).
+    /// Current render tree (set after layout inflation), laid out unscrolled.
     pub render_tree: Option<RenderNode>,
     /// Current element tree (derived from render tree after layout).
     pub element_tree: Option<Element>,
@@ -30,17 +31,20 @@ pub struct HeadlessSession {
     pub app_path: Option<String>,
     /// Whether the session has performed initial layout.
     pub layout_computed: bool,
+    /// Scroll offsets, applied to the render tree for the hierarchy and screenshots.
+    pub scroll: ScrollState,
+    /// Bumped on every redraw; what it was at the last settle tells whether
+    /// the screen reacted since (`take_reacted`).
+    redraws: u64,
+    settled_redraws: u64,
 }
-
-// SAFETY: All non-Send/Sync fields (RenderNode, LayoutEngine) have their own unsafe Send/Sync
-// impls because taffy 0.9's CompactLength uses `*const ()` as tagged pointers for float values,
-// not real heap pointers.
-unsafe impl Send for HeadlessSession {}
-unsafe impl Sync for HeadlessSession {}
 
 impl HeadlessSession {
     /// Create a new session with the given config and shared text measurer.
-    pub fn new(config: HeadlessConfig, text_measurer: Arc<TextMeasurer>) -> Result<Self, SessionError> {
+    pub fn new(
+        config: HeadlessConfig,
+        text_measurer: Arc<TextMeasurer>,
+    ) -> Result<Self, SessionError> {
         let surface = SoftwareSurface::new(config.width, config.height)
             .map_err(|e| SessionError::SurfaceCreation(e.to_string()))?;
 
@@ -49,11 +53,24 @@ impl HeadlessSession {
             render_tree: None,
             element_tree: None,
             surface,
-            layout_engine: LayoutEngine::new(),
+            layout_engine: LayoutEngine::with_measurer(text_measurer.clone()),
             text_measurer,
             app_path: None,
             layout_computed: false,
+            scroll: ScrollState::default(),
+            redraws: 0,
+            settled_redraws: 0,
         })
+    }
+
+    /// Show a freshly inflated tree: its text scaled by `fontScale` (D-47),
+    /// then laid out and rendered.
+    pub fn load_tree(&mut self, mut tree: RenderNode) -> Result<(), SessionError> {
+        let scale = self.config.font_scale;
+        if scale.is_finite() && scale > 0.0 && scale != 1.0 {
+            scale_fonts(&mut tree, scale);
+        }
+        self.set_render_tree(tree)
     }
 
     /// Set the render tree and compute layout + render.
@@ -67,17 +84,88 @@ impl HeadlessSession {
             )
             .map_err(|e| SessionError::LayoutFailed(e.to_string()))?;
 
-        // Render to surface with glyph rendering
-        self.surface.render_tree(&tree, Some(&self.text_measurer));
-
-        // Convert to Element tree
-        self.element_tree = Some(render_tree_to_element(&tree));
-
         // Store render tree
         self.render_tree = Some(tree);
         self.layout_computed = true;
+        self.show();
 
         Ok(())
+    }
+
+    /// Render the laid-out tree at the current scroll offsets, and derive the
+    /// element tree from what is shown.
+    fn show(&mut self) {
+        let Some(tree) = &self.render_tree else {
+            return;
+        };
+        self.redraws += 1;
+        let (width, height) = (self.config.width as f32, self.config.height as f32);
+        self.scroll.clamp(tree, (width, height));
+        let shown = self.scroll.apply(tree);
+
+        // Render to surface with glyph rendering
+        self.surface.render_tree(&shown, Some(&self.text_measurer));
+
+        // Convert to Element tree
+        self.element_tree = Some(render_tree_to_element_on_screen(&shown, width, height));
+    }
+
+    /// A finger dragged from `from` to `to`: scrolls the innermost scroll container
+    /// under `from` (then its parents, then the window) with the finger, and
+    /// re-renders. Returns whether anything moved.
+    pub fn scroll(&mut self, from: (i32, i32), to: (i32, i32)) -> Result<bool, SessionError> {
+        let tree = self.render_tree.as_ref().ok_or(SessionError::NoLayout)?;
+        let screen = (self.config.width as f32, self.config.height as f32);
+        let moved = self.scroll.drag(
+            tree,
+            screen,
+            (from.0 as f32, from.1 as f32),
+            (to.0 as f32, to.1 as f32),
+        );
+        if moved {
+            self.show();
+        }
+        Ok(moved)
+    }
+
+    /// Scroll everything back to the top-left (a launch) and re-render.
+    pub fn reset_scroll(&mut self) {
+        self.scroll.reset();
+        self.show();
+    }
+
+    /// The app stopped: the screen is empty until the next launch (VEL-357).
+    pub fn stop(&mut self) {
+        self.redraws += 1;
+        let (width, height) = (self.config.width as i32, self.config.height as i32);
+        self.render_tree = None;
+        self.layout_computed = false;
+        self.scroll.reset();
+        self.surface.clear(crate::render_tree::Color::WHITE);
+        self.element_tree = Some(Element {
+            hint: None,
+            platform_id: String::new(),
+            label: None,
+            text: None,
+            element_type: "Screen".into(),
+            bounds: velocity_common::Rect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+            enabled: true,
+            visible: true,
+            children: Vec::new(),
+            ..Default::default()
+        });
+    }
+
+    /// Whether the screen was redrawn since the last call.
+    pub fn take_reacted(&mut self) -> bool {
+        let reacted = self.redraws != self.settled_redraws;
+        self.settled_redraws = self.redraws;
+        reacted
     }
 
     /// Get the current element hierarchy.
@@ -97,40 +185,63 @@ impl HeadlessSession {
         (self.config.width as i32, self.config.height as i32)
     }
 
-    /// Update text content in the render tree and re-render.
-    pub fn update_text(
-        &mut self,
-        element_id: &str,
-        new_text: &str,
-    ) -> Result<(), SessionError> {
-        let tree = self
-            .render_tree
-            .as_mut()
-            .ok_or(SessionError::NoLayout)?;
-
-        // Find and update the node
-        if !Self::update_node_text(tree, element_id, new_text) {
-            return Err(SessionError::ElementNotFound(element_id.to_string()));
-        }
-
-        // Re-layout and re-render
-        let mut tree = self.render_tree.take().unwrap();
-        self.set_render_tree(tree)?;
-
-        Ok(())
+    /// Set the text of the node `element` is (located by its place in the
+    /// tree, not its id: two fields may share an id, VEL-339) and re-render.
+    pub fn update_text(&mut self, element: &Element, new_text: &str) -> Result<(), SessionError> {
+        self.edit_text(element, new_text, false)
     }
 
-    fn update_node_text(node: &mut RenderNode, target_id: &str, new_text: &str) -> bool {
-        if node.id.as_deref() == Some(target_id) {
-            node.text = Some(new_text.to_string());
-            return true;
-        }
-        for child in &mut node.children {
-            if Self::update_node_text(child, target_id, new_text) {
-                return true;
+    /// Type `typed` after what the field already holds, as the device
+    /// drivers do (D-16, VEL-348). A placeholder shown in an empty field is
+    /// not part of its text.
+    pub fn append_text(&mut self, element: &Element, typed: &str) -> Result<(), SessionError> {
+        self.edit_text(element, typed, true)
+    }
+
+    fn edit_text(
+        &mut self,
+        element: &Element,
+        new_text: &str,
+        append: bool,
+    ) -> Result<(), SessionError> {
+        let path = self
+            .element_tree
+            .as_ref()
+            .and_then(|tree| element_path(tree, element))
+            .ok_or_else(|| SessionError::ElementNotFound(element.platform_id.clone()))?;
+        let mut tree = self.render_tree.take().ok_or(SessionError::NoLayout)?;
+        let mut node = &mut tree;
+        for &i in &path {
+            match node.children.get_mut(i) {
+                Some(child) => node = child,
+                None => {
+                    self.render_tree = Some(tree);
+                    return Err(SessionError::ElementNotFound(element.platform_id.clone()));
+                }
             }
         }
-        false
+        let before = match &node.text {
+            Some(t) if append && !node.style.placeholder => t.clone(),
+            _ => String::new(),
+        };
+        node.text = Some(if node.style.password {
+            // Bullets already stand for one character each.
+            before + &"•".repeat(new_text.chars().count())
+        } else {
+            before + new_text
+        });
+        node.style.placeholder = false;
+
+        // Re-layout and re-render
+        self.set_render_tree(tree)
+    }
+}
+
+fn scale_fonts(node: &mut RenderNode, scale: f32) {
+    let mut stack = vec![node];
+    while let Some(n) = stack.pop() {
+        n.style.font_size *= scale;
+        stack.extend(n.children.iter_mut());
     }
 }
 

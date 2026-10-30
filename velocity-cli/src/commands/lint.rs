@@ -4,12 +4,19 @@ use velocity_core::{parse_suite, selector_lint};
 
 #[derive(Args)]
 pub struct LintArgs {
+    /// Test suite YAML to lint (same as --config)
+    #[arg(value_name = "PATH")]
+    path: Option<String>,
+
     /// Path to the test suite YAML config
     #[arg(short, long, default_value = "velocity.yaml")]
     config: String,
 }
 
-pub fn execute(args: LintArgs) -> anyhow::Result<i32> {
+pub fn execute(mut args: LintArgs) -> anyhow::Result<i32> {
+    if let Some(path) = args.path.take() {
+        args.config = path;
+    }
     println!(
         "{} Linting selectors in {}",
         "=>".cyan().bold(),
@@ -50,7 +57,9 @@ pub fn execute(args: LintArgs) -> anyhow::Result<i32> {
             "  {} [{}] {}:{} \u{2014} {}",
             severity_str, d.rule, d.test_name, d.step_index, d.message
         );
-        println!("    selector: {}", d.selector.dimmed());
+        if !d.selector.is_empty() {
+            println!("    selector: {}", d.selector.dimmed());
+        }
     }
 
     println!();

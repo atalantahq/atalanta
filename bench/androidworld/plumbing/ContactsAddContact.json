@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "op": "openApp", "value": "Contacts" },
+    { "op": "tap", "target": "Create contact" },
+    { "op": "inputText", "target": "First name", "value": "Hugo" },
+    { "op": "inputText", "target": "Last name", "value": "Pereira" },
+    { "op": "inputText", "target": "Phone", "value": "+13920741751" },
+    { "op": "tap", "target": "Save" },
+    { "op": "done", "outcome": "success", "reason": "the contact is saved" }
+  ],
+  "check": { "holds": true, "evidence": ["Hugo Pereira"], "reason": "the saved contact is shown" }
+}

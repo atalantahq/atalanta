@@ -1,33 +1,54 @@
 use velocity_common::types::Selector;
 
+// Steps use flow-style selector maps (`{ text: "Pay", index: 1 }`), the
+// form the suite parser reads. The old block form (`index:` / `compound:`
+// keys, Rust `{:?}` escaping) produced YAML that didn't parse.
+
 /// Generate a YAML test step snippet for a given action and selector.
 pub fn tap_yaml(selector: &Selector) -> String {
-    format!("- tap:\n    {}", selector_to_yaml(selector))
+    format!("- tap: {}", selector_to_yaml(selector))
 }
 
 pub fn type_text_yaml(selector: &Selector, text: &str) -> String {
     format!(
-        "- inputText:\n    selector:\n      {}\n    text: {:?}",
+        "- inputText: {{ selector: {}, text: {} }}",
         selector_to_yaml(selector),
-        text
+        yaml_double_quoted(text)
     )
 }
 
 pub fn swipe_yaml(direction: &str) -> String {
-    format!("- swipe:\n    direction: {direction}")
+    format!("- swipe: {{ direction: {direction} }}")
 }
 
 pub fn assert_visible_yaml(selector: &Selector) -> String {
-    format!("- assertVisible:\n    {}", selector_to_yaml(selector))
+    format!("- assertVisible: {}", selector_to_yaml(selector))
 }
 
-/// Generate a complete test YAML file from recorded steps.
+/// A complete, runnable suite with one test made of the recorded steps.
 pub fn flow_yaml(name: &str, app_id: &str, step_yamls: &[String]) -> String {
     let steps_block: String = step_yamls
         .iter()
         .map(|y| {
+            // The UI sends list items (`- tap: …`); a bare step becomes one.
+            let y = if y.trim_start().starts_with("- ") {
+                y.clone()
+            } else {
+                y.trim_start()
+                    .lines()
+                    .enumerate()
+                    .map(|(i, l)| {
+                        if i == 0 {
+                            format!("- {l}")
+                        } else {
+                            format!("  {l}")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
             y.lines()
-                .map(|line| format!("  {line}"))
+                .map(|line| format!("      {line}"))
                 .collect::<Vec<_>>()
                 .join("\n")
         })
@@ -35,9 +56,9 @@ pub fn flow_yaml(name: &str, app_id: &str, step_yamls: &[String]) -> String {
         .join("\n");
 
     format!(
-        "name: {}\nappId: {}\n\nsteps:\n{steps_block}\n",
-        yaml_double_quoted(name),
-        yaml_double_quoted(app_id)
+        "appId: {}\n\ntests:\n  - name: {}\n    steps:\n{steps_block}\n",
+        yaml_double_quoted(app_id),
+        yaml_double_quoted(name)
     )
 }
 
@@ -53,23 +74,125 @@ fn yaml_double_quoted(value: &str) -> String {
 }
 
 fn selector_to_yaml(selector: &Selector) -> String {
+    format!("{{ {} }}", selector_fields(selector).join(", "))
+}
+
+/// The `key: value` pairs of a selector map.
+fn selector_fields(selector: &Selector) -> Vec<String> {
+    let q = yaml_double_quoted;
     match selector {
-        Selector::Id(id) => format!("id: {id:?}"),
-        Selector::Text(text) => format!("text: {text:?}"),
-        Selector::TextContains(sub) => format!("textContains: {sub:?}"),
-        Selector::AccessibilityId(aid) => format!("accessibilityId: {aid:?}"),
-        Selector::ClassName(cls) => format!("className: {cls:?}"),
+        Selector::Id(id) => vec![format!("id: {}", q(id))],
+        Selector::Text(text) => vec![format!("text: {}", q(text))],
+        Selector::TextContains(sub) => vec![format!("textContains: {}", q(sub))],
+        Selector::TextMatches(re) => vec![format!("textMatches: {}", q(re))],
+        Selector::IdMatches(re) => vec![format!("idMatches: {}", q(re))],
+        Selector::AccessibilityId(aid) => vec![format!("accessibilityId: {}", q(aid))],
+        Selector::ClassName(cls) => vec![format!("className: {}", q(cls))],
         Selector::Index { selector, index } => {
-            format!(
-                "index:\n      selector:\n        {}\n      index: {index}",
-                selector_to_yaml(selector)
-            )
+            let mut f = selector_fields(selector);
+            f.push(format!("index: {index}"));
+            f
         }
-        Selector::Compound(selectors) => {
-            let parts: Vec<String> = selectors.iter().map(selector_to_yaml).collect();
-            format!("compound:\n      {}", parts.join("\n      "))
+        Selector::Compound(parts) => parts.iter().flat_map(selector_fields).collect(),
+        Selector::Css(css) => vec![format!("css: {}", q(css))],
+        Selector::XPath(xp) => vec![format!("xpath: {}", q(xp))],
+        Selector::Role(r) => vec![format!("role: {}", q(r))],
+        Selector::Name(n) => vec![format!("name: {}", q(n))],
+        Selector::Checked(b) => vec![format!("checked: {b}")],
+        Selector::Focused(b) => vec![format!("focused: {b}")],
+        Selector::Selected(b) => vec![format!("selected: {b}")],
+        Selector::Enabled(b) => vec![format!("enabled: {b}")],
+        Selector::Relative {
+            target,
+            relation,
+            anchor,
+        } => {
+            let mut f = selector_fields(target);
+            f.push(format!("{relation}: {}", selector_to_yaml(anchor)));
+            f
         }
-        Selector::Css(q) => format!("css: {q:?}"),
-        Selector::XPath(q) => format!("xpath: {q:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use velocity_common::types::Relation;
+
+    /// S1/S2: role, name and state selectors are written as the DSL keys
+    /// and parse back to the same selector.
+    #[test]
+    fn role_name_and_state_selectors_round_trip() {
+        let sel = Selector::Compound(vec![
+            Selector::Role("checkbox".into()),
+            Selector::Name("Remember \"me\"".into()),
+            Selector::Checked(false),
+            Selector::Enabled(true),
+        ]);
+        let yaml = flow_yaml(
+            "recorded",
+            "com.app",
+            &[format!("tap: {}", selector_to_yaml(&sel))],
+        );
+        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        match &suite.tests[0].steps[0].action {
+            velocity_common::Action::Tap { selector } => assert_eq!(selector, &sel, "{yaml}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn saved_flows_parse_whether_steps_come_as_list_items_or_bare() {
+        let yaml = flow_yaml(
+            "recorded",
+            "com.app",
+            &[
+                "- launchApp: {}".into(),
+                "tap: { text: \"Battery\" }".into(),
+                "inputText:\n  selector: { id: \"q\" }\n  text: \"hi\"".into(),
+            ],
+        );
+        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        assert_eq!(suite.tests[0].steps.len(), 3, "{yaml}");
+    }
+
+    #[test]
+    fn a_recorded_flow_is_a_suite_that_parses() {
+        let pay = Selector::Index {
+            selector: Box::new(Selector::Compound(vec![
+                Selector::Text("Pay \"now\"".into()),
+                Selector::ClassName("Button".into()),
+            ])),
+            index: 1,
+        };
+        let edit = Selector::Relative {
+            target: Box::new(Selector::Text("Edit".into())),
+            relation: Relation::Below,
+            anchor: Box::new(Selector::Text("Shipping".into())),
+        };
+        let yaml = flow_yaml(
+            "checkout: café",
+            "com.example",
+            &[
+                tap_yaml(&pay),
+                type_text_yaml(&Selector::Id("email".into()), "a@b.c"),
+                assert_visible_yaml(&edit),
+                swipe_yaml("up"),
+            ],
+        );
+        let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+            .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
+        assert_eq!(suite.tests[0].name, "checkout: café");
+        assert_eq!(suite.tests[0].steps.len(), 4);
+        match &suite.tests[0].steps[0].action {
+            velocity_common::types::Action::Tap { selector } => assert_eq!(selector, &pay),
+            other => panic!("{other:?}"),
+        }
+        match &suite.tests[0].steps[2].action {
+            velocity_common::types::Action::AssertVisible { selector } => {
+                assert_eq!(selector, &edit)
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

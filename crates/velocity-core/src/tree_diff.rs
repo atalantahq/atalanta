@@ -161,6 +161,7 @@ mod tests {
 
     fn make_element(text: &str, children: Vec<Element>) -> Element {
         Element {
+            hint: None,
             platform_id: "el".to_string(),
             label: None,
             text: Some(text.to_string()),
@@ -174,6 +175,7 @@ mod tests {
             enabled: true,
             visible: true,
             children,
+            ..Default::default()
         }
     }
 

@@ -1,3 +1,4 @@
+use velocity_common::selector_match;
 use velocity_common::{Element, Rect, Selector};
 
 /// Options controlling how selectors are matched.
@@ -11,106 +12,28 @@ impl Default for MatchOptions {
     }
 }
 
-/// Check if an element is considered visible.
-fn is_visible(element: &Element, screen_bounds: &Rect) -> bool {
-    if !element.visible {
-        return false;
-    }
-    if element.bounds.width <= 0 || element.bounds.height <= 0 {
-        return false;
-    }
-    element.bounds.intersects(screen_bounds)
-}
+// Matching lives in velocity_common::selector_match so every platform
+// resolves selectors the same way; these keep the Android call sites.
 
-/// Match a Selector against an Element, respecting visibility.
-fn matches(element: &Element, selector: &Selector, opts: &MatchOptions, screen: &Rect) -> bool {
-    if opts.visible_only && !is_visible(element, screen) {
-        return false;
-    }
-
-    match selector {
-        Selector::Id(id) => {
-            element.platform_id.contains(id.as_str())
-                || element.label.as_deref() == Some(id.as_str())
-        }
-        Selector::Text(text) => {
-            element.text.as_deref() == Some(text.as_str())
-                || element.label.as_deref() == Some(text.as_str())
-        }
-        Selector::TextContains(substr) => {
-            element
-                .text
-                .as_ref()
-                .is_some_and(|t| t.contains(substr.as_str()))
-                || element
-                    .label
-                    .as_ref()
-                    .is_some_and(|l| l.contains(substr.as_str()))
-        }
-        Selector::AccessibilityId(aid) => element.label.as_deref() == Some(aid.as_str()),
-        Selector::ClassName(cls) => element.element_type == *cls,
-        Selector::Index { .. } => false, // resolved at find_elements level
-        Selector::Compound(selectors) => {
-            selectors.iter().all(|s| matches(element, s, opts, screen))
-        }
-        // CSS/XPath are web-only — never match in the Android accessibility tree.
-        Selector::Css(_) | Selector::XPath(_) => false,
-    }
-}
-
-/// Depth-first search for the first matching element.
+/// The element `selector` resolves to (innermost match; `index` counts by
+/// screen position).
 pub fn find_element<'a>(
     root: &'a Element,
     selector: &Selector,
     opts: &MatchOptions,
     screen: &Rect,
 ) -> Option<&'a Element> {
-    // Handle Index selector: find all matches, return Nth
-    if let Selector::Index {
-        selector: inner,
-        index,
-    } = selector
-    {
-        let all = find_all_elements(root, inner, opts, screen);
-        return all.into_iter().nth(*index);
-    }
-
-    if matches(root, selector, opts, screen) {
-        return Some(root);
-    }
-    for child in &root.children {
-        if let Some(found) = find_element(child, selector, opts, screen) {
-            return Some(found);
-        }
-    }
-    None
+    selector_match::find_ref(root, selector, opts.visible_only.then_some(screen))
 }
 
-/// Find all matching elements via depth-first traversal.
+/// Every element `selector` matches, in on-screen order.
 pub fn find_all_elements<'a>(
     root: &'a Element,
     selector: &Selector,
     opts: &MatchOptions,
     screen: &Rect,
 ) -> Vec<&'a Element> {
-    let mut results = Vec::new();
-    find_all_recursive(root, selector, opts, screen, &mut results);
-    results
-}
-
-fn find_all_recursive<'a>(
-    element: &'a Element,
-    selector: &Selector,
-    opts: &MatchOptions,
-    screen: &Rect,
-    results: &mut Vec<&'a Element>,
-) {
-    if matches(element, selector, opts, screen) {
-        results.push(element);
-    }
-    for child in &element.children {
-        find_all_recursive(child, selector, opts, screen, results);
-    }
+    selector_match::find_all_ref(root, selector, opts.visible_only.then_some(screen))
 }
 
 #[cfg(test)]
@@ -129,6 +52,7 @@ mod tests {
 
     fn make_button() -> Element {
         Element {
+            hint: None,
             platform_id: "com.app:id/login_button".to_string(),
             label: Some("Login".to_string()),
             text: Some("Log In".to_string()),
@@ -142,6 +66,7 @@ mod tests {
             enabled: true,
             visible: true,
             children: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -149,6 +74,7 @@ mod tests {
     fn test_find_by_id() {
         let button = make_button();
         let root = Element {
+            hint: None,
             platform_id: "root".to_string(),
             label: None,
             text: None,
@@ -157,6 +83,7 @@ mod tests {
             enabled: true,
             visible: true,
             children: vec![button],
+            ..Default::default()
         };
 
         let opts = MatchOptions::default();
@@ -171,6 +98,7 @@ mod tests {
     fn test_find_by_text() {
         let button = make_button();
         let root = Element {
+            hint: None,
             platform_id: "root".to_string(),
             label: None,
             text: None,
@@ -179,6 +107,7 @@ mod tests {
             enabled: true,
             visible: true,
             children: vec![button],
+            ..Default::default()
         };
 
         let opts = MatchOptions::default();
@@ -194,6 +123,7 @@ mod tests {
         button.visible = false;
 
         let root = Element {
+            hint: None,
             platform_id: "root".to_string(),
             label: None,
             text: None,
@@ -202,6 +132,7 @@ mod tests {
             enabled: true,
             visible: true,
             children: vec![button],
+            ..Default::default()
         };
 
         let opts = MatchOptions { visible_only: true };

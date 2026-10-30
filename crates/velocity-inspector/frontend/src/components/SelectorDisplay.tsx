@@ -11,18 +11,35 @@ function selectorToString(sel: Record<string, unknown>): string {
 }
 
 export function SelectorDisplay() {
-  const { selectedElement, generated, setGenerated, setError } =
-    useInspectorStore();
+  // Narrow subscriptions: a new hierarchy with the same selection and version
+  // doesn't re-render this or refetch the selector (VEL-259).
+  const selectedKey = useInspectorStore((s) => s.selectedKey);
+  const selectedPresent = useInspectorStore((s) => s.selectedElement !== null);
+  const version = useInspectorStore((s) => s.hierarchyVersion);
+  const generated = useInspectorStore((s) => s.generated);
+  const setGenerated = useInspectorStore((s) => s.setGenerated);
+  const setError = useInspectorStore((s) => s.setError);
 
   useEffect(() => {
-    if (!selectedElement) {
-      setGenerated(null);
+    // Never leave the previous element's selector up while this one loads
+    // (or after a 409): Copy would copy the wrong one (review m13).
+    setGenerated(null);
+    if (!selectedKey || !selectedPresent || version == null) {
       return;
     }
-    generateSelector(selectedElement)
-      .then(setGenerated)
-      .catch((e) => setError(e.message));
-  }, [selectedElement, setGenerated, setError]);
+    let cancelled = false;
+    generateSelector(selectedKey, version)
+      .then((g) => {
+        if (!cancelled) setGenerated(g);
+      })
+      .catch((e) => {
+        // 409: a newer hierarchy is on its way, and this reruns with it.
+        if (!cancelled && !String(e.message).startsWith("409")) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedKey, selectedPresent, version, setGenerated, setError]);
 
   if (!generated) {
     return (
@@ -33,7 +50,7 @@ export function SelectorDisplay() {
   }
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
+    void navigator.clipboard?.writeText(text);
   };
 
   return (
@@ -61,6 +78,35 @@ export function SelectorDisplay() {
         </div>
         <pre>{generated.yaml_assert}</pre>
       </div>
+      {generated.yaml_input && (
+        <div className="yaml-block">
+          <div className="yaml-header">
+            <span>Input Text</span>
+            <button className="copy-btn" onClick={() => copyToClipboard(generated.yaml_input!)}>
+              Copy
+            </button>
+          </div>
+          <pre>{generated.yaml_input}</pre>
+        </div>
+      )}
+      {generated.candidates && generated.candidates.length > 0 && (
+        <>
+          <h3>Candidates</h3>
+          <ul className="selector-candidates">
+            {generated.candidates.map((c) => (
+              <li key={c.yaml} className={c.matchCount === 1 ? "unique" : "ambiguous"}>
+                <code>{selectorToString(c.selector as unknown as Record<string, unknown>)}</code>
+                <span className="match-count" title="elements on screen it matches">
+                  {c.matchCount === 1 ? "unique" : `${c.matchCount} matches`}
+                </span>
+                <button className="copy-btn" onClick={() => copyToClipboard(c.yaml)}>
+                  Copy
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

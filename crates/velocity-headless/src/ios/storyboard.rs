@@ -1,7 +1,6 @@
 use quick_xml::events::Event;
 use quick_xml::Reader;
 use regex::Regex;
-use std::collections::HashMap;
 
 use super::xib::{XibDocument, XibParser};
 
@@ -52,9 +51,7 @@ impl StoryboardParser {
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                             if key == "initialViewController" {
-                                return Ok(
-                                    String::from_utf8_lossy(&attr.value).to_string()
-                                );
+                                return Ok(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -99,8 +96,7 @@ impl StoryboardParser {
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
                             if key == "sceneID" {
-                                scene_id =
-                                    String::from_utf8_lossy(&attr.value).to_string();
+                                scene_id = String::from_utf8_lossy(&attr.value).to_string();
                             }
                         }
                     } else if in_scene {
@@ -109,11 +105,10 @@ impl StoryboardParser {
                         scene_content.push_str(&format!("<{}", tag));
                         for attr in e.attributes().flatten() {
                             let key = String::from_utf8_lossy(attr.key.as_ref());
-                            let val = String::from_utf8_lossy(&attr.value);
                             scene_content.push_str(&format!(
                                 " {}=\"{}\"",
                                 key,
-                                escape_xml_attr(&val)
+                                escape_xml_attr(&attr_value(&attr))
                             ));
                         }
                         scene_content.push('>');
@@ -124,11 +119,10 @@ impl StoryboardParser {
                     scene_content.push_str(&format!("<{}", tag));
                     for attr in e.attributes().flatten() {
                         let key = String::from_utf8_lossy(attr.key.as_ref());
-                        let val = String::from_utf8_lossy(&attr.value);
                         scene_content.push_str(&format!(
                             " {}=\"{}\"",
                             key,
-                            escape_xml_attr(&val)
+                            escape_xml_attr(&attr_value(&attr))
                         ));
                     }
                     scene_content.push_str("/>");
@@ -145,6 +139,21 @@ impl StoryboardParser {
                         }
                     }
                 }
+                // Text content (`<string key="text">…</string>`) is copied as
+                // it was, still escaped, so it is unescaped once (VEL-104).
+                Ok(Event::Text(e)) if in_scene => {
+                    scene_content.push_str(&String::from_utf8_lossy(e.as_ref()));
+                }
+                // quick-xml 0.38+ reports `&amp;` and the like as their own
+                // events; this rebuilds the scene's XML, so write them back.
+                Ok(Event::GeneralRef(e)) if in_scene => {
+                    scene_content.push('&');
+                    scene_content.push_str(&String::from_utf8_lossy(e.as_ref()));
+                    scene_content.push(';');
+                }
+                Ok(Event::CData(e)) if in_scene => {
+                    scene_content.push_str(&escape_xml_attr(&String::from_utf8_lossy(e.as_ref())));
+                }
                 Ok(Event::Eof) => break,
                 Err(e) => return Err(StoryboardError::ParseError(e.to_string())),
                 _ => {}
@@ -153,6 +162,14 @@ impl StoryboardParser {
 
         Ok(scenes)
     }
+}
+
+/// An attribute's value with its entities decoded, so re-escaping it once
+/// reproduces the source instead of double-escaping it.
+fn attr_value(attr: &quick_xml::events::attributes::Attribute) -> String {
+    attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
+        .map(|v| v.into_owned())
+        .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string())
 }
 
 fn escape_xml_attr(value: &str) -> String {

@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Rust dependencies, weekly, as one grouped PR for compatible updates so
+  # CI runs once; major versions come one PR each (they change APIs).
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      rust-minor:
+        update-types: [minor, patch]
+
+  # The inspector's React frontend.
+  - package-ecosystem: npm
+    directory: /crates/velocity-inspector/frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      frontend-minor:
+        update-types: [minor, patch]
+
+  # Actions used by the workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]

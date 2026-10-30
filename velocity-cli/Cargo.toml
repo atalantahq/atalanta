@@ -3,6 +3,13 @@ name = "velocity-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "mobile", "android", "ios", "e2e"]
+categories = ["development-tools::testing", "command-line-utilities"]
 description = "CLI binary for Velocity mobile testing framework"
 
 [[bin]]
@@ -10,18 +17,22 @@ name = "velocity"
 path = "src/main.rs"
 
 [dependencies]
-velocity-common = { path = "../crates/velocity-common" }
-velocity-android = { path = "../crates/velocity-android" }
-velocity-ios = { path = "../crates/velocity-ios" }
-velocity-core = { path = "../crates/velocity-core" }
-velocity-runner = { path = "../crates/velocity-runner" }
-velocity-mcp = { path = "../crates/velocity-mcp" }
-velocity-migrate = { path = "../crates/velocity-migrate" }
-velocity-inspector = { path = "../crates/velocity-inspector" }
-velocity-headless = { path = "../crates/velocity-headless" }
-velocity-rn-bridge = { path = "../crates/velocity-rn-bridge" }
-velocity-flutter-bridge = { path = "../crates/velocity-flutter-bridge" }
-velocity-web = { path = "../crates/velocity-web" }
+velocity-common = { workspace = true }
+velocity-android = { workspace = true }
+velocity-ios = { workspace = true }
+velocity-core = { workspace = true }
+velocity-runner = { workspace = true }
+velocity-mcp = { workspace = true }
+velocity-migrate = { workspace = true }
+velocity-inspector = { workspace = true }
+velocity-headless = { workspace = true }
+velocity-flutter-bridge = { workspace = true }
+velocity-web = { workspace = true }
+velocity-nl = { workspace = true }
+velocity-doctor = { workspace = true }
+serde_yaml = { workspace = true }
+velocity-explore = { workspace = true }
+velocity-api = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
@@ -29,3 +40,12 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 colored = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
+libc = { workspace = true }
+async-trait = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

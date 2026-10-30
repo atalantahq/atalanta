@@ -41,10 +41,9 @@ export function ActionToolbar() {
   const handleType = async () => {
     if (!generated || !typeText) return;
     try {
-      await api.typeText(currentDeviceId, generated.selector, typeText);
-      const serializedText = yamlDoubleQuoted(typeText);
-      // Generate inputText YAML inline
-      const yaml = `- inputText:\n    selector:\n      ${selectorToYaml(generated.selector)}\n    text: ${serializedText}`;
+      // The server returns the step: building it here got index/compound
+      // selectors wrong (VEL-113).
+      const { yaml } = await api.typeText(currentDeviceId, generated.selector, typeText);
       record({
         action: "inputText",
         label: `"${typeText}" into ${selectorLabel(generated.selector)}`,
@@ -59,11 +58,11 @@ export function ActionToolbar() {
 
   const handleSwipe = async (direction: Direction) => {
     try {
-      await api.swipe(currentDeviceId, direction);
+      const { yaml } = await api.swipe(currentDeviceId, direction);
       record({
         action: "swipe",
         label: direction,
-        yaml: `- swipe:\n    direction: ${direction}`,
+        yaml,
         timestamp: Date.now(),
       });
     } catch (e: unknown) {
@@ -131,23 +130,4 @@ function selectorLabel(sel: Record<string, unknown>): string {
   const [, value] = entries[0];
   if (typeof value === "string") return value.length > 30 ? value.slice(0, 30) + "..." : value;
   return JSON.stringify(value);
-}
-
-/** Convert a selector object to inline YAML (for inputText steps). */
-function selectorToYaml(sel: Record<string, unknown>): string {
-  const entries = Object.entries(sel);
-  if (entries.length === 0) return "?";
-  const [key, value] = entries[0];
-  const yamlKey = key.charAt(0).toLowerCase() + key.slice(1);
-  if (typeof value === "string") return `${yamlKey}: ${yamlDoubleQuoted(value)}`;
-  return `${yamlKey}: ${JSON.stringify(value)}`;
-}
-
-function yamlDoubleQuoted(value: string): string {
-  return `"${value
-    .replace(/\\/g, "\\\\")
-    .replace(/\"/g, '\\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t")}"`;
 }

@@ -20,7 +20,7 @@ pub fn save_screenshot(
         ))
     })?;
 
-    let sanitized_name = sanitize_filename(test_name);
+    let sanitized_name = unique_filename(test_name);
     let filename = format!("{sanitized_name}_step_{step_index}.png");
     let file_path = dir_path.join(&filename);
 
@@ -32,6 +32,24 @@ pub fn save_screenshot(
     })?;
 
     Ok(file_path)
+}
+
+/// [`sanitize_filename`], plus a short hash of the full name when
+/// characters other than spaces were replaced: "Löschen" and "L?schen", or
+/// "a.b" and "a:b", wrote over each other's screenshots (VEL-S11). Plain
+/// names keep their old file names.
+fn unique_filename(name: &str) -> String {
+    let clean = sanitize_filename(name);
+    let lossy = name
+        .chars()
+        .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' ')));
+    if !lossy {
+        return clean;
+    }
+    let hash = name.bytes().fold(0x811c_9dc5u32, |h, b| {
+        (h ^ u32::from(b)).wrapping_mul(0x0100_0193)
+    });
+    format!("{clean}-{hash:08x}")
 }
 
 /// Replace characters that are problematic in filenames with underscores.
@@ -48,6 +66,21 @@ fn sanitize_filename(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // VEL-S11: names that differ only in replaced characters collided.
+    #[test]
+    fn names_differing_in_replaced_characters_get_their_own_files() {
+        let dir = std::env::temp_dir().join(format!("vel-shots-s11-{}", std::process::id()));
+        let d = dir.to_str().unwrap();
+        let a = save_screenshot(b"a", d, "Löschen", 1).unwrap();
+        let b = save_screenshot(b"b", d, "L?schen", 1).unwrap();
+        let c = save_screenshot(b"c", d, "a:b", 1).unwrap();
+        let e = save_screenshot(b"e", d, "a/b", 1).unwrap();
+        assert_ne!(a, b);
+        assert_ne!(c, e);
+        assert_eq!(std::fs::read(&a).unwrap(), b"a");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn test_sanitize_spaces() {

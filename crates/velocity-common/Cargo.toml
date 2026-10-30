@@ -3,14 +3,32 @@ name = "velocity-common"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "mobile", "android", "ios", "automation"]
+categories = ["development-tools::testing"]
 description = "Shared types, traits, and error types for the Velocity test framework"
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["unbounded_depth"] }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-chrono = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+sha2 = { workspace = true }
+regex = { workspace = true }
+
+[dev-dependencies]
+serde_yaml = { workspace = true }
+proptest = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[lints]
+workspace = true

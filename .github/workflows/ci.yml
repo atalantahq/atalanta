@@ -5,63 +5,275 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
+  # The toolchain every blocking job uses. Pinned: a new stable release once
+  # turned a deprecation into a `-D warnings` error on every open PR
+  # (`fetch_update`, 2026-10-30). The canary workflow tries newer ones.
+  RUST_VERSION: "1.98.1"
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "10"
+  RUST_BACKTRACE: short
   RUSTFLAGS: "-Dwarnings"
 
 jobs:
-  check:
-    name: Check
+  # What changed, so a docs-only PR doesn't build the workspace three times.
+  changes:
+    name: Changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Job permissions replace the workflow's: contents is needed too, or
+    # checkout can't read a private repository.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - '**/*.rs'
+              - '**/Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - 'crates/**'
+              - 'velocity-cli/**'
+              - 'tests/**'
+              - 'examples/**'
+              - 'docs/DSL-REFERENCE.md'
+              - 'docs/MCP.md'
+              - 'README.md'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'crates/velocity-inspector/frontend/**'
+              - '.github/workflows/ci.yml'
+            workflows:
+              - '.github/**'
+
+  # The inspector's web UI is built here, never by build.rs. The Rust
+  # jobs below build without it (the inspector then serves its API and a
+  # "UI not built" page); the release job embeds this same build.
+  frontend:
+    name: Inspector frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: crates/velocity-inspector/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: crates/velocity-inspector/frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: test -f dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+          retention-days: 7
 
   fmt:
     name: Format
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt
       - run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+        with:
+          shared-key: clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace
+        with:
+          shared-key: test-${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # One process per test, the 62 test binaries in parallel instead of one
+      # after another (172 s serially on a laptop). Doc tests run separately:
+      # nextest doesn't run them.
+      - run: cargo nextest run --workspace --locked --profile ci
+      - run: cargo test --workspace --locked --doc
+      - name: Test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.os }}
+          path: target/nextest/ci/junit.xml
+          retention-days: 7
+          if-no-files-found: ignore
 
+  # The toolchain floor in Cargo.toml's `rust-version`.
+  msrv:
+    name: MSRV (1.89)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.89
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: msrv
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo check --workspace --all-targets --locked
+
+  # The release profile (fat LTO, one codegen unit) is the slowest job by
+  # far and catches nothing clippy and the tests don't, except a link or
+  # LTO failure: checked on main, not on every pull request.
   build:
-    name: Build (${{ matrix.os }})
+    name: Release build (${{ matrix.os }})
+    if: github.event_name == 'push'
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --workspace --release
+        with:
+          shared-key: release-${{ matrix.os }}
+      - run: cargo build --workspace --release --locked
+      - name: Binary size
+        run: |
+          size=$(wc -c < target/release/velocity)
+          echo "velocity binary: $((size / 1048576)) MB" >> "$GITHUB_STEP_SUMMARY"
+
+  # What the release workflow relies on: the installer and release scripts,
+  # the formula renderer, the changelog entry for the workspace version, and
+  # crates that package (the published inspector carries the built UI).
+  release-files:
+    name: Release files
+    needs: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: inspector-dist
+          path: crates/velocity-inspector/frontend/dist
+      - run: shellcheck install.sh scripts/*.sh
+      - name: Changelog entry and formula for the workspace version
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          scripts/changelog-section.sh "$version" > /dev/null
+          scripts/render-formula.sh "$version" > /dev/null
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Package every crate
+        run: |
+          cargo package --workspace --locked --no-verify --allow-dirty
+          cargo package -p velocity-inspector --list --allow-dirty | grep -qx 'frontend/dist/index.html'
+
+  # Licences, bans and sources must pass. Advisories must pass too; the two
+  # with no fix upstream are ignored in deny.toml with their reasons. A new
+  # advisory appearing overnight shouldn't block an unrelated PR, so on PRs
+  # it is reported, and the weekly canary run fails on it.
+  deny:
+    name: cargo-deny (${{ matrix.checks }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: ["licenses bans sources", advisories]
+    continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check ${{ matrix.checks }}
+
+  # The workflows themselves: expressions, job graph, and shellcheck on
+  # every `run:` script.
+  actionlint:
+    name: Workflow lint
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: raven-actions/actionlint@v2
+
+  # The one check branch protection needs: every job above passed or was
+  # skipped on purpose (a docs-only change skips the Rust jobs).
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [changes, frontend, fmt, clippy, test, msrv, release-files, deny, actionlint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          bad=$(echo "$RESULTS" | jq '[.[] | select(.result != "success" and .result != "skipped")] | length')
+          if [ "$bad" -ne 0 ]; then
+            echo "::error::$bad job(s) failed or were cancelled"
+            exit 1
+          fi

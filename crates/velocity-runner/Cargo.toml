@@ -3,16 +3,36 @@ name = "velocity-runner"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+keywords = ["testing", "mobile", "junit", "sharding", "e2e"]
+categories = ["development-tools::testing"]
 description = "Test runner for Velocity: scheduling, sharding, reporters"
 
 [dependencies]
-velocity-common = { path = "../velocity-common" }
-velocity-core = { path = "../velocity-core" }
+velocity-common = { workspace = true }
+velocity-core = { workspace = true }
+velocity-nl = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 quick-xml = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# perf_budget runs on a paused clock, so its counts never depend on load.
+tokio = { workspace = true, features = ["test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[lints]
+workspace = true

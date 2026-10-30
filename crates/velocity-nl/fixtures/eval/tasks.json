@@ -1,0 +1,2007 @@
+[
+  {
+    "version": 1,
+    "platform": "android",
+    "kind": "act",
+    "intent": "tap Sign in",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "com.shop:id/title",
+          "label": null,
+          "text": "Welcome back",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 80,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/email",
+          "label": "Email",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/password",
+          "label": "Password",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 260,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_in",
+          "label": null,
+          "text": "Sign in",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 340,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_up",
+          "label": null,
+          "text": "Sign up",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/forgot",
+          "label": null,
+          "text": "Forgot password?",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 460,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "com.shop:id/sign_in"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "android",
+    "kind": "act",
+    "intent": "enter the email",
+    "data": "ann@example.com",
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "com.shop:id/title",
+          "label": null,
+          "text": "Welcome back",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 80,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/email",
+          "label": "Email",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/password",
+          "label": "Password",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 260,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_in",
+          "label": null,
+          "text": "Sign in",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 340,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_up",
+          "label": null,
+          "text": "Sign up",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/forgot",
+          "label": null,
+          "text": "Forgot password?",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 460,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "inputText": {
+        "selector": {
+          "id": "com.shop:id/email"
+        },
+        "text": "ann@example.com"
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "android",
+    "kind": "act",
+    "intent": "type \"hunter2-demo\" into the password field",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "com.shop:id/title",
+          "label": null,
+          "text": "Welcome back",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 80,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/email",
+          "label": "Email",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/password",
+          "label": "Password",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 260,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_in",
+          "label": null,
+          "text": "Sign in",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 340,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_up",
+          "label": null,
+          "text": "Sign up",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/forgot",
+          "label": null,
+          "text": "Forgot password?",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 460,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "inputText": {
+        "selector": {
+          "id": "com.shop:id/password"
+        },
+        "text": "hunter2-demo"
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "android",
+    "kind": "act",
+    "intent": "open the sign up form",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "com.shop:id/title",
+          "label": null,
+          "text": "Welcome back",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 80,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/email",
+          "label": "Email",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/password",
+          "label": "Password",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 260,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_in",
+          "label": null,
+          "text": "Sign in",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 340,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_up",
+          "label": null,
+          "text": "Sign up",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/forgot",
+          "label": null,
+          "text": "Forgot password?",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 460,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "com.shop:id/sign_up"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "android",
+    "kind": "assert",
+    "intent": "the welcome title is shown",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "com.shop:id/title",
+          "label": null,
+          "text": "Welcome back",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 80,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/email",
+          "label": "Email",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/password",
+          "label": "Password",
+          "text": null,
+          "element_type": "EditText",
+          "bounds": {
+            "x": 20,
+            "y": 260,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_in",
+          "label": null,
+          "text": "Sign in",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 340,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/sign_up",
+          "label": null,
+          "text": "Sign up",
+          "element_type": "Button",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.shop:id/forgot",
+          "label": null,
+          "text": "Forgot password?",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 460,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "assertVisible": {
+        "selector": {
+          "id": "com.shop:id/title"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "ios",
+    "kind": "act",
+    "intent": "remove the blue hat",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "nav.back",
+          "label": "Back",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 40,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.title",
+          "label": null,
+          "text": "Your cart",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 100,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.name",
+          "label": null,
+          "text": "Red shoes",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.remove",
+          "label": "Remove Red shoes",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.name",
+          "label": null,
+          "text": "Blue hat",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.remove",
+          "label": "Remove Blue hat",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.total",
+          "label": null,
+          "text": "Total $54.90",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 320,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.checkout",
+          "label": "Checkout",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "tab.settings",
+          "label": "Settings",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 840,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "row.1.remove"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "ios",
+    "kind": "act",
+    "intent": "go back",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "nav.back",
+          "label": "Back",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 40,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.title",
+          "label": null,
+          "text": "Your cart",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 100,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.name",
+          "label": null,
+          "text": "Red shoes",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.remove",
+          "label": "Remove Red shoes",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.name",
+          "label": null,
+          "text": "Blue hat",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.remove",
+          "label": "Remove Blue hat",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.total",
+          "label": null,
+          "text": "Total $54.90",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 320,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.checkout",
+          "label": "Checkout",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "tab.settings",
+          "label": "Settings",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 840,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "nav.back"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "ios",
+    "kind": "act",
+    "intent": "proceed to checkout",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "nav.back",
+          "label": "Back",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 40,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.title",
+          "label": null,
+          "text": "Your cart",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 100,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.name",
+          "label": null,
+          "text": "Red shoes",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.remove",
+          "label": "Remove Red shoes",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.name",
+          "label": null,
+          "text": "Blue hat",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.remove",
+          "label": "Remove Blue hat",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.total",
+          "label": null,
+          "text": "Total $54.90",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 320,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.checkout",
+          "label": "Checkout",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "tab.settings",
+          "label": "Settings",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 840,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "cart.checkout"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "ios",
+    "kind": "assert",
+    "intent": "the order total is shown",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "nav.back",
+          "label": "Back",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 40,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.title",
+          "label": null,
+          "text": "Your cart",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 100,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.name",
+          "label": null,
+          "text": "Red shoes",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.remove",
+          "label": "Remove Red shoes",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.name",
+          "label": null,
+          "text": "Blue hat",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.remove",
+          "label": "Remove Blue hat",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.total",
+          "label": null,
+          "text": "Total $54.90",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 320,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.checkout",
+          "label": "Checkout",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "tab.settings",
+          "label": "Settings",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 840,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "assertVisible": {
+        "selector": {
+          "id": "cart.total"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "ios",
+    "kind": "act",
+    "intent": "open settings",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "nav.back",
+          "label": "Back",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 40,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.title",
+          "label": null,
+          "text": "Your cart",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 100,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.name",
+          "label": null,
+          "text": "Red shoes",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.0.remove",
+          "label": "Remove Red shoes",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.name",
+          "label": null,
+          "text": "Blue hat",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "row.1.remove",
+          "label": "Remove Blue hat",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.total",
+          "label": null,
+          "text": "Total $54.90",
+          "element_type": "XCUIElementTypeStaticText",
+          "bounds": {
+            "x": 20,
+            "y": 320,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cart.checkout",
+          "label": "Checkout",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 400,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "tab.settings",
+          "label": "Settings",
+          "text": null,
+          "element_type": "XCUIElementTypeButton",
+          "bounds": {
+            "x": 20,
+            "y": 840,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "tab.settings"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "web",
+    "kind": "act",
+    "intent": "accept the cookie banner",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "cookie-accept",
+          "label": null,
+          "text": "Accept all",
+          "element_type": "button",
+          "bounds": {
+            "x": 20,
+            "y": 700,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cookie-reject",
+          "label": null,
+          "text": "Reject all",
+          "element_type": "button",
+          "bounds": {
+            "x": 20,
+            "y": 760,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "nav-pricing",
+          "label": null,
+          "text": "Pricing",
+          "element_type": "a",
+          "bounds": {
+            "x": 20,
+            "y": 30,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "nav-docs",
+          "label": null,
+          "text": "Docs",
+          "element_type": "a",
+          "bounds": {
+            "x": 20,
+            "y": 30,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "search",
+          "label": "Search products",
+          "text": null,
+          "element_type": "input",
+          "bounds": {
+            "x": 20,
+            "y": 120,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "hero-title",
+          "label": null,
+          "text": "Shoes for every day",
+          "element_type": "h1",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "cookie-accept"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "web",
+    "kind": "act",
+    "intent": "go to the pricing page",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "cookie-accept",
+          "label": null,
+          "text": "Accept all",
+          "element_type": "button",
+          "bounds": {
+            "x": 20,
+            "y": 700,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cookie-reject",
+          "label": null,
+          "text": "Reject all",
+          "element_type": "button",
+          "bounds": {
+            "x": 20,
+            "y": 760,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "nav-pricing",
+          "label": null,
+          "text": "Pricing",
+          "element_type": "a",
+          "bounds": {
+            "x": 20,
+            "y": 30,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "nav-docs",
+          "label": null,
+          "text": "Docs",
+          "element_type": "a",
+          "bounds": {
+            "x": 20,
+            "y": 30,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "search",
+          "label": "Search products",
+          "text": null,
+          "element_type": "input",
+          "bounds": {
+            "x": 20,
+            "y": 120,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "hero-title",
+          "label": null,
+          "text": "Shoes for every day",
+          "element_type": "h1",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "nav-pricing"
+        }
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "web",
+    "kind": "act",
+    "intent": "search for \"red shoes\"",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "cookie-accept",
+          "label": null,
+          "text": "Accept all",
+          "element_type": "button",
+          "bounds": {
+            "x": 20,
+            "y": 700,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "cookie-reject",
+          "label": null,
+          "text": "Reject all",
+          "element_type": "button",
+          "bounds": {
+            "x": 20,
+            "y": 760,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "nav-pricing",
+          "label": null,
+          "text": "Pricing",
+          "element_type": "a",
+          "bounds": {
+            "x": 20,
+            "y": 30,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "nav-docs",
+          "label": null,
+          "text": "Docs",
+          "element_type": "a",
+          "bounds": {
+            "x": 20,
+            "y": 30,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "search",
+          "label": "Search products",
+          "text": null,
+          "element_type": "input",
+          "bounds": {
+            "x": 20,
+            "y": 120,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "hero-title",
+          "label": null,
+          "text": "Shoes for every day",
+          "element_type": "h1",
+          "bounds": {
+            "x": 20,
+            "y": 200,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "inputText": {
+        "selector": {
+          "id": "search"
+        },
+        "text": "red shoes"
+      }
+    }
+  },
+  {
+    "version": 1,
+    "platform": "android",
+    "kind": "act",
+    "intent": "turn on Bluetooth",
+    "data": null,
+    "wait_until": null,
+    "scope": "",
+    "screen": {
+      "platform_id": "root",
+      "label": null,
+      "text": null,
+      "element_type": "hierarchy",
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 900
+      },
+      "enabled": true,
+      "visible": true,
+      "children": [
+        {
+          "platform_id": "android:id/title",
+          "label": null,
+          "text": "Network & internet",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 100,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.android.settings:id/wifi_label",
+          "label": null,
+          "text": "Wi-Fi",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.android.settings:id/wifi_switch",
+          "label": "Wi-Fi",
+          "text": null,
+          "element_type": "Switch",
+          "bounds": {
+            "x": 20,
+            "y": 180,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.android.settings:id/bt_label",
+          "label": null,
+          "text": "Bluetooth",
+          "element_type": "TextView",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        },
+        {
+          "platform_id": "com.android.settings:id/bt_switch",
+          "label": "Bluetooth",
+          "text": null,
+          "element_type": "Switch",
+          "bounds": {
+            "x": 20,
+            "y": 240,
+            "width": 300,
+            "height": 44
+          },
+          "enabled": true,
+          "visible": true,
+          "children": []
+        }
+      ]
+    },
+    "screen_rect": {
+      "x": 0,
+      "y": 0,
+      "width": 400,
+      "height": 900
+    },
+    "action": {
+      "tap": {
+        "selector": {
+          "id": "com.android.settings:id/bt_switch"
+        }
+      }
+    }
+  }
+]

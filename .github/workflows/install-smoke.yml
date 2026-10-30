@@ -1,0 +1,293 @@
+name: Install smoke
+
+# After a release, install it every way the README advertises, on Linux and
+# macOS, and check each install really works: `velocity --version` names the
+# release, and an API-only suite (http steps only, so no device) passes
+# against a local `python3 -m http.server`.
+#
+# Routes and the names they use (from release.yml, install.sh,
+# scripts/render-formula.sh, npm/cli/package.json, velocity-cli/Cargo.toml):
+#   install.sh  raw.githubusercontent.com/<repo>/main/install.sh --version X
+#   Homebrew    tap omkar-dev/velocity (repo omkar-dev/homebrew-velocity),
+#               formula omkar-dev/velocity/velocity
+#   npm         @velocity-test/cli (launcher; per-platform binaries in
+#               @velocity-test/cli-<os>-<cpu>)
+#   crates.io   velocity-cli (binary `velocity`)
+#
+# release.yml publishes npm, crates.io and the tap only when the repository
+# variables PUBLISH_NPM / PUBLISH_CRATES / PUBLISH_HOMEBREW are 'true', and
+# skips crates.io and Homebrew for prereleases; the matching jobs here are
+# gated the same way. Those publishes run after the GitHub release exists,
+# so each job first waits for its channel to carry the version.
+#
+# release.yml creates the release with the default GITHUB_TOKEN, and events
+# made with GITHUB_TOKEN start no other workflow, so `release: published`
+# fires only for a release a person publishes. `workflow_run` on Release is
+# what runs this after every tagged release (its head_branch is the tag).
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release to check (X.Y.Z, with or without a leading v)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-smoke-${{ github.event.workflow_run.head_branch || github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+env:
+  # The checks every route runs. $VELOCITY is the command that runs the
+  # installed velocity (word-split on purpose: the npm route is `npx ...`);
+  # $VERSION is the release.
+  SMOKE_SH: |
+    set -euo pipefail
+    echo "::group::velocity --version"
+    out=$($VELOCITY --version)
+    echo "$out"
+    got=$(printf '%s\n' "$out" | awk 'NR == 1 { print $2 }')
+    if [ "$got" != "$VERSION" ]; then
+      echo "::error::velocity --version printed '$out', expected version $VERSION"
+      exit 1
+    fi
+    echo "::endgroup::"
+
+    echo "::group::API-only suite against a local HTTP server"
+    work=$(mktemp -d)
+    mkdir -p "$work/site"
+    printf '{"status":"ok","version":"%s","items":[{"sku":"A1","qty":2},{"sku":"B2","qty":1}]}\n' "$VERSION" > "$work/site/health.json"
+    cat > "$work/api-smoke.yaml" <<'YAML'
+    config:
+      http:
+        baseUrl: "http://127.0.0.1:8765"
+        timeoutMs: 5000
+    tests:
+      - name: Serves the JSON file
+        steps:
+          - http:
+              url: /health.json
+              expect:
+                status: 200
+                headers: { content-type: { contains: json } }
+                json:
+                  status: ok
+                  version: "${VELOCITY_EXPECT_VERSION}"
+                  items: { length: 2 }
+                  items[0].sku: A1
+                  items[0].qty: { gt: 0 }
+                maxMs: 5000
+              capture: { FIRST_SKU: "items[0].sku" }
+          - http:
+              url: /health.json
+              query: { sku: "${FIRST_SKU}" }
+              expect:
+                status: 200
+                json:
+                  "$.items[*].sku": { contains: B2 }
+      - name: A missing file is a 404
+        steps:
+          - http:
+              url: /missing.json
+              expect: { status: 404 }
+    YAML
+    python3 -m http.server 8765 --bind 127.0.0.1 --directory "$work/site" > "$work/server.log" 2>&1 &
+    server=$!
+    trap 'kill "$server" 2>/dev/null || true' EXIT
+    for _ in $(seq 1 50); do
+      curl -fsS -o /dev/null http://127.0.0.1:8765/health.json 2>/dev/null && break
+      sleep 0.2
+    done
+    curl -fsS http://127.0.0.1:8765/health.json
+    cd "$work"
+    VELOCITY_EXPECT_VERSION="$VERSION" $VELOCITY run api-smoke.yaml
+    echo "::endgroup::"
+
+jobs:
+  version:
+    name: Resolve version
+    # A failed release published nothing to check.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        shell: bash
+        env:
+          RAW: ${{ github.event.workflow_run.head_branch || github.event.release.tag_name || inputs.version }}
+        run: |
+          version="${RAW#v}"
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::'$RAW' is not a version (X.Y.Z)"; exit 1 ;;
+          esac
+          # Same rule as release.yml's preflight.
+          case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Checking Velocity $version (prerelease: $prerelease)"
+
+  install-sh:
+    name: install.sh (${{ matrix.os }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      # The release assets are uploaded before the release is published, so
+      # nothing to wait for. The script is the one the README pipes from main.
+      - name: Install with install.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/velocity-bin"
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh" |
+            sh -s -- --version "$VERSION" --dir "$dir" --no-modify-path
+          echo "$dir" >> "$GITHUB_PATH"
+      - name: Smoke test
+        shell: bash
+        env:
+          VELOCITY: velocity
+        run: bash -c "$SMOKE_SH"
+
+  homebrew:
+    name: Homebrew (${{ matrix.os }})
+    needs: version
+    if: vars.PUBLISH_HOMEBREW == 'true' && needs.version.outputs.prerelease == 'false'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+    steps:
+      # ubuntu-latest ships Homebrew at /home/linuxbrew but not on PATH.
+      - name: Put brew on PATH (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          dirname "$(command -v brew)" >> "$GITHUB_PATH"
+      # release.yml's homebrew job pushes Formula/velocity.rb to the tap after
+      # the release; wait until it points at this version. The tap's default
+      # branch is assumed to be `main` (inferred: release.yml just pushes).
+      - name: Wait for the tap to carry ${{ env.VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://raw.githubusercontent.com/omkar-dev/homebrew-velocity/main/Formula/velocity.rb"
+          for i in $(seq 1 40); do
+            if curl -fsSL "$url?nocache=$i" 2>/dev/null | grep -q "/releases/download/v${VERSION}/"; then
+              echo "tap formula is at $VERSION"; exit 0
+            fi
+            echo "tap not at $VERSION yet ($i/40)"; sleep 30
+          done
+          echo "::error::the tap formula never reached $VERSION"; exit 1
+      - name: Install with Homebrew
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew tap omkar-dev/velocity
+          brew install omkar-dev/velocity/velocity
+          brew test omkar-dev/velocity/velocity
+      - name: Smoke test
+        shell: bash
+        env:
+          VELOCITY: velocity
+        run: bash -c "$SMOKE_SH"
+
+  npm:
+    name: npm (${{ matrix.os }})
+    needs: version
+    # Prereleases are published too (dist-tag `next`); npx asks for the exact
+    # version, so the dist-tag does not matter here.
+    if: vars.PUBLISH_NPM == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # The launcher is published last, after the platform packages.
+      - name: Wait for @velocity-test/cli@${{ env.VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            if [ "$(npm view "@velocity-test/cli@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "on npm"; exit 0
+            fi
+            echo "not on npm yet ($i/40)"; sleep 30
+          done
+          echo "::error::@velocity-test/cli@$VERSION never appeared on npm"; exit 1
+      - name: Smoke test
+        shell: bash
+        env:
+          VELOCITY: npx --yes @velocity-test/cli@${{ needs.version.outputs.version }}
+        run: bash -c "$SMOKE_SH"
+
+  cargo:
+    name: cargo install (${{ matrix.os }})
+    needs: version
+    if: vars.PUBLISH_CRATES == 'true' && needs.version.outputs.prerelease == 'false'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      # `cargo publish --workspace` uploads velocity-cli last; wait for it to
+      # be in the index.
+      - name: Wait for velocity-cli ${{ env.VERSION }} on crates.io
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            if curl -fsS -A "velocity-install-smoke (github.com/${GITHUB_REPOSITORY})" \
+                 "https://crates.io/api/v1/crates/velocity-cli/${VERSION}" >/dev/null 2>&1; then
+              echo "on crates.io"; exit 0
+            fi
+            echo "not on crates.io yet ($i/40)"; sleep 30
+          done
+          echo "::error::velocity-cli $VERSION never appeared on crates.io"; exit 1
+      - name: cargo install
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The sparse index can lag the API by a little; retry once.
+          cargo install velocity-cli --version "$VERSION" --locked ||
+            { sleep 60; cargo install velocity-cli --version "$VERSION" --locked; }
+      - name: Smoke test
+        shell: bash
+        env:
+          VELOCITY: velocity
+        run: bash -c "$SMOKE_SH"
