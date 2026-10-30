@@ -341,11 +341,17 @@ const SLIDING: &str = r#"<!doctype html><html><body style="margin:0">
  onclick="document.getElementById('out').textContent = left === 320 ? 'tapped' : 'early'"></button>
 <div id="out" style="position:absolute;top:0">idle</div>
 <script>
-var left = 0;
+var left = 0, log = [];
+function note(s) { log.push(s + ' left=' + left + ' t=' + performance.now().toFixed(0)); }
+['pointerdown', 'mousedown', 'click'].forEach(function (k) {
+  addEventListener(k, function (e) {
+    note(k + '@' + e.clientX + ',' + e.clientY + ' on=' + (e.target.id || e.target.tagName));
+  }, true);
+});
 function slide() {
   var b = document.getElementById('mv');
   (function step() { if (left >= 320) return; left += 40; b.style.left = left + 'px';
-    requestAnimationFrame(step); })();
+    note('step'); requestAnimationFrame(step); })();
 }
 </script></body></html>"#;
 
@@ -365,7 +371,11 @@ async fn a_moving_element_is_tapped_where_it_stops() {
     let mv = find(&d, "#mv").await;
     d.debug_eval_main("slide()").await.unwrap();
     d.tap("web", &mv).await.unwrap();
-    assert_eq!(wait_text(&d, "#out", "tapped").await, "tapped");
+    let out = wait_text(&d, "#out", "tapped").await;
+    // What the page saw, in order: each animation step and each pointer
+    // event with where it landed, so a miss says why.
+    let log = d.debug_eval_main("JSON.stringify(log)").await.unwrap();
+    assert_eq!(out, "tapped", "page log: {log}");
     d.cleanup().await;
 }
 
