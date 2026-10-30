@@ -146,6 +146,16 @@ fn kill_all_pids() {
     for (_, pid, _) in &entries {
         if let Ok(pid) = libc::pid_t::try_from(*pid) {
             if pid > 1 {
+                // Its helpers first (Linux: Chrome's zygote and renderers
+                // outlive the browser and keep its profile in use), read
+                // before the browser dies and they are re-parented.
+                #[cfg(target_os = "linux")]
+                for child in descendants(pid) {
+                    // SAFETY: kill(2) on a process descended from our child.
+                    unsafe {
+                        libc::kill(child, libc::SIGKILL);
+                    }
+                }
                 // SAFETY: kill(2) on a child the owner keeps unreaped.
                 unsafe {
                     libc::kill(pid, libc::SIGKILL);
@@ -168,6 +178,47 @@ fn kill_all_pids() {
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+/// Every process below `root`, from each process's parent in
+/// `/proc/<pid>/stat` (the field after the parenthesised command name, which
+/// may itself hold spaces or parentheses).
+#[cfg(target_os = "linux")]
+fn descendants(root: libc::pid_t) -> Vec<libc::pid_t> {
+    let mut parent_of = Vec::new();
+    if let Ok(dir) = std::fs::read_dir("/proc") {
+        for entry in dir.flatten() {
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|n| n.parse::<libc::pid_t>().ok())
+            else {
+                continue;
+            };
+            let Ok(stat) = std::fs::read_to_string(entry.path().join("stat")) else {
+                continue;
+            };
+            let ppid = stat
+                .rfind(')')
+                .and_then(|i| stat.get(i + 1..))
+                .and_then(|rest| rest.split_whitespace().nth(1))
+                .and_then(|p| p.parse::<libc::pid_t>().ok());
+            if let Some(ppid) = ppid {
+                parent_of.push((pid, ppid));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(p) = frontier.pop() {
+        for &(child, parent) in &parent_of {
+            if parent == p && !found.contains(&child) {
+                found.push(child);
+                frontier.push(child);
+            }
+        }
+    }
+    found
 }
 
 /// A long-lived child (an `adb shell` stress loop, the tree server's

@@ -205,23 +205,41 @@ async fn selector_parts_mean_the_same_on_every_path() {
 #[tokio::test]
 async fn text_search_is_linear() {
     require_chrome!();
-    let rows: String = (0..20_000)
-        .map(|i| format!("<div class=\"row\">lorem {i}</div>"))
-        .collect();
-    let page = format!("<!doctype html><html><body><div id=\"list\">{rows}</div></body></html>");
-    let base = serve(&[("/big.html", &page)]);
+    // Growth, not a wall-clock limit: a shared CI runner took 3.3 s for what
+    // a laptop does in under 1 s. Four times the rows should take about four
+    // times as long; the quadratic version took about sixteen.
     let d = driver(vec![]).await;
-    d.launch_app("web", &format!("{base}/big.html"), false)
-        .await
-        .unwrap();
-    let start = Instant::now();
-    let all = d
-        .find_elements("web", &Selector::TextContains("lorem".into()))
-        .await
-        .unwrap();
-    let took = start.elapsed();
-    assert_eq!(all.len(), 20_000);
-    assert!(took < Duration::from_secs(2), "{took:?}");
+    let mut took = Vec::new();
+    for n in [5_000, 20_000] {
+        let rows: String = (0..n)
+            .map(|i| format!("<div class=\"row\">lorem {i}</div>"))
+            .collect();
+        let page =
+            format!("<!doctype html><html><body><div id=\"list\">{rows}</div></body></html>");
+        let base = serve(&[("/big.html", &page)]);
+        d.launch_app("web", &format!("{base}/big.html"), false)
+            .await
+            .unwrap();
+        // Best of three, so one hiccup of a busy runner isn't measured.
+        let mut best = Duration::MAX;
+        for _ in 0..3 {
+            let start = Instant::now();
+            let all = d
+                .find_elements("web", &Selector::TextContains("lorem".into()))
+                .await
+                .unwrap();
+            best = best.min(start.elapsed());
+            assert_eq!(all.len(), n);
+        }
+        took.push(best);
+    }
+    let ratio = took[1].as_secs_f64() / took[0].as_secs_f64().max(1e-3);
+    assert!(
+        ratio < 8.0,
+        "4x the rows took {ratio:.1}x as long ({:?} -> {:?}): not linear",
+        took[0],
+        took[1]
+    );
     d.cleanup().await;
 }
 
