@@ -149,7 +149,7 @@ fn kill_all_pids() {
                 // Its helpers first (Linux: Chrome's zygote and renderers
                 // outlive the browser and keep its profile in use), read
                 // before the browser dies and they are re-parented.
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
                 for child in descendants(pid) {
                     // SAFETY: kill(2) on a process descended from our child.
                     unsafe {
@@ -213,6 +213,27 @@ fn descendants(root: libc::pid_t) -> Vec<libc::pid_t> {
     while let Some(p) = frontier.pop() {
         for &(child, parent) in &parent_of {
             if parent == p && !found.contains(&child) {
+                found.push(child);
+                frontier.push(child);
+            }
+        }
+    }
+    found
+}
+
+/// Every process below `root` (macOS: libproc's child list, walked down).
+#[cfg(target_os = "macos")]
+fn descendants(root: libc::pid_t) -> Vec<libc::pid_t> {
+    let mut found = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(p) = frontier.pop() {
+        let mut buf = [0 as libc::pid_t; 1024];
+        let bytes = std::mem::size_of_val(&buf) as libc::c_int;
+        // SAFETY: the buffer is valid for `bytes` bytes; libproc writes at
+        // most that many and returns how many pids it wrote (or -1).
+        let n = unsafe { libc::proc_listchildpids(p, buf.as_mut_ptr().cast(), bytes) };
+        for &child in buf.iter().take(usize::try_from(n).unwrap_or(0)) {
+            if child > 1 && !found.contains(&child) {
                 found.push(child);
                 frontier.push(child);
             }
@@ -311,6 +332,30 @@ fn kill_group(pgid: u32) {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn descendants_include_grandchildren() {
+        // sh -> sleep: the shell's child is found below this process.
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "sleep 5 & wait"])
+            .spawn()
+            .unwrap();
+        let me = libc::pid_t::try_from(std::process::id()).unwrap();
+        let shell = libc::pid_t::try_from(child.id()).unwrap();
+        let mut seen = Vec::new();
+        for _ in 0..50 {
+            seen = super::descendants(me);
+            if seen.contains(&shell) && seen.len() >= 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(seen.contains(&shell), "{seen:?}");
+        assert!(seen.len() >= 2, "the shell's sleep too: {seen:?}");
+    }
+
     use super::*;
 
     /// `kill_all_groups` kills every test's commands: run these one at a time.
