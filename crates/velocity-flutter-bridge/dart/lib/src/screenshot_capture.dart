@@ -6,26 +6,22 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Captures the current rendered frame as PNG bytes.
 class ScreenshotCapture {
+  /// The whole view (the root render view, so overlays, dialogs and every
+  /// route are in it), at logical size: the image's pixels are the
+  /// coordinates of the hierarchy's bounds. Empty when nothing is painted.
   static Future<Uint8List> capture(WidgetTester tester) async {
-    final renderObject = tester.binding.rootElement?.renderObject;
-    if (renderObject == null || renderObject is! RenderRepaintBoundary) {
-      // Fall back to finding the first RepaintBoundary
-      final boundary = find.byType(RepaintBoundary).evaluate().firstOrNull;
-      if (boundary == null) {
-        return Uint8List(0);
-      }
-      final ro = boundary.renderObject;
-      if (ro is RenderRepaintBoundary) {
-        return _captureFromBoundary(ro);
-      }
-      return Uint8List(0);
+    final views = tester.binding.renderViews;
+    if (views.isEmpty) return Uint8List(0);
+    final view = views.first;
+    final layer = view.debugLayer;
+    if (layer is! OffsetLayer) return Uint8List(0);
+    final dpr = tester.view.devicePixelRatio;
+    final image = await layer.toImage(view.paintBounds, pixelRatio: 1 / dpr);
+    try {
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      return byteData?.buffer.asUint8List() ?? Uint8List(0);
+    } finally {
+      image.dispose();
     }
-    return _captureFromBoundary(renderObject);
-  }
-
-  static Future<Uint8List> _captureFromBoundary(RenderRepaintBoundary boundary) async {
-    final image = await boundary.toImage(pixelRatio: 1.0);
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    return byteData?.buffer.asUint8List() ?? Uint8List(0);
   }
 }

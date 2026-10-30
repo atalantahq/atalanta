@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { listDevices, selectDevice } from "../api/client";
+import { currentDevice, listDevices, selectDevice } from "../api/client";
 import { useInspectorStore } from "../store/inspectorStore";
 
 export function DevicePicker() {
@@ -10,7 +10,14 @@ export function DevicePicker() {
     listDevices()
       .then(setDevices)
       .catch((e) => setError(e.message));
-  }, [setDevices, setError]);
+    // Start on the device the server picked (`velocity inspect -d`, or the
+    // booted one it found).
+    currentDevice()
+      .then((id) => {
+        if (id && !useInspectorStore.getState().currentDeviceId) setCurrentDeviceId(id);
+      })
+      .catch(() => {});
+  }, [setDevices, setError, setCurrentDeviceId]);
 
   const handleChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = e.target.value;
@@ -32,7 +39,7 @@ export function DevicePicker() {
         <option value="">Select a device...</option>
         {booted.map((d) => (
           <option key={d.id} value={d.id}>
-            {d.name} ({d.platform}, {d.os_version ?? "?"})
+            {d.name} ({d.platform}{d.os_version ? `, ${d.os_version}` : ""})
           </option>
         ))}
       </select>

@@ -1,5 +1,11 @@
 use std::collections::HashMap;
 
+/// The density dimensions use when none is configured (xhdpi).
+pub const DEFAULT_DENSITY: f32 = 2.0;
+
+/// Larger than any real screen: a dimension past this is an input error, not a size.
+const MAX_DIMENSION_PX: f32 = 1_000_000.0;
+
 /// Parsed Android resources.arsc file.
 ///
 /// Maps resource IDs to their values for the default configuration.
@@ -17,6 +23,8 @@ pub struct ResourceTable {
     pub booleans: HashMap<String, bool>,
     /// Raw resource ID to name mapping
     pub id_to_name: HashMap<u32, String>,
+    /// Display density that `dp`/`sp` and the physical units scale by (VEL-107).
+    pub density: f32,
 }
 
 impl ResourceTable {
@@ -29,7 +37,22 @@ impl ResourceTable {
             integers: HashMap::new(),
             booleans: HashMap::new(),
             id_to_name: HashMap::new(),
+            density: DEFAULT_DENSITY,
         }
+    }
+
+    /// This table, scaling dimensions by `density` (the `headless.density` config).
+    /// A non-finite or non-positive density keeps the default.
+    pub fn with_density(mut self, density: f32) -> Self {
+        if density.is_finite() && density > 0.0 {
+            self.density = density;
+        }
+        self
+    }
+
+    /// Parse a dimension string to pixels at this table's density.
+    pub fn dimension(&self, value: &str) -> Option<f32> {
+        Self::parse_dimension_at(value, self.density)
     }
 
     /// Parse a resources.arsc binary file.
@@ -38,7 +61,7 @@ impl ResourceTable {
     /// a useful subset: string pool, type spec, and type entries for
     /// the default configuration only.
     pub fn parse(data: &[u8]) -> Result<Self, ResourceError> {
-        let mut table = Self::empty();
+        let table = Self::empty();
 
         if data.len() < 12 {
             return Err(ResourceError::TooShort);
@@ -68,13 +91,10 @@ impl ResourceTable {
 
         // Continue parsing package chunks
         while pos + 8 <= data.len() {
-            let chunk_type = u16::from_le_bytes([data[pos], data[pos + 1]]);
-            let chunk_size = u32::from_le_bytes([
-                data[pos + 4],
-                data[pos + 5],
-                data[pos + 6],
-                data[pos + 7],
-            ]) as usize;
+            let _chunk_type = u16::from_le_bytes([data[pos], data[pos + 1]]);
+            let chunk_size =
+                u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+                    as usize;
 
             if chunk_size < 8 || pos + chunk_size > data.len() {
                 break;
@@ -138,10 +158,19 @@ impl ResourceTable {
         reference.to_string()
     }
 
-    /// Parse a dimension string to pixels (assuming density=2.0).
+    /// Parse a dimension string to pixels at the default density (2.0).
     pub fn parse_dimension(value: &str) -> Option<f32> {
-        let density = 2.0f32;
+        Self::parse_dimension_at(value, DEFAULT_DENSITY)
+    }
 
+    /// Parse a dimension string to pixels at `density`. Non-finite values (`NaN`,
+    /// `infdp`) and sizes beyond any real screen are rejected (VEL-252).
+    pub fn parse_dimension_at(value: &str, density: f32) -> Option<f32> {
+        Self::parse_dimension_raw(value, density)
+            .filter(|px| px.is_finite() && px.abs() <= MAX_DIMENSION_PX)
+    }
+
+    fn parse_dimension_raw(value: &str, density: f32) -> Option<f32> {
         if let Some(px) = value.strip_suffix("px") {
             return px.trim().parse().ok();
         }
@@ -153,6 +182,28 @@ impl ResourceTable {
         }
         if let Some(sp) = value.strip_suffix("sp") {
             return sp.trim().parse::<f32>().ok().map(|v| v * density);
+        }
+        // `TypedValue.applyDimension` for the physical units (VEL-100).
+        if let Some(pt) = value.strip_suffix("pt") {
+            return pt
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .map(|v| v * density * 160.0 / 72.0);
+        }
+        if let Some(inches) = value.strip_suffix("in") {
+            return inches
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .map(|v| v * density * 160.0);
+        }
+        if let Some(mm) = value.strip_suffix("mm") {
+            return mm
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .map(|v| v * density * 160.0 / 25.4);
         }
 
         // Plain number = pixels
@@ -189,6 +240,33 @@ mod tests {
         assert_eq!(ResourceTable::parse_dimension("100px"), Some(100.0));
         assert_eq!(ResourceTable::parse_dimension("50"), Some(50.0));
         assert!(ResourceTable::parse_dimension("abc").is_none());
+    }
+
+    #[test]
+    fn physical_units_follow_apply_dimension() {
+        // VEL-100: pt/in/mm used to fall through as unitless pixels.
+        assert_eq!(ResourceTable::parse_dimension("72pt"), Some(320.0));
+        assert_eq!(ResourceTable::parse_dimension("1in"), Some(320.0));
+        assert_eq!(ResourceTable::parse_dimension("25.4mm"), Some(320.0));
+        assert_eq!(ResourceTable::parse_dimension("-8dp"), Some(-16.0));
+    }
+
+    #[test]
+    fn density_scales_dp_and_sp() {
+        let table = ResourceTable::empty().with_density(3.0);
+        assert_eq!(table.dimension("100dp"), Some(300.0));
+        assert_eq!(table.dimension("10sp"), Some(30.0));
+        assert_eq!(table.dimension("7px"), Some(7.0));
+        // A nonsense density keeps the default.
+        let table = ResourceTable::empty().with_density(f32::NAN);
+        assert_eq!(table.dimension("100dp"), Some(200.0));
+    }
+
+    #[test]
+    fn non_finite_and_absurd_dimensions_are_rejected() {
+        for value in ["infdp", "NaNdp", "nan", "inf", "-infpx", "1e30dp", "1e30"] {
+            assert_eq!(ResourceTable::parse_dimension(value), None, "{value}");
+        }
     }
 
     #[test]

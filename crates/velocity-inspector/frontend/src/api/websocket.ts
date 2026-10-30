@@ -7,16 +7,26 @@ export class InspectorSocket {
   private listeners: WsListener[] = [];
   private deviceId: string;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set by disconnect(): a closed socket must not reconnect itself (VEL-115).
+  private closed = false;
+  // Reconnect back-off: 1, 2, 4 … 30 s, reset once a socket opens.
+  private retryMs = 1000;
 
   constructor(deviceId: string) {
     this.deviceId = deviceId;
   }
 
   connect() {
+    if (this.closed) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${location.host}/api/ws/${this.deviceId}`;
+    // The mirror shows the screen: only the hierarchy (and errors) here.
+    const url = `${proto}//${location.host}/api/ws/${encodeURIComponent(this.deviceId)}?screenshots=0`;
 
     this.ws = new WebSocket(url);
+
+    this.ws.onopen = () => {
+      this.retryMs = 1000;
+    };
 
     this.ws.onmessage = (event) => {
       try {
@@ -28,7 +38,9 @@ export class InspectorSocket {
     };
 
     this.ws.onclose = () => {
-      this.reconnectTimer = setTimeout(() => this.connect(), 2000);
+      if (this.closed) return;
+      this.reconnectTimer = setTimeout(() => this.connect(), this.retryMs);
+      this.retryMs = Math.min(this.retryMs * 2, 30_000);
     };
 
     this.ws.onerror = () => {
@@ -50,8 +62,16 @@ export class InspectorSocket {
   }
 
   disconnect() {
+    this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.ws?.close();
+    this.reconnectTimer = null;
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.close();
+    }
     this.ws = null;
     this.listeners = [];
   }

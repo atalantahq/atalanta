@@ -1,6 +1,6 @@
-use crate::render_tree::{NodeStyle, Position, RenderNode};
+use crate::render_tree::RenderNode;
 
-use super::axml::{AxmlDocument, AxmlElement, AxmlParser};
+use super::axml::{AxmlElement, AxmlParser};
 use super::resources::ResourceTable;
 use super::styles::AndroidStyleMapper;
 use taffy::FlexDirection;
@@ -8,18 +8,43 @@ use taffy::FlexDirection;
 /// Inflates Android XML layouts into RenderNode trees.
 pub struct AndroidInflater {
     resources: ResourceTable,
+    /// What the layout holds that headless can't render (N7).
+    warnings: std::cell::RefCell<Vec<String>>,
+    /// Attributes parsed but not drawn (D-47).
+    unrendered: std::cell::RefCell<std::collections::BTreeSet<String>>,
 }
+
+/// Views whose content comes from code at runtime (Compose, fragments), so the
+/// layout alone renders them as an empty box.
+const RUNTIME_CONTENT_VIEWS: &[&str] = &["ComposeView", "FragmentContainerView", "fragment"];
 
 impl AndroidInflater {
     pub fn new(resources: ResourceTable) -> Self {
-        Self { resources }
+        Self {
+            resources,
+            warnings: Default::default(),
+            unrendered: Default::default(),
+        }
+    }
+
+    /// The attributes the inflates so far parsed but headless can't draw
+    /// (D-47), each once, emptied.
+    pub fn take_unrendered(&self) -> Vec<String> {
+        std::mem::take(&mut *self.unrendered.borrow_mut())
+            .into_iter()
+            .collect()
+    }
+
+    /// The warnings from the inflates so far, emptied.
+    pub fn take_warnings(&self) -> Vec<String> {
+        std::mem::take(&mut self.warnings.borrow_mut())
     }
 
     /// Inflate a binary XML layout into a RenderNode tree.
     pub fn inflate_binary(&self, data: &[u8]) -> Result<RenderNode, InflateError> {
         let doc = AxmlParser::parse(data).map_err(|e| InflateError::ParseError(e.to_string()))?;
         let root = doc.root.ok_or(InflateError::EmptyLayout)?;
-        Ok(self.inflate_element(&root, None))
+        self.inflate_element(&root, None, 0)
     }
 
     /// Inflate a plain XML layout string into a RenderNode tree.
@@ -27,7 +52,7 @@ impl AndroidInflater {
     /// Used for pre-decompiled XML or test fixtures.
     pub fn inflate_xml(&self, xml: &str) -> Result<RenderNode, InflateError> {
         let doc = self.parse_plain_xml(xml)?;
-        Ok(self.inflate_element(&doc, None))
+        self.inflate_element(&doc, None, 0)
     }
 
     /// Inflate a single AXML element recursively.
@@ -35,7 +60,12 @@ impl AndroidInflater {
         &self,
         element: &AxmlElement,
         parent_orientation: Option<FlexDirection>,
-    ) -> RenderNode {
+        depth: usize,
+    ) -> Result<RenderNode, InflateError> {
+        // Layout, paint and the element tree all recurse per level (VEL-108).
+        if depth >= MAX_VIEW_DEPTH {
+            return Err(InflateError::TooDeep(MAX_VIEW_DEPTH));
+        }
         let view_name = simplify_class_name(&element.name);
         let mut style = AndroidStyleMapper::map_attributes(
             &element.attributes,
@@ -73,11 +103,28 @@ impl AndroidInflater {
             .attributes
             .get("id")
             .map(|v| extract_resource_name(v));
-        let label = element.attributes.get("contentDescription").cloned();
-        let text = element.attributes.get("text").map(|v| {
-            let resolved = self.resources.resolve(v);
-            resolved
+
+        if RUNTIME_CONTENT_VIEWS.contains(&view_name.as_str()) {
+            self.warnings.borrow_mut().push(format!(
+                "{view_name}{} gets its content from code at runtime; headless renders it \
+                 as an empty box, so assertions about what it would show can't be trusted",
+                id.as_deref().map(|i| format!(" '{i}'")).unwrap_or_default()
+            ));
+        }
+        let background_is_colour = element.attributes.get("background").is_some_and(|v| {
+            super::resources::ResourceTable::parse_color(&self.resources.resolve(v)).is_some()
         });
+        self.unrendered
+            .borrow_mut()
+            .extend(crate::unrendered::android(
+                &element.attributes,
+                background_is_colour,
+            ));
+        let label = element.attributes.get("contentDescription").cloned();
+        let text = element
+            .attributes
+            .get("text")
+            .map(|v| self.resources.resolve(v));
 
         let mut node = if text.is_some() {
             RenderNode::text_node(text.clone().unwrap(), &view_name)
@@ -98,12 +145,26 @@ impl AndroidInflater {
         for child in &element.children {
             // Skip non-view elements (e.g., <requestFocus/>)
             if is_view_element(&child.name) {
-                let child_node = self.inflate_element(child, Some(node.style.flex_direction));
+                let mut child_node =
+                    self.inflate_element(child, Some(node.style.flex_direction), depth + 1)?;
+                // What overflows instead of shrinking (VEL-109):
+                // - a scroll container's content (measured UNSPECIFIED);
+                // - a LinearLayout child with an explicit dp size on the main axis
+                //   (EXACTLY). A match_parent child gets what is left and a
+                //   wrap_content one at most that (it wraps), so those still shrink
+                //   (review MAJOR-3). Taffy keeps a shrinking wrap_content child at
+                //   least min-content, so it is not squashed to nothing.
+                if keeps_child_size(&view_name)
+                    || (view_name == "LinearLayout"
+                        && fixed_main_size(&child_node, node.style.flex_direction))
+                {
+                    child_node.style.flex_shrink = 0.0;
+                }
                 node.children.push(child_node);
             }
         }
 
-        node
+        Ok(node)
     }
 
     /// Parse plain XML (not binary) using quick-xml.
@@ -123,12 +184,12 @@ impl AndroidInflater {
 
                     for attr in e.attributes().flatten() {
                         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                        let val = String::from_utf8_lossy(&attr.value).to_string();
+                        let val = attr
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                            .map(|v| v.into_owned())
+                            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
                         // Strip android: namespace prefix
-                        let key = key
-                            .strip_prefix("android:")
-                            .unwrap_or(&key)
-                            .to_string();
+                        let key = key.strip_prefix("android:").unwrap_or(&key).to_string();
                         attributes.insert(key, val);
                     }
 
@@ -145,11 +206,11 @@ impl AndroidInflater {
 
                     for attr in e.attributes().flatten() {
                         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                        let val = String::from_utf8_lossy(&attr.value).to_string();
-                        let key = key
-                            .strip_prefix("android:")
-                            .unwrap_or(&key)
-                            .to_string();
+                        let val = attr
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                            .map(|v| v.into_owned())
+                            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
+                        let key = key.strip_prefix("android:").unwrap_or(&key).to_string();
                         attributes.insert(key, val);
                     }
 
@@ -185,6 +246,27 @@ impl AndroidInflater {
     }
 }
 
+/// The deepest view nesting inflated. Real layouts stay far below this; Android itself
+/// starts failing well before it.
+pub const MAX_VIEW_DEPTH: usize = 256;
+
+/// Scroll containers: their content keeps its size, overflowing instead of shrinking.
+fn keeps_child_size(view_name: &str) -> bool {
+    matches!(
+        view_name,
+        "ScrollView" | "NestedScrollView" | "HorizontalScrollView"
+    )
+}
+
+/// Whether `child` has an explicit dp size along `direction` (a parent's main axis).
+fn fixed_main_size(child: &RenderNode, direction: FlexDirection) -> bool {
+    let size = match direction {
+        FlexDirection::Row | FlexDirection::RowReverse => child.style.width,
+        FlexDirection::Column | FlexDirection::ColumnReverse => child.style.height,
+    };
+    matches!(size, crate::render_tree::Dimension::Length(_))
+}
+
 /// Simplify Android class names: `android.widget.Button` -> `Button`.
 fn simplify_class_name(name: &str) -> String {
     name.rsplit('.').next().unwrap_or(name).to_string()
@@ -213,6 +295,8 @@ pub enum InflateError {
     ParseError(String),
     #[error("Empty layout — no root element found")]
     EmptyLayout,
+    #[error("Layout nests views deeper than {0} levels")]
+    TooDeep(usize),
 }
 
 #[cfg(test)]

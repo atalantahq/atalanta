@@ -1,0 +1,39 @@
+# Verification suite for scripts/measure/demo-mode.sh (P5):
+# screenshots.freezeStatusBar (Android SystemUI demo mode, iOS simctl
+# status_bar). The status bar is captured, a minute passes, and it is
+# captured again with an exact compare: only a frozen clock matches. The
+# script runs it frozen (expected to pass) and unfrozen (expected to fail:
+# the control that shows the check can see the clock), and reads the
+# device's demo-mode state during and after the run.
+#
+# MEASURE_STATUS_BAR_PX: status bar height in screen pixels (default 80).
+# Not run by CI: needs a device.
+appId: com.android.settings
+
+config:
+  platform: android
+  retry:
+    count: 0
+  screenshots:
+    freezeStatusBar: true
+
+tests:
+  - name: demo_mode_freezes_the_status_bar
+    tags: [measure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
+      - assertScreenshot:
+          name: measure_status_bar
+          threshold: 1.0
+          tolerance: 0
+          crop: { x: 0, y: 0, width: 1080, height: 80 }
+      # Past the next minute: an unfrozen clock now reads differently.
+      - wait: { ms: 61000 }
+      - assertScreenshot:
+          name: measure_status_bar
+          threshold: 1.0
+          tolerance: 0
+          crop: { x: 0, y: 0, width: 1080, height: 80 }

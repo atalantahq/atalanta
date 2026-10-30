@@ -7,6 +7,7 @@ use serde::Deserialize;
 use velocity_common::types::{Direction, Key, Selector};
 
 use crate::state::AppState;
+use crate::yaml_gen;
 
 #[derive(Deserialize)]
 pub struct TapRequest {
@@ -35,9 +36,15 @@ pub async fn tap(
     Path(device_id): Path<String>,
     Json(req): Json<TapRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state
+        .control
+        .ensure(state.console.leases.as_ref(), &device_id)
+        .await?;
+    state.poke();
     if let Some((x, y)) = req.coordinates {
         // Tap by coordinates: create a synthetic element with the given bounds
         let element = velocity_common::types::Element {
+            hint: None,
             platform_id: String::new(),
             label: None,
             text: None,
@@ -51,23 +58,24 @@ pub async fn tap(
             enabled: true,
             visible: true,
             children: vec![],
+            ..Default::default()
         };
         state
             .driver
             .tap(&device_id, &element)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(super::api_error)?;
     } else if let Some(ref selector) = req.selector {
         let element = state
             .driver
             .find_element(&device_id, selector)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(super::api_error)?;
         state
             .driver
             .tap(&device_id, &element)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(super::api_error)?;
     } else {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -83,19 +91,27 @@ pub async fn type_text(
     Path(device_id): Path<String>,
     Json(req): Json<TypeTextRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    state
+        .control
+        .ensure(state.console.leases.as_ref(), &device_id)
+        .await?;
+    state.poke();
     let element = state
         .driver
         .find_element(&device_id, &req.selector)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
 
     state
         .driver
         .input_text(&device_id, &element, &req.text)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    // The recorder uses this step as-is: building it in the UI got index,
+    // compound and relative selectors wrong (VEL-113).
+    let yaml = yaml_gen::type_text_yaml(&req.selector, &req.text);
+    Ok(Json(serde_json::json!({ "ok": true, "yaml": yaml })))
 }
 
 pub async fn swipe(
@@ -104,12 +120,22 @@ pub async fn swipe(
     Json(req): Json<SwipeRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     state
+        .control
+        .ensure(state.console.leases.as_ref(), &device_id)
+        .await?;
+    state.poke();
+    state
         .driver
         .swipe(&device_id, req.direction)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let direction = serde_json::to_value(req.direction)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    let yaml = yaml_gen::swipe_yaml(&direction);
+    Ok(Json(serde_json::json!({ "ok": true, "yaml": yaml })))
 }
 
 pub async fn press_key(
@@ -118,10 +144,15 @@ pub async fn press_key(
     Json(req): Json<PressKeyRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     state
+        .control
+        .ensure(state.console.leases.as_ref(), &device_id)
+        .await?;
+    state.poke();
+    state
         .driver
         .press_key(&device_id, req.key)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(super::api_error)?;
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }

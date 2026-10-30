@@ -17,10 +17,53 @@ pub enum MigrateCommand {
         #[arg(long)]
         report_json: bool,
     },
+
+    /// Remove fixed `wait:` steps that sit before a step which already waits
+    /// for its element. Prints what it would remove; `--write` edits the file
+    Waits {
+        /// Suite YAML to rewrite
+        file: String,
+
+        /// Rewrite the file in place
+        #[arg(long)]
+        write: bool,
+    },
 }
 
 pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
     match command {
+        MigrateCommand::Waits { file, write } => {
+            let yaml = std::fs::read_to_string(&file)?;
+            let (out, removed) = velocity_migrate::waits::remove_redundant_waits(&yaml);
+            if removed.is_empty() {
+                println!("{} No redundant waits in {file}", "=>".cyan().bold());
+                return Ok(0);
+            }
+            let total: u64 = removed.iter().map(|r| r.ms).sum();
+            for r in &removed {
+                println!("  {file}:{}  wait {} ms before {}", r.line, r.ms, r.before);
+            }
+            // Never write a file that no longer parses.
+            velocity_core::parser::parse_suite_from_str(&out)
+                .map_err(|e| anyhow::anyhow!("rewrite would not parse, nothing written: {e}"))?;
+            if write {
+                std::fs::write(&file, out)?;
+                println!(
+                    "{} Removed {} waits ({:.1} s per full run) from {file}",
+                    "=>".cyan().bold(),
+                    removed.len(),
+                    total as f64 / 1000.0
+                );
+            } else {
+                println!(
+                    "{} {} redundant waits ({:.1} s per full run); rerun with --write to remove them",
+                    "=>".cyan().bold(),
+                    removed.len(),
+                    total as f64 / 1000.0
+                );
+            }
+            Ok(0)
+        }
         MigrateCommand::Maestro {
             dir,
             output,

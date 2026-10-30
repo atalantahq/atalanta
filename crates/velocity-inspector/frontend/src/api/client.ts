@@ -15,6 +15,11 @@ export async function listDevices(): Promise<DeviceInfo[]> {
   return json(`${BASE}/devices`);
 }
 
+export async function currentDevice(): Promise<string | null> {
+  const r = await json<{ deviceId: string | null }>(`${BASE}/devices/current`);
+  return r.deviceId;
+}
+
 export async function selectDevice(deviceId: string): Promise<DeviceInfo> {
   return json(`${BASE}/devices/select`, {
     method: "POST",
@@ -24,42 +29,53 @@ export async function selectDevice(deviceId: string): Promise<DeviceInfo> {
 }
 
 export function screenshotUrl(deviceId: string): string {
-  return `${BASE}/devices/${deviceId}/screenshot?t=${Date.now()}`;
+  return `${BASE}/devices/${encodeURIComponent(deviceId)}/screenshot?t=${Date.now()}`;
 }
 
 export async function getHierarchy(deviceId: string): Promise<Element> {
-  return json(`${BASE}/devices/${deviceId}/hierarchy`);
+  return json(`${BASE}/devices/${encodeURIComponent(deviceId)}/hierarchy`);
 }
 
 export async function tap(deviceId: string, opts: { selector?: Selector; coordinates?: [number, number] }): Promise<void> {
-  await json(`${BASE}/devices/${deviceId}/tap`, {
+  await json(`${BASE}/devices/${encodeURIComponent(deviceId)}/tap`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(opts),
   });
 }
 
-export async function typeText(deviceId: string, selector: Selector, text: string): Promise<void> {
-  await json(`${BASE}/devices/${deviceId}/type`, {
+// Returns the recorded step (`yaml`), built by the server so it always parses.
+export async function typeText(
+  deviceId: string,
+  selector: Selector,
+  text: string,
+): Promise<{ yaml: string }> {
+  return json(`${BASE}/devices/${encodeURIComponent(deviceId)}/type`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ selector, text }),
   });
 }
 
-export async function swipe(deviceId: string, direction: Direction): Promise<void> {
-  await json(`${BASE}/devices/${deviceId}/swipe`, {
+export async function swipe(deviceId: string, direction: Direction): Promise<{ yaml: string }> {
+  return json(`${BASE}/devices/${encodeURIComponent(deviceId)}/swipe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ direction }),
   });
 }
 
-export async function generateSelector(element: Element): Promise<GenerateResponse> {
+// The server resolves the node in the hierarchy snapshot it sent (by key
+// and version), checks the selector is unique there, and lists every
+// candidate with its match count. The tree is never posted back (VEL-116).
+export async function generateSelector(
+  nodeKey: string,
+  version: number,
+): Promise<GenerateResponse> {
   return json(`${BASE}/selector/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ element }),
+    body: JSON.stringify({ nodeKey, version }),
   });
 }
 

@@ -19,7 +19,7 @@ export function useWebSocket() {
           if (msg.url) setScreenshotUrl(msg.url);
           break;
         case "hierarchy":
-          if (msg.root) setHierarchy(msg.root);
+          if (msg.root) setHierarchy(msg.root, msg.version ?? null);
           break;
         case "performance":
           if (
@@ -39,6 +39,10 @@ export function useWebSocket() {
           break;
         case "error":
           if (msg.message) setError(msg.message);
+          break;
+        case "ok":
+          // The server says the error it reported has gone (VEL-260).
+          setError(null);
           break;
       }
     });

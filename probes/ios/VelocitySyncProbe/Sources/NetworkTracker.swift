@@ -17,6 +17,18 @@ final class NetworkTracker {
         )
     }
 
+    /// Whether a task is a persistent connection that must not hold the
+    /// app busy: a WebSocket, or a URL on the blocklist.
+    static func isIgnored(_ task: URLSessionTask) -> Bool {
+        if #available(iOS 13.0, macOS 10.15, *), task is URLSessionWebSocketTask {
+            return true
+        }
+        guard let url = task.originalRequest?.url ?? task.currentRequest?.url else {
+            return false
+        }
+        return URLBlocklist.shared.isIgnored(url.absoluteString)
+    }
+
     static func taskDidStart() {
         AppStateTracker.shared.incrementNetwork()
     }
@@ -35,12 +47,21 @@ final class NetworkTracker {
 
 extension URLSessionTask {
     @objc func velocity_resume() {
-        NetworkTracker.taskDidStart()
+        // resume() may legally be called more than once on the same task.
+        // Track only the first call: repeat calls would over-increment the
+        // pending counter (app reported busy forever) and replace the
+        // associated observer, deallocating an object still registered for
+        // KVO — an NSKVODeallocate crash inside the host app.
+        if objc_getAssociatedObject(self, &TaskStateObserver.key) == nil,
+           !NetworkTracker.isIgnored(self) {
+            NetworkTracker.taskDidStart()
 
-        // Observe task completion via KVO on state
-        let observer = TaskStateObserver()
-        objc_setAssociatedObject(self, &TaskStateObserver.key, observer, .OBJC_ASSOCIATION_RETAIN)
-        addObserver(observer, forKeyPath: "state", options: [.new], context: nil)
+            // Observe task completion via KVO on state
+            let observer = TaskStateObserver()
+            objc_setAssociatedObject(
+                self, &TaskStateObserver.key, observer, .OBJC_ASSOCIATION_RETAIN)
+            addObserver(observer, forKeyPath: "state", options: [.new], context: nil)
+        }
 
         velocity_resume() // calls original (swizzled)
     }

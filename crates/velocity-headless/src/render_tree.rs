@@ -1,5 +1,36 @@
 use serde::{Deserialize, Serialize};
-use taffy::prelude::*;
+use taffy::prelude::{AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent, JustifySelf};
+
+/// A length in a [`NodeStyle`]: Velocity's own plain-data type, converted to taffy's
+/// tagged-pointer `Dimension` only inside the layout pass. Keeping taffy's type out of
+/// the render tree is what makes `RenderNode` `Send + Sync` without `unsafe`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum Dimension {
+    #[default]
+    Auto,
+    /// Pixels.
+    Length(f32),
+    /// A fraction of the parent (1.0 = 100%).
+    Percent(f32),
+}
+
+impl Dimension {
+    pub const fn auto() -> Self {
+        Self::Auto
+    }
+
+    pub const fn length(px: f32) -> Self {
+        Self::Length(px)
+    }
+
+    pub const fn percent(fraction: f32) -> Self {
+        Self::Percent(fraction)
+    }
+
+    pub fn is_auto(&self) -> bool {
+        matches!(self, Self::Auto)
+    }
+}
 
 /// A node in the headless render tree.
 ///
@@ -67,10 +98,21 @@ pub struct NodeStyle {
     pub background_color: Color,
     pub text_color: Color,
     pub font_size: f32,
+    /// CSS-style weight: 400 regular, 700 bold.
+    pub font_weight: u16,
     pub border_radius: f32,
+    /// A password field: typed text is shown and reported as bullets (VEL-254).
+    pub password: bool,
+    /// The node's text is the field's placeholder, not typed text: typing
+    /// replaces it instead of appending to it (D-16).
+    pub placeholder: bool,
 
     // Visibility
+    /// Painted and reported visible. `false` alone is Android `invisible`: the view
+    /// keeps its space in the layout (VEL-106).
     pub visible: bool,
+    /// Removed from the layout entirely (Android `gone`, UIKit `hidden`).
+    pub gone: bool,
     pub opacity: f32,
 
     // Position
@@ -88,9 +130,24 @@ pub struct Color {
 }
 
 impl Color {
-    pub const TRANSPARENT: Self = Self { r: 0, g: 0, b: 0, a: 0 };
-    pub const BLACK: Self = Self { r: 0, g: 0, b: 0, a: 255 };
-    pub const WHITE: Self = Self { r: 255, g: 255, b: 255, a: 255 };
+    pub const TRANSPARENT: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
+    pub const BLACK: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    pub const WHITE: Self = Self {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
 
     pub fn from_argb(argb: u32) -> Self {
         Self {
@@ -143,14 +200,29 @@ impl SafeAreaInsets {
 }
 
 impl EdgeSizes {
-    pub const ZERO: Self = Self { top: 0.0, right: 0.0, bottom: 0.0, left: 0.0 };
+    pub const ZERO: Self = Self {
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+        left: 0.0,
+    };
 
     pub fn uniform(value: f32) -> Self {
-        Self { top: value, right: value, bottom: value, left: value }
+        Self {
+            top: value,
+            right: value,
+            bottom: value,
+            left: value,
+        }
     }
 
     pub fn symmetric(horizontal: f32, vertical: f32) -> Self {
-        Self { top: vertical, right: horizontal, bottom: vertical, left: horizontal }
+        Self {
+            top: vertical,
+            right: horizontal,
+            bottom: vertical,
+            left: horizontal,
+        }
     }
 }
 
@@ -161,14 +233,6 @@ pub enum Position {
     Relative,
     Absolute,
 }
-
-// SAFETY: taffy 0.9's `Dimension` (and related types) contain `*const ()` internally
-// as a tagged-pointer representation of compact float values — they are not real pointers
-// to heap allocations. The values are purely numeric and safe to send/share across threads.
-unsafe impl Send for NodeStyle {}
-unsafe impl Sync for NodeStyle {}
-unsafe impl Send for RenderNode {}
-unsafe impl Sync for RenderNode {}
 
 impl Default for NodeStyle {
     fn default() -> Self {
@@ -194,8 +258,12 @@ impl Default for NodeStyle {
             background_color: Color::TRANSPARENT,
             text_color: Color::BLACK,
             font_size: 14.0,
+            font_weight: 400,
             border_radius: 0.0,
+            password: false,
+            placeholder: false,
             visible: true,
+            gone: false,
             opacity: 1.0,
             position: Position::Relative,
             inset: SafeAreaInsets::AUTO,

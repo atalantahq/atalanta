@@ -22,8 +22,7 @@ impl ApkLoader {
     /// Load an APK file and extract layouts and resources.
     pub fn from_path(path: &Path) -> Result<Self, ApkError> {
         let file = File::open(path).map_err(|e| ApkError::IoError(e.to_string()))?;
-        let mut archive =
-            ZipArchive::new(file).map_err(|e| ApkError::ZipError(e.to_string()))?;
+        let mut archive = ZipArchive::new(file).map_err(|e| ApkError::ZipError(e.to_string()))?;
 
         let mut layouts = HashMap::new();
         let mut resources = ResourceTable::empty();
@@ -31,7 +30,12 @@ impl ApkLoader {
 
         // Collect file names first to avoid borrow issues
         let file_names: Vec<String> = (0..archive.len())
-            .filter_map(|i| archive.by_index(i).ok().map(|f| f.name().to_string()))
+            .filter_map(|i| {
+                archive
+                    .by_index(i)
+                    .ok()
+                    .and_then(|f| f.name().ok().map(|n| n.to_string()))
+            })
             .collect();
 
         for name in &file_names {
@@ -93,9 +97,7 @@ impl ApkLoader {
     /// Get a parsed layout XML by name.
     pub fn get_layout(&self, name: &str) -> Option<&Vec<u8>> {
         // Strip @layout/ prefix if present
-        let clean_name = name
-            .strip_prefix("@layout/")
-            .unwrap_or(name);
+        let clean_name = name.strip_prefix("@layout/").unwrap_or(name);
         self.layouts.get(clean_name)
     }
 

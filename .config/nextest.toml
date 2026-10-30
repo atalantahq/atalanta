@@ -1,0 +1,34 @@
+# cargo-nextest configuration (CI runs `cargo nextest run --profile ci`).
+
+[test-groups]
+# Tests that drive a real headless Chrome. Too many browsers at once on a
+# 3-core CI runner starve the timing-sensitive ones (a scroll measured as 0,
+# a moving target tapped before it stopped).
+chrome = { max-threads = 2 }
+
+# The first matching override applies: the specific one comes first.
+
+# A moving target tapped where it stops: it missed on a loaded macOS runner
+# even beside one other browser, so it runs with nothing else at all.
+[[profile.default.overrides]]
+filter = "test(a_moving_element_is_tapped_where_it_stops)"
+threads-required = "num-cpus"
+
+[[profile.default.overrides]]
+filter = "(package(velocity-web) & kind(test)) | binary(web_parallel)"
+test-group = "chrome"
+
+[profile.default]
+# Name tests that run long, and stop one that hangs instead of the job.
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+[profile.ci]
+# Run everything, so one failure doesn't hide the others.
+fail-fast = false
+# A pass on retry is reported as flaky, not hidden: Velocity's own tests
+# drive real headless Chrome and local sockets.
+retries = 1
+failure-output = "immediate-final"
+
+[profile.ci.junit]
+path = "junit.xml"
