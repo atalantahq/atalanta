@@ -1,0 +1,80 @@
+name: Scorecard
+
+# OpenSSF Scorecard: supply-chain practices (pinned dependencies, token
+# permissions, dangerous workflows, branch protection, signed releases, ...).
+#
+# The repository is private on GitHub Free, so the results are NOT published
+# to the Scorecard API or uploaded to code scanning: they are kept as a
+# SARIF artifact and listed in the job summary. Checks that need a public
+# repository or an admin token report low scores or errors here, and are
+# not a finding by themselves:
+#   - Branch-Protection: needs a token that can read the rules (a
+#     fine-grained PAT with Administration: read, as the SCORECARD_TOKEN
+#     secret); without it the check is skipped (-1);
+#   - CII-Best-Practices, Contributors, Maintained, Fuzzing (OSS-Fuzz /
+#     ClusterFuzzLite), Signed-Releases: read public metadata or releases;
+#   - Code-Review, SAST: count reviews and code-scanning results that a
+#     private repo without GHAS does not expose the same way.
+# When the repository goes public: set publish_results: true, add
+# `id-token: write` to the job, and upload the SARIF with
+# github/codeql-action/upload-sarif (`security-events: write`), as
+# SECURITY.md "If the repository goes public" describes.
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          # An optional read-only PAT for Branch-Protection; the default
+          # token otherwise.
+          repo_token: ${{ secrets.SCORECARD_TOKEN || github.token }}
+          publish_results: false
+      - name: Summary
+        if: always()
+        run: |
+          [ -f scorecard.sarif ] || exit 0
+          python3 -I - scorecard.sarif >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          run = json.load(open(sys.argv[1]))["runs"][0]
+          rules = {r["id"]: r for r in run["tool"]["driver"]["rules"]}
+          print("## OpenSSF Scorecard findings\n")
+          print("| Check | Finding |")
+          print("|---|---|")
+          for res in run.get("results", []):
+              name = rules.get(res["ruleId"], {}).get("name", res["ruleId"])
+              text = res["message"]["text"].splitlines()[0].replace("|", "/")
+              print(f"| {name} | {text} |")
+          if not run.get("results"):
+              print("| (none) | every check at its maximum or skipped |")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: scorecard-sarif
+          path: scorecard.sarif
+          retention-days: 30
+          if-no-files-found: ignore

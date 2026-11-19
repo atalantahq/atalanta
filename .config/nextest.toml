@@ -32,3 +32,6 @@ failure-output = "immediate-final"
 
 [profile.ci.junit]
 path = "junit.xml"
+# Passing tests' output too: ci.yml fails the job when a web test printed
+# "skipped: no Chrome" (a self-skipped test otherwise reports PASS).
+store-success-output = true

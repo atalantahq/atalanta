@@ -1,7 +1,12 @@
-# Device smoke tests (C5). Opt-in: they need a simulator or an emulator,
-# take 15-30 minutes, and must never turn the regular CI red. Run them from
-# the Actions tab (workflow_dispatch) or by adding the `device-ci` label to
-# a pull request.
+# Device smoke tests (C5). They need a simulator or an emulator, take
+# 15-30 minutes, and must never turn the regular CI red. They run:
+# - nightly (row 0.2 of the v4 plan): the Android emulator (KVM, ubuntu)
+#   and headless Chrome; the iOS simulator weekly (macOS minutes cost
+#   about 10x Linux). The bar is 19 green nights out of 20;
+# - from the Actions tab (workflow_dispatch), or with the `device-ci` label
+#   on a pull request.
+# They build Velocity from this commit: until a release is published there
+# is no installed binary to test (switch to the Action then).
 #
 # With no app given, each job drives the platform's own Settings app with a
 # tiny suite (tests/smoke/*.yaml). Give `app_url` (a zipped simulator .app)
@@ -9,6 +14,9 @@
 name: Device smoke
 
 on:
+  schedule:
+    - cron: "17 3 * * *"   # nightly: Android + web
+    - cron: "41 4 * * 1"   # Mondays: iOS too
   workflow_dispatch:
     inputs:
       app_url:
@@ -29,8 +37,13 @@ concurrency:
   group: device-smoke-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'device-ci' && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
+  # Same toolchain as ci.yml (the release-files job there checks they agree).
+  RUST_VERSION: "1.98.1"
 
 jobs:
   ios-simulator:
@@ -38,14 +51,23 @@ jobs:
     # Another label being added is not a reason to run (or restart).
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.event.schedule == '41 4 * * 1') ||
       (contains(github.event.pull_request.labels.*.name, 'device-ci') &&
       (github.event.action != 'labeled' || github.event.label.name == 'device-ci'))
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build velocity
         run: cargo build --release -p velocity-cli
       - name: Boot a simulator
@@ -61,21 +83,23 @@ jobs:
         if: inputs.app_url != ''
         env:
           APP_URL: ${{ inputs.app_url }}
+          UDID: ${{ steps.sim.outputs.udid }}
         run: |
           set -euo pipefail
           curl -fsSL "$APP_URL" -o app.zip
           unzip -q app.zip -d app
-          xcrun simctl install "${{ steps.sim.outputs.udid }}" "$(find app -name '*.app' -maxdepth 3 | head -1)"
+          xcrun simctl install "$UDID" "$(find app -name '*.app' -maxdepth 3 | head -1)"
       - name: Run the suite
         env:
           SUITE: ${{ inputs.app_url != '' && inputs.suite || 'tests/smoke/ios-settings.yaml' }}
+          UDID: ${{ steps.sim.outputs.udid }}
         run: |
           ./target/release/velocity run "$SUITE" \
-            --device "${{ steps.sim.outputs.udid }}" \
+            --device "$UDID" \
             --report junit,json,github --artifacts-dir velocity-results
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ios-smoke-results
           path: velocity-results
@@ -85,24 +109,32 @@ jobs:
     name: Android emulator smoke
     # Another label being added is not a reason to run (or restart).
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
       (contains(github.event.pull_request.labels.*.name, 'device-ci') &&
       (github.event.action != 'labeled' || github.event.label.name == 'device-ci'))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: Build velocity
         run: cargo build --release -p velocity-cli
       - name: Run the suite on an emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 34
           target: google_apis
@@ -112,8 +144,66 @@ jobs:
           script: ./target/release/velocity run tests/smoke/android-settings.yaml --report junit,json,github --artifacts-dir velocity-results
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-smoke-results
           path: velocity-results
           retention-days: 7
+
+  web-headless:
+    name: Web smoke (headless Chrome)
+    if: >-
+      github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      (contains(github.event.pull_request.labels.*.name, 'device-ci') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'device-ci'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build velocity
+        run: cargo build --release -p velocity-cli
+      - name: Run the suite
+        run: ./target/release/velocity run tests/smoke/web-smoke.yaml --report junit,json,github --artifacts-dir velocity-results
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-smoke-results
+          path: velocity-results
+          retention-days: 7
+
+  # NEW-001: a job that died before uploading must not leave the night green.
+  results:
+    name: Every smoke job reported
+    needs: [android-emulator, web-headless]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo build --release -p velocity-cli
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: smoke
+          pattern: "*-smoke-results"
+      # Two jobs, two results files: one missing fails the night.
+      - run: ./target/release/velocity results check --expect-shards 2 smoke/android-smoke-results smoke/web-smoke-results

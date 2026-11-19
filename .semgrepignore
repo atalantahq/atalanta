@@ -1,0 +1,32 @@
+# Paths Semgrep skips (scripts/security-check.sh, .github/workflows/security.yml).
+# This file replaces Semgrep's built-in ignore list, so the usual build and
+# vendor folders are listed here too. Triaged false positives are not listed
+# here: they are `# nosemgrep: <rule-id>` comments at the line, each with a
+# reason (see SECURITY.md "Automated security checks").
+target/
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+node_modules/
+dist/
+velocity-results/
+ext/
+.velocity/
+# Benchmark run logs and outputs: recorded data, not code.
+bench/*/runs/
+bench/*/out/
+bench/*/results/
+bench/pilot/velocity-results/
+bench/**/__pycache__/
+# Generated Xcode project and the built tree-server jar.
+*.xcodeproj/
+crates/velocity-android/assets/
+*.min.js
+# The init templates (velocity-cli/src) that these golden files mirror are
+# what `velocity init --ci github` writes into a user's repository; they use
+# readable version tags (`actions/checkout@v4`) and the documented
+# `curl | sh` install of a pinned release. Reviewed 2026-11-11; see
+# SECURITY.md "Automated security checks".
+velocity-cli/tests/golden/
+# The gitleaks allowlist lists fake key values on purpose.
+.gitleaks.toml

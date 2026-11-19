@@ -1,0 +1,223 @@
+# Velocity GitHub Action: install a pinned Velocity, bring up the device
+# (an Android emulator with a cached AVD, an iOS simulator, or headless
+# Chrome), run a suite or one shard of it, and upload the results.
+#
+#   - uses: omkar-dev/velocity@v0.2.0
+#     with:
+#       version: 0.2.0
+#       platform: android
+#       suite: tests/
+#       shard: ${{ matrix.shard }}/4
+#
+# Exit codes are Velocity's (docs/CLI.md#exit-codes); a device that never
+# came up is 3 (infrastructure), never a test failure. After a sharded
+# matrix, run `velocity results check --expect-shards N` on the downloaded
+# results (docs/CI.md#no-silent-passes).
+name: Velocity
+description: Run Velocity UI tests on an Android emulator, an iOS simulator or headless Chrome.
+author: omkar-dev
+branding:
+  icon: smartphone
+  color: blue
+
+inputs:
+  version:
+    description: Velocity release to install (X.Y.Z). Pin it.
+    required: true
+  sha256:
+    description: The release archive's sha256 for this runner, to pin the exact build on top of the release's SHA256SUMS (optional).
+    required: false
+    default: ""
+  platform:
+    description: android, ios or web.
+    required: true
+  suite:
+    description: Suite file or folder to run.
+    required: true
+  shard:
+    description: This job's shard, M/N (optional).
+    required: false
+    default: ""
+  args:
+    description: More `velocity run` flags, split on spaces.
+    required: false
+    default: ""
+  results-dir:
+    description: Where the reports go.
+    required: false
+    default: velocity-results
+  upload:
+    description: Upload the results folder as an artifact (true/false).
+    required: false
+    default: "true"
+  api-level:
+    description: Android emulator API level.
+    required: false
+    default: "34"
+  target:
+    description: Android system image target.
+    required: false
+    default: google_apis
+  arch:
+    description: Android emulator architecture.
+    required: false
+    default: x86_64
+  boot-attempts:
+    description: Times to try bringing the device up before giving up with exit 3 (Android at most 2; the second uses a fresh AVD).
+    required: false
+    default: "2"
+
+outputs:
+  results-dir:
+    description: The reports folder.
+    value: ${{ inputs.results-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Velocity ${{ inputs.version }}
+      shell: bash
+      env:
+        VELOCITY_VERSION: ${{ inputs.version }}
+        VELOCITY_SHA256: ${{ inputs.sha256 }}
+        VELOCITY_INSTALL_DIR: ${{ runner.temp }}/velocity-bin
+        VELOCITY_NO_MODIFY_PATH: "1"
+        # Inputs reach the script as variables, never spliced into it.
+        PLATFORM: ${{ inputs.platform }}
+        SHARD: ${{ inputs.shard }}
+      run: | # zizmor: ignore[github-env] -- writes only RUNNER_TEMP paths and the validated platform/shard
+        set -euo pipefail
+        case "$PLATFORM" in android|ios|web) ;; *)
+          echo "::error title=Velocity::platform must be android, ios or web, not '$PLATFORM'"; exit 2 ;;
+        esac
+        sh "$GITHUB_ACTION_PATH/install.sh"
+        echo "$VELOCITY_INSTALL_DIR" >> "$GITHUB_PATH"
+        echo "VELOCITY_ACTION_STATE=$RUNNER_TEMP/velocity-action" >> "$GITHUB_ENV"
+        # An artifact name per job: `/` is not allowed in one.
+        if [ -n "$SHARD" ]; then
+          # M/N only: the value goes into GITHUB_ENV and an artifact name.
+          case "$SHARD" in *[!0-9/]*|*/*/*|/*|*/|"") echo "::error title=Velocity::shard must be M/N, not '$SHARD'"; exit 2 ;; esac
+          part="shard-${SHARD//\//-of-}"
+        else part=all; fi
+        echo "VELOCITY_ARTIFACT=velocity-results-$PLATFORM-$part" >> "$GITHUB_ENV"
+
+    # ---- Android: KVM, a cached AVD (keyed by everything that shapes it),
+    # then the run inside the emulator, retried when the emulator never boots.
+    - name: Enable KVM
+      if: inputs.platform == 'android'
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+    - name: AVD cache
+      if: inputs.platform == 'android'
+      id: avd
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.android/avd/*
+          ~/.android/adb*
+        key: velocity-avd-${{ runner.os }}-${{ inputs.api-level }}-${{ inputs.target }}-${{ inputs.arch }}-v1
+    - name: Create the AVD snapshot
+      if: inputs.platform == 'android' && steps.avd.outputs.cache-hit != 'true'
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      with:
+        api-level: ${{ inputs.api-level }}
+        target: ${{ inputs.target }}
+        arch: ${{ inputs.arch }}
+        force-avd-creation: false
+        emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: false
+        script: echo "AVD snapshot created"
+    - name: Run on the emulator
+      if: inputs.platform == 'android'
+      id: run1
+      continue-on-error: true
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      env:
+        SUITE: ${{ inputs.suite }}
+        SHARD: ${{ inputs.shard }}
+        EXTRA_ARGS: ${{ inputs.args }}
+        RESULTS_DIR: ${{ inputs.results-dir }}
+      with:
+        api-level: ${{ inputs.api-level }}
+        target: ${{ inputs.target }}
+        arch: ${{ inputs.arch }}
+        force-avd-creation: false
+        emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: true
+        emulator-boot-timeout: 600
+        script: sh "${{ github.action_path }}/scripts/action-run.sh"
+    - name: Did the emulator boot?
+      if: inputs.platform == 'android'
+      id: booted
+      shell: bash
+      run: |
+        if [ -f "$VELOCITY_ACTION_STATE/booted" ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else
+          echo "::warning title=Velocity::the emulator did not boot; trying once more with a fresh AVD"; fi
+    - name: Run on the emulator (retry after a failed boot)
+      if: inputs.platform == 'android' && steps.booted.outputs.yes != 'true' && inputs.boot-attempts != '1'
+      continue-on-error: true
+      uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+      env:
+        SUITE: ${{ inputs.suite }}
+        SHARD: ${{ inputs.shard }}
+        EXTRA_ARGS: ${{ inputs.args }}
+        RESULTS_DIR: ${{ inputs.results-dir }}
+      with:
+        api-level: ${{ inputs.api-level }}
+        target: ${{ inputs.target }}
+        arch: ${{ inputs.arch }}
+        force-avd-creation: true
+        emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+        disable-animations: true
+        emulator-boot-timeout: 900
+        script: sh "${{ github.action_path }}/scripts/action-run.sh"
+
+    # ---- iOS: boot a simulator (retried), then run.
+    - name: Boot a simulator and run
+      if: inputs.platform == 'ios'
+      shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+        SHARD: ${{ inputs.shard }}
+        EXTRA_ARGS: ${{ inputs.args }}
+        RESULTS_DIR: ${{ inputs.results-dir }}
+        ATTEMPTS: ${{ inputs.boot-attempts }}
+      run: |
+        set -u
+        for i in $(seq 1 "$ATTEMPTS"); do
+          if velocity devices up --ios 1; then
+            sh "$GITHUB_ACTION_PATH/scripts/action-run.sh"
+            exit 0
+          fi
+          echo "::warning title=Velocity::simulator boot attempt $i of $ATTEMPTS failed"
+          xcrun simctl shutdown all || true
+        done
+
+    # ---- Web: headless Chrome needs no device.
+    - name: Run in headless Chrome
+      if: inputs.platform == 'web'
+      shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+        SHARD: ${{ inputs.shard }}
+        EXTRA_ARGS: ${{ inputs.args }}
+        RESULTS_DIR: ${{ inputs.results-dir }}
+      run: sh "$GITHUB_ACTION_PATH/scripts/action-run.sh"
+
+    - name: Upload results
+      if: always() && inputs.upload == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: ${{ env.VELOCITY_ARTIFACT }}
+        path: ${{ inputs.results-dir }}
+        retention-days: 14
+        if-no-files-found: warn
+    - name: Result
+      if: always()
+      shell: bash
+      env:
+        BOOT_ATTEMPTS: ${{ inputs.boot-attempts }}
+      run: sh "$GITHUB_ACTION_PATH/scripts/action-result.sh"

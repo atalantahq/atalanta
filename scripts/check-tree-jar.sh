@@ -17,17 +17,19 @@
 #      identical; that still counts as reproduced.
 #
 # d8 stamps its version into classes.dex (the "~~D8{...}" marker), and its
-# output depends on the d8 version and on the class files javac produced, so
-# the script picks the build-tools whose d8 matches the committed jar's
-# marker. With a different d8 the dex is expected to differ and the result is
-# reported as "not comparable" rather than as a mismatch.
+# output depends on the d8 version and on the class files javac produced.
+# The platform, build-tools and JDK are pinned in
+# probes/android/velocity-tree-server/toolchain.env (build.sh uses the same
+# file): the script rebuilds with exactly those, and a committed jar whose
+# marker names a different d8 is a failure, not "not comparable" — it was
+# not built with the pinned toolchain, so nobody can reproduce it.
 #
 # Usage: scripts/check-tree-jar.sh [--keep]
 #   --keep    leave the temporary build directory in place and print it
 # Env:     ANDROID_HOME / ANDROID_SDK_ROOT (default ~/Library/Android/sdk),
-#          PLATFORM (android-NN), BUILD_TOOLS (version) to override the picks.
-# Exit:    0 reproduced, 1 differs, 2 cannot check (missing tools), 3 not
-#          comparable (no build-tools with the d8 that built the jar).
+#          PLATFORM (android-NN), BUILD_TOOLS (version) to override the pins.
+# Exit:    0 reproduced, 1 differs (or the jar was built with another d8),
+#          2 cannot check (missing tools: install the pinned ones).
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -48,45 +50,33 @@ SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 [ -d "$SDK/build-tools" ] || die "Android SDK build-tools not found under $SDK (set ANDROID_HOME)"
 [ -d "$SDK/platforms" ] || die "Android SDK platforms not found under $SDK"
 
-# Same platform choice as build.sh: the newest numeric android-NN. Only its
-# android.jar is used, as a compile/library classpath (it never ends up in
-# the output), so the exact level rarely matters.
-if [ -z "${PLATFORM:-}" ]; then
-    PLATFORM=$(find "$SDK/platforms" -mindepth 1 -maxdepth 1 -name 'android-*' -exec basename {} \; \
-        | grep -E '^android-[0-9]+$' | sort -t- -k2 -n | tail -1)
-fi
+# The pins build.sh uses.
+# shellcheck disable=SC1091  # probes/android/velocity-tree-server/toolchain.env
+. "$SRC/toolchain.env"
+PLATFORM="${PLATFORM:-$TREE_PLATFORM}"
+BUILD_TOOLS="${BUILD_TOOLS:-$TREE_BUILD_TOOLS}"
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
-[ -f "$ANDROID_JAR" ] || die "missing $ANDROID_JAR"
+[ -f "$ANDROID_JAR" ] || die "missing $ANDROID_JAR (sdkmanager \"platforms;$PLATFORM\")"
+JDK_MAJOR=$(javac -version 2>&1 | sed -nE 's/^javac ([0-9]+).*/\1/p')
+if [ "$JDK_MAJOR" != "$TREE_JDK" ]; then
+    echo "warning: javac $JDK_MAJOR, the jar is built with JDK $TREE_JDK; class files (and so the dex) may differ" >&2
+fi
 
 # The d8 that built the committed jar, from the marker in classes.dex.
 MARKER=$(unzip -p "$JAR" classes.dex | LC_ALL=C grep -ao '~~D8{[^}]*}' | head -1 || true)
 WANT_SHA=$(printf '%s' "$MARKER" | sed -nE 's/.*"sha-1":"([0-9a-f]+)".*/\1/p')
 WANT_VER=$(printf '%s' "$MARKER" | sed -nE 's/.*"version":"([^"]+)".*/\1/p')
 
-if [ -z "${BUILD_TOOLS:-}" ]; then
-    BUILD_TOOLS=""
-    while IFS= read -r bt; do
-        d8v=$("$SDK/build-tools/$bt/d8" --version 2>/dev/null | head -1 || true)
-        if [ -n "$WANT_SHA" ] && printf '%s' "$d8v" | grep -q "$WANT_SHA"; then
-            BUILD_TOOLS=$bt
-            break
-        fi
-    done < <(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort -V)
-fi
-COMPARABLE=1
-if [ -z "$BUILD_TOOLS" ]; then
-    COMPARABLE=0
-    BUILD_TOOLS=$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort -V | tail -1)
-    echo "warning: no build-tools has the d8 that built the jar (${WANT_VER:-unknown}, ${WANT_SHA:-no marker}); using $BUILD_TOOLS" >&2
-fi
 D8="$SDK/build-tools/$BUILD_TOOLS/d8"
-[ -x "$D8" ] || die "missing $D8"
+[ -x "$D8" ] || die "missing $D8 (sdkmanager \"build-tools;$BUILD_TOOLS\")"
 if [ -z "$WANT_SHA" ] || ! "$D8" --version 2>/dev/null | head -1 | grep -q "$WANT_SHA"; then
-    COMPARABLE=0
+    echo "DIFFERS: the committed jar was built with d8 ${WANT_VER:-unknown} (${WANT_SHA:-no marker}), not the pinned build-tools $BUILD_TOOLS ($("$D8" --version 2>/dev/null | head -1))" >&2
+    echo "hint: rebuild with probes/android/velocity-tree-server/build.sh (it uses the pins in toolchain.env) and commit the jar" >&2
+    exit 1
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/velocity-tree-jar.XXXXXX")
-# shellcheck disable=SC2317  # invoked by the EXIT trap
+# shellcheck disable=SC2317,SC2329  # invoked by the EXIT trap
 cleanup() {
     if [ "$KEEP" = 1 ]; then
         echo "kept: $WORK"
@@ -148,9 +138,5 @@ fi
 
 echo "DIFFERS: entry content does not match"
 diff "$WORK/committed.txt" "$WORK/rebuilt.txt" || true
-if [ "$COMPARABLE" = 0 ]; then
-    echo "NOT COMPARABLE: the jar was built with d8 ${WANT_VER:-unknown}; this rebuild used build-tools ${BUILD_TOOLS}" >&2
-    exit 3
-fi
 echo "hint: a different javac (class files feed d8) or edited source since the jar was built are the usual causes; rebuild with probes/android/velocity-tree-server/build.sh and commit the jar" >&2
 exit 1

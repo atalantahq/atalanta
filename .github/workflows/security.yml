@@ -1,0 +1,351 @@
+name: Security
+
+# Dependency, secret, workflow and code scanning, the SBOM, and a short
+# fuzzing run. Each check job calls scripts/security-check.sh, so a local
+# run (`scripts/security-check.sh`) does exactly what CI does, with the same
+# allowlists: deny.toml, osv-scanner.toml, .gitleaks.toml, .semgrepignore,
+# inline `# zizmor: ignore[...]` / `nosemgrep:` comments, and
+# scripts/unsafe-baseline.txt. Triage rules: SECURITY.md, "Automated
+# security checks".
+#
+# The repository is private on GitHub Free, so there is no code scanning
+# (GitHub Advanced Security): nothing is uploaded to the Security tab.
+# Findings fail the job and are listed in its log and summary; each job's
+# SARIF report is kept as an artifact for 30 days.
+#
+# Not part of `CI OK`: a new advisory published overnight turns this red
+# without blocking unrelated pull requests. Make jobs required checks in a
+# ruleset if you want them to block.
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/*.rs"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.js"
+      - "**/*.mjs"
+      - "**/*.py"
+      - "**/*.java"
+      - "**/*.sh"
+      - "**/*.gradle.kts"
+      - "action.yml"
+      - ".github/**"
+      - "deny.toml"
+      - "osv-scanner.toml"
+      - ".gitleaks.toml"
+      - ".semgrepignore"
+      - "scripts/**"
+      - "fuzz/**"
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 4 * * 1" # Mondays, after the canary
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Seconds to run each fuzz target"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same toolchain as ci.yml (the release-files job there checks they agree).
+  RUST_VERSION: "1.98.1"
+  SECURITY_STRICT: "1"
+  SECURITY_REPORT_DIR: security-reports
+
+jobs:
+  # RustSec advisories (licences, bans and sources run in ci.yml's deny job).
+  advisories:
+    name: RustSec advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check advisories
+        env:
+          DENY_CHECKS: advisories
+        run: scripts/security-check.sh deny
+
+  # Every lockfile in the tree against osv.dev (Cargo.lock, fuzz/Cargo.lock,
+  # the inspector frontend's package-lock.json).
+  osv:
+    name: OSV-Scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: osv-scanner@2.7.0
+      - run: scripts/security-check.sh osv
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: sarif-osv
+          path: security-reports
+          retention-days: 30
+          if-no-files-found: ignore
+
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # No dependency cache: npm audit reads only package-lock.json.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - run: scripts/security-check.sh npm-audit
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: report-npm-audit
+          path: security-reports
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # The whole history, not just this change: a secret removed in a later
+  # commit is still in the repository.
+  gitleaks:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The release binary, checked against its pinned sha256 (from the
+      # release's gitleaks_<v>_checksums.txt) before it runs.
+      - name: Install gitleaks ${{ env.GITLEAKS_VERSION }}
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks" gitleaks
+          echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
+      - run: scripts/security-check.sh gitleaks
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: sarif-gitleaks
+          path: security-reports
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # Template injection, permissions, unpinned actions, credential
+  # persistence, dangerous triggers, cache poisoning.
+  zizmor:
+    name: Workflow audit (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: zizmor@1.32.0
+      # The token (read-only) enables the online audits: impostor commits,
+      # ref confusion, known-vulnerable actions.
+      - run: scripts/security-check.sh zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: sarif-zizmor
+          path: security-reports
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # Semgrep OSS rule packs, from the digest-pinned official image.
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SEMGREP_IMAGE: semgrep/semgrep:1.184.0@sha256:cc1b68266f267878b39739373ea9985b9a78e5d64497dd875c8de100b22695ed
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Semgrep
+        run: |
+          docker pull --quiet "$SEMGREP_IMAGE"
+          SEMGREP="docker run --rm -v $PWD:/src -w /src $SEMGREP_IMAGE semgrep" \
+            scripts/security-check.sh semgrep
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: sarif-semgrep
+          path: security-reports
+          retention-days: 30
+          if-no-files-found: ignore
+
+  unsafe:
+    name: Unsafe code inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: unsafe per crate against scripts/unsafe-baseline.txt
+        run: |
+          python3 -I scripts/unsafe-inventory.py | tee -a "$GITHUB_STEP_SUMMARY"
+          scripts/security-check.sh unsafe
+
+  # CycloneDX SBOMs of the binary's crates and the embedded frontend's npm
+  # packages (release.yml attaches the same files to each release).
+  sbom:
+    name: SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+      - run: scripts/sbom.sh security-reports/sbom
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: security-reports/sbom
+          retention-days: 30
+          if-no-files-found: error
+
+  # Each cargo-fuzz target (fuzz/) for a minute: weekly and on demand, not on
+  # every change (it needs nightly and a sanitizer build).
+  fuzz:
+    name: Fuzz (${{ matrix.target }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - yaml_suite
+          - android_tree
+          - ios_page_source
+          - tree_server_lines
+          - http_expect
+          - maestro_migrate
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # A dated nightly, so a nightly regression can't turn this red; move
+      # it forward on purpose.
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: nightly-2026-11-09
+      - name: Install cargo-fuzz
+        run: cargo +nightly-2026-11-09 install cargo-fuzz@0.13.2 --locked
+      # Seeds: the suites and Maestro flows already in the repository.
+      - name: Seed corpus
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          dir="fuzz/corpus/$TARGET"
+          mkdir -p "$dir"
+          case "$TARGET" in
+            yaml_suite) find examples tests/smoke -name '*.yaml' -exec cp {} "$dir/" \; ;;
+            maestro_migrate) cp tests/fixtures/maestro_compat/*.yaml bench/head-to-head/flows/*.yaml "$dir/" ;;
+            android_tree) printf '<hierarchy rotation="0"><node index="0" text="OK" resource-id="a:id/b" class="android.widget.Button" bounds="[0,0][10,10]"/></hierarchy>' > "$dir/seed.xml" ;;
+            ios_page_source) printf '<XCUIElementTypeApplication name="App"><XCUIElementTypeButton name="OK" label="OK" x="0" y="0" width="10" height="10" enabled="true" visible="true"/></XCUIElementTypeApplication>' > "$dir/seed.xml" ;;
+            tree_server_lines) printf 'PONG 19 abc\nOK 2 6869\n0 1 0,0,100,200 com.app 1 1 Title\nc2.android.avc.encoder 1\n' > "$dir/seed.txt" ;;
+            http_expect) printf '$.items[0].sku\nurl: /x\nexpect:\n  status: 200\n  json:\n    items[0].qty: { gt: 0 }\n' > "$dir/seed.yaml" ;;
+          esac
+          echo "seeds: $(find "$dir" -type f | wc -l)"
+      - name: Fuzz
+        env:
+          TARGET: ${{ matrix.target }}
+          SECONDS_EACH: ${{ inputs.fuzz_seconds || '60' }}
+        run: |
+          case "$SECONDS_EACH" in ''|*[!0-9]*) echo "::error::fuzz_seconds must be a number"; exit 1 ;; esac
+          cd fuzz
+          cargo +nightly-2026-11-09 fuzz run "$TARGET" -- \
+            -max_total_time="$SECONDS_EACH" -timeout=10 -rss_limit_mb=2048
+      - name: Crash inputs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts
+          retention-days: 30
+          if-no-files-found: ignore

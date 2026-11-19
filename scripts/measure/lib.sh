@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared by the scripts in scripts/measure/ (sourced, not run).
 #
 # These scripts drive a REAL device or emulator/simulator: they are for the

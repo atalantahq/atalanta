@@ -1,0 +1,20 @@
+# unsafe occurrences per crate (scripts/unsafe-inventory.py --write).
+# --check fails when a crate goes above its number; raise it only in
+# the same change as the reviewed unsafe code.
+fuzz 0
+velocity-android 0
+velocity-api 0
+velocity-cli 17
+velocity-common 6
+velocity-core 1
+velocity-doctor 0
+velocity-explore 0
+velocity-flutter-bridge 0
+velocity-headless 0
+velocity-inspector 1
+velocity-ios 1
+velocity-mcp 1
+velocity-migrate 0
+velocity-nl 0
+velocity-runner 4
+velocity-web 0

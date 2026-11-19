@@ -85,6 +85,11 @@ for (const [key, target] of Object.entries(TARGETS)) {
   fs.chmodSync(path.join(dir, "bin", "velocity"), 0o755);
   fs.copyFileSync(path.join(root, "LICENSE"), path.join(dir, "LICENSE"));
   fs.copyFileSync(path.join(root, "NOTICE"), path.join(dir, "NOTICE"));
+  // NOTICE points at the third-party inventories by these paths.
+  fs.mkdirSync(path.join(dir, "docs", "licenses"), { recursive: true });
+  for (const f of ["THIRD-PARTY-RUST.md", "THIRD-PARTY-NPM.md"]) {
+    fs.copyFileSync(path.join(root, "docs", "licenses", f), path.join(dir, "docs", "licenses", f));
+  }
   const pkg = {
     name,
     version: args.version,
@@ -94,7 +99,7 @@ for (const [key, target] of Object.entries(TARGETS)) {
     license: main.license,
     os: [platform],
     cpu: [cpu],
-    files: ["bin/velocity", "LICENSE", "NOTICE"],
+    files: ["bin/velocity", "LICENSE", "NOTICE", "docs/licenses"],
     preferUnplugged: true,
   };
   fs.writeFileSync(path.join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);

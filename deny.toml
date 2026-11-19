@@ -74,9 +74,38 @@ ignore = false
 
 # ---------------------------------------------------------------------------
 [bans]
-# Duplicate versions are common in a graph this size (reqwest 0.12/0.13,
-# png 0.17/0.18, windows-sys ...). Warn, do not fail.
-multiple-versions = "warn"
+# A second version of a crate fails the check unless it is accepted below,
+# so a new duplicate is a reviewed diff, not one more line of warning noise.
+# Each entry names the older copy (a semver requirement, so a patch bump
+# doesn't need an edit) and the dependency that pins it. Drop an entry when
+# its upstream moves; cargo-deny then reports it as unused.
+multiple-versions = "deny"
+skip = [
+    # chromiumoxide 0.9 (velocity-web) uses reqwest 0.13 with no features at
+    # all (`cargo tree -e features -i reqwest@0.13`): plain HTTP to the local
+    # DevTools endpoint, no TLS stack, cookies or proxy settings of its own.
+    # Everything else, with the TLS choices in Cargo.toml, is reqwest 0.12.
+    # Move velocity-api/core/nl to 0.13 to make it one copy.
+    { crate = "reqwest@0.12", reason = "chromiumoxide 0.9 needs 0.13 (featureless, local DevTools only)" },
+    { crate = "base64@0.22", reason = "axum and reqwest 0.12; reqwest 0.13 (chromiumoxide) has 0.23" },
+    # tiny-skia 0.11 (velocity-headless) still uses png 0.17, and png 0.17 bitflags 1.
+    { crate = "png@0.17", reason = "tiny-skia 0.11 (velocity-headless)" },
+    { crate = "bitflags@1", reason = "png 0.17 through tiny-skia 0.11" },
+    # cosmic-text 0.16 (velocity-headless) pulls an older skrifa through swash.
+    { crate = "skrifa@0.37", reason = "swash 0.2 through cosmic-text 0.16 (velocity-headless)" },
+    { crate = "read-fonts@0.35", reason = "skrifa 0.37 through swash/cosmic-text" },
+    # getrandom/rand: ring 0.17 is on 0.2; tungstenite 0.28 on rand 0.9
+    # (getrandom 0.3, r-efi 5); proptest on rand 0.10 (getrandom 0.4).
+    { crate = "getrandom@0.2", reason = "ring 0.17 (rustls)" },
+    { crate = "getrandom@0.3", reason = "rand_core 0.9 through tungstenite 0.28" },
+    { crate = "rand_core@0.9", reason = "rand 0.9 through tungstenite 0.28" },
+    { crate = "r-efi@5", reason = "getrandom 0.3 (UEFI only; never built for Velocity's targets)" },
+    # tokio-macros 2.7 has moved to syn 3; most proc-macros are still on syn 2.
+    { crate = "syn@2", reason = "most proc-macros; tokio-macros is on syn 3" },
+    # Windows-only crates, never built for Velocity's targets.
+    { crate = "windows-sys@0.52", reason = "ring 0.17 (Windows only)" },
+    { crate = "windows-sys@0.59", reason = "colored 2 (Windows only)" },
+]
 # The workspace crates depend on each other through [workspace.dependencies]
 # with both a path and an exact version (they are published together), so
 # there are no wildcard requirements.
