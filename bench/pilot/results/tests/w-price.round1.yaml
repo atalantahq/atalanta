@@ -1,0 +1,16 @@
+appId: http://127.0.0.1:8790/
+tests:
+- name: open the plans page and check that the yearly plan costs $99
+  description: open the plans page and check that the yearly plan costs $99
+  steps:
+  - launchApp: {}
+  - tap:
+      text: Plans
+  - assertVisible:
+      text: Choose a plan
+  - assertVisible:
+      id: price-yearly
+  - assertVisible:
+      text: Plans
+  - assertVisible:
+      id: plans

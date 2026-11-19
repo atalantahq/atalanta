@@ -64,8 +64,11 @@ KEY_ENVS = {
 
 # List prices, dollars per million input,output tokens, for the cost
 # estimate when --price is not given. Source: Anthropic's model table as
-# cached 2026-10-06 (claude-api reference). Cache reads are billed lower than
-# this, so the estimate is an upper bound.
+# cached 2026-10-06 (claude-api reference). Velocity bills cache reads at a
+# tenth of the input price and cache writes at 1.25 times it from the token
+# counts it records; pass --price IN,OUT,CACHE_READ,CACHE_WRITE for other
+# rates. The other harnesses (iosworld, miniwob, pilot) default to the same
+# Sonnet price, so their costs compare.
 PRICES = {
     'claude-opus-5-5': (4.0, 20.0),
     'claude-sonnet-5-5': (2.0, 10.0),
@@ -271,7 +274,7 @@ def cmd_run(a: argparse.Namespace) -> int:
       'velocity': _velocity_version(a.velocity),
       'velocity_sha256': _sha256(a.velocity),
       'harness_sha': _git_sha(harness),
-      'suite_family': 'android_world',
+      'suite_family': a.family,
       'seed': a.seed,
       'n_task_combinations': a.n_task_combinations,
       'fixed_task_seed': a.fixed_task_seed,
@@ -298,16 +301,24 @@ def cmd_run(a: argparse.Namespace) -> int:
       price=_price_for(a.model, a.price), verify=a.verify,
       screenshots=a.screenshots, adb_path=device.adb_path,
   )
+  if a.family.startswith('miniwob'):
+    # AndroidWorld's MiniWoB protocol ends the episode when the task's
+    # episode terminates (suite_utils.run's termination_fn); the app then
+    # starts the next one, so actions after that spoiled the reward.
+    from android_world.task_evals.miniwob import miniwob_base  # pylint: disable=g-import-not-at-top
+    cfg = dataclasses.replace(cfg, stop_when=lambda: miniwob_base.is_episode_terminated(env))
   agent = VelocityAgent(env, cfg)
   agent.transition_pause = None
 
-  reg = registry.TaskRegistry().get_registry(family='android_world')
+  if a.family.startswith('miniwob'):
+    _patch_miniwob_reward()
+  reg = registry.TaskRegistry().get_registry(family=a.family)
   suite = suite_utils.create_suite(
       reg, n_task_combinations=a.n_task_combinations, seed=a.seed,
       tasks=a.tasks.split(',') if a.tasks else None,
       use_identical_params=a.fixed_task_seed,
   )
-  suite.suite_family = 'android_world'
+  suite.suite_family = a.family
   meta_by_task = suite_utils._extract_task_metadata()  # pylint: disable=protected-access
   spent = 0.0
   if results_path.exists():  # every attempt costs, superseded ones too
@@ -389,6 +400,28 @@ def _lock_run_dir(out: pathlib.Path):
   return f  # kept open: the lock lasts until the process exits
 
 
+def _patch_miniwob_reward() -> None:
+  """DEVIATION (MiniWoB families only): AndroidWorld's reader parses the
+  MiniWoB app's reward with `float(int(reward))`, but this app reports
+  MiniWoB's time-decayed reward ("0.98886497987503"), so a solved task
+  raised ValueError and was scored as a harness exception. Parse it as a
+  number and count a positive reward as 1.0: MiniWoB's own convention (the
+  raw reward is positive exactly when the task was done right; the decay
+  only rewards speed), as `bench/miniwob/` scores the web suite."""
+  from android_world.task_evals.miniwob import miniwob_base  # pylint: disable=g-import-not-at-top
+
+  def get_episode_reward(env):
+    reward = miniwob_base._extract_data(f'{miniwob_base._APP_NAME}.app.GET_REWARD_ACTION', env)  # pylint: disable=protected-access
+    if reward is None:
+      raise ValueError('Could not extract reward; something went wrong.')
+    if not reward:
+      return 0.0
+    value = float(reward)
+    return 1.0 if value > 0 else value
+
+  miniwob_base.get_episode_reward = get_episode_reward
+
+
 def _run_instance(suite_utils, constants, run_episode, agent, env, task, key, a) -> dict[str, Any]:
   """One instance through AndroidWorld's own `_run_task` (optionally retried
   when the task's *initialization* raised before the agent acted)."""
@@ -426,14 +459,23 @@ def _run_instance(suite_utils, constants, run_episode, agent, env, task, key, a)
     break
   success = episode.get(E.IS_SUCCESSFUL)
   is_exc = exc is not None
+  # A MiniWoB task reads its goal from the device and forgets it at
+  # teardown: use the goal the agent was given.
+  try:
+    goal = task.goal
+  except ValueError:
+    goal = getattr(agent, 'last_goal', None) or ''
   return {
       'key': key,
-      'goal': task.goal,
+      'goal': goal,
       'seed': task.params.get('seed'),
       'success': None if is_exc else float(success),
       'exception': is_exc,
       'exception_info': (exc or '')[-1500:] if is_exc else None,
-      'agent_done': info.outcome in ('success', 'unverified', 'gaveUp'),
+      # A MiniWoB episode the task itself ended counts as done, as
+      # suite_utils.run's termination_fn ends it.
+      'agent_done': info.outcome in ('success', 'unverified', 'gaveUp') or info.terminated_by_task,
+      'terminated_by_task': info.terminated_by_task,
       'outcome': info.outcome,
       'reason': info.reason,
       'answer': info.answer,
@@ -491,6 +533,15 @@ class _watchdog:  # pylint: disable=invalid-name
 
 def summarize(out: pathlib.Path) -> dict[str, Any]:
   rows = list(_load_done(out / 'results.jsonl').values())
+  meta_family = (json.loads((out / 'run.json').read_text()).get('suite_family')
+                 if (out / 'run.json').exists() else None) or 'android_world'
+  # In a MiniWoB family the harness stops the agent when the task's episode
+  # terminates (outcome "stopped"): that is the episode's end, as in
+  # AndroidWorld's own runner, so it counts as done.
+  if meta_family.startswith('miniwob'):
+    for r in rows:
+      if r.get('outcome') == 'stopped':
+        r['agent_done'] = True
   # AndroidWorld credits a task only when the agent said done
   # (`suite_utils._run_task`). Rows written before the adapter repeated the
   # agent's verdict on a second step() can carry a credit without it.
@@ -591,6 +642,8 @@ def main() -> int:
 
   def common(p):
     p.add_argument('--console-port', type=int, default=5556)
+    p.add_argument('--family', default='android_world',
+                   help="AndroidWorld task family: android_world (116 tasks), miniwob (MobileMiniWoB++), miniwob_subset")
     p.add_argument('--grpc-port', type=int, default=8556)
     p.add_argument('--velocity', default=_default_velocity(), help='velocity binary (or $VELOCITY_BIN)')
     p.add_argument('--model', help='provider:model, e.g. anthropic:claude-sonnet-5-5')

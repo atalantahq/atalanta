@@ -1,0 +1,24 @@
+appId: http://127.0.0.1:8790/
+tests:
+- name: sign in with the test account
+  description: sign in with the test account
+  steps:
+  - launchApp: {}
+  - tap:
+      text: Sign in
+  - assertVisible:
+      accessibilityId: Email
+  - inputText:
+      selector:
+        id: email
+      text: ${PILOT_EMAIL}
+  - inputText:
+      selector:
+        id: password
+      text: ${PILOT_PASSWORD}
+  - tap:
+      id: signin-go
+  - assertVisible:
+      text: Welcome back
+  - assertVisible:
+      id: who

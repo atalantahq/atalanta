@@ -1,0 +1,18 @@
+{
+  "frozen": false,
+  "build_sha": null,
+  "model": null,
+  "price_per_mtok_usd": { "input": null, "output": null },
+  "cost_cap_usd_per_goal": null,
+  "replays_for_burn_in": 5,
+  "thresholds": {
+    "s0_min": 0.50,
+    "s7_min": 0.40,
+    "s_rel_min": 0.30,
+    "login_secrecy": 1.0
+  },
+  "goals_min": 20,
+  "login_goals_min": 5,
+  "apps_min": 3,
+  "ios_apps_min": 1
+}

@@ -1,0 +1,22 @@
+appId: com.android.settings
+tests:
+- name: open Apps and then the list of all apps
+  description: open Apps and then the list of all apps
+  steps:
+  - launchApp: {}
+  - tap:
+      text: Apps
+  - assertVisible:
+      accessibilityId: Apps
+  - tap:
+      text: All apps
+  - assertVisible:
+      accessibilityId: Search
+  - assertVisible:
+      text: All apps
+  - assertVisible:
+      text: Agent Device Snapshot Helper
+  - assertVisible:
+      text: Agent Device Test IME
+  - assertVisible:
+      text: Android Auto
