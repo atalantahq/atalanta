@@ -13,9 +13,29 @@ writes tests, driven by a small Python adapter in
 [`bench/androidworld/`](../bench/androidworld/). Exact commands:
 [REPRODUCE.md](../bench/androidworld/REPRODUCE.md).
 
+### How to read these numbers (read first)
+
+**Every AndroidWorld number here comes from the same 116 task instances (task seed 30, one combination each).** The 59.9% run below was the first full run, with the agent frozen before it started. After it, the agent was changed and run again on the same instances seven more times (2026-11-07 and 2026-11-08), five of them in full. The five complete reruns each used a different Velocity binary: between runs the goal prompt went from `goal-2` to `goal-6`, the Android tree-server protocol changed several times (17 by the last run), and fixes were made for failures seen in the previous run. Changing the agent between runs on the same tasks is tuning on the test set. **The later scores are therefore not held-out results, and no run on another seed has been done.** A fair headline is: "59.9% on the first frozen run; 78.4% after eight runs of iteration on the same seed, not held out."
+
+| Run | Date | Tasks run | Score | Model route |
+|---|---|---|---|---|
+| first frozen run (below) | 2026-10-25 | 116 | **59.9%** | Anthropic API, `anthropic:claude-sonnet-5-5` |
+| `full-v2` | 2026-11-07 | 116 | 77.6% | Claude Code CLI bridge |
+| `full-v3` | 2026-11-08 | 116 | 81.9% | bridge |
+| `full-v4` | 2026-11-08 | 116 | 81.9% | bridge |
+| `full-v5` | 2026-11-08 | 28 (stopped) | 71.4% of 28 | bridge |
+| `full-v6` | 2026-11-08 | 27 (stopped) | no summary | bridge |
+| `full-v7` | 2026-11-08 | 116 | 72.4% | bridge |
+| `full-v8` | 2026-11-08 | 116 | 78.4% | bridge |
+
+Run directories: `bench/androidworld/runs/full-v*/` (`run.json` holds each run's model, seed and binary SHA-256; `summary.md` the per-app tables). Two more things the later runs carry with them:
+
+- **Model route.** From `full-v2` on, the model was `openai-compatible:claude-sonnet-5-5`: an OpenAI-compatible endpoint backed by the Claude Code CLI (`bench/pilot/claude_bridge.py`), not the Anthropic API. Effort, caching and token accounting differ from a direct API call.
+- **The three Browser tasks** scored 0 in every full run but `full-v2` (1 of 3). Browser-only reruns (`browser-v8` to `browser-v10`) looked into why; the tree-server change made for it (protocol 16) works on API 34 and later only, so it does nothing on this API 33 emulator ([STATUS.md](STATUS.md), the protocol 16 row).
+
 ### Result
 
-**59.9% (69.5 / 116)** with `anthropic:claude-sonnet-5-5`, 2026-10-25: one run of all 116 tasks, task seed 30, one combination per task, no exceptions left out (AndroidWorld's convention and the strict rate agree). One task scored 0.5.
+**59.9% (69.5 / 116)** with `anthropic:claude-sonnet-5-5`, 2026-10-25: the first full run, with the agent frozen beforehand. One run of all 116 tasks, task seed 30, one combination per task, no exceptions left out (AndroidWorld's convention and the strict rate agree). One task scored 0.5.
 
 **Correction (2026-10-25):** this run was first reported as 60.8% (70.5 / 116). The adapter answered `done=True` to AndroidWorld's second `step()` call even when the agent had not said done, so `TurnOffWifiAndTurnOnBluetooth#0`, which ran out of turns (`agent_done: false`), was credited 1.0. AndroidWorld credits a task only when the agent says done (`suite_utils._run_task`). The adapter now repeats the agent's verdict, and `run.py summarize` applies the rule to existing rows (the raw `results.jsonl` is unchanged). No other row was affected. This is our own run: results, trajectories and the exact binary hash are in the run directory and can be re-run with [REPRODUCE.md](../bench/androidworld/REPRODUCE.md).
 
@@ -67,7 +87,8 @@ Against published numbers:
 
 | Agent | AndroidWorld success | Source |
 |---|---|---|
-| Velocity `explore --benchmark` + Claude Sonnet 5.5 (this run) | 59.9% | our run; trajectories and per-task results published with the run |
+| Velocity `explore --benchmark` + Claude Sonnet 5.5 (this run, first frozen run) | 59.9% | our run; trajectories and per-task results published with the run |
+| Velocity, after eight runs of iteration on the same seed | 78.4% | our runs; **not held out** (see [How to read these numbers](#how-to-read-these-numbers-read-first)) |
 | Google ARTEMIS | 99.1% | **self-reported** (community leaderboard sheet) |
 | Top community leaderboard entries | 99-100% | **self-reported** |
 | M3A, accessibility tree, GPT-4 Turbo (the paper's best agent) | 30.6% | AndroidWorld paper, Rawles et al., arXiv:2405.14573v5, Table 3 |
@@ -86,7 +107,7 @@ The self-reported entries were not re-run by the AndroidWorld maintainers or by 
 | `done`, but the end state was wrong | 3 | Markor edit and merge, OsmAnd track |
 | The model wanted to tap something not in the list (refused 3 times) | 2 | clipboard paste, calendar header |
 
-What would move the number most (not applied: the scored run's agent was frozen): a tap at a point inside a listed element for custom views and system choosers, a stuck check that compares screenshots as well as the tree, and date navigation helpers.
+What would move the number most (not applied to this run, whose agent was frozen; later runs on the same tasks did change the agent, see above): a tap at a point inside a listed element for custom views and system choosers, a stuck check that compares screenshots as well as the tree, and date navigation helpers.
 
 #### Incidents during the run, and the integrity audit
 
@@ -137,9 +158,9 @@ input price, so an upper bound), steps and time per task are in
 - **Ops**: tap, longPress, inputText, clearText, scroll and swipe (whole
   screen or inside a named list, chip row or picker), back, home, enter,
   openApp (by name, from AndroidWorld's app names), wait, answer, done.
-- **Values from the goal** (`--values-from-goal`): typed text is accepted only
+- **Values from the goal and screens** (`--values-from-goal --values-from-screen`): typed text is accepted only
   when it occurs in the goal or on a screen seen in the run, is a number, or
-  joins such pieces ([EXPLORE.md](EXPLORE.md#--values-from-goal-off-by-default)).
+  joins such pieces ([EXPLORE.md](EXPLORE.md#--values-from-goal-and---values-from-screen-off-by-default)).
 - **Answers**: accepted only when grounded in text shown during the run, a
   number, a yes/no, or words seen plus calendar/unit words
   ([EXPLORE.md](EXPLORE.md#answers-answer)).
@@ -191,3 +212,8 @@ input price, so an upper bound), steps and time per task are in
 - android_env's accessibility forwarder sometimes crashes when the env
   connects, leaving a "keeps stopping" system dialog; the adapter closes that
   one dialog (only that one) before an episode.
+
+## Other benchmark runs in the tree (not published results)
+
+- **MiniWoB++ (web)**, `bench/miniwob/`: 70.0–71.5% of 130 tasks across the last three runs (`out/v3`, `v4`, `v5`), with earlier runs lower. This is our own harness (`bench/miniwob/run.py`): the 10 s episode limit is lifted, `--values-from-screen` and `--values-from-screenshots` are on, and the agent changed between runs. It is not comparable to published BrowserGym or MiniWoB++ numbers. These runs predate the screenshot gate: text typed under `--values-from-screenshots` was then accepted unverified, after any screenshot. It is now accepted only after a screenshot of a screen with pixel-only content, so the figures may not reproduce on the current build.
+- **iOSWorld**, `bench/iosworld/`: judged by Claude Sonnet through the bridge, not by the paper's GPT judge, so the agent and the judge are the same model family. The deviations are listed in [bench/iosworld/README.md](../bench/iosworld/README.md); the numbers are not comparable to the paper's.

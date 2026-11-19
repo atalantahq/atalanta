@@ -26,9 +26,9 @@ anyone else, such as a web page, the network, or another user.
 | MCP server (`velocity mcp`) | stdio only | the parent process | n/a | n/a | n/a |
 | MCP `open_inspector` | `127.0.0.1:9876-9885` | inspector token | blocked | no | needs the token |
 | Android tree server (on device) | abstract socket `@velocity_tree` | peer-uid check (shell/root only), then a per-start token (`AUTH`, protocol 13) | see adb forward | no | apps blocked |
-| Android video server (on device) | abstract socket `@velocity_video` | peer-uid check; first client only | see adb forward | no | apps blocked |
+| Android video server (on device) | abstract socket `@velocity_video_<pid>_<n>` | peer-uid check, then a per-start token (mutual HMAC handshake, video server 2); first authenticated client only | see adb forward | no | apps blocked |
 | `adb forward tcp:0` to the tree server (host side) | `127.0.0.1:<random>` | the tree server's token | blocked (R-2 fixed 2026-10-25) | no | only with adb access (R-3 mitigated) |
-| `adb forward tcp:0` to the video server (host side) | `127.0.0.1:<random>` | none | can take the one client slot (stream unreadable) | no | yes |
+| `adb forward tcp:0` to the video server (host side) | `127.0.0.1:<random>` | the video server's token | blocked (closed, the server waits for the next client) | no | only with adb access (R-3 mitigated 2026-11-11) |
 | Android sync probe (in the app) | `127.0.0.1:19401` on the device | none | n/a | no | other apps can query |
 | iOS VelocityRunner (simulator) | `127.0.0.1:8100+` (`USE_IP`) | per-launch bearer token + Host/Origin/Sec-Fetch-Site checks | blocked (R-1 fixed 2026-10-25) | no | needs the token (file `0600`) |
 | iOS WebDriverAgent (simulator) | `127.0.0.1:8100+` (`USE_IP`) | **none** (third-party) | **blind writes possible (R-1W)** | no | yes |
@@ -105,14 +105,14 @@ binds `127.0.0.1`.
 - I-1: with `--host` set to a non-loopback address, the token travels in
   clear text. Use an SSH tunnel or a TLS reverse proxy instead of `--host`
   on untrusted networks.
-- I-2: `POST /api/tasks/explore` passes the goal text to the child as a
-  positional argument before the flags. A goal that starts with `-` is not
-  refused like the other fields. Only a token holder can send one, and clap
-  rejects duplicate flags, but passing it after `--` would make this
-  airtight.
-- I-3: the console UI (unlike `/review`) has no Content-Security-Policy.
-  React escapes the device-controlled strings it renders (element labels,
-  app text), but a CSP (`default-src 'self'`) would add defence in depth.
+- I-2 (fixed 2026-11-11): `POST /api/tasks/explore` passed the goal text to
+  the child before the flags, so a goal starting with `-` could be read as a
+  flag. The goal now goes last, after `--`.
+- I-3 (fixed 2026-11-11): the console UI had no Content-Security-Policy. Its
+  page and assets now carry `default-src 'self'; script-src 'self';
+  style-src 'self'; img-src 'self' data: blob:; connect-src 'self';
+  object-src 'none'; base-uri 'none'; frame-ancestors 'none'`, behind
+  React's escaping of the device-controlled strings it renders.
 
 ## 2. MCP server (`crates/velocity-mcp`)
 
@@ -153,24 +153,45 @@ started with `app_process` as the **shell** user. It runs two servers:
   app uids (`uid % 100000 >= 10000`) are refused, so other apps on the
   device can't drive it. adbd connects as shell or root.
 - **Video server** (`VideoServer.java`, adapted from scrcpy, H.264) on
-  `@velocity_video`. It has the same uid check, accepts exactly one client
-  (or exits after a timeout), and its control channel only understands
-  key-frame requests and quit.
+  `@velocity_video_<pid>_<n>`. It has the same uid check. Since video
+  server 2 (2026-11-11) it writes a new token to
+  `/data/local/tmp/<socket>.token` (shell or root only) at each start, and
+  a client must pass a mutual HMAC handshake over it (`HELLO` → `PROOF`
+  → `AUTH` → `OK`; the token never crosses the socket) before it streams.
+  A client that fails is closed and the server waits for the next one, up
+  to its start timeout. It streams to exactly one client, and its control
+  channel only understands key-frame requests and quit.
 
 **Host side.** Both are reached through `adb forward tcp:0
 localabstract:<name>`. The adb server binds the forward on `127.0.0.1` at a
 random port, which Velocity removes when it finishes.
 
-**Tree server handshake (protocol 13).** At each start the server makes a
+**Tree server handshake (protocol 18).** At each start the server makes a
 128-bit token and writes it to `/data/local/tmp/velocity-tree.token`,
 readable by its own uid (shell, or root) only; the host reads it with
-`adb shell cat`. Every connection must send `AUTH <token>` before any
-command but `PING` and `QUIT` (compared in constant time). The first line
-that isn't a command, or a command before `AUTH`, gets one `ERR` and the
-connection is closed, so nothing after it is read. An older server
-(protocol 7 to 12) is still spoken to without `AUTH`, but Velocity replaces
-a running server that isn't its own version, so in practice every session
-is authenticated.
+`adb shell cat`. The token never crosses the socket. The handshake is
+mutual, because the socket name is public: any app may bind
+`@velocity_tree` first, and before protocol 18 an app that did received the
+token and every typed secret.
+
+1. `PING` → `PONG 18 <boot nonce>` (the server's per-start nonce).
+2. The host sends `HELLO <client nonce>` (128 random bits, new for every
+   connection). The server answers `PROOF <hex HMAC-SHA256(token,
+   "velocity-tree server <boot nonce> <client nonce>")>`. The host compares
+   it in constant time and sends nothing more to a server that can't prove
+   it holds the token; it says another app may have bound the socket name.
+3. The host sends `AUTH <hex HMAC-SHA256(token, "velocity-tree client <boot
+   nonce> <client nonce>")>` (a different message, so a server's proof is
+   never a client's); the server answers `OK 0`.
+
+Every command but `PING`, `HELLO` and `QUIT` needs that `AUTH` first. The
+first line that isn't a command, or a command before `AUTH`, gets one `ERR`
+and the connection is closed, so nothing after it is read. The host refuses
+servers older than protocol 18 (they can't prove anything) and replaces a
+running server that isn't its own version. When the server can't bind the
+socket because another process holds the name, the host reports that
+instead of quietly falling back to `uiautomator`. Not yet run on a device
+(see [STATUS.md](STATUS.md)).
 
 **Residual risks.**
 
@@ -199,10 +220,11 @@ is authenticated.
   token, which only a process that can run `adb shell` can read. That
   process can already drive the device through adb itself
   (`127.0.0.1:5037`, no authentication, outside Velocity's control), so the
-  forward no longer adds access. Residual: the **video server's** forward
-  has no token. Another local process (or a blind web request) that
-  connects first takes its one client slot, so Velocity falls back to
-  `screenrecord`. It can read the H.264 stream; a web page can't.
+  forward no longer adds access. The **video server's** forward got the
+  same treatment on 2026-11-11 (video server 2, security review #10): a
+  per-start token file and a mutual handshake before the stream, so
+  another local process can neither read the screen nor keep the client
+  slot. Not yet run on a device.
 - The sync probe that apps embed (`probes/android/velocity-sync-probe`,
   debug builds only) listens on the device's `127.0.0.1:19401` with no
   authentication. Any app on the device can ask whether the app is idle,
@@ -387,6 +409,13 @@ shorter than 8 characters are masked only as whole words.
 - Rust dependencies are checked with `cargo deny check licenses advisories
   bans sources` (`deny.toml`). Licence and third-party inventories are in
   `docs/licenses/` and `NOTICE`.
+- `.github/workflows/security.yml` (and `scripts/security-check.sh`
+  locally) adds OSV-Scanner over every lockfile, `npm audit`, gitleaks over
+  the whole history, zizmor on the workflows, Semgrep SAST, an `unsafe`
+  inventory per crate, CycloneDX SBOMs and weekly cargo-fuzz runs of the
+  parsers that read device or user input; every workflow job runs under
+  `step-security/harden-runner`. What runs, and how findings are triaged:
+  [SECURITY.md](../SECURITY.md#automated-security-checks).
 - The embedded `velocity-tree.jar` can be rebuilt byte for byte from
   source with `scripts/check-tree-jar.sh`. That needs JDK 17 and Android
   build-tools whose d8 matches the version stamped in the jar.
@@ -401,6 +430,34 @@ shorter than 8 characters are masked only as whole words.
   the archive, so it guards against corruption and mirror tampering, not
   against a compromised release; the attestation covers that case.
 
+## 9. Agents: the Rule of Two
+
+Velocity drives devices for AI agents, and an agent reads screens that anyone can write to: a web page, a push notification, a message in the app. Prompt-level defences don't hold against adaptive attacks (USENIX Security 2026; NAACL 2025), so the defence is structural: what a session *can* do, whatever the model is told. Following Meta's "Agents Rule of Two" (2025), a session may have at most two of:
+
+- **[A]** reading untrusted screen text into the model;
+- **[B]** holding secrets;
+- **[C]** irreversible actions outside the goal: anything that changes the machine, other apps or data beyond the app under test (a shell or `adb` command, `diagnose`'s fixes, installing or erasing).
+
+Clearing the app under test's own data (`clearState`) is how tests start, and is not [C].
+
+| Session | A | B | C |
+|---|---|---|---|
+| `velocity explore` with `--after` / `velocity login` | yes | yes, typed by name and never shown to the model | **no**: ops are tap, type, scroll, swipe, keys, wait, assert and opening the listed apps |
+| `velocity explore` without secrets | yes | no | limited to the same ops, and to the apps listed with `--open-app` |
+| MCP default (core) profile, and `--read-only` | yes | either: `act {secret}` and explore's `secret` type a variable listed in `VELOCITY_SECRETS` by name; a suite the agent writes (`run_task {yaml}`) may type the same secrets and read nothing else (below) | **no**: no tool in `IRREVERSIBLE_TOOLS` is listed or reachable, and a written suite has no `exec` step |
+| MCP `--profile full` | yes | **no secret passed by Velocity** unless the agent names one; a suite the agent writes may read any variable or keychain entry, and its child inherits the server's environment | yes (`diagnose` with `attempt_fix`; `exec` steps in a written suite) |
+
+What holds this up, each with a test:
+
+- **The model picks, code decides.** The planner answers with an operation and an element number; `grounding.rs` builds the selector. Model text never becomes a selector (the tests in `crates/velocity-nl/src/grounding.rs`).
+- **Values only by name.** Typed text is a `${NAME}`. Text the model proposes is accepted only when found in the goal (`--values-from-goal`) or, as a separate opt-in, on a screen seen in the run (`--values-from-screen`); see `values::tests::screen_text_needs_its_own_flag`.
+- **Secrets never reach the model.** `explore --after` replays the login before the first planning turn, and the secret appears in none of the prompts, events or reports (`after_a_stored_login_the_model_starts_logged_in_and_never_sees_the_secret`).
+- **No irreversible tool in the default or read-only profiles** (`only_the_full_profile_lists_a_tool_that_changes_the_machine`).
+- **Model-chosen paths stay in the project** (`tools::paths`, the `run_task` escape tests, `run_task_suite_must_be_inside_the_project`). A `suite` file in the tasks folder (written by a task the agent started, including the lines `task_inject` appends) gets the same checks as an inline `yaml` (`a_suite_in_the_tasks_folder_gets_the_inline_checks`).
+- **A suite the agent writes reads no host secret** (`crates/velocity-mcp/src/authored.rs`, review 05 #1). Outside `--profile full`, `run_task {yaml}` is refused when a `${…}` names anything but a name its own `http` steps capture or, in typed text only, an allowed secret (`velocity_core::env::placeholders` lists them, visiting the same strings interpolation fills); when `config.ai` sets the provider, `apiKeyEnv`, `baseUrl`, `region`, `project` or `apiVersion`; or when a mock serves a host file. Its `velocity run` child starts from an empty environment plus an allow-list (`authored::child_env`), so a variable the check missed is not there to read (`an_agent_written_suite_can_not_send_a_host_secret_in_the_core_profile`, `a_child_with_its_own_environment_inherits_nothing_else`). Residual: an allowed secret typed into a page the agent opened can be sent on by that page, as with `act {secret}`; AI-provider credentials stay in the child's environment, reachable only by the provider the user configured.
+
+The adaptive red-team round (an attacker model writing screens against these rules) is in the backlog, to run once `explore` is promoted at launch.
+
 ## Recommendations, in priority order
 
 1. ~~Fix R-1~~ (done 2026-10-25 for VelocityRunner). For WebDriverAgent
@@ -408,10 +465,12 @@ shorter than 8 characters are masked only as whole words.
    into its `FBWebServer` as the MJPEG bind is patched.
 2. ~~Fix R-4~~ (done 2026-10-25). Run the wired smoke on a real iPhone to
    confirm usbmuxd delivers to loopback (P5).
-3. ~~Fix R-2~~ (done 2026-10-25, protocol 13). Give the video server's
-   control channel the same token (residual of R-3).
-4. Pass the explore goal after `--` (I-2), and add a CSP to the console UI
-   (I-3).
-5. Keep `cargo deny` in CI and resolve the open RustSec advisories
-   (`cargo update` covers most of them; `lru`, `quick-xml` and `zip` need
-   major-version bumps).
+3. ~~Fix R-2~~ (done 2026-10-25, protocol 13; mutual handshake in protocol
+   18). ~~Give the video server the same token (residual of R-3).~~ (done
+   2026-11-11, video server 2)
+4. ~~Pass the explore goal after `--` (I-2), and add a CSP to the console
+   UI (I-3).~~ (done 2026-11-11)
+5. ~~Keep `cargo deny` in CI and resolve the open RustSec advisories.~~
+   (done 2026-11-11: advisories pass, with the two unmaintained crates that
+   have no successor ignored with reasons in `deny.toml`; security.yml
+   checks them on every dependency change and weekly)

@@ -2,26 +2,46 @@
 
 The long form of the [README](../README.md): what each part of Velocity does and the flags and settings around it. The command reference is [CLI.md](CLI.md), the suite format [DSL.md](DSL.md) and [DSL-REFERENCE.md](DSL-REFERENCE.md), and what has been verified on devices [STATUS.md](STATUS.md).
 
-## Built on the lessons of Appium, Espresso, UITest, and Maestro
+## Glossary
 
-We studied every major mobile testing tool and built something faster.
+Terms these docs use, in the order a new user meets them.
 
-| Feature | Velocity | Maestro | Appium |
-| --- | :---: | :---: | :---: |
-| Language | Rust | Kotlin/JVM | Node.js/Java |
-| Startup time | **~50ms** | ~3s | ~10s |
-| No JVM required | **Yes** | No | No |
-| YAML test format | **Yes** | Yes | No |
-| Built-in flakiness tolerance | **Yes** | Yes | No |
-| Parallel execution | **Yes** | Cloud only | Plugin |
-| Built-in sharding | **Yes** | Cloud only | No |
-| AI-native (MCP server) | **Yes** | Studio only | No |
-| Circuit breaker / retry | **Yes** | Basic | No |
-| Real-time streaming | **Yes** | No | No |
-| JUnit + JSON reports | **Yes** | Yes | Plugin |
-| Migrate from Maestro | **Yes** | — | — |
-| Single binary, zero deps | **Yes** | No | No |
-| Memory footprint | **~15MB** | ~200MB+ | ~500MB+ |
+| Term | Meaning |
+|---|---|
+| **suite** | One YAML file: an `appId`, optional `config`, reusable `flows`, and `tests` ([DSL.md](DSL.md#a-suite)). `velocity run`, `validate` and `-c` all take a suite file. |
+| **test** | One entry under `tests:`, a named list of steps. Maestro calls a test file a *flow*; Velocity does not. |
+| **flow** | A reusable group of steps under `flows:`, inlined by `runFlow: <id>` ([DSL.md](DSL.md#flows)). Some MCP tools still say "flow" for an exported test (`export_session_flow`); the console's `--flows-dir` is now `--tests-dir` (the old name still works). |
+| **step** | One action or assertion in a test, such as `tap`, `inputText` or `assertVisible`. |
+| **selector** | How a step names an element: `id`, `text`, `accessibilityId`, a role, and on the web `css:`/`xpath:` ([DSL.md](DSL.md#selectors)). |
+| **ref** | A short handle like `@e12` that `velocity snapshot` or MCP `observe` gives each element on screen. An agent acts by ref; a ref from an older screen fails with `STALE_REF` instead of hitting something else. |
+| **settle** | After an action, Velocity waits until the screen stops changing (unchanged for 150 ms, capped at 3 s with a warning) before the next step. This is why suites need no `sleep`. Details under [Speed](#speed). |
+| **actionable** | A target that is enabled and holding still (two reads agree on its bounds). Velocity checks this before a tap or text entry. |
+| **lease** | A per-device lock (a file lock under `~/.velocity/leases`) so two Velocity processes on one host, such as a run, the console and an agent, never drive one device at once. |
+| **grounding** | The rule that model output never becomes a selector directly: the model names an element by its number on the screen list, and code builds and checks the selector. Typed text follows the same rule unless you opt in otherwise ([EXPLORE.md](EXPLORE.md)). |
+| **trust gates** | The checks a test written by `velocity explore` passes before it is called *trusted*: it replays 5 times with no model, it fails when its last tap is moved to a neighbouring element, and one assertion names a word of the goal ([EXPLORE.md](EXPLORE.md#trust-gates)). |
+| **healing** | When a selector finds nothing, Velocity scores the elements on screen against snapshots of that element from earlier passing runs, and uses a match only when it is clear-cut. In CI it reports the fix instead of passing ([Flakiness, reports and healing](#flakiness-reports-and-healing)). |
+| **baseline** | The saved reference image an `assertScreenshot` step compares against, under `velocity-baselines/` next to the suite. `velocity baselines` reviews and accepts new ones. |
+
+## How it compares
+
+Checked against the project's own market research ([landscape-market.md](research/landscape-market.md), 2026-10-30; [landscape-orchestration.md](research/landscape-orchestration.md); [landscape-agents.md](research/landscape-agents.md)). Competitor facts come from their docs and issue trackers; nothing was run against a competitor. Velocity's own figures are from [STATUS.md](STATUS.md).
+
+| | Velocity | Maestro (CLI 2.12) | Appium (3.x) |
+| --- | --- | --- | --- |
+| Runtime | One static binary (Rust) | JVM | Node.js server plus a driver per platform |
+| Test format | YAML | YAML (plus JavaScript) | Code, in any client language |
+| Android | Emulators; real hardware once (one tablet, Settings only) | Emulators and devices | Emulators and devices |
+| iOS | Simulators; real iPhones coded but **never run** | Simulators only | Simulators and real devices |
+| Model calls when a saved test replays | None | `assertWithAI` calls a model on every run | n/a |
+| Local parallel runs | Yes (`--parallel`) | Yes (`--shard-split`, `--shard-all`) | Through the test runner or plugins (appium-device-farm) |
+| Sharding | Balanced by past durations (`--shard-timings`) | Round-robin by count | Not built in (the test runner's job) |
+| Retry on another device | Yes | Maestro Cloud | Not built in |
+| MCP server | Yes (5 core tools, 32 with `--profile full`) | Yes (Maestro MCP; open issues on reliability) | Yes (appium-mcp, a separate project) |
+| Reports | JUnit, JSON, HTML, Allure, GitHub annotations | HTML, JUnit | Through the client's test framework |
+| Device clouds | None | Maestro Cloud | Every major cloud |
+| Migrate from Maestro | Partial: scripts and `copyTextFrom` don't convert; `when:` becomes an optional block, `setLocation` an `exec` step | n/a | n/a |
+
+Measured for Velocity on 2026-10-25 (one Mac): `velocity --version` and `validate` start in under 20 ms; peak memory during the Android smoke run was 15.5 MB, without video. No competitor start-up or memory figure was measured here, so none is given.
 
 ## Fast Android trees
 
@@ -71,7 +91,7 @@ runAll: [config/flags.json]
 
 ## Rust-native performance
 
-Velocity is a single static binary with no runtime dependencies. No JVM warmup, no garbage collection pauses, no `node_modules`. Tests start executing in milliseconds, not seconds.
+Velocity is a single static binary with no runtime dependencies: no JVM warm-up, no garbage-collection pauses, no `node_modules`. `velocity --version` and `validate` finish in under 20 ms (measured 2026-10-25). Device start-up is another matter: the first iOS run builds WebDriverAgent (about a minute, once per Xcode), and launching an app takes about a second on an Android emulator.
 
 ## Built-in flakiness tolerance
 
@@ -81,7 +101,7 @@ The design choices behind this, with the papers that support them, are in [docs/
 
 ## Parallel-first execution
 
-Run across every booted device, locally. Work goes through one queue, longest tests first; a failed test is retried on a **different** device (so a flaky test and a bad device can be told apart), retries share a run-wide budget, and a device that keeps failing for infrastructure reasons is quarantined and re-probed until it recovers. Devices are leased across processes, so two runs (or a run and an MCP agent) never drive the same device.
+Run across every booted device, locally. Work goes through one queue, longest tests first; a failed test is retried on a **different** device (so a flaky test and a bad device can be told apart), retries share a run-wide budget, and a device that keeps failing for infrastructure reasons is quarantined and re-probed until it recovers. Devices are leased across processes, so two runs (or a run and an MCP agent) on one host never drive the same device (see "What a lease covers" below).
 
 ```bash
 velocity run tests/app.yaml --parallel 4
@@ -125,7 +145,16 @@ filesystem without lock support; any other lease error exits 3 and says to set
 `VELOCITY_LEASE_DIR`. `VELOCITY_LEASES=off` turns cross-process leasing off (one device per
 container).
 
-CI in one command: `velocity run tests/app.yaml --parallel 4 --provision --app build/app.apk` boots the missing devices (headless, read-only instances of one AVD; or `velocity-<type>-<n>` simulator clones, reused most recently used first) while it hashes the build, then installs it on every device at once. The install is skipped where that exact build (SHA-256 of the `.apk`, or of the `.app` bundle's files) is already installed and unchanged since. `app:` in the suite config does the same as `--app`. `velocity devices up --android 4 --ios 2 [--app …]` provisions ahead of time, and `velocity devices down` stops only what Velocity started (recorded in `~/.velocity/provisioned.json`). Nothing boots below ~35% / 3 GB free memory or 3 GB free disk; the refusal says why.
+What a lease covers: Velocity processes on **one host** that use **one lease dir**. The default dir
+is per user (`~/.velocity/leases`), so two users on one farm node don't see each other's leases.
+Give them a shared dir instead: `VELOCITY_LEASE_DIR=/var/lib/velocity/leases` with the dir
+group-writable (`chmod 2770` and a shared group, or `1777` like `/tmp`); lock files made there are
+group- (or world-) readable and writable, so both users contend for one lock. Leases do **not**
+span hosts: two machines that reach one device through a shared adb server (`adb -H`,
+`VELOCITY_ADB_SERVERS`) each lock on their own disk and can drive it at once. Give each host its
+own devices there.
+
+CI in one command: `velocity run tests/app.yaml --parallel 4 --provision --app build/app.apk` boots the missing devices (headless, read-only instances of one AVD; or `velocity-<type>-<n>` simulator clones, reused most recently used first) while it hashes the build, then installs it on every device at once. The install is skipped where that exact build (SHA-256 of the `.apk`, or of the `.app` bundle's files) is already installed and unchanged since. `app:` in the suite config does the same as `--app`. `velocity devices up --android 4 --ios 2 [--app …]` provisions ahead of time, and `velocity devices down` stops only what Velocity started for the same owner (recorded in `~/.velocity/provisioned.json`; the owner is `--owner`, `$VELOCITY_OWNER` or the CI job id, so one CI job's `down` never stops another job's emulator; `--all` stops every owner's). Nothing boots below ~35% / 3 GB free memory or 3 GB free disk; the refusal says why.
 
 ## Speed
 
@@ -160,9 +189,9 @@ tests:
       - launchApp: {}
 ```
 
-A saved state lives on the device that saved it, so a test that restores it should `dependsOn` the test that saves it: that keeps the two on one device and in order under `--parallel` and `--shuffle`, and keeps both out of the result cache (VEL-329).
+A saved state lives on the device that saved it, so a test that restores it should `dependsOn` the test that saves it: that keeps the two on one device and in order under `--parallel` and `--shuffle`, and keeps both out of the result cache.
 
-`--cache-results` skips a test that already passed with the same app build, steps, config and device.
+`--cache-results` skips a test that already passed with the same app build, steps, config and device (model, OS and screen size). It is for hermetic UI tests: a backend, feature flag or host state that changes under the same build is not in the key, so tests with an `exec`, `http` or natural-language step always run, as do screenshot tests, `sideEffects: true` tests and `dependsOn` chains. In CI the key includes the branch (`GITHUB_HEAD_REF`/`GITHUB_REF_NAME`, `CI_COMMIT_REF_NAME`, `BUILDKITE_BRANCH`, `CIRCLE_BRANCH`, `BITBUCKET_BRANCH`; `VELOCITY_CACHE_SCOPE` overrides it), so one branch's passes never answer for another's. A pass is reused for 30 days, or `VELOCITY_CACHE_MAX_AGE` (`6h`, `2d`).
 
 Cache keys are salted, because steps hold interpolated values such as PINs. Outside CI the salt is made once per machine (`~/.velocity/cache-salt`). In CI (`CI` set) there is no salt by default, so a cache file restored between runs still hits; set `VELOCITY_CACHE_SALT` from a CI secret to salt the keys there too.
 
@@ -310,7 +339,7 @@ The devices have no ARIA. Their element type maps to a role conservatively: only
 
 The inspector, MCP refs and natural-language steps offer `{ role, name }` when an element's text alone is ambiguous (a "Pay" label above a "Pay" button); MCP tool calls accept the flat form (`{"role": "button", "name": "Pay", "enabled": true}`) and `list_elements` shows each element's role and state.
 
-**Visible** means the same on every platform for `assertVisible` and `assertNotVisible` (D-1): rendered, a non-empty box, and on screen by at least one pixel. On the web that also means inside the viewport and not clipped away by an `overflow` ancestor (a carousel's hidden slide), and `opacity: 0` counts as hidden. A covered element still counts as present. `settings: { visibility: { minArea: 0.1 } }` asks for a share of the box on screen instead (Maestro uses 10%), and `web: { visibility: page }` brings back the old web rule (anywhere on the page). Actions still scroll their target into view first, so assert below the fold after `scrollUntilVisible`.
+**Visible** means the same on every platform for `assertVisible` and `assertNotVisible`: rendered, a non-empty box, and on screen by at least one pixel. On the web that also means inside the viewport and not clipped away by an `overflow` ancestor (a carousel's hidden slide), and `opacity: 0` counts as hidden. A covered element still counts as present. `settings: { visibility: { minArea: 0.1 } }` asks for a share of the box on screen instead (Maestro uses 10%), and `web: { visibility: page }` brings back the old web rule (anywhere on the page). Actions still scroll their target into view first, so assert below the fold after `scrollUntilVisible`.
 
 **Actionability.** Before a tap, double tap, long press or text entry, the target must hold still (two reads in a row agree on its bounds, within 1 px) and be enabled. When the settle before the step has just seen the screen hold still (two identical trees, or the in-app probe's idle) and the target was found at once, that is the proof and no extra read is made; otherwise (no settle, a capped one, or a target that showed up late) the target is read again. On web the page checks stillness itself (two animation frames), the click must land on the target or on the button, link or label that holds it, not on an overlay or another ancestor, and a control inside an `aria-disabled` subtree counts as disabled. Velocity waits up to 2 s for that (on top of the element's own lookup timeout), then fails the step as `not actionable`, saying whether the target was disabled or still moving (a pulsing button, marquee or carousel that never holds still for two reads). Some custom and React Native views report `enabled=false` but work: add `force: true` to the step to act without the checks, or set `actionability: lenient` in the suite config to act anyway with a warning (the behaviour before this rule).
 
@@ -342,7 +371,7 @@ Compares with `velocity-baselines/<platform>/<W>x<H>/<name>.png` next to the sui
 - **When a pixel counts as changed:** `comparator: strict` (default) when any channel, alpha included, differs by more than `tolerance` (0..255, default 16); `comparator: perceptual` when the YIQ colour distance is above 0.1 of its maximum, as pixelmatch and Playwright decide (forgiving of shading drift between hosts, strict on visible changes; `tolerance` doesn't apply to it). Anti-aliased edges are ignored either way.
 - **Masks and crops:** the status bar is masked, and so is every match of each `mask:` selector. `crop:` (an element's selector, or a rect in screen coordinates: points on iOS, pixels on Android, CSS px on web) compares only that part of the screen; a `crop:` selector that matches several elements crops to the one an action would use (the first in tree order) and warns, as an action does, and fails under `selectors.strict`. Masks may cover at most half of what is compared (the crop, when there is one); there is no opt-out, crop instead.
 - **Missing baselines:** a missing baseline is written and the step **fails** ("created; review and commit it"), on a laptop and in CI alike, and a retry (or another device) in the same run doesn't pass on it; the next run, `velocity daemon` and MCP included, compares with it. `--update-baselines=missing` writes missing baselines and passes, comparing the rest; `--update-baselines` (or `=changed`) rewrites every baseline that is missing or no longer matches. `VELOCITY_UPDATE_BASELINES=missing|changed|1` does the same (`1`/`true` is the bare flag); unset, empty, `0` or `false` is off, and any other value is a configuration error. When the name's baseline exists only at another `<W>x<H>` (a rotated screen, another device), this size's baseline is missing: `--update-baselines=missing` records it (so adding a device, or a first parallel run on two screen sizes, needs no `--update-baselines` that would rewrite the other devices' baselines), and a plain run fails with "size mismatch: baseline is WxH, capture is W'xH': no baseline at this size yet … record it with --update-baselines=missing" without writing anything. A file in the capture's own `<W>x<H>` folder whose pixel size differs from what is compared (a crop whose element changed size) fails as a size mismatch except under `--update-baselines`. Diffs (`-expected`, `-actual`, `-diff`) go to `velocity-results/diffs/`, with a `-review.json` naming the baseline: `velocity baselines review` lists them, `velocity baselines accept <name|all>` writes the actual screen over the baseline (atomically; `--baselines-dir` for artifacts from a CI runner), and `velocity baselines review --serve` (or `/review` on a running `velocity inspect`) shows expected, actual and diff side by side with Accept and Reject buttons, behind the inspector's token (`--baselines-dir` there too, for CI artifacts). A record is cleared when a later comparison of the same baseline (same size folder and platform) passes or `--update-baselines` rewrites it, and accepting skips (with a warning) a record whose baseline changed after it was written, judged by content (the record keeps the baseline's SHA-256, or `absent`; records from older versions fall back to modification times with a warning), so CI artifacts unzipped into a fresh checkout accept cleanly and an old run's frame never replaces a newer baseline. Accepting writes only inside the `velocity-baselines` folder (the recorded one, or `--baselines-dir`), never through a symlinked folder.
-- **Frozen status bar:** `config: { screenshots: { freezeStatusBar: true } }` freezes the status bar before the first `assertScreenshot` on each device (Android SystemUI demo mode: 12:00, full battery and signal, no notifications; iOS simulators: `simctl status_bar override`, 9:41) and compares it instead of masking it, so pixels under an edge-to-edge bar count. Both are undone when the run ends, `--daemon` runs included; a device where it doesn't take (a real iPhone, or an Android device whose SystemUI doesn't enter demo mode: `sysui_demo_allowed` doesn't read back as 1, or SystemUI's own `sysui_tuner_demo_on` still reads 0 after the broadcasts are sent a second time) keeps the mask, with a warning. Before Android 12 SystemUI doesn't write `sysui_tuner_demo_on`, so there only the allowed setting is checked.
+- **Frozen status bar** (Android: host tests against a fake adb only, not yet run on a device; [STATUS.md](STATUS.md)): `config: { screenshots: { freezeStatusBar: true } }` freezes the status bar before the first `assertScreenshot` on each device (Android SystemUI demo mode: 12:00, full battery and signal, no notifications; iOS simulators: `simctl status_bar override`, 9:41) and compares it instead of masking it, so pixels under an edge-to-edge bar count. Both are undone when the run ends, `--daemon` runs included; a device where it doesn't take (a real iPhone, or an Android device whose SystemUI doesn't enter demo mode: `sysui_demo_allowed` doesn't read back as 1, or SystemUI's own `sysui_tuner_demo_on` still reads 0 after the broadcasts are sent a second time) keeps the mask, with a warning. Before Android 12 SystemUI doesn't write `sysui_tuner_demo_on`, so there only the allowed setting is checked.
 
 ## Headless
 
@@ -363,7 +392,7 @@ config:
 ## Flakiness, reports and healing
 
 - `--report junit,json,html,github`: several at once. JUnit carries `flakyFailure`/`rerunFailure` per attempt; `report.html` is one self-contained file; `github` (automatic in GitHub Actions) adds annotations and a job summary.
-- `velocity-quarantine.yaml` next to the suite forgives only known failures (test + error signature), and only when *every* failure in the run is a known one. An entry can carry `expires: 2026-12-31` (after that date it warns and forgives nothing) and `flaky-only: true` (it forgives a flaky pass under `--fail-on-flaky`, never a hard failure). A panic in Velocity itself is never forgiven.
+- `velocity-quarantine.yaml` next to the suite forgives only known failures (test + error signature), and only when *every* failure in the run is a known one. An entry can carry `expires: 2026-12-31` (after that date, in UTC, it warns and forgives nothing) and `flaky-only: true` (it forgives a flaky pass under `--fail-on-flaky`, never a hard failure). A panic in Velocity itself is never forgiven.
 - Exit codes: 0 passed; 1 a test failed (or was flaky, with `--fail-on-flaky`); 2 configuration or usage; 3 device or connection; 4 suite timeout; 5 internal (a panic in Velocity, or a report it couldn't write; outranks 1). A test that panicked on any attempt stays an internal error even if a retry passes: it is still retried, so the report shows whether the app works, but it fails with exit 5, no quarantine entry forgives it, and `--fail-on-flaky` has no say. Ctrl-C, SIGTERM and SIGHUP stop the run, write its reports and exit 130, 143 and 129; a second signal kills the commands still running (including the Android CPU-stress `adb shell` loops and the tree server's `adb shell`; the device-side loops such a forced exit leaves are killed when the next `--stress` run starts) and exits at once (a second Ctrl-C within 1 s is the same one, as npm and yarn forward it twice).
 - History across CI jobs, without a server: each job uploads its `velocity-history.json`. `velocity run --history-from 'history/*'` merges the downloaded ones into the run's history (a pattern matching nothing is a warning; an unreadable file exits 2), and `velocity history merge 'history/*' -o merged` writes one merged file. Per test, the job that ran it last wins, and per-device outcomes are kept from every job. See `docs/CI.md` for the GitHub Actions upload and download steps.
 - A run that did not complete (`interrupted:SIGTERM`, `timeout`) gets a warning banner atop its GitHub step summary. Every JUnit `<skipped>` has a `message`. If a stopped run doesn't return within the 20 s grace, the reports are written from the tests that had finished.
@@ -377,18 +406,20 @@ config:
 - `--flaky-confidence 0.99` (with `--parallel`) runs copies of tests history flags as flaky on different devices, n = ⌈ln(1 − 0.99) / ln(p_fail)⌉ of them; the test passes if any copy does, and is reported as flaky when one failed.
 - Self-healing has three modes, `healing.mode: auto | report | off`. `auto` (the default locally) uses the healed element and passes; `report` (the default when CI is detected) works out the heal but fails the step with the proposed patch and the exact `velocity heal --accept --config <suite>` command; `off` doesn't heal. A healed test shows as `PASSED (healed n)` on the console and in every report (a JUnit `velocity.healed` property, HTML, JSON `healed`/`label`, GitHub annotations and summary, an Allure tag).
 - Healed selectors from passing tests (and, in `report` mode, the proposed ones) are queued in `.velocity/healed-selectors.json`; `velocity heal -c suite.yaml` shows them in your own selector form, `--accept` writes them into the suite, `--discard` drops them, and `--reject <N|selector|all>` drops one (by its number in the listing, or its original selector such as `'text: "Log in"'`) for good: the pair goes into `.velocity/heal-rejected.json` in the current directory, where runs read it, and is never proposed again for that app (the entry records the app id the heal was made for; another app with the same selector still heals, and an entry from an older Velocity without one applies to every app); the other heals stay pending. CI is detected from `CI`, `GITHUB_ACTIONS`, `JENKINS_URL`, `TF_BUILD`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI` and the like; a value of `false`, `0` or empty doesn't count.
+- **Memory check** (Android only; host tests only, the profiler has never run on a device: [STATUS.md](STATUS.md)): with `config: { performance: { enabled: true } }` Velocity samples the app's memory (`dumpsys meminfo`, every `intervalMs`) and fails a test whose peak total PSS is more than `pssGrowthThresholdPct` (default 15) above its saved baseline, with `memory regression: …`. Only a clean pass updates the baseline, so the run after a breach fails too until memory comes back down. The other drivers report no memory.
 - `velocity lint` flags another engine's selector syntax (Playwright's `>>`, `text=` and `:has-text()`, jQuery's `:contains()`): an error in `css:`, which the browser would reject, a warning in a text or id value.
 - `velocity lint` flags fixed `wait:` steps; `velocity migrate waits suite.yaml --write` removes the ones before a step that already waits for its element.
 
-## Migrate from Maestro in one command
+## Migrate from Maestro
 
-Already using Maestro? Switch in seconds:
+Already using Maestro? Convert your flows and see what didn't carry over. Simple flows convert as they are. Flows that rely on JavaScript (`runScript`, `evalScript`, `${…}` expressions) or `copyTextFrom`/`pasteText` need rewriting by hand: Velocity has no equivalent yet, and the converter says what to use instead (an `http` or `exec` step's `capture:`). `runFlow when: {visible: …}` / `notVisible:` becomes a flow that checks the condition first and runs as an optional block; other `when:` conditions run as an optional block with a warning. `setLocation` becomes an optional `exec` step per platform (`adb emu geo fix`, `xcrun simctl location`). So do `setPermissions` (`pm grant`/`revoke`, `simctl privacy`), `addMedia` (`adb push` and a media scan, `simctl addmedia`), and the single-platform `clearKeychain` (`simctl keychain reset`), `setAirplaneMode` and `setOrientation` (Android `adb shell` only); `adb` and `xcrun` go into `config.exec.allow`. A flow's header `env:` becomes defaults (`${NAME}` → `${NAME:-value}`, which `--env` still overrides). Run the dry run first:
 
 ```bash
+velocity migrate maestro ./maestro-flows/ --dry-run   # what would not convert, nothing written
 velocity migrate maestro ./maestro-flows/
 ```
 
-Converts your existing Maestro YAML flows to Velocity format automatically. `openLink:` opens deep links on every platform. A step's `optional: true` stays `optional: true` (a failure becomes a warning), and `assertWithAI` becomes a natural-language `assert:` with `optional: true` (unless the flow says `optional: false`); it is checked against the element tree rather than a screenshot, so it needs a model key (`ANTHROPIC_API_KEY` or another provider's). `killApp` becomes `stopApp`, and a counted `repeat` is unrolled up to 100 times. A `while:` loop, `runScript` and `evalScript` are skipped with a note; a script that made HTTP calls becomes an [`http` step](DSL.md#http-and-api-tests) with `capture:`. Variables a flow read from a `.env` file come from `velocity run --env-file .env`. `eraseText` becomes one `pressKey: backspace` per character (50 by default, up to 100), and a `tapOn` point is converted only when it is in absolute pixels and has no selector (a point with a selector is inside that element).
+`--dry-run` converts every flow without writing and ranks the Maestro commands that don't convert cleanly by how many flows they affect, so you know before switching what you'd rewrite (`--report-json` for the same as JSON). The full run then converts your existing Maestro YAML flows to Velocity format automatically. `openLink:` opens deep links on every platform. A step's `optional: true` stays `optional: true` (a failure becomes a warning), and `assertWithAI` becomes a natural-language `assert:` with `optional: true` (unless the flow says `optional: false`); it is checked against the element tree rather than a screenshot, so it needs a model key (`ANTHROPIC_API_KEY` or another provider's). `killApp` becomes `stopApp`, and a counted `repeat` is unrolled up to 100 times. A `while:` loop, `runScript` and `evalScript` are skipped with a note; a script that made HTTP calls becomes an [`http` step](DSL.md#http-and-api-tests) with `capture:`. Variables a flow read from a `.env` file come from `velocity run --env-file .env`. `eraseText` becomes one `pressKey: backspace` per character (50 by default, up to 100), and a `tapOn` point is converted only when it is in absolute pixels and has no selector (a point with a selector is inside that element).
 
 ## Command cheat sheet
 
@@ -428,7 +459,7 @@ velocity run <suite> --daemon                Run through `velocity daemon` (warm
 velocity run <suite> --app build/app.apk     Install the build first (skipped if already on the device)
 velocity run <suite> --parallel N --provision   Boot what's missing for N devices, then run
 velocity devices up --android N --ios N [--avd X] [--device-type "iPhone 17 Pro"] [--app path]
-velocity devices down [--delete]             Stop what `up` started (--delete: remove its clones)
+velocity devices down [--delete] [--all]     Stop what `up` started for this owner (--delete: remove its clones; --all: every owner's)
 velocity daemon start | stop | status        Keep drivers and sessions warm between runs
 velocity repl --device <id> [--app <id>]     Run steps one at a time (:tree, :find, :shot, :save)
 velocity explore "<goal>" --app-id <id>      An AI agent reaches the goal and writes a deterministic test (docs/EXPLORE.md)
@@ -548,13 +579,52 @@ Compose: `id:` also matches a Compose `testTag` when the app doesn't set `testTa
 
 iOS taps: `VELOCITY_IOS_TAP_GUARD=off` taps the centre of the frame as before the tap guard; `ios.tapGuardStatusBar: 0` (`VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off`) drops only the status-bar rule, for apps that hide the status bar.
 
-iOS tap check (opt-in, D-38): `ios.verifyTap: true` (`VELOCITY_IOS_VERIFY_TAP=1`) asks VelocityRunner (`ios.runner: velocity`) what is drawn at each tap point before tapping, through XCTest's private hit test (`_XCT_requestElementAtPoint:reply:`, every private selector checked with `respondsToSelector:` first) The element XCTest's hit test returns is found in the app's snapshot (by its accessibility element) and sent with its snapshot path, so the host checks it is the target or inside it by tree position, not by frame; only when XCTest's element is a container of the target (or can't be placed) does the deepest node at the point decide, skipping only nodes the snapshot reports with user interaction off (not being an accessibility element or not "hittable" to XCTest does not count: a plain `UIView` dimming overlay is both and still swallows the touch). Each verified tap costs one snapshot of the app. A tap that would land on something else (an overlay, a system alert, the status bar) fails naming it; a row under the status bar is tapped when the hit test says the app draws there (an app that hides its bar). Where the hit test is missing (WebDriverAgent, an iOS without the private API) the frame-only rule stands and a warning says so once. Typechecked against the iOS 26 simulator SDK; not yet run on a device or simulator.
+iOS tap check (opt-in): `ios.verifyTap: true` (`VELOCITY_IOS_VERIFY_TAP=1`) asks VelocityRunner (`ios.runner: velocity`) what is drawn at each tap point before tapping, through XCTest's private hit test (`_XCT_requestElementAtPoint:reply:`, every private selector checked with `respondsToSelector:` first) The element XCTest's hit test returns is found in the app's snapshot (by its accessibility element) and sent with its snapshot path, so the host checks it is the target or inside it by tree position, not by frame; only when XCTest's element is a container of the target (or can't be placed) does the deepest node at the point decide, skipping only nodes the snapshot reports with user interaction off (not being an accessibility element or not "hittable" to XCTest does not count: a plain `UIView` dimming overlay is both and still swallows the touch). Each verified tap costs one snapshot of the app. A tap that would land on something else (an overlay, a system alert, the status bar) fails naming it; a row under the status bar is tapped when the hit test says the app draws there (an app that hides its bar). Where the hit test is missing (WebDriverAgent, an iOS without the private API) the frame-only rule stands and a warning says so once. Typechecked against the iOS 26 simulator SDK; not yet run on a device or simulator.
 
-WebDriverAgent session settings (D-37): after each session starts Velocity sends `accessibilityDeadline` (`ios.accessibilityDeadlineMs`, sent in seconds; 0 leaves WDA's default). Past the deadline WDA aborts the request with an error rather than waiting, so an app whose main thread is busy longer than that fails its source and find reads instead of waiting them out. The 5000 ms default applies only to a WebDriverAgent Velocity built itself from v16.14.1 or later (recorded per device, also when a kept runner is reattached with `VELOCITY_KEEP_WDA`); older WDA crashed WKWebView content with it (#1290), so an older or externally started WDA gets no deadline unless you set one. Velocity also sends `snapshotMaxDepth` (`ios.snapshotMaxDepth`, default 60; VelocityRunner uses the same depth for its deep-tree recovery read) through `POST /session/:id/appium/settings`.
+WebDriverAgent session settings: after each session starts Velocity sends `accessibilityDeadline` (`ios.accessibilityDeadlineMs`, sent in seconds; 0 leaves WDA's default). Past the deadline WDA aborts the request with an error rather than waiting, so an app whose main thread is busy longer than that fails its source and find reads instead of waiting them out. The 5000 ms default applies only to a WebDriverAgent Velocity built itself from v16.14.1 or later (recorded per device, also when a kept runner is reattached with `VELOCITY_KEEP_WDA`); older WDA crashed WKWebView content with it (#1290), so an older or externally started WDA gets no deadline unless you set one. Velocity also sends `snapshotMaxDepth` (`ios.snapshotMaxDepth`, default 60; VelocityRunner uses the same depth for its deep-tree recovery read) through `POST /session/:id/appium/settings`.
+
+### Other environment variables
+
+Most settings are in the table `velocity settings` prints (each with its `VELOCITY_*` variable; [DSL-REFERENCE.md](DSL-REFERENCE.md)). These are read directly:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `VELOCITY_ADB_HOST`, `VELOCITY_ADB_PORT` | `127.0.0.1`, `5037` | The adb server Velocity talks to |
+| `VELOCITY_EMULATOR_PATH` | the SDK's `emulator`, else `emulator` on `PATH` | The emulator binary `velocity devices up` starts |
+| `VELOCITY_EMULATOR_COLD_BOOT` | off | `1` cold-boots emulators instead of loading the AVD's snapshot (the snapshot is never saved over either way) |
+| `VELOCITY_XCRUN_PATH` | `xcrun` | The `xcrun` used for `simctl` and `devicectl` |
+| `VELOCITY_IOS_STOP_TIMEOUT_MS` | `10000` | How long stopping the iOS runner app may take |
+| `VELOCITY_USBMUX_TIMEOUT_MS` | `5000` | Deadline of each request to usbmuxd (the USB forward to a cabled iPhone) |
+| `VELOCITY_SCREENSHOT_STABLE_MS` | `5000` | How long `assertScreenshot` waits for the screen to hold still when the step sets no `timeoutMs` |
+| `VELOCITY_WEB_FLUTTER_SEMANTICS` | on | `off` stops Velocity turning on a Flutter web app's semantics tree |
+| `VELOCITY_WEB_SW` | service workers bypassed | `allow` keeps a page's service worker in the request path (mocks may then be bypassed) |
+| `VELOCITY_FLUTTER_HIT_VISIBILITY` | off | `1`: in the headless Flutter bridge, `assertVisible` also needs a tap at the element's centre to reach it, so a widget under an overlay is not visible (the bridge config's `hitTestVisibility` wins) |
+| `VELOCITY_STATE_DIR` | `~/.velocity/state` | Where `saveState` keeps app state |
+| `VELOCITY_INSTALLS_DIR` | `~/.velocity/installs` | Where the markers of hash-checked app installs live |
+| `VELOCITY_DAEMON_SOCKET` | `~/.velocity/daemon.sock` | The socket of `velocity daemon` |
+| `VELOCITY_EXPLORE_SHOTS_DIR` | unset | `velocity explore` writes each screenshot the model saw there as `turn-NN.png` (for an outside judge, such as a benchmark harness) |
+
+## Troubleshooting
+
+The first-run failures people hit, with what to do next. `velocity doctor` is the first step for anything about the machine or a device: it names each fix as a command, and `--fix` applies the safe ones.
+
+| You see | Do this |
+|---|---|
+| `Failed to execute adb` | adb is not installed or not on `PATH`. `velocity doctor -p android` says where the SDK is and prints the `export PATH=…` line; `VELOCITY_ADB_PATH` points at another adb. |
+| `ADB connection lost`, or `Circuit breaker is open for device …` (the driver stopped answering, so Velocity stopped sending it commands) | `velocity doctor --fix` restarts a wedged adb server and reconnects offline devices. Then run again. |
+| `WDA … failed to build with Xcode …` | Usually not the WebDriverAgent tag: an unaccepted Xcode licence, `xcode-select` pointing at the command line tools only, or no simulator runtime. `velocity doctor -p ios` checks all three and prints the fix. |
+| `Failed to clone WebDriverAgent` (a CI runner without access to GitHub) | Point `VELOCITY_WDA_URL` at a WebDriverAgent you run yourself, or let the runner reach github.com once so the build is cached. |
+| The first iOS run sits for a minute in `xcodebuild` | Expected once per Xcode version: Velocity builds WebDriverAgent on the first iOS run, then reuses the build. |
+| `Element not found: … after …ms` | `velocity trace view velocity-results` shows the screen at the failure with the nearest elements; `velocity inspect --open` lets you hover the element and copy its selector. |
+| `Element … is not actionable: …` | The target never held still, stayed disabled or was covered. Wait for it first (`assertVisible`), or put `force: true` on the step to act anyway; `config.actionability: lenient` makes the whole suite act with a warning. |
+| `Sync timeout: UI did not stabilize …` (the screen kept changing: a spinner, an animation, a ticking clock) | `settle: none` on that step, or a larger `config.sync.settleCapMs`. |
+| `Missing required environment variable(s): X` | `--env X=value`, `--env-file .env`, or export it in the shell. |
+| A test passes locally and fails in CI on the first step | The device is not booted yet, or another job holds it: `velocity devices up --android 1` in the job, and see the exit codes in [CI.md](CI.md) (3 is a device problem; retry it). |
+| `omkar-dev/velocity@v0.2.0` not found in a workflow `velocity init --ci github` wrote | Velocity 0.2.0 has not been released yet, so the Action tag does not exist. Until it does, build from a checkout ([README](../README.md#install)). |
 
 ## Platform requirements
 
-Device support is tested on the host against fake adb, WebDriverAgent, devicectl and usbmuxd. On 2026-10-25 the drivers, WebDriverAgent, VelocityRunner, the MCP server and the inspector API were also run on an Android 14 emulator and iOS 26 simulators. No run has used a real device, so real iPhones, the Wi-Fi runner, device crash logs, Android demo mode and Compose `testTag` reads are **unverified on hardware**. The web driver is tested against real headless Chrome on macOS. See [docs/STATUS.md](STATUS.md).
+Device support is tested on the host against fake adb, WebDriverAgent, devicectl and usbmuxd. On 2026-10-25 the drivers, WebDriverAgent, VelocityRunner, the MCP server and the inspector API were also run on an Android 14 emulator and iOS 26 simulators. Since then one real Android device has been used (a SUNMI tablet on 2026-11-08, the Settings app only). Real iPhones, the Wi-Fi runner, device crash logs, Android demo mode and Compose `testTag` reads are still **unverified on hardware**. The web driver is tested against real headless Chrome on macOS. See [docs/STATUS.md](STATUS.md).
 
 ### iOS
 
@@ -563,7 +633,7 @@ Device support is tested on the host against fake adb, WebDriverAgent, devicectl
 - WebDriverAgent (auto-bootstrapped on first run: a pinned tag, built once per Xcode: v16.14.1 where the simulator platform ships `lib_TestingInterop.dylib`, v16.12.10 otherwise; a clone of a pinned tag must check out the commit Velocity pins for it, or the bootstrap stops; a cached clone at another commit is cloned again, and a cached build is reused only when it records the pinned commit. `VELOCITY_WDA_REF` picks another tag, unchecked)
 - **Real iPhones/iPads** (connected by USB, Developer Mode on): set `VELOCITY_IOS_TEAM_ID` to your Apple team so WebDriverAgent can be signed (`VELOCITY_WDA_BUNDLE_ID` overrides the runner's bundle id). Velocity forwards WDA's port over usbmuxd and uses `devicectl` to install and launch. `clearState` can't wipe app data on a device; use `reset: { strategy: reinstall, appPath }`.
 - **Wi-Fi-only iPhones** fail with "connect a cable": the runner would listen on the phone's Wi-Fi address. To allow it anyway set `ios.allowWifiRunner: true` with `ios.runner: velocity`. VelocityRunner always requires a bearer token: Velocity makes a random one for every launch (simulators and cabled iPhones too) and sends it on every request, `/status` readiness and reattach probes included; `ios.runnerToken: ${RUNNER_TOKEN}` (16+ characters) sets a fixed one instead. A cabled iPhone's runner binds the phone's loopback, which the USB forward reaches; `VELOCITY_IOS_DEVICE_LOOPBACK=0` binds every interface (with WebDriverAgent, which has no authentication, a run then logs a warning). A runner kept running (`VELOCITY_KEEP_WDA`) is reused on a Wi-Fi-only iPhone only under the same Wi-Fi rules and only when it refuses a request without the token.
-- **Crashes on a device**: when the app dies, Velocity copies the device's crash reports with `devicectl device copy from --domain-type systemCrashLogs`, names the crash in the failure, and saves this launch's reports under `<output_dir>/crashlogs/<test>/` (simulators: from `~/Library/Logs/DiagnosticReports`). The crash sticks (D-50, I3): from each launch a watcher asks the runner for the app's state every `crash.checkEveryMs` (default 1000 ms, at least 250); once it says "not running", every later step in the test fails at once with the crash instead of waiting out its timeout or tapping the home screen, until the next `launchApp` (`stopApp` ends the watcher). Verified against a fake runner only, not yet on a device.
+- **Crashes on a device**: when the app dies, Velocity copies the device's crash reports with `devicectl device copy from --domain-type systemCrashLogs`, names the crash in the failure, and saves this launch's reports under `<output_dir>/crashlogs/<test>/` (simulators: from `~/Library/Logs/DiagnosticReports`). The crash sticks: from each launch a watcher asks the runner for the app's state every `crash.checkEveryMs` (default 1000 ms, at least 250); once it says "not running", every later step in the test fails at once with the crash instead of waiting out its timeout or tapping the home screen, until the next `launchApp` (`stopApp` ends the watcher). Verified against a fake runner only, not yet on a device.
 
 ### Android
 

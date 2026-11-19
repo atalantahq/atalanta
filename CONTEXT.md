@@ -2,11 +2,11 @@
 
 Velocity is a UI testing framework for Android, iOS and the web, written in Rust. Tests are YAML suites in a Maestro-like DSL. It ships as one `velocity` binary, and it has an MCP server so AI agents can drive devices. License: AGPL-3.0-only.
 
-Read the code before trusting any doc. This file and [docs/](docs/README.md) describe the code as of 2026-10-25.
+Read the code before trusting any doc. This file was checked against the code on 2026-11-11; [docs/](docs/README.md) pages carry their own dates.
 
 ## Where things are
 
-- `velocity-cli/`: the binary. Commands are in `src/commands/*.rs`: init, doctor, run, validate, lint, schema, settings, shard-plan, device(s), inspect, baselines, heal, history, repl, explore, mcp, migrate, nl-eval, signing, daemon.
+- `velocity-cli/`: the binary. Commands are in `src/commands/*.rs`: init, doctor, run, validate, lint, schema, settings, shard-plan, device(s), inspect, baselines, heal, history, results, trace, repl, explore, verify-change, login, api, mcp, migrate, nl-eval, signing, daemon, version, and the agent commands (`agent.rs`: snapshot, tap, type, press, swipe, scroll, launch, stop, assert, wait, screenshot, export, session, skills).
 - `crates/velocity-common`: shared types (`Selector`, `Action`, `Element`, `Step`), the `PlatformDriver` trait, `VelocityError` with error kinds and exit codes, the settings table, resilience (retry and circuit breaker), redaction, and live events (`live_events`: with `VELOCITY_EVENTS_FILE` set, one JSON line per test and step start and end, plus explore's turns; the MCP tasks and the console read it).
 - `crates/velocity-core`:
   - parsing and checking: parser, validator, JSON Schema (`schema.rs`), the generated DSL reference (`reference.rs`);
@@ -26,7 +26,7 @@ Read the code before trusting any doc. This file and [docs/](docs/README.md) des
   - `crates/velocity-web`: Chrome over CDP.
   - `crates/velocity-headless` and `crates/velocity-flutter-bridge`: headless.
 - `crates/velocity-inspector`: an axum web UI and API (the console in `src/console/`: live device mirror, input under the device lease, suite runs and explore sessions as child processes with live events, saving an explored test into the project, doctor diagnostics, tasks), a token-protected `/review` page for screenshot baselines, and an embedded React build.
-- `crates/velocity-mcp`: JSON-RPC over stdio. It has 31 tools, background tasks (`run_task`: a suite run, or an exploration with `goal`, steered by `task_inject`), compact snapshots with session refs, `diagnose` (`velocity-doctor`), and `velocity mcp install` for agent clients.
+- `crates/velocity-mcp`: JSON-RPC over stdio. It serves 5 tools by default (`profile.rs`: `observe`, `act`, `run`, `artifacts`, `verify_change`) and 32 with `--profile full`, background tasks (`run_task`: a suite run, or an exploration with `goal`, steered by `task_inject`), compact snapshots with session refs, `diagnose` (`velocity-doctor`), and `velocity mcp install` for agent clients.
 - `crates/velocity-migrate`: converts Maestro flows to Velocity.
 - `crates/velocity-api`: API testing, the `http` step. It sends a request, checks status, headers, JSONPath values (RFC 9535) and the body, and captures values as `${NAME}` for the test's later steps, UI steps included. A suite of only `http` steps runs with no device (`NoDeviceDriver`). The step types are in `velocity-common/src/http.rs`. [docs/DSL.md](docs/DSL.md#http-and-api-tests).
 - `probes/`: native code that cargo does not build: the Android tree server (Java), VelocityRunner (Swift XCUITest), and the in-app sync probes.
@@ -42,7 +42,7 @@ Read the code before trusting any doc. This file and [docs/](docs/README.md) des
 - **Screenshot baselines:** they live at `<suite dir>/velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`.
   - A missing baseline fails the step after writing it.
   - A failure leaves review files under `<artifacts>/diffs/`, which `velocity baselines` accepts.
-- **Verification:** device code is tested against fakes, and the web against real headless Chrome. On 2026-10-25 the drivers also ran on an Android 14 emulator and iOS 26 simulators; no real device has been used. See [docs/STATUS.md](docs/STATUS.md) before claiming device behaviour.
+- **Verification:** device code is tested against fakes, and the web against real headless Chrome. On 2026-10-25 the drivers also ran on an Android 14 emulator and iOS 26 simulators. One real Android device has been used since (a tablet, the Settings app only, 2026-11-08); a real iPhone never has. See [docs/STATUS.md](docs/STATUS.md) before claiming device behaviour.
 
 ## Build
 

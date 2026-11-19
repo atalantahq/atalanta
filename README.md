@@ -1,29 +1,43 @@
 # Velocity
 
-**Mobile UI tests that an AI writes once and CI replays for free. Written in Rust.**
+**Mobile UI tests in YAML, one static binary, written in Rust.**
 
-Velocity runs YAML test suites on Android emulators and devices, iOS simulators and devices, and Chrome. It is one static binary: no JVM, no Node, no Appium server. An AI agent can explore your app and write a deterministic test; the test then runs at native speed with no model in the loop.
+Velocity runs YAML test suites on Android emulators, iOS simulators and Chrome. It is one static binary: no JVM, no Node, no Appium server. Real Android hardware has been used once (one tablet, the Settings app); real iPhones are supported in the code but have never been run ([STATUS.md](docs/STATUS.md)).
 
-[Install](#install) · [The story](#from-zero-to-ci) · [Console](#the-console) · [Agents (MCP)](#agents-mcp) · [API tests](#api-tests) · [Failure evidence](#failure-evidence) · [AI providers](#ai-providers) · [Security](#security-notes) · [Docs](docs/README.md)
+Three things set it apart:
+
+- **An AI-written test must fail when the feature is broken, and that is checked before the test is saved.** `velocity explore` replays the test it wrote 5 times with no model, then replays it with the last tap moved to a neighbouring element (it must fail), and requires an assertion that names the goal. Only then is the test marked trusted ([trust gates](docs/EXPLORE.md#trust-gates)). In a small pilot (11 goals, 4 rounds with fixes between them; not the pre-registered test in [bench/killtest/](bench/killtest/PREREG.md)), the final round caught 6 of 6 seeded regressions with no false passes ([bench/pilot/](bench/pilot/README.md)). The wrong-path check has not yet been seen catching a weak test on its own.
+- **The model is never on the critical path.** A saved test replays in CI with zero model calls (a call during replay is an internal error). Model output never becomes a selector or a secret, and by default never a typed value: the model names an element number, code builds the selector, and text is typed only by name (`${NAME}`). Opt-ins widen that: `explore --values-from-goal` and `--values-from-screen` (code checks the text is in the goal or on a screen seen), and `--values-from-screenshots` and `--values-from-model`, which code cannot check. In the pilot a goal cost about $0.08 to explore once; each CI run after that costs nothing in model calls.
+- **Failure evidence on your own machine.** A failed test keeps a video cut from a ring buffer, the device and app logs with crashes named, and one `trace.html` with each step's screenshot, tap point, selector and matched element. No cloud account. Measured overhead with video and logs on: about 15% per step on an Android emulator.
+
+[Install](#install) · [The story](#from-zero-to-ci) · [Console](#the-console) · [Agents (MCP)](#agents-mcp) · [API tests](#api-tests) · [Failure evidence](#failure-evidence) · [AI providers](#ai-providers) · [Security](#security-notes) · [Glossary](docs/GUIDE.md#glossary) · [Docs](docs/README.md)
 
 ## Install
+
+> **Pre-release.** Velocity has not been published yet (0.2.0 is unreleased); on 2026-11-10 all four routes below returned 404. Until then, build from a checkout: `cargo install --path velocity-cli --locked` (see [Install details](#install-details) for the console UI).
+
+Pick one:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | sh   # macOS / Linux, x86_64 / arm64
 brew install omkar-dev/velocity/velocity
-npm install --save-dev @velocity-test/cli        # or: npx @velocity-test/cli --version
+npm install --save-dev @velocity-test/cli
 cargo install velocity-cli --locked
 ```
 
-Every route installs the same release, console web UI included. The script downloads the binary for your machine, checks it against the release's `SHA256SUMS`, and installs into `~/.velocity/bin` without sudo (`--dir DIR`, `--version X.Y.Z` or `VELOCITY_VERSION` to choose; `--no-modify-path` to leave your shell profile alone). Release archives are `velocity-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (static); each has a build provenance attestation (`gh attestation verify <file> --repo omkar-dev/velocity`). Windows is not supported (WSL2 works as Linux). `brew install --HEAD omkar-dev/velocity/velocity` builds `main` from source with the UI. A plain `cargo build` from a checkout has no UI until you run `npm ci && npm run build` in `crates/velocity-inspector/frontend`; it then serves the API with a page saying so.
+Then check the machine with `velocity doctor`. Every route installs the same release. Windows is not supported (WSL2 works as Linux). Installer flags, release archives, signature checks and building from source: [Install details](#install-details).
 
-Needs: Android SDK platform-tools (`adb`) for Android; macOS with Xcode for iOS (WebDriverAgent is cloned at a pinned tag and built once per Xcode); Chrome for the web.
+| To test | You need |
+|---|---|
+| Android | Android SDK platform-tools (`adb` on `PATH`) and a running emulator or device |
+| iOS | macOS with Xcode and a booted simulator. The first iOS run clones and builds WebDriverAgent (needs git and network, about a minute, once per Xcode) |
+| Web | Chrome (runs headless by default) |
 
 ## From zero to CI
 
 ### 1. Check the machine, write a first test
 
-With an emulator or simulator running and your app on it:
+With an emulator or simulator running and your app on it (`velocity devices up --android 1` or `--ios 1` boots one from an existing AVD or simulator):
 
 ```bash
 velocity doctor            # adb, Xcode, devices, runner builds, Chrome, AI keys, your suites; --fix applies the safe fixes
@@ -61,7 +75,7 @@ tests:
       - do: "open the first order"          # a natural-language step, resolved by a model and cached once verified
 ```
 
-Every step waits for its element and for the screen to settle (no sleeps); a target must be enabled and still before it is tapped. Failures point at `file:line`. A test that passes only on a retry is reported as flaky. Suite format: [docs/DSL.md](docs/DSL.md) and the generated [DSL reference](docs/DSL-REFERENCE.md).
+Every step waits for its element and for the screen to *settle*, that is, stop changing (no sleeps); a target must be enabled and still before it is tapped. Failures point at `file:line`. A test that passes only on a retry is reported as flaky. Suite format: [docs/DSL.md](docs/DSL.md) and the generated [DSL reference](docs/DSL-REFERENCE.md).
 
 ### 4. CI
 
@@ -71,7 +85,7 @@ velocity run tests/ --shard 2/4 --shard-timings history/             # one CI sh
 velocity run tests/ --changed-since origin/main                      # only the tests a change can affect
 ```
 
-Devices are leased across processes, so parallel runs, the console and an MCP agent never drive the same device. `velocity init` writes a sharded GitHub Actions example to `velocity/ci/`. Exit codes: 0 passed, 1 a test failed, 2 configuration, 3 device, 4 suite timeout, 5 internal. Sharing history between jobs, cancelled jobs, secrets and baselines: [docs/CI.md](docs/CI.md).
+Each device is *leased* (a per-device lock file under `~/.velocity/leases`), so parallel runs, the console and an MCP agent never drive the same device. `velocity init` writes a sharded GitHub Actions example to `velocity/ci/`. Exit codes: 0 passed, 1 a test failed, 2 configuration, 3 device, 4 suite timeout, 5 internal. Sharing history between jobs, cancelled jobs, secrets and baselines: [docs/CI.md](docs/CI.md).
 
 ## The console
 
@@ -95,7 +109,9 @@ Flags and the HTTP API: [docs/CLI.md](docs/CLI.md#inspect).
 velocity mcp install         # registers the server with every client found (Claude Code, Cursor, Codex, Windsurf, VS Code, Cline, Gemini CLI) and installs the agent rules
 ```
 
-The server (`velocity mcp`, JSON-RPC over stdio) has 31 tools. An agent reads the screen with `snapshot` (one line per element with a ref like `@e12`; `mode: "delta"` returns only what changed), acts by ref, exports what it did as YAML with assertions, and debugs with `describe_failure`, `inspect_trace` and `diagnose`. `run_task` runs a suite in the background, or with a `goal` runs `velocity explore`: the agent steers it with `task_inject`, polls `task_status` for the turn, then reviews the YAML it wrote and runs it. Passwords are typed by environment variable name and never returned. [docs/MCP.md](docs/MCP.md).
+The server (`velocity mcp`, JSON-RPC over stdio) serves five tools by default (`observe`, `act`, `run`, `artifacts`, `verify_change`); `--profile full` serves all 32. An agent reads the screen with `snapshot` (one line per element with a ref like `@e12`; `mode: "delta"` returns only what changed), acts by ref, exports what it did as YAML with assertions, and debugs with `describe_failure`, `inspect_trace` and `diagnose`. `run_task` runs a suite in the background, or with a `goal` runs `velocity explore`: the agent steers it with `task_inject`, polls `task_status` for the turn, then reviews the YAML it wrote and runs it. Passwords are typed by environment variable name and never returned. [docs/MCP.md](docs/MCP.md).
+
+Agents with a shell can skip MCP: `velocity snapshot`, `velocity tap @e7`, `velocity type @e3 "…"`, `velocity export --out flow.yaml`. Each action waits for the screen to settle and prints what changed; a stale ref fails with `STALE_REF` instead of tapping something else; `--json` gives a code and a retry rule on failure. `velocity skills get cli` prints the guide for the installed version. [docs/CLI.md](docs/CLI.md#agent-commands).
 
 ## API tests
 
@@ -146,7 +162,17 @@ Whatever the provider, model output never becomes a selector or a typed value: c
 
 - [docs/GUIDE.md](docs/GUIDE.md): the long form (selectors and roles, natural-language steps, visual checks, healing, sharding, app state and caching, headless, configuration, a command cheat sheet).
 - [docs/](docs/README.md): architecture, drivers, CLI and exit codes, CI, MCP, explore, AI providers.
-- [docs/STATUS.md](docs/STATUS.md): what has been verified on real emulators, simulators and browsers, and what has not. Real iPhones and Android hardware have not been used yet.
-- `velocity migrate maestro ./flows/` converts Maestro flows.
+- [docs/GUIDE.md#glossary](docs/GUIDE.md#glossary): the terms these docs use (settle, lease, ref, grounding, trust gates, …).
+- [docs/GUIDE.md#troubleshooting](docs/GUIDE.md#troubleshooting): first-run failures and what to do next.
+- [docs/STATUS.md](docs/STATUS.md): what has been verified on emulators, simulators, browsers and hardware, and what has not. Real Android hardware: one tablet, Settings only (2026-11-08). Real iPhones: never run.
+- `velocity migrate maestro ./flows/` converts Maestro flows. Commands with no Velocity equivalent (`runScript`, `evalScript`, `copyTextFrom`, `setLocation` and others) are skipped and listed in its report, and a `runFlow` with `when:` always runs, with a warning.
+
+## Install details
+
+- **Install script.** Downloads the binary for your machine, checks it against the release's `SHA256SUMS`, and installs into `~/.velocity/bin` without sudo. Options: `--dir DIR`; `--version X.Y.Z` (or `VELOCITY_VERSION`); `--no-modify-path` to leave your shell profile alone; `--keep-quarantine` (macOS, below).
+- **macOS signing.** Release binaries are ad-hoc signed, not Developer ID signed or notarised. `curl` does not quarantine what it downloads, so usually nothing happens. If the installed binary does carry the `com.apple.quarantine` flag, the script removes it after the `SHA256SUMS` check and says so. `--keep-quarantine` (or `VELOCITY_KEEP_QUARANTINE=1`) leaves the flag on; then approve the binary in System Settings > Privacy & Security on first run.
+- **Release archives.** `velocity-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (static). Each has a build provenance attestation: `gh attestation verify <file> --repo omkar-dev/velocity`.
+- **npm.** `npx @velocity-test/cli --version` runs it without installing.
+- **From source.** `brew install --HEAD omkar-dev/velocity/velocity` builds `main` with the console UI. A plain `cargo build` from a checkout has no console UI until you run `npm ci && npm run build` in `crates/velocity-inspector/frontend`; until then it serves the API and a page saying so.
 
 Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). License: GNU AGPL v3 ([LICENSE](LICENSE)).

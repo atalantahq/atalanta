@@ -127,6 +127,17 @@ Argument: map: `durationMs`?, `selector` or map (keys below).
 - `selector` (selector)
 - `…` (selector keys) - or the selector's keys inline, beside `durationMs`
 
+### `drag`
+
+Reorder: press the `from` element, hold it (`holdMs`, default 700, past the long-press time), move onto the `to` element over `moveMs` (default 900), rest so it drops in place, and lift.
+
+Argument: map: `from`, `holdMs`?, `moveMs`?, `to`.
+
+- `from` (selector)
+- `holdMs` (integer ≥ 0) - Hold before moving, so the list picks the row up (default 700)
+- `moveMs` (integer ≥ 0) - How long the move takes (default 900)
+- `to` (selector)
+
 ### `inputText`
 
 Type `text` into the element (focusing it first).
@@ -313,6 +324,17 @@ Argument: map (keys below).
 - `retry` (map: `count`, `intervalMs`?)
 - `url` (string) - Absolute, or appended to config.http.baseUrl
 
+### `exec`
+
+Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `VELOCITY_DEVICE_ID` is set for it.
+
+Argument: map: `capture`?, `cwd`?, `expect`?, `run`.
+
+- `capture` (string) - ${NAME} for its trimmed standard output, for later steps
+- `cwd` (string) - Its working directory
+- `expect` (map: `contains`?, `exitCode`?)
+- `run` (string or list of string) - The program and its arguments: a string split on spaces (quotes keep a part whole; no shell) or a list. The program must be in config.exec.allow
+
 ### `do`
 
 Natural-language action: a model picks one action and one element from the screen; the selector is built and checked in code.
@@ -374,13 +396,14 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 - `batch` (boolean) - Share one launch across consecutive tests
 - `dialog` (map)
 - `driver` (one of `device`, `headless`)
+- `exec` (map: `allow`?)
 - `flutter` (map: `hierarchy`?)
 - `framework` (one of `native`, `react_native`, `reactnative`, `rn`, `flutter`)
 - `headless` (map (keys below))
 - `healing` (map: `confidenceThreshold`?, `enabled`?, `mode`?, `persistHealed`?)
 - `http` (map: `baseUrl`?, `headers`?, `insecure`?, `timeoutMs`?)
 - `nl` (map: `allowCrossOrigin`?, `dataPolicy`?)
-- `performance` (map)
+- `performance` (map: `enabled`?, `intervalMs`?, `pssGrowthThresholdPct`?) - Opt-in memory profiling and the memory check (Android only: the other drivers report no memory)
 - `platform` (one of `ios`, `android`, `web`)
 - `reactNative` (map) - Ignored: React Native has no headless renderer (run on a device or simulator)
 - `reset` (map: `appPath`?, `snapshot`?, `strategy`?)
@@ -427,6 +450,10 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 
 - Also read: `enabled`, `maxDismissals`, `customDismissLabels`.
 
+### `config.exec`
+
+- `allow` (list of string) - Programs exec steps may run, exactly as a step names them (adb, ./scripts/seed.sh); exec is off without them
+
 ### `config.flutter`
 
 - `hierarchy` (one of `semantics`, `widgets`) - semantics (default) or widgets (deprecated opt-out)
@@ -467,7 +494,9 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 
 ### `config.performance`
 
-- Also read: `enabled`, `intervalMs`, `heapGrowthThresholdPct`.
+- `enabled` (boolean) - Sample the app's memory and CPU during the run (default false)
+- `intervalMs` (integer ≥ 1) - Sampling interval during long actions, in ms (default 500)
+- `pssGrowthThresholdPct` (integer ≥ 0) - Fail a test whose peak total PSS is more than this percent above its saved baseline (default 15). Only clean passes update the baseline. Was heapGrowthThresholdPct, which still works with a warning
 
 ### `config.reactNative`
 
@@ -552,6 +581,10 @@ Named settings go under `config: settings:` (flat `android.scroll: semantic` or 
 | `web.focusCheck` | 1\|0 | 1 | `VELOCITY_WEB_FOCUS_CHECK` | inputText fails when its click left the focus on something that takes no text (a focused cross-origin iframe counts as unknown and passes, unless it already had the focus before the click) |
 | `web.frames` | 1\|0 | 1 | `VELOCITY_WEB_FRAMES` | Reach into cross-origin iframes: selectors find elements there, taps and typing land there, and their requests count for the network-idle wait (0: such frames are opaque boxes) |
 | `web.visibility` | viewport\|page | viewport | `VELOCITY_WEB_VISIBILITY` | What visible means for web assertions: on screen (in the viewport, not clipped by an overflow ancestor) or anywhere on the page (the old rule) |
+| `web.dialogs` | dismiss\|accept | dismiss | `VELOCITY_WEB_DIALOGS` | How a page's confirm() and prompt() are answered, in the page and in its cross-origin frames (alert() and beforeunload are always accepted); accept lets a suite test a confirm-guarded action |
+| `web.promptText` | text | - | `VELOCITY_WEB_PROMPT_TEXT` | What an accepted prompt() returns (with web.dialogs: accept) |
+| `web.insecureCerts` | 1\|0 | 0 | `VELOCITY_WEB_INSECURE_CERTS` | Accept any TLS certificate in Chrome (a self-signed dev server); off by default, so a network attacker can't serve a page (that a secret is typed into) with a forged certificate |
+| `web.downloads` | deny\|a folder | deny | `VELOCITY_WEB_DOWNLOADS` | Where files the page downloads are saved (relative to the working directory); deny refuses them, with a warning naming the file |
 | `selectors.strict` | 1\|0 | 0 | `VELOCITY_SELECTORS_STRICT` | Fail a tap, press or text entry whose selector matches several elements on screen, listing them (default: act on the first and warn; while unset the warning says 1.0 makes this an error, 0 keeps today's behaviour) |
 | `actionableWaitMs` | ms | 2000 | `VELOCITY_ACTIONABLE_WAIT_MS` | Wait for a tap target to be enabled and still before acting anyway |
 | `crash.watchAfterMs` | ms | 1000 | `VELOCITY_CRASH_WATCH_AFTER_MS` | When a slow post-action settle starts checking the crash log |
