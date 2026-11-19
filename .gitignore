@@ -20,3 +20,11 @@ crates/velocity-inspector/frontend/dist/
 .claude/settings.local.json
 # Velocity's own state (healer snapshots) written by test runs
 .velocity/
+
+# Third-party benchmark harnesses (bench/*/REPRODUCE.md)
+ext/
+bench/.bin/
+
+# AndroidWorld model-call logs: too large for GitHub (160 MB); kept locally
+bench/androidworld/runs/aw-calls*.jsonl
+__pycache__/

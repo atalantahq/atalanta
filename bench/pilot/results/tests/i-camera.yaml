@@ -1,0 +1,22 @@
+appId: com.apple.Preferences
+tests:
+- name: open Camera settings and then Record Video
+  description: open Camera settings and then Record Video
+  steps:
+  - launchApp: {}
+  - tap:
+      id: com.apple.settings.camera
+  - assertVisible:
+      accessibilityId: Photographic Styles
+  - assertVisible:
+      accessibilityId: Record Video
+  - tap:
+      id: CameraVideoSettingsList
+  - assertVisible:
+      accessibilityId: checkmark
+  - assertVisible:
+      id: Record Video
+  - assertVisible:
+      accessibilityId: Camera
+  - assertVisible:
+      accessibilityId: Record Video

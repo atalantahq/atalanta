@@ -23,6 +23,7 @@ import json
 import os
 import pathlib
 import subprocess
+import tempfile
 import time
 from typing import Any
 
@@ -82,6 +83,11 @@ class VelocityConfig:
   min_timeout: float = 120.0
   adb_path: str | None = None
   extra_args: tuple[str, ...] = ()
+  # AndroidWorld's own episode end, checked while Velocity runs (MiniWoB:
+  # the task's episode terminated). When it turns true, Velocity is
+  # stopped and the episode counts as done, as suite_utils.run's
+  # termination_fn ends an agent's episode.
+  stop_when: Any = None
 
 
 @dataclasses.dataclass
@@ -98,6 +104,8 @@ class EpisodeInfo:
   cost_usd: float | None = None
   velocity_seconds: float = 0.0
   answer: str | None = None
+  # The run was stopped because AndroidWorld said the task's episode ended.
+  terminated_by_task: bool = False
   exit_code: int | None = None
   error: str | None = None
   events_file: str | None = None
@@ -135,6 +143,11 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
         '--platform', 'android',
         '--benchmark',
         '--values-from-goal',
+        '--values-from-screen',
+        # Text read from a screenshot (a receipt, a gallery image, a video
+        # frame): tasks that transcribe an image need it. Code can't check
+        # pixels, so it is Velocity's separate opt-in (2026-11-07).
+        '--values-from-screenshots',
         '--apps-file', c.apps_file,
         '--max-steps', str(budget),
         '--timeout', str(timeout),
@@ -154,6 +167,7 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
     return cmd
 
   def step(self, goal: str) -> base_agent.AgentInteractionResult:
+    self.last_goal = goal
     if self._ran:
       # The episode already ran in full; never act twice. Repeat the
       # agent's own verdict: AndroidWorld credits a task only when the agent
@@ -183,15 +197,8 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
     info.events_file = str(events)
     started = time.time()
     try:
-      proc = subprocess.run(
-          self._command(goal, budget, timeout),
-          capture_output=True,
-          text=True,
-          env=env,
-          timeout=timeout + 180,
-          check=False,
-          cwd=str(task_dir),
-      )
+      proc = _run_velocity(self._command(goal, budget, timeout), env, task_dir,
+                           timeout + 180, self.cfg.stop_when, info)
       info.exit_code = proc.returncode
       (task_dir / 'stderr.log').write_text(proc.stderr)
       report = _parse_json(proc.stdout)
@@ -228,11 +235,45 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
       self.env.execute_action(
           json_action.JSONAction(action_type=json_action.ANSWER, text=info.answer)
       )
-    done = info.outcome in DONE_OUTCOMES
+    done = info.outcome in DONE_OUTCOMES or info.terminated_by_task
     self._done = done
     return base_agent.AgentInteractionResult(
         done=done, data={'velocity': dataclasses.asdict(info)}
     )
+
+
+def _run_velocity(cmd, env, cwd, timeout, stop_when, info):
+  """Run Velocity; with `stop_when`, check it every second and stop Velocity
+  with SIGINT (it ends at its next turn as `stopped`, with a report) once
+  it is true. Returns a CompletedProcess-like object."""
+  if stop_when is None:
+    return subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=timeout,
+                          check=False, cwd=str(cwd))
+  import signal  # pylint: disable=g-import-not-at-top
+  out_f = tempfile.TemporaryFile(mode='w+')
+  err_f = tempfile.TemporaryFile(mode='w+')
+  proc = subprocess.Popen(cmd, stdout=out_f, stderr=err_f, text=True, env=env, cwd=str(cwd))
+  deadline = time.time() + timeout
+  stopped_at = None
+  while proc.poll() is None:
+    if time.time() > deadline:
+      proc.kill()
+      proc.wait()
+      raise subprocess.TimeoutExpired(cmd, timeout)
+    if stopped_at is None:
+      try:
+        if stop_when():
+          info.terminated_by_task = True
+          proc.send_signal(signal.SIGINT)
+          stopped_at = time.time()
+      except Exception:  # pylint: disable=broad-exception-caught
+        pass  # a failed check is retried next second
+    elif time.time() - stopped_at > 30:
+      proc.kill()
+    time.sleep(1.0)
+  out_f.seek(0)
+  err_f.seek(0)
+  return subprocess.CompletedProcess(cmd, proc.returncode, out_f.read(), err_f.read())
 
 
 def _close_forwarder_crash_dialog(cfg: VelocityConfig) -> None:

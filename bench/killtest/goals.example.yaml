@@ -1,0 +1,10 @@
+# One entry per goal; copy to goals.yaml and freeze it with PREREG.md.
+goals:
+  - id: shop-01
+    app: example-shop          # a row of PREREG.md's app table
+    login: true
+    goal: "add the first product in Deals to the cart"
+  - id: shop-02
+    app: example-shop
+    login: false
+    goal: "open the store locator and search for 2000"

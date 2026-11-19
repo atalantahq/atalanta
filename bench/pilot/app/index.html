@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pilot Shop</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 560px; margin: 24px auto; }
+  nav button, .row button { margin: 4px; }
+  section { display: none; border-top: 1px solid #ccc; padding-top: 8px; }
+  section.on { display: block; }
+  .plan { border: 1px solid #999; padding: 8px; margin: 6px 0; display: block; }
+</style>
+<script src="bug.js"></script>
+</head>
+<body>
+<h1>Pilot Shop</h1>
+<nav>
+  <button onclick="show('signin')">Sign in</button>
+  <button onclick="show('plans')">Plans</button>
+  <button onclick="show('products')">Products</button>
+  <button onclick="show('search')">Search</button>
+  <button onclick="show('settings')">Settings</button>
+</nav>
+<p id="who">Not signed in</p>
+
+<section id="signin">
+  <h2>Sign in to Pilot Shop</h2>
+  <label for="email">Email</label> <input id="email" type="email" aria-label="Email"><br>
+  <label for="password">Password</label> <input id="password" type="password" aria-label="Password"><br>
+  <button id="signin-go" onclick="signIn()">Log in</button>
+  <p id="signin-msg"></p>
+</section>
+
+<section id="plans">
+  <h2>Choose a plan</h2>
+  <label class="plan"><input type="radio" name="plan" value="Monthly"> Monthly plan, <span id="price-monthly">$9.99</span> a month</label>
+  <label class="plan"><input type="radio" name="plan" value="Yearly"> Yearly plan, <span id="price-yearly">$99</span> a year</label>
+  <button id="plan-go" onclick="choosePlan()">Continue</button>
+  <p id="plan-msg"></p>
+</section>
+
+<section id="products">
+  <h2>Products</h2>
+  <p id="cart">Cart is empty</p>
+  <div class="row">Coffee beans <button aria-label="Add Coffee beans" onclick="add('Coffee beans')">Add to cart</button></div>
+  <div class="row">Green tea <button aria-label="Add Green tea" onclick="add('Green tea')">Add to cart</button></div>
+  <div class="row">Mug <button aria-label="Add Mug" onclick="add('Mug')">Add to cart</button></div>
+</section>
+
+<section id="search">
+  <h2>Search products</h2>
+  <input id="q" aria-label="Search query"> <button id="search-go" onclick="search()">Search</button>
+  <ul id="results"></ul>
+</section>
+
+<section id="settings">
+  <h2>Settings</h2>
+  <label><input type="checkbox" id="dark" onchange="dark()"> Dark mode</label>
+  <p id="dark-msg">Dark mode is off</p>
+  <label><input type="checkbox" id="news" onchange="news()"> Email newsletter</label>
+  <p id="news-msg">Newsletter is off</p>
+</section>
+
+<script>
+const BUG = window.BUG || "none";
+const ITEMS = ["Coffee beans", "Green tea", "Mug", "Mug warmer"];
+const cart = [];
+function show(id) {
+  document.querySelectorAll("section").forEach(s => s.classList.toggle("on", s.id === id));
+}
+function signIn() {
+  const e = document.getElementById("email").value, p = document.getElementById("password").value;
+  const ok = e === "pilot@example.com" && p === "correct-horse-7" && BUG !== "signin";
+  document.getElementById("signin-msg").textContent = ok ? "Welcome back" : "Wrong email or password";
+  if (ok) document.getElementById("who").textContent = "Signed in as " + e;
+}
+function choosePlan() {
+  const c = document.querySelector("input[name=plan]:checked");
+  if (!c) { document.getElementById("plan-msg").textContent = "Pick a plan first"; return; }
+  const name = BUG === "plan" ? "Yearly" : c.value;
+  document.getElementById("plan-msg").textContent = "You chose the " + name + " plan";
+}
+if (BUG === "price") document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("price-yearly").textContent = "$109";
+});
+function add(item) {
+  cart.push(BUG === "cart" ? "Mug" : item);
+  document.getElementById("cart").textContent = "Cart: " + cart.join(", ");
+}
+function search() {
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const hits = BUG === "search" ? [] : ITEMS.filter(i => i.toLowerCase().includes(q));
+  const ul = document.getElementById("results");
+  ul.innerHTML = "";
+  if (!hits.length) { ul.innerHTML = "<li>No products found</li>"; return; }
+  hits.forEach(h => { const li = document.createElement("li"); li.textContent = h; ul.appendChild(li); });
+}
+function dark() {
+  const on = document.getElementById("dark").checked && BUG !== "dark";
+  document.getElementById("dark-msg").textContent = "Dark mode is " + (on ? "on" : "off");
+}
+function news() {
+  const on = document.getElementById("news").checked;
+  document.getElementById("news-msg").textContent = "Newsletter is " + (on ? "on" : "off");
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "web": {
+    "app_id": "http://127.0.0.1:8790/",
+    "goals": [
+      {"id": "w-plan", "goal": "choose the monthly plan and continue", "bug": "plan"},
+      {"id": "w-cart", "goal": "add Green tea to the cart", "bug": "cart"},
+      {"id": "w-search", "goal": "search the products for \"mug\"", "bug": "search"},
+      {"id": "w-dark", "goal": "turn on dark mode in settings", "bug": "dark"},
+      {"id": "w-login", "goal": "sign in with the test account", "bug": "signin", "login": true,
+       "data": ["PILOT_EMAIL"], "secrets": ["PILOT_PASSWORD"]},
+      {"id": "w-price", "goal": "open the plans page and check that the yearly plan costs $99", "bug": "price"}
+    ]
+  },
+  "android": {
+    "app_id": "com.android.settings",
+    "goals": [
+      {"id": "a-internet", "goal": "open Network & internet and then Internet"},
+      {"id": "a-apps", "goal": "open Apps and then the list of all apps"},
+      {"id": "a-display", "goal": "open the Display settings"}
+    ]
+  },
+  "ios": {
+    "app_id": "com.apple.Preferences",
+    "goals": [
+      {"id": "i-about", "goal": "open General and then About"},
+      {"id": "i-camera", "goal": "open Camera settings and then Record Video"}
+    ]
+  }
+}

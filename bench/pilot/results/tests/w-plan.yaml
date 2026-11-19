@@ -1,0 +1,16 @@
+appId: http://127.0.0.1:8790/
+tests:
+- name: choose the monthly plan and continue
+  description: choose the monthly plan and continue
+  steps:
+  - launchApp: {}
+  - tap:
+      text: Plans
+  - assertVisible:
+      text: Choose a plan
+  - tap:
+      text: Monthly plan, $9.99 a month
+  - tap:
+      id: plan-go
+  - assertVisible:
+      text: You chose the Monthly plan
