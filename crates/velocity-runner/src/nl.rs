@@ -132,6 +132,14 @@ fn build_from(
             None
         }
     };
+    // Nothing in the suite asks a model: no resolver. Building one made the
+    // HTTP clients, and with `rustls-tls-native-roots` that loads the
+    // system's trust roots (3-4 s from the macOS keychain, more under
+    // load) on every run of a pure-YAML suite whenever a key was set; the
+    // parallel runner's 1.5 s timeout tests failed on it.
+    if !uses_nl && !verify {
+        return Ok(None);
+    }
     if let Some(s) = &settings {
         tracing::info!("velocity: natural-language model {}", s.label());
     }

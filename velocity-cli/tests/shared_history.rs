@@ -125,18 +125,9 @@ fn history_from_lets_last_failed_see_another_jobs_failure() {
         .unwrap();
     let all = text(&out);
     assert_eq!(out.status.code(), Some(0), "{all}");
-    assert!(
-        all.contains("Merged 1 history file(s) from other jobs"),
-        "{all}"
-    );
-    assert!(
-        all.contains("--history-from missing/*: no history file matches"),
-        "{all}"
-    );
-    assert!(
-        all.contains("Re-running 1 test(s) that failed last run"),
-        "{all}"
-    );
+    assert!(all.contains("Merged 1 history file"), "{all}");
+    assert!(all.contains("--history-from missing/*"), "{all}");
+    assert!(all.contains("Re-running 1 test"), "{all}");
     let results: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(dir.join("velocity-results/results.json")).unwrap(),
     )

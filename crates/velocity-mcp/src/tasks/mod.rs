@@ -44,6 +44,8 @@ pub enum TaskKind {
     Run,
     /// An exploring agent (`velocity explore`): takes injected instructions.
     Explore,
+    /// `velocity verify-change`: a saved flow replayed, or explored and saved.
+    Verify,
 }
 
 impl TaskKind {
@@ -208,7 +210,7 @@ pub struct TaskInfo {
 
 /// How a body ended.
 #[derive(Debug, Clone)]
-pub struct Outcome {
+pub struct TaskOutcome {
     pub state: TaskState,
     pub summary: Option<Summary>,
     pub error: Option<String>,
@@ -241,7 +243,7 @@ pub trait TaskBody: Send + 'static {
     fn kind(&self) -> TaskKind;
     /// Run to the end, or until `ctx.stop` turns true (then end soon,
     /// keeping what was done, with [`TaskState::Stopped`]).
-    async fn run(self: Box<Self>, ctx: TaskContext) -> Outcome;
+    async fn run(self: Box<Self>, ctx: TaskContext) -> TaskOutcome;
 }
 
 /// What the manager needs to start a task.
@@ -330,7 +332,7 @@ impl TaskManager {
         };
         let dir = self.root.join(&id);
         std::fs::create_dir_all(&dir)
-            .map_err(|e| VelocityError::Config(format!("task folder {}: {e}", dir.display())))?;
+            .map_err(|e| VelocityError::io(format!("task folder {}", dir.display()), e))?;
         Ok((id, dir))
     }
 
@@ -384,7 +386,23 @@ impl TaskManager {
         let shared = self.shared.clone();
         let notifiers = self.notifiers.clone();
         let handle = tokio::spawn(async move {
-            let outcome = body.run(ctx).await;
+            // The body runs as its own task so a panic in it ends the task
+            // as `error` instead of leaving it `running` (and its device
+            // "busy") until the server restarts (review 03 H1). A child
+            // process it started is killed with its process group on drop.
+            let outcome = match tokio::spawn(body.run(ctx)).await {
+                Ok(o) => o,
+                Err(e) => TaskOutcome {
+                    state: TaskState::Error,
+                    summary: None,
+                    error: Some(if e.is_panic() {
+                        format!("the task crashed (a Velocity bug): {}", panic_text(e))
+                    } else {
+                        "the task was cancelled".to_string()
+                    }),
+                    exit_code: None,
+                },
+            };
             let done = {
                 let mut inner = lock(&shared);
                 let Some(entry) = inner.tasks.get_mut(&id) else {
@@ -536,11 +554,25 @@ async fn futures_join_all(handles: Vec<tokio::task::JoinHandle<()>>) {
     }
 }
 
+/// What a panicked body said, redacted later with the rest of the error.
+fn panic_text(e: tokio::task::JoinError) -> String {
+    let payload = e.into_panic();
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "no message".into())
+}
+
 /// `<dir>/task.json`, best-effort.
 fn write_task_file(info: &TaskInfo) -> PathBuf {
     let path = info.dir.join("task.json");
     if let Ok(json) = serde_json::to_vec_pretty(info) {
-        let _ = velocity_common::fsutil::write_atomic(&path, &json);
+        // Best-effort, but said: a notifier is handed this path, and
+        // task_status still answers from memory (review 03 L4).
+        if let Err(e) = velocity_common::fsutil::write_atomic(&path, &json) {
+            tracing::warn!("task {}: writing {}: {e}", info.id, path.display());
+        }
     }
     path
 }
@@ -561,7 +593,7 @@ mod tests {
         fn kind(&self) -> TaskKind {
             self.kind
         }
-        async fn run(self: Box<Self>, mut ctx: TaskContext) -> Outcome {
+        async fn run(self: Box<Self>, mut ctx: TaskContext) -> TaskOutcome {
             ctx.set_progress(Progress {
                 test: Some("t".into()),
                 step: Some(1),
@@ -578,7 +610,7 @@ mod tests {
                     Some(i) = async { match ctx.instructions.as_mut() { Some(r) => r.recv().await, None => std::future::pending().await } } => got.push(i.text),
                 }
             };
-            Outcome {
+            TaskOutcome {
                 state,
                 summary: Some(Summary {
                     total: got.len(),
@@ -605,6 +637,47 @@ mod tests {
             tests_total: None,
         };
         m.spawn(id, meta, Box::new(body))
+    }
+
+    /// A body that panics.
+    struct Panics;
+
+    #[async_trait::async_trait]
+    impl TaskBody for Panics {
+        fn kind(&self) -> TaskKind {
+            TaskKind::Run
+        }
+        async fn run(self: Box<Self>, _ctx: TaskContext) -> TaskOutcome {
+            panic!("boom in the body")
+        }
+    }
+
+    // Review 03 H1: a panicking body used to stay `running` and keep its
+    // device busy until the server restarted.
+    #[tokio::test]
+    async fn a_panicking_task_ends_as_an_error_and_frees_its_device() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = manager(tmp.path(), vec![]);
+        let (id, dir) = m.new_task_dir().unwrap();
+        let meta = TaskMeta {
+            target: "suite.yaml".into(),
+            device: Some("emulator-5554".into()),
+            log: dir.join("run.log"),
+            artifacts: dir.join("artifacts"),
+            dir: dir.clone(),
+            tests_total: None,
+        };
+        let info = m.spawn(id, meta, Box::new(Panics));
+        let done = m.wait(&info.id, Duration::from_secs(10)).await.unwrap();
+        assert_eq!(done.state, TaskState::Error, "{done:?}");
+        assert!(done.finished_at_ms.is_some());
+        let err = done.error.unwrap();
+        assert!(
+            err.contains("crashed") && err.contains("boom in the body"),
+            "{err}"
+        );
+        assert_eq!(m.running_on("emulator-5554"), None);
+        assert!(dir.join("task.json").exists());
     }
 
     #[tokio::test]

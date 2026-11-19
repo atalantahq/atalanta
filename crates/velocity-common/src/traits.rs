@@ -194,14 +194,14 @@ pub trait PlatformDriver: Send + Sync {
     /// Save `app_id`'s data on `device_id` as `name` (login, caches,
     /// preferences), for [`Self::restore_app_state`]. Leaves the app stopped.
     async fn save_app_state(&self, _device_id: &str, _app_id: &str, _name: &str) -> Result<()> {
-        Err(crate::VelocityError::Config(
+        Err(crate::VelocityError::Unsupported(
             "saveState isn't supported on this platform".into(),
         ))
     }
 
     /// Put back the data saved as `name`. Leaves the app stopped.
     async fn restore_app_state(&self, _device_id: &str, _app_id: &str, _name: &str) -> Result<()> {
-        Err(crate::VelocityError::Config(
+        Err(crate::VelocityError::Unsupported(
             "restoreState isn't supported on this platform".into(),
         ))
     }
@@ -245,7 +245,7 @@ pub trait PlatformDriver: Send + Sync {
         _app_id: &str,
         _reset: &crate::test_types::ResetConfig,
     ) -> Result<crate::test_types::ResetStrategy> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "this platform only supports the clear reset strategy".into(),
         ))
     }
@@ -259,6 +259,22 @@ pub trait PlatformDriver: Send + Sync {
     async fn swipe(&self, device_id: &str, direction: Direction) -> Result<()>;
     async fn swipe_coords(&self, device_id: &str, from: (i32, i32), to: (i32, i32)) -> Result<()>;
 
+    /// `drag` (row 3.1): press at `from`, hold `hold_ms` (a long press, so a
+    /// list picks the row up), move to `to` over `move_ms`, rest there so the
+    /// list drops it in place instead of flinging, and lift.
+    async fn drag(
+        &self,
+        _device_id: &str,
+        _from: (i32, i32),
+        _to: (i32, i32),
+        _hold_ms: u64,
+        _move_ms: u64,
+    ) -> Result<()> {
+        Err(VelocityError::Unsupported(
+            "drag isn't supported on this platform (Android, iOS and the web are)".into(),
+        ))
+    }
+
     /// Whether the app has requests in flight that the settle should wait
     /// for (web: `web.networkIdle`). Drivers that can't tell say no.
     async fn network_busy(&self, _device_id: &str) -> bool {
@@ -267,7 +283,7 @@ pub trait PlatformDriver: Send + Sync {
 
     /// Answer requests matching `rule` until [`Self::clear_mocks`] (web).
     async fn add_mock(&self, _device_id: &str, _rule: crate::types::MockRule) -> Result<()> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "mockRequest is supported on the web only".into(),
         ))
     }
@@ -279,7 +295,7 @@ pub trait PlatformDriver: Send + Sync {
 
     /// Media and call state for `assertSystemState`.
     async fn system_state(&self, _device_id: &str) -> Result<crate::types::SystemState> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "assertSystemState isn't supported by this driver (it reads an Android device's services)".into(),
         ))
     }
@@ -298,12 +314,12 @@ pub trait PlatformDriver: Send + Sync {
 
     // Raw actions (for WebView / non-accessible UI)
     async fn tap_xy(&self, _device_id: &str, _x: i32, _y: i32) -> Result<()> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "tapXY not supported on this platform".into(),
         ))
     }
     async fn input_raw(&self, _device_id: &str, _text: &str) -> Result<()> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "inputRaw not supported on this platform".into(),
         ))
     }
@@ -344,7 +360,7 @@ pub trait PlatformDriver: Send + Sync {
 
     // Web navigation (web platform only — default impls return a clear error on mobile)
     async fn navigate(&self, _device_id: &str, _url: &str) -> Result<()> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "openLink/goto isn't supported on this platform".into(),
         ))
     }
@@ -354,12 +370,12 @@ pub trait PlatformDriver: Send + Sync {
         None
     }
     async fn go_back(&self, _device_id: &str) -> Result<()> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "goBack isn't supported on this platform (it's the browser's back; on a device use `pressKey: { key: back }`)".into(),
         ))
     }
     async fn refresh_page(&self, _device_id: &str) -> Result<()> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "refresh isn't supported on this platform (it reloads a web page)".into(),
         ))
     }
@@ -371,7 +387,7 @@ pub trait PlatformDriver: Send + Sync {
         _device_id: &str,
         _package: &str,
     ) -> Result<(u64, u64, u64, f32)> {
-        Err(VelocityError::Config(
+        Err(VelocityError::Unsupported(
             "Resource profiling not available on this platform".into(),
         ))
     }

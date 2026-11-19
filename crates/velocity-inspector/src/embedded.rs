@@ -20,6 +20,15 @@ include it. From a source checkout, run `npm ci && npm run build` in \
 crates/velocity-inspector/frontend, then rebuild velocity. The inspector API (/api/...) works \
 without it.";
 
+/// The Content-Security-Policy on the console UI (security I-3): scripts,
+/// styles and connections (fetch, the mirror and task WebSockets) from this
+/// server only; images may also be `data:`/`blob:` (screenshots). React
+/// escapes the device-controlled strings it renders; this is the second
+/// line, so an injected string still could not load or run a script.
+pub const UI_CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self'; \
+img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; \
+base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
 /// The web UI is in this build.
 pub fn ui_available() -> bool {
     FrontendAssets::get("index.html").is_some()
@@ -40,7 +49,10 @@ fn serve(path: &str, get: impl Fn(&str) -> Option<Cow<'static, [u8]>>) -> Respon
         let mime = mime_guess::from_path(path).first_or_octet_stream();
         return (
             StatusCode::OK,
-            [(header::CONTENT_TYPE, mime.as_ref().to_string())],
+            [
+                (header::CONTENT_TYPE, mime.as_ref().to_string()),
+                (header::CONTENT_SECURITY_POLICY, UI_CSP.to_string()),
+            ],
             data.into_owned(),
         )
             .into_response();
@@ -49,7 +61,10 @@ fn serve(path: &str, get: impl Fn(&str) -> Option<Cow<'static, [u8]>>) -> Respon
     match get("index.html") {
         Some(data) => (
             StatusCode::OK,
-            [(header::CONTENT_TYPE, "text/html".to_string())],
+            [
+                (header::CONTENT_TYPE, "text/html".to_string()),
+                (header::CONTENT_SECURITY_POLICY, UI_CSP.to_string()),
+            ],
             data.into_owned(),
         )
             .into_response(),
@@ -84,6 +99,25 @@ mod tests {
         let text = body(r).await;
         assert!(text.contains("npm ci && npm run build"), "{text}");
         assert!(text.contains("frontend/dist"), "{text}");
+    }
+
+    /// Security I-3: the console page and its assets carry a CSP that
+    /// allows scripts from this server only.
+    #[tokio::test]
+    async fn the_ui_is_served_with_a_content_security_policy() {
+        for path in ["/", "/assets/index.js", "/some/spa/route"] {
+            let r = serve(path, |p| {
+                (p == "index.html" || p == "assets/index.js").then(|| Cow::Borrowed(&b"x"[..]))
+            });
+            assert_eq!(r.status(), StatusCode::OK, "{path}");
+            let csp = r
+                .headers()
+                .get(header::CONTENT_SECURITY_POLICY)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default();
+            assert!(csp.contains("script-src 'self'"), "{path}: {csp}");
+            assert!(!csp.contains("unsafe"), "{path}: {csp}");
+        }
     }
 
     /// review-d7 m1: a release build without `dist/` tracked no file

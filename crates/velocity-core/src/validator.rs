@@ -2,6 +2,28 @@ use std::collections::HashSet;
 
 use velocity_common::{Action, Result, Selector, Step, TestSuite, VelocityError};
 
+/// Row 3.2: every `exec` step runs a program `config.exec.allow` lists.
+fn check_exec_allowed(suite: &TestSuite) -> Result<()> {
+    let steps = suite
+        .tests
+        .iter()
+        .map(|t| (t.name.as_str(), &t.steps))
+        .chain(suite.flows.iter().map(|f| (f.id.as_str(), &f.steps)));
+    for (name, steps) in steps {
+        for (i, step) in steps.iter().enumerate() {
+            if let Action::Exec(e) = &step.action {
+                if let Some(why) = e.refused_by(suite.config.exec.as_ref()) {
+                    return Err(at_source(
+                        step,
+                        VelocityError::Config(format!("{name} step {}: {why}", i + 1)),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn validate_suite(suite: &TestSuite) -> Result<()> {
     validate_suite_at(suite, &std::collections::HashMap::new())
 }
@@ -14,6 +36,7 @@ pub fn validate_suite_at(
     tests: &std::collections::HashMap<String, velocity_common::SourcePos>,
 ) -> Result<()> {
     validate_structure_at(suite, tests)?;
+    check_exec_allowed(suite)?;
     if let Some(platform) = suite.config.platform {
         check_platform_selectors(suite, platform)?;
     }
@@ -534,6 +557,9 @@ fn validate_step(
             }
         }
         Action::ClearMocks => {}
+        // The allow-list needs the suite's config: checked in
+        // `check_exec_allowed`.
+        Action::Exec(_) => {}
         Action::Http(req) => {
             velocity_api::validate(req).map_err(|e| {
                 VelocityError::Config(format!("{context_name} step {step_index}: http: {e}"))
@@ -568,6 +594,10 @@ fn validate_step(
         }
         Action::LongPress { selector, .. } => {
             validate_selector(selector, context_name, step_index)?;
+        }
+        Action::Drag { from, to, .. } => {
+            validate_selector(from, context_name, step_index)?;
+            validate_selector(to, context_name, step_index)?;
         }
         Action::InputText { selector, .. } => {
             validate_selector(selector, context_name, step_index)?;

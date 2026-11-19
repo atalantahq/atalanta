@@ -47,6 +47,11 @@ pub enum DeviceCommand {
         /// First emulator console port to try
         #[arg(long, default_value_t = velocity_android::emulator::FIRST_PORT)]
         port: u16,
+
+        /// Who these devices belong to; `devices down` stops only its own
+        /// [default: $VELOCITY_OWNER, else the CI job id, else none]
+        #[arg(long, value_name = "ID")]
+        owner: Option<String>,
     },
 
     /// Stop the devices `up` started (nothing else)
@@ -58,6 +63,15 @@ pub enum DeviceCommand {
         /// Also delete the simulator clones Velocity created
         #[arg(long)]
         delete: bool,
+
+        /// Stop only the devices `up` started for this owner
+        /// [default: $VELOCITY_OWNER, else the CI job id, else none]
+        #[arg(long, value_name = "ID", conflicts_with = "all")]
+        owner: Option<String>,
+
+        /// Stop the devices every owner started (another CI job's too)
+        #[arg(long)]
+        all: bool,
     },
 
     /// List available devices
@@ -138,6 +152,7 @@ pub async fn execute(command: DeviceCommand) -> anyhow::Result<i32> {
             app,
             app_id,
             port,
+            owner,
         } => {
             super::provision::up(super::provision::UpArgs {
                 android,
@@ -148,13 +163,25 @@ pub async fn execute(command: DeviceCommand) -> anyhow::Result<i32> {
                 app,
                 app_id,
                 port,
+                owner,
             })
             .await
         }
 
-        DeviceCommand::Down { platform, delete } => {
+        DeviceCommand::Down {
+            platform,
+            delete,
+            owner,
+            all,
+        } => {
             let p = platform.as_deref().map(parse_platform).transpose()?;
-            super::provision::down(p, delete).await
+            super::provision::down(super::provision::DownArgs {
+                platform: p,
+                delete,
+                owner,
+                all,
+            })
+            .await
         }
 
         DeviceCommand::List { platform } => {

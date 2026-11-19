@@ -28,7 +28,7 @@
 //!   never an empty value (an empty `/source` read as an empty screen).
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use base64::Engine;
@@ -81,9 +81,27 @@ fn accessibility_deadline_ms(wda_ref: Option<&str>) -> u64 {
 /// `ios.snapshotMaxDepth` default (D-37): Maestro's 60.
 const DEFAULT_SNAPSHOT_MAX_DEPTH: u64 = 60;
 
+/// A client's session id and auth as last set, shared with readers that
+/// must not wait for the client's lock ([`WdaClient::published`]).
+#[derive(Clone)]
+pub struct Published(Arc<std::sync::Mutex<(Option<String>, RunnerAuth)>>);
+
+impl Published {
+    /// The session id and auth now.
+    pub fn get(&self) -> (Option<String>, RunnerAuth) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 pub struct WdaClient {
     base_url: String,
+    /// The device's UDID, carried into transport errors (review 03 L2);
+    /// empty until [`Self::set_device_id`].
+    device_id: String,
     session_id: Option<String>,
+    /// The session id and auth, readable without the device's request lock
+    /// (see [`Self::published`]).
+    published: Published,
     client: Client,
     /// The per-call deadline `client` was built with (kept to rebuild it
     /// with other [`RunnerAuth`]).
@@ -141,6 +159,14 @@ pub struct RunnerAuth {
     pub host: Option<String>,
 }
 
+/// A client for the iOS runner (WebDriverAgent or VelocityRunner). It never
+/// goes through a proxy: the runner is on loopback, a usbmuxd forward or the
+/// local network, and `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` set for the
+/// AI providers or `http` steps must not capture it (ENT-062).
+pub fn runner_client() -> reqwest::ClientBuilder {
+    Client::builder().no_proxy()
+}
+
 /// `Authorization: Bearer <token>` (marked sensitive, so it is never
 /// logged) and the `Host` override, as default headers for every request.
 pub(crate) fn runner_headers(auth: &RunnerAuth) -> reqwest::header::HeaderMap {
@@ -175,6 +201,16 @@ impl WdaClient {
         self.wda_ref.as_deref()
     }
 
+    /// Name the device this client drives, for its error messages.
+    pub fn set_device_id(&mut self, device_id: &str) {
+        self.device_id = device_id.to_string();
+    }
+
+    /// The UDID set by [`Self::set_device_id`] (empty if never set).
+    pub fn device_id(&self) -> &str {
+        &self.device_id
+    }
+
     pub fn new(base_url: &str) -> Self {
         // A hard cap per call: XCTest can retry an accessibility IPC
         // timeout for minutes (appium#19382).
@@ -192,7 +228,9 @@ impl WdaClient {
         };
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
+            device_id: String::new(),
             session_id: None,
+            published: Published(Arc::new(std::sync::Mutex::new((None, auth.clone())))),
             client: Self::http(timeout, &auth),
             timeout,
             auth,
@@ -206,7 +244,7 @@ impl WdaClient {
     }
 
     fn http(timeout: Duration, auth: &RunnerAuth) -> Client {
-        Client::builder()
+        runner_client()
             .pool_max_idle_per_host(4)
             .pool_idle_timeout(Duration::from_secs(60))
             .tcp_keepalive(Duration::from_secs(30))
@@ -214,7 +252,7 @@ impl WdaClient {
             .timeout(timeout)
             .default_headers(runner_headers(auth))
             .build()
-            .unwrap_or_else(|_| Client::new())
+            .unwrap_or_else(|_| runner_client().build().unwrap_or_default())
     }
 
     /// Send `auth` on every request from now on (the runner was launched,
@@ -223,7 +261,21 @@ impl WdaClient {
         if auth != self.auth {
             self.client = Self::http(self.timeout, &auth);
             self.auth = auth;
+            self.publish();
         }
+    }
+
+    /// A handle that always reads this client's current session id and
+    /// auth. The crash watcher polls through it: it used to take the
+    /// device's request lock every tick, so a 30 s `/source` held crash
+    /// detection up for as long (review 01 #9).
+    pub fn published(&self) -> Published {
+        self.published.clone()
+    }
+
+    fn publish(&self) {
+        *self.published.0.lock().unwrap_or_else(|e| e.into_inner()) =
+            (self.session_id.clone(), self.auth.clone());
     }
 
     /// What every request carries (see [`Self::set_auth`]).
@@ -258,10 +310,12 @@ impl WdaClient {
 
     pub fn set_session_id(&mut self, id: String) {
         self.session_id = Some(id);
+        self.publish();
     }
 
     pub fn set_session_id_opt(&mut self, id: Option<String>) {
         self.session_id = id;
+        self.publish();
         *self.screen_size.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.status_bar.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
@@ -402,6 +456,7 @@ impl WdaClient {
             }
             self.busy_streak.store(0, Ordering::Relaxed);
             return VelocityError::WdaUnreachable {
+                device_id: self.device_id.clone(),
                 url: self.base_url.clone(),
                 detail: format!(
                     "{what}: no answer {streak} times in a row though WDA still answers; \
@@ -432,18 +487,22 @@ impl WdaClient {
     /// failures, so a WDA that hung or died mid-request was never restarted).
     fn transport_error(&self, what: &str, e: reqwest::Error, replay: bool) -> VelocityError {
         let url = self.base_url.clone();
+        let device_id = self.device_id.clone();
         if e.is_connect() {
             VelocityError::WdaUnreachable {
+                device_id,
                 url,
                 detail: format!("{what}: connection refused ({})", chain(&e)),
             }
         } else if replay {
             VelocityError::WdaUnreachable {
+                device_id,
                 url,
                 detail: format!("{what}: connection lost ({})", chain(&e)),
             }
         } else {
             VelocityError::WdaLost {
+                device_id,
                 url,
                 detail: format!("{what}: {}", chain(&e)),
             }
@@ -667,6 +726,43 @@ impl WdaClient {
         .map(|_| ())
     }
 
+    /// An element's frame, `(x, y, width, height)` in points.
+    pub async fn element_rect(&self, element_id: &str) -> Result<(f64, f64, f64, f64)> {
+        let url = format!("{}/element/{}/rect", self.session_url()?, element_id);
+        let v = self.call(self.client.get(&url), "element rect").await?;
+        let n = |k: &str| v.get(k).and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+        Ok((n("x"), n("y"), n("width"), n("height")))
+    }
+
+    /// An element's `value` attribute (a picker wheel's current value).
+    pub async fn element_value(&self, element_id: &str) -> Result<String> {
+        let url = format!(
+            "{}/element/{}/attribute/value",
+            self.session_url()?,
+            element_id
+        );
+        let v = self.call(self.client.get(&url), "element value").await?;
+        Ok(v.as_str().unwrap_or("").to_string())
+    }
+
+    /// Turn a picker wheel one step, `order` "next" or "previous" (WDA's
+    /// `/wda/pickerwheel/:uuid/select`).
+    pub async fn picker_step(&self, element_id: &str, order: &str) -> Result<()> {
+        let url = format!(
+            "{}/wda/pickerwheel/{}/select",
+            self.session_url()?,
+            element_id
+        );
+        self.call(
+            self.client
+                .post(&url)
+                .json(&json!({ "order": order, "offset": 0.15 })),
+            "picker wheel step",
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// Clear an element's text content.
     pub async fn clear(&self, element_id: &str) -> Result<()> {
         let url = format!("{}/element/{}/clear", self.session_url()?, element_id);
@@ -714,6 +810,27 @@ impl WdaClient {
         // Anything but XML text is an unreadable screen, not an empty one
         // (VEL-145).
         match value {
+            Value::String(xml) => Ok(xml),
+            other => Err(self.failed(
+                "source",
+                format!(
+                    "source is not XML text: {}",
+                    snippet(other.to_string().as_bytes())
+                ),
+            )),
+        }
+    }
+
+    /// The hierarchy with WDA's `visible` (XCTest's own visibility, not
+    /// the frame): asked for only while a modal layer is up (see
+    /// `IosDriver::with_visibility`), as it costs ~10x a plain read.
+    pub async fn get_source_with_visibility(&self) -> Result<String> {
+        let base = match self.session_url() {
+            Ok(s) => s,
+            Err(_) => self.base_url.clone(),
+        };
+        let url = format!("{base}/source?excluded_attributes=accessible");
+        match self.call(self.client.get(&url), "source").await? {
             Value::String(xml) => Ok(xml),
             other => Err(self.failed(
                 "source",
@@ -824,7 +941,24 @@ impl WdaClient {
             .map_err(|e| self.failed("screenshot", format!("undecodable base64: {e}")))
     }
 
-    /// The window size in points, cached for the session.
+    /// The app's frame as the tree just read it (`width` × `height` in
+    /// points). A cached window size the other way round is from before a
+    /// rotation (an app that turns itself, or a reused session on a
+    /// simulator rotated since) and is dropped, so the back swipe, direction
+    /// swipes and the status bar are measured on the screen as it is now
+    /// (review 09 #9). An empty frame says nothing.
+    pub fn note_app_frame(&self, width: i32, height: i32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        let mut cached = self.screen_size.lock().unwrap_or_else(|e| e.into_inner());
+        if cached.is_some_and(|(w, h)| (w > h) != (width > height)) {
+            *cached = None;
+        }
+    }
+
+    /// The window size in points, cached for the session (until a tree
+    /// read shows the app turned: [`Self::note_app_frame`]).
     pub async fn get_screen_size(&self) -> Result<(i32, i32)> {
         if let Some(size) = *self.screen_size.lock().unwrap_or_else(|e| e.into_inner()) {
             return Ok(size);
@@ -889,6 +1023,55 @@ impl WdaClient {
         };
         *self.status_bar.lock().unwrap_or_else(|e| e.into_inner()) = Some((screen, h));
         h
+    }
+
+    /// `drag` (row 3.1): press, hold `hold_ms`, move over `move_ms`, rest
+    /// at the end, lift. W3C actions; without them `dragfromtoforduration`,
+    /// whose duration is the press before the move.
+    pub async fn drag_hold(
+        &self,
+        from: (f64, f64),
+        to: (f64, f64),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        if !self.no_actions.load(Ordering::Relaxed) {
+            let url = format!("{}/actions", self.session_url()?);
+            let payload = json!({ "actions": [{
+                "type": "pointer", "id": "finger1",
+                "parameters": { "pointerType": "touch" },
+                "actions": [
+                    { "type": "pointerMove", "duration": 0, "x": from.0, "y": from.1 },
+                    { "type": "pointerDown" },
+                    { "type": "pause", "duration": hold_ms },
+                    { "type": "pointerMove", "duration": move_ms, "x": to.0, "y": to.1 },
+                    { "type": "pause", "duration": 250 },
+                    { "type": "pointerUp" }
+                ]
+            }]});
+            let reply = self
+                .send(self.client.post(&url).json(&payload), "drag")
+                .await?;
+            if reply.ok() {
+                return Ok(());
+            }
+            let detail = Self::extract_error(&reply.body);
+            let unsupported = matches!(reply.code(), "unknown command" | "unknown method")
+                || detail.contains("nhandled endpoint")
+                || detail.contains("nknown command");
+            if !unsupported {
+                return Err(self.w3c_error("drag", &reply));
+            }
+            self.no_actions.store(true, Ordering::Relaxed);
+        }
+        let url = format!("{}/wda/dragfromtoforduration", self.session_url()?);
+        let payload = json!({
+            "fromX": from.0, "fromY": from.1, "toX": to.0, "toY": to.1,
+            "duration": hold_ms as f64 / 1000.0
+        });
+        self.call(self.client.post(&url).json(&payload), "drag")
+            .await
+            .map(|_| ())
     }
 
     /// Perform a swipe (drag) gesture from one point to another over a duration.
@@ -1390,6 +1573,20 @@ mod tests {
         }
     }
 
+    /// Review 09 #9: a tree read the other way round drops the cached
+    /// window size; the same orientation (or an empty frame) keeps it.
+    #[test]
+    fn a_rotated_app_frame_drops_the_cached_window_size() {
+        let c = WdaClient::new("http://127.0.0.1:1");
+        let cached = || *c.screen_size.lock().unwrap();
+        *c.screen_size.lock().unwrap() = Some((402, 874));
+        c.note_app_frame(402, 874);
+        c.note_app_frame(0, 0);
+        assert_eq!(cached(), Some((402, 874)));
+        c.note_app_frame(874, 402);
+        assert_eq!(cached(), None);
+    }
+
     /// wifi-runner: the token goes out as a sensitive bearer header.
     #[test]
     fn the_runner_token_is_a_sensitive_bearer_header() {
@@ -1478,6 +1675,24 @@ mod tests {
     fn test_extract_element_id_missing() {
         let value = json!({});
         assert!(extract_element_id(&value).is_err());
+    }
+
+    /// Review 01 #9: the crash watcher reads the session through this
+    /// handle, never the device's request lock.
+    #[test]
+    fn the_published_session_follows_the_client() {
+        let mut client = WdaClient::new("http://127.0.0.1:1");
+        let seen = client.published();
+        assert_eq!(seen.get().0, None);
+        client.set_session_id("s1".into());
+        assert_eq!(seen.get().0.as_deref(), Some("s1"));
+        client.set_auth(RunnerAuth {
+            token: Some("t".into()),
+            host: None,
+        });
+        assert_eq!(seen.get().1.token.as_deref(), Some("t"));
+        client.set_session_id_opt(None);
+        assert_eq!(seen.get().0, None);
     }
 
     #[test]

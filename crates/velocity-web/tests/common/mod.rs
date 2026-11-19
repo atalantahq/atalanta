@@ -121,11 +121,42 @@ where
     false
 }
 
-/// Skips the calling test when there is no Chrome.
+/// Waits (as [`eventually`]) until `s` is found, in the page or one of
+/// its frames: a frame that is still loading, instead of a fixed sleep
+/// (review 07 M9). Whether it was.
+pub async fn wait_found(d: &WebDriver, s: &str) -> bool {
+    eventually(|| async { d.find_element("web", &css(s)).await.is_ok() }).await
+}
+
+/// Whether a missing Chrome must fail the tests instead of skipping them:
+/// on a CI server, or with `VELOCITY_TEST_STRICT=1`, unless
+/// `VELOCITY_TEST_WEB=0` turned the web tests off on purpose. A runner
+/// image that lost Chrome turned ~150 tests into vacuous passes
+/// (review 07 M6).
+pub fn chrome_required() -> bool {
+    if matches!(
+        std::env::var("VELOCITY_TEST_WEB").as_deref(),
+        Ok("0") | Ok("false")
+    ) {
+        return false;
+    }
+    let strict =
+        std::env::var("VELOCITY_TEST_STRICT").is_ok_and(|v| velocity_common::env::ci_flag(&v));
+    strict || velocity_common::env::in_ci_with(|k| std::env::var(k).ok())
+}
+
+/// Skips the calling test when there is no Chrome; fails it instead when
+/// Chrome is required ([`chrome_required`]).
 #[macro_export]
 macro_rules! require_chrome {
     () => {
         if !common::chrome_available() {
+            if common::chrome_required() {
+                panic!(
+                    "no Chrome binary on a CI server (or with VELOCITY_TEST_STRICT=1): \
+                     install Chrome, set CHROME_PATH, or VELOCITY_TEST_WEB=0 to skip"
+                );
+            }
             eprintln!("skipped: no Chrome binary (or VELOCITY_TEST_WEB=0)");
             return;
         }

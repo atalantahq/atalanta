@@ -204,8 +204,7 @@ pub fn inspect(artifacts: &Path, args: &Value) -> Result<Inspected> {
                     i + 1
                 ))
             })?;
-            let bytes = std::fs::read(&shot)
-                .map_err(|e| VelocityError::Config(format!("{}: {e}", shot.display())))?;
+            let bytes = std::fs::read(&shot).map_err(|e| VelocityError::io(shot.display(), e))?;
             let root_width = s
                 .trees
                 .first()
@@ -288,6 +287,12 @@ pub fn overlay(png_bytes: &[u8], point: (i32, i32), tree_width: Option<i32>) -> 
         png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
     );
     let mut reader = decoder.read_info().ok()?;
+    // A header claiming a huge size would abort on allocation (audit
+    // 2026-11 CORE-2).
+    let (w, h) = (reader.info().width, reader.info().height);
+    if u64::from(w) * u64::from(h) > velocity_core::visual::MAX_PNG_PIXELS {
+        return None;
+    }
     let mut buf = vec![0; reader.output_buffer_size()?];
     let info = reader.next_frame(&mut buf).ok()?;
     buf.truncate(info.buffer_size());

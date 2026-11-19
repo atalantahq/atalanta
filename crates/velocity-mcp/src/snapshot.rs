@@ -23,6 +23,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use velocity_common::selector_build::{robust_selector, synthetic_id};
 use velocity_common::{Element, Platform, Rect, Result, Selector, VelocityError};
@@ -33,7 +34,7 @@ const MAX_TEXT: usize = 80;
 /// What makes an element the same element across snapshots: its kind and
 /// id, or, without an id, its kind, text and label; then which of its
 /// twins it is.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 struct Identity {
     kind: String,
     id: String,
@@ -44,7 +45,7 @@ struct Identity {
 }
 
 /// An element as the last snapshot showed it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct Shown {
     identity: Identity,
     /// It had twins: it must also be where it was to be the same one.
@@ -64,12 +65,51 @@ pub struct Snapshots {
     last: Option<BTreeMap<u64, Shown>>,
 }
 
+/// [`Snapshots`] as saved between `velocity` agent commands: each runs in
+/// its own process, and refs must mean the same element across them.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct SnapshotState {
+    platform: Option<Platform>,
+    next: u64,
+    refs: Vec<(Identity, u64)>,
+    last: Option<Vec<(u64, Shown)>>,
+}
+
+impl Snapshots {
+    pub fn to_state(&self) -> SnapshotState {
+        SnapshotState {
+            platform: self.platform,
+            next: self.next,
+            refs: self.refs.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            last: self
+                .last
+                .as_ref()
+                .map(|m| m.iter().map(|(k, v)| (*k, v.clone())).collect()),
+        }
+    }
+
+    pub fn from_state(state: SnapshotState) -> Self {
+        Self {
+            platform: state.platform,
+            next: state.next,
+            refs: state.refs.into_iter().collect(),
+            last: state.last.map(|v| v.into_iter().collect()),
+        }
+    }
+}
+
 /// How to render.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Options {
     pub delta: bool,
     pub json: bool,
     pub bounds: bool,
+    /// Only elements inside this element (`@e12`): a list, a dialog, a form.
+    pub within: Option<String>,
+    /// Only elements whose line contains this text (any case).
+    pub find: Option<String>,
+    /// At most this many lines; the snapshot then says it is incomplete.
+    pub limit: Option<usize>,
 }
 
 impl Options {
@@ -84,11 +124,47 @@ impl Options {
                 ))),
             }
         };
+        let text = |key: &str| -> Result<Option<String>> {
+            match args.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::String(s)) if !s.trim().is_empty() => Ok(Some(s.trim().to_string())),
+                Some(v) => Err(VelocityError::Config(format!(
+                    "'{key}' must be a non-empty string, got {v}"
+                ))),
+            }
+        };
+        let within = text("within")?;
+        if let Some(w) = &within {
+            if !is_snapshot_ref(w) {
+                return Err(VelocityError::Config(format!(
+                    "'within' must be a snapshot ref like @e12, got {w:?}"
+                )));
+            }
+        }
+        let limit = match args.get("limit") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_u64() {
+                Some(n) if n > 0 => Some(n as usize),
+                _ => {
+                    return Err(VelocityError::Config(format!(
+                        "'limit' must be a positive integer, got {v}"
+                    )))
+                }
+            },
+        };
         Ok(Self {
             delta: pick("mode", &["full", "delta"], "full")? == "delta",
             json: pick("format", &["text", "json"], "text")? == "json",
             bounds: args.get("bounds").and_then(Value::as_bool).unwrap_or(false),
+            within,
+            find: text("find")?.map(|f| f.to_lowercase()),
+            limit,
         })
+    }
+
+    /// Whether any filter narrows what is printed.
+    fn narrowed(&self) -> bool {
+        self.within.is_some() || self.find.is_some() || self.limit.is_some()
     }
 }
 
@@ -97,8 +173,12 @@ fn short_kind(t: &str) -> &str {
     t.rsplit(['.', ':']).next().unwrap_or(t)
 }
 
-/// The id an app set (its short form), not a driver-made one.
+/// The id an app set (its short form), not a driver-made one. On the web,
+/// the page's `id` attribute when it has one (what `id=…` matches).
 fn app_id(e: &Element) -> Option<&str> {
+    if let Some(d) = e.dom_id.as_deref().filter(|d| !d.is_empty()) {
+        return Some(d);
+    }
     let id = e.platform_id.as_str();
     if id.is_empty() || synthetic_id(id) {
         return None;
@@ -169,20 +249,34 @@ fn collect<'a>(tree: &'a Element, screen: Option<&Rect>) -> Vec<(Identity, bool,
     }
     let mut nodes = Vec::new();
     walk(tree, screen, &mut nodes);
-    // An element with an id is that id (its text is its content: a field's
-    // value, a counter); one without is its text and label.
+    // An element with a unique id is that id: its text is its content (a
+    // field's value, a counter), so typing keeps its ref. Ids that repeat
+    // (every list row's `#title`) don't name one element, so those, like
+    // elements without an id, are also their text and label: otherwise
+    // after a navigation `@e9` would silently move from the row "Apps" to
+    // whatever row now sits ninth, and an agent acting on what it saw a
+    // moment ago would tap the wrong thing.
+    let mut id_count: HashMap<(String, String), usize> = HashMap::new();
+    for e in &nodes {
+        if let Some(id) = app_id(e) {
+            *id_count
+                .entry((short_kind(&e.element_type).to_string(), id.to_string()))
+                .or_default() += 1;
+        }
+    }
     let base = |e: &Element| {
+        let kind = short_kind(&e.element_type).to_string();
         let id = app_id(e).unwrap_or("").to_string();
-        let keyed = !id.is_empty();
+        let unique_id = !id.is_empty() && id_count.get(&(kind.clone(), id.clone())) == Some(&1);
         let content = |v: Option<&str>| {
-            if keyed {
+            if unique_id {
                 String::new()
             } else {
                 nonempty(v).unwrap_or("").to_string()
             }
         };
         Identity {
-            kind: short_kind(&e.element_type).to_string(),
+            kind,
             text: content(e.text.as_deref()),
             label: content(e.label.as_deref()),
             id,
@@ -289,7 +383,10 @@ fn render(r: u64, e: &Element, bounds: bool) -> (String, Value) {
 
 impl Snapshots {
     /// Snapshot `tree`; with `delta`, only what changed since the last one.
-    pub fn take(&mut self, tree: &Element, screen: Option<&Rect>, opts: Options) -> Value {
+    ///
+    /// `within`, `find` and `limit` narrow what is printed, never what is
+    /// remembered: the next delta and every ref still see the whole screen.
+    pub fn take(&mut self, tree: &Element, screen: Option<&Rect>, opts: Options) -> Result<Value> {
         let mut now: BTreeMap<u64, Shown> = BTreeMap::new();
         for (identity, twin, e) in collect(tree, screen) {
             let r = match self.refs.get(&identity) {
@@ -312,21 +409,76 @@ impl Snapshots {
                 },
             );
         }
+        // The region `within` names, on the screen as it is now.
+        let within_ref: Option<u64> = opts
+            .within
+            .as_deref()
+            .and_then(|w| w.trim().strip_prefix("@e"))
+            .and_then(|n| n.parse().ok());
+        let region = match &opts.within {
+            None => None,
+            Some(w) => {
+                match within_ref.and_then(|n| now.get(&n)) {
+                    Some(s) => Some(s.bounds),
+                    None => {
+                        return Err(VelocityError::StaleRef(format!(
+                            "within {w}: that element is not on screen now; take a snapshot and use a current ref"
+                        )))
+                    }
+                }
+            }
+        };
+        let keep = |r: u64, s: &Shown| -> bool {
+            let inside = region.is_none_or(|g| {
+                Some(r) != within_ref
+                    && s.bounds.x >= g.x
+                    && s.bounds.y >= g.y
+                    && s.bounds.x + s.bounds.width <= g.x + g.width
+                    && s.bounds.y + s.bounds.height <= g.y + g.height
+            });
+            let found = opts
+                .find
+                .as_deref()
+                .is_none_or(|f| s.line.to_lowercase().contains(f));
+            inside && found
+        };
         let size = screen.map(|s| format!("{}x{}, ", s.width, s.height));
         let previous = self.last.replace(now);
         let now = self.last.as_ref().expect("just set");
-        let header = format!("# {}{} elements", size.unwrap_or_default(), now.len());
-        match previous.filter(|_| opts.delta) {
+        let mut header = format!("# {}{} elements", size.unwrap_or_default(), now.len());
+        let limit = opts.limit.unwrap_or(usize::MAX);
+        Ok(match previous.filter(|_| opts.delta) {
             None => {
                 let note = opts
                     .delta
                     .then_some("no earlier snapshot in this session: full snapshot");
+                let matching: Vec<&Shown> = now
+                    .iter()
+                    .filter(|(r, s)| keep(**r, s))
+                    .map(|(_, s)| s)
+                    .collect();
+                let total = matching.len();
+                let shown: Vec<&Shown> = matching.into_iter().take(limit).collect();
+                let complete = shown.len() == total;
+                if opts.narrowed() {
+                    header.push_str(&format!(", {} shown", shown.len()));
+                    if !complete {
+                        header.push_str(&format!(
+                            "; incomplete: {} more match (narrow with within or find, or raise limit)",
+                            total - shown.len()
+                        ));
+                    }
+                }
                 if opts.json {
                     let mut v = serde_json::json!({
                         "mode": "full",
                         "count": now.len(),
-                        "elements": now.values().map(|s| s.json.clone()).collect::<Vec<_>>(),
+                        "elements": shown.iter().map(|s| s.json.clone()).collect::<Vec<_>>(),
                     });
+                    if opts.narrowed() {
+                        v["shown"] = shown.len().into();
+                        v["complete"] = complete.into();
+                    }
                     if let Some(n) = note {
                         v["note"] = n.into();
                     }
@@ -336,7 +488,7 @@ impl Snapshots {
                     if let Some(n) = note {
                         lines.push(format!("# {n}"));
                     }
-                    lines.extend(now.values().map(|s| s.line.clone()));
+                    lines.extend(shown.iter().map(|s| s.line.clone()));
                     Value::String(lines.join("\n"))
                 }
             }
@@ -344,43 +496,84 @@ impl Snapshots {
                 let added: Vec<&Shown> = now
                     .iter()
                     .filter(|(r, _)| !before.contains_key(r))
+                    .filter(|(r, s)| keep(**r, s))
                     .map(|(_, s)| s)
                     .collect();
                 let removed: Vec<(&u64, &Shown)> = before
                     .iter()
                     .filter(|(r, _)| !now.contains_key(r))
+                    .filter(|(r, s)| keep(**r, s))
                     .collect();
                 let changed: Vec<&Shown> = now
                     .iter()
                     .filter(|(r, s)| before.get(r).is_some_and(|b| b.line != s.line))
+                    .filter(|(r, s)| keep(**r, s))
                     .map(|(_, s)| s)
                     .collect();
-                let same = now.len() - added.len() - changed.len();
+                let all_added = now.keys().filter(|r| !before.contains_key(r)).count();
+                let all_changed = now
+                    .iter()
+                    .filter(|(r, s)| before.get(r).is_some_and(|b| b.line != s.line))
+                    .count();
+                let same = now.len() - all_added - all_changed;
+                let total = added.len() + removed.len() + changed.len();
+                let complete = total <= limit;
+                // Additions first, then removals, then changes, up to the limit.
+                let mut budget = limit;
+                let mut cap = |n: usize| {
+                    let k = n.min(budget);
+                    budget -= k;
+                    k
+                };
+                let (na, nr, nc) = (cap(added.len()), cap(removed.len()), cap(changed.len()));
                 if opts.json {
-                    serde_json::json!({
+                    let mut v = serde_json::json!({
                         "mode": "delta",
                         "count": now.len(),
                         "unchanged": same,
-                        "added": added.iter().map(|s| s.json.clone()).collect::<Vec<_>>(),
-                        "removed": removed.iter().map(|(r, _)| format!("@e{r}")).collect::<Vec<_>>(),
-                        "changed": changed.iter().map(|s| s.json.clone()).collect::<Vec<_>>(),
-                    })
-                } else if added.is_empty() && removed.is_empty() && changed.is_empty() {
-                    Value::String(format!("{header}; no change since the last snapshot"))
+                        "added": added.iter().take(na).map(|s| s.json.clone()).collect::<Vec<_>>(),
+                        "removed": removed.iter().take(nr).map(|(r, _)| format!("@e{r}")).collect::<Vec<_>>(),
+                        "changed": changed.iter().take(nc).map(|s| s.json.clone()).collect::<Vec<_>>(),
+                    });
+                    if opts.narrowed() {
+                        v["complete"] = complete.into();
+                    }
+                    v
+                } else if total == 0 {
+                    let scope = if opts.narrowed() {
+                        " in the part shown"
+                    } else {
+                        ""
+                    };
+                    Value::String(format!(
+                        "{header}; no change{scope} since the last snapshot"
+                    ))
                 } else {
-                    let mut lines = vec![format!(
+                    let mut first = format!(
                         "{header}; delta: +{} -{} ~{} ({same} unchanged)",
                         added.len(),
                         removed.len(),
                         changed.len()
-                    )];
-                    lines.extend(added.iter().map(|s| format!("+ {}", s.line)));
-                    lines.extend(removed.iter().map(|(_, s)| format!("- {}", s.line)));
-                    lines.extend(changed.iter().map(|s| format!("~ {}", s.line)));
+                    );
+                    if !complete {
+                        first.push_str(&format!(
+                            "; incomplete: {} more lines (raise limit)",
+                            total - na - nr - nc
+                        ));
+                    }
+                    let mut lines = vec![first];
+                    lines.extend(added.iter().take(na).map(|s| format!("+ {}", s.line)));
+                    lines.extend(
+                        removed
+                            .iter()
+                            .take(nr)
+                            .map(|(_, s)| format!("- {}", s.line)),
+                    );
+                    lines.extend(changed.iter().take(nc).map(|s| format!("~ {}", s.line)));
                     Value::String(lines.join("\n"))
                 }
             }
-        }
+        })
     }
 
     /// The selector `@eN` stands for on `tree` now: built in code for the
@@ -395,12 +588,12 @@ impl Snapshots {
                 VelocityError::Config(format!("'{r}' is not a snapshot ref (they look like @e12)"))
             })?;
         let Some(last) = &self.last else {
-            return Err(VelocityError::Config(format!(
+            return Err(VelocityError::StaleRef(format!(
                 "ref {r}: no snapshot taken yet in this session; call snapshot first"
             )));
         };
         let stale = |why: &str| {
-            VelocityError::Config(format!(
+            VelocityError::StaleRef(format!(
                 "ref {r} is stale: {why}; call snapshot (mode \"delta\" is cheap) and use a current ref"
             ))
         };
@@ -502,7 +695,7 @@ mod tests {
             el("android.view.View", "", "", 300), // nothing to show
             el("android.widget.FrameLayout", "com.app:id/content", "", 350), // a bare container
         ]);
-        let out = text(s.take(&t, Some(&screen()), Options::default()));
+        let out = text(s.take(&t, Some(&screen()), Options::default()).unwrap());
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines[0], "# 1080x2400, 3 elements", "{out}");
         assert_eq!(lines[1], "@e1 TextView \"Settings\"");
@@ -521,7 +714,7 @@ mod tests {
             el("Button", "compose", "Compose", 100),
             el("TextView", "", "3 unread", 200),
         ]);
-        s.take(&one, None, Options::default());
+        s.take(&one, None, Options::default()).unwrap();
         let mut compose = el("Button", "compose", "Compose", 100);
         compose.focused = Some(true);
         let two = tree(vec![
@@ -533,7 +726,7 @@ mod tests {
             delta: true,
             ..Default::default()
         };
-        let out = text(s.take(&two, None, delta));
+        let out = text(s.take(&two, None, delta.clone()).unwrap());
         assert!(out.contains("delta: +1 -1 ~1 (1 unchanged)"), "{out}");
         assert!(out.contains("+ @e4 TextView \"Sent\""), "{out}");
         assert!(out.contains("- @e3 TextView \"3 unread\""), "{out}");
@@ -541,20 +734,22 @@ mod tests {
             out.contains("~ @e2 button \"Compose\" #compose [focused]"),
             "{out}"
         );
-        let again = text(s.take(&two, None, delta));
+        let again = text(s.take(&two, None, delta.clone()).unwrap());
         assert!(
             again.ends_with("no change since the last snapshot"),
             "{again}"
         );
-        let json = s.take(
-            &two,
-            None,
-            Options {
-                delta: true,
-                json: true,
-                ..Default::default()
-            },
-        );
+        let json = s
+            .take(
+                &two,
+                None,
+                Options {
+                    delta: true,
+                    json: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
         assert_eq!(json["unchanged"], 3);
     }
 
@@ -566,7 +761,7 @@ mod tests {
             el("Button", "", "Buy", 100),
             el("Button", "", "Buy", 200),
         ]);
-        s.take(&t, None, Options::default());
+        s.take(&t, None, Options::default()).unwrap();
         assert_eq!(
             s.resolve("@e1", &t, None).unwrap(),
             Selector::Id("ok".into())
@@ -611,5 +806,117 @@ mod tests {
         )
         .unwrap();
         assert!(o.delta && o.json && o.bounds);
+    }
+
+    /// A dialog (y 1000–1400) over a list.
+    fn dialog_screen() -> Element {
+        let mut dialog = el("android.widget.LinearLayout", "", "Delete item?", 1000);
+        dialog.bounds.height = 400;
+        tree(vec![
+            el("TextView", "", "Inbox", 0),
+            el("TextView", "", "Sent", 100),
+            el("TextView", "", "Drafts", 200),
+            dialog,
+            el("Button", "", "Cancel", 1300),
+            el("Button", "", "Delete", 1350),
+        ])
+    }
+
+    #[test]
+    fn within_find_and_limit_narrow_the_print_not_the_memory() {
+        let mut s = Snapshots::default();
+        let t = dialog_screen();
+        let full = text(s.take(&t, None, Options::default()).unwrap());
+        assert!(full.starts_with("# 6 elements"), "{full}");
+
+        // Only what lies inside the dialog (@e4), not the dialog itself.
+        let opts = Options::from_args(&serde_json::json!({ "within": "@e4" })).unwrap();
+        let inside = text(s.take(&t, None, opts).unwrap());
+        assert!(inside.starts_with("# 6 elements, 2 shown"), "{inside}");
+        assert!(
+            inside.contains("\"Cancel\"") && inside.contains("\"Delete\""),
+            "{inside}"
+        );
+        assert!(
+            !inside.contains("Inbox") && !inside.contains("@e4 "),
+            "{inside}"
+        );
+
+        let opts = Options::from_args(&serde_json::json!({ "find": "dRaFt" })).unwrap();
+        let found = text(s.take(&t, None, opts).unwrap());
+        assert_eq!(found.lines().count(), 2, "{found}");
+        assert!(found.contains("Drafts"), "{found}");
+
+        let opts =
+            Options::from_args(&serde_json::json!({ "limit": 2, "format": "json" })).unwrap();
+        let capped = s.take(&t, None, opts).unwrap();
+        assert_eq!(capped["elements"].as_array().unwrap().len(), 2);
+        assert_eq!(capped["complete"], false);
+        assert_eq!(capped["count"], 6);
+
+        // A ref outside the narrowed print still resolves: memory is whole.
+        assert!(s.resolve("@e1", &t, None).is_ok());
+        // And a delta after a narrowed snapshot compares whole screens.
+        let delta = Options {
+            delta: true,
+            ..Default::default()
+        };
+        let same = text(s.take(&t, None, delta).unwrap());
+        assert!(
+            same.ends_with("no change since the last snapshot"),
+            "{same}"
+        );
+    }
+
+    #[test]
+    fn within_a_gone_ref_is_stale_and_a_bad_one_is_invalid() {
+        let mut s = Snapshots::default();
+        let t = dialog_screen();
+        s.take(&t, None, Options::default()).unwrap();
+        let opts = Options::from_args(&serde_json::json!({ "within": "@e99" })).unwrap();
+        let e = s.take(&t, None, opts).unwrap_err();
+        assert!(matches!(e, VelocityError::StaleRef(_)), "{e}");
+        assert!(Options::from_args(&serde_json::json!({ "within": "dialog" })).is_err());
+        assert!(Options::from_args(&serde_json::json!({ "limit": 0 })).is_err());
+    }
+
+    // A row whose id repeats (`#title` on every row) is its text too: after
+    // a navigation its ref is gone, never moved to another row.
+    #[test]
+    fn repeated_ids_do_not_carry_a_ref_to_another_row() {
+        let mut s = Snapshots::default();
+        let home = tree(vec![
+            el("TextView", "app:id/title", "Network", 0),
+            el("TextView", "app:id/title", "Apps", 100),
+            el("EditText", "app:id/search", "", 200),
+        ]);
+        s.take(&home, None, Options::default()).unwrap();
+        let next = tree(vec![
+            el("TextView", "app:id/title", "Internet", 0),
+            el("TextView", "app:id/title", "SIMs", 100),
+            el("EditText", "app:id/search", "wi", 200),
+        ]);
+        let delta = Options {
+            delta: true,
+            ..Default::default()
+        };
+        let out = text(s.take(&next, None, delta).unwrap());
+        assert!(out.contains("- @e2 TextView \"Apps\""), "{out}");
+        assert!(out.contains("+ @e4 TextView \"Internet\""), "{out}");
+        // The field with a unique id kept its ref while its text changed.
+        assert!(out.contains("~ @e3 "), "{out}");
+        let e = s.resolve("@e2", &next, None).unwrap_err();
+        assert!(matches!(e, VelocityError::StaleRef(_)), "{e}");
+    }
+
+    #[test]
+    fn a_limited_delta_says_it_is_incomplete() {
+        let mut s = Snapshots::default();
+        s.take(&tree(vec![]), None, Options::default()).unwrap();
+        let opts = Options::from_args(&serde_json::json!({ "mode": "delta", "limit": 2 })).unwrap();
+        let out = text(s.take(&dialog_screen(), None, opts).unwrap());
+        assert!(out.contains("delta: +6 -0 ~0"), "{out}");
+        assert!(out.contains("incomplete: 4 more lines"), "{out}");
+        assert_eq!(out.lines().count(), 3, "{out}");
     }
 }

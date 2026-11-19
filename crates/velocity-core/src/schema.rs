@@ -118,6 +118,21 @@ fn action_arg(action: &str) -> Value {
         ),
         "mockRequest" => mock_rule(),
         "http" => http_request(),
+        "exec" => obj(
+            json!({
+                "run": {
+                    "description": "The program and its arguments: a string split on spaces (quotes keep a part whole; no shell) or a list. The program must be in config.exec.allow",
+                    "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }]
+                },
+                "expect": obj(json!({
+                    "exitCode": { "type": "integer", "description": "The exit code it must end with (default 0)" },
+                    "contains": { "type": "string", "description": "Text its output must contain" }
+                }), &[]),
+                "capture": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "${NAME} for its trimmed standard output, for later steps" },
+                "cwd": { "type": "string", "description": "Its working directory" }
+            }),
+            &["run"],
+        ),
         "clearMocks" | "goBack" | "refresh" => no_args(),
         "setConfig" => json!({
             "type": "object",
@@ -126,6 +141,15 @@ fn action_arg(action: &str) -> Value {
         }),
         "tap" | "doubleTap" | "clearText" | "assertVisible" | "assertNotVisible" => sel,
         // `selector:` or the selector's fields inline, never both (VEL-221).
+        "drag" => obj(
+            json!({
+                "from": sel.clone(),
+                "to": sel.clone(),
+                "holdMs": { "type": "integer", "minimum": 0, "description": "Hold before moving, so the list picks the row up (default 700)" },
+                "moveMs": { "type": "integer", "minimum": 0, "description": "How long the move takes (default 900)" }
+            }),
+            &["from", "to"],
+        ),
         "longPress" => {
             let duration = json!({ "type": "integer", "minimum": 0 });
             let mut inline = selector_fields();
@@ -463,6 +487,12 @@ pub fn suite_schema() -> Value {
                         }),
                         &[],
                     ),
+                    "exec": obj(
+                        json!({
+                            "allow": { "type": "array", "items": { "type": "string" }, "description": "Programs exec steps may run, exactly as a step names them (adb, ./scripts/seed.sh); exec is off without them" }
+                        }),
+                        &[],
+                    ),
                     "settings": {
                         "type": "object",
                         "description": "Driver and runtime settings (`velocity settings` lists them); flat `android.scroll:` or nested keys"
@@ -500,7 +530,7 @@ pub fn suite_schema() -> Value {
                         "type": "object",
                         "description": "The model service for natural-language steps and checks; VELOCITY_NL_* environment variables win over it",
                         "properties": {
-                            "provider": { "enum": velocity_nl::provider::preset_names(), "description": "A provider preset: the native APIs (anthropic, openai, azure-openai, gemini, bedrock, vertex), OpenAI-compatible services (openrouter, groq, mistral, deepseek, xai, together, fireworks, dashscope, perplexity), local servers (ollama, lmstudio, vllm) or openai-compatible with baseUrl; docs/AI-PROVIDERS.md" },
+                            "provider": { "enum": velocity_common::natural::AI_PROVIDER_PRESETS, "description": "A provider preset: the native APIs (anthropic, openai, azure-openai, gemini, bedrock, vertex), OpenAI-compatible services (openrouter, groq, mistral, deepseek, xai, together, fireworks, dashscope, perplexity), local servers (ollama, lmstudio, vllm) or openai-compatible with baseUrl; docs/AI-PROVIDERS.md" },
                             "model": { "type": "string", "description": "Model for single steps and checks; may be provider:model" },
                             "exploreModel": { "type": "string", "description": "Model for goal-level planning (velocity explore)" },
                             "baseUrl": { "type": "string", "description": "API base URL, e.g. http://localhost:11434/v1" },
@@ -512,7 +542,15 @@ pub fn suite_schema() -> Value {
                         },
                         "additionalProperties": false
                     },
-                    "performance": { "type": "object" },
+                    "performance": {
+                        "type": "object",
+                        "description": "Opt-in memory profiling and the memory check (Android only: the other drivers report no memory)",
+                        "properties": {
+                            "enabled": { "type": "boolean", "description": "Sample the app's memory and CPU during the run (default false)" },
+                            "intervalMs": { "type": "integer", "minimum": 1, "description": "Sampling interval during long actions, in ms (default 500)" },
+                            "pssGrowthThresholdPct": { "type": "integer", "minimum": 0, "description": "Fail a test whose peak total PSS is more than this percent above its saved baseline (default 15). Only clean passes update the baseline. Was heapGrowthThresholdPct, which still works with a warning" }
+                        }
+                    },
                     "web": {
                         "type": "object",
                         "properties": {
@@ -852,6 +890,7 @@ mod tests {
                     format!("{a}: {{ text: \"x\" }}")
                 }
                 "longPress" => format!("{a}: {{ text: \"x\" }}"),
+                "drag" => format!("{a}: {{ from: {{ text: \"Milk\" }}, to: {{ text: \"Eggs\" }}, holdMs: 800 }}"),
                 "inputText" => format!("{a}: {{ selector: {{ id: \"e\" }}, text: \"t\" }}"),
                 "assertText" => format!("{a}: {{ selector: {{ id: \"e\" }}, expected: \"t\" }}"),
                 "assertScreenshot" | "saveState" | "restoreState" => format!("{a}: \"home\""),
@@ -871,6 +910,7 @@ mod tests {
                 }
                 "clearMocks" => format!("{a}: {{}}"),
                 "goto" | "openLink" => format!("{a}: \"https://x.dev\""),
+                "exec" => format!("{a}: {{ run: \"adb shell pm clear com.app\", expect: {{ exitCode: 0 }}, capture: OUT }}"),
                 "http" => format!(
                     "{a}: {{ method: POST, url: \"https://x.dev/o\", json: {{ a: 1 }}, query: {{ p: 2 }}, \
                      expect: {{ status: 2xx, json: {{ \"$.id\": {{ type: string, length: {{ gte: 1 }} }}, n: 3 }}, maxMs: 500 }}, \

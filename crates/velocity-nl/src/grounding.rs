@@ -215,45 +215,7 @@ pub fn ground(
     Ok(action)
 }
 
-/// Whether a natural-language step may go to `url` (D-17): an `http` or
-/// `https` URL (or one relative to the page), on the same origin as
-/// `current` (the page now shown) unless `allow_cross_origin`
-/// (`nl.allowCrossOrigin: true`). `Err` says why not.
-pub fn check_goto(
-    url: &str,
-    current: Option<&str>,
-    allow_cross_origin: bool,
-) -> std::result::Result<(), String> {
-    use reqwest::Url;
-    let base = current.and_then(|c| Url::parse(c).ok());
-    let target = match (Url::parse(url.trim()), &base) {
-        (Ok(u), _) => u,
-        // Relative (`/pricing`, `//host/x`): resolved as the page would.
-        (Err(_), Some(b)) => b
-            .join(url.trim())
-            .map_err(|e| format!("goto {url:?}: not a URL ({e})"))?,
-        // No page to resolve it against: the driver says so.
-        (Err(_), None) => return Ok(()),
-    };
-    if !matches!(target.scheme(), "http" | "https") {
-        return Err(format!(
-            "goto {url:?}: a natural-language step may only open http or https URLs \
-             (use an explicit `openLink:` step for {}: links)",
-            target.scheme()
-        ));
-    }
-    if allow_cross_origin {
-        return Ok(());
-    }
-    match base.filter(|b| matches!(b.scheme(), "http" | "https")) {
-        Some(b) if b.origin() != target.origin() => Err(format!(
-            "goto {url:?} leaves the current page's origin ({}); a natural-language step \
-             stays on it unless the suite sets `nl.allowCrossOrigin: true`",
-            b.origin().ascii_serialization()
-        )),
-        _ => Ok(()),
-    }
-}
+pub use velocity_common::natural::check_goto;
 
 /// A value for `step`: the step's data, else the model's text only when the
 /// step's own words contain it (verbatim when `exact`, else ignoring ASCII
@@ -312,41 +274,7 @@ fn unquote(s: &str) -> &str {
     s
 }
 
-/// The quoted literals in the step: `"…"`, `“…”`, `` `…` ``, and `'…'` when
-/// the opening quote starts a word (so "don't" isn't one).
-pub(crate) fn quoted_spans(intent: &str) -> Vec<&str> {
-    let mut spans = Vec::new();
-    let mut prev: Option<char> = None;
-    let mut iter = intent.char_indices();
-    while let Some((i, c)) = iter.next() {
-        let close = match c {
-            '"' => Some('"'),
-            '“' => Some('”'),
-            '`' => Some('`'),
-            '\'' | '‘' if prev.is_none_or(|p| !p.is_alphanumeric()) => {
-                Some(if c == '‘' { '’' } else { '\'' })
-            }
-            _ => None,
-        };
-        prev = Some(c);
-        let Some(close) = close else { continue };
-        let start = i + c.len_utf8();
-        if let Some(end) = intent[start..].find(close) {
-            let span = intent[start..start + end].trim();
-            if !span.is_empty() {
-                spans.push(span);
-            }
-            // Skip past the closing quote.
-            for (j, ch) in iter.by_ref() {
-                if j >= start + end {
-                    prev = Some(ch);
-                    break;
-                }
-            }
-        }
-    }
-    spans
-}
+pub(crate) use velocity_common::natural::quoted_spans;
 
 /// Whether `wanted` is in the step: equal to one of its quoted literals,
 /// else on word boundaries in the step's text outside its quotes

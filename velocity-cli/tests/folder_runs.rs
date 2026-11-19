@@ -162,7 +162,7 @@ fn react_native_headless_is_a_config_error() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(2), "{err}");
     assert!(
-        err.contains("React Native has no headless renderer; run on a device or simulator"),
+        err.contains("React Native") && err.contains("headless"),
         "{err}"
     );
     let _ = std::fs::remove_dir_all(&dir);

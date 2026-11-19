@@ -103,3 +103,20 @@ fn write_exec(path: &std::path::Path, body: &str) {
     std::fs::write(path, body).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
+
+/// The device `VELOCITY_TEST_ANDROID` names for the device-backed tests;
+/// `None` skips them. With `VELOCITY_TEST_STRICT=1` (a device CI job) a
+/// missing device fails the test instead: a skipped device test used to
+/// report PASS (review 07 M6).
+pub(crate) fn device_under_test() -> Option<String> {
+    match std::env::var("VELOCITY_TEST_ANDROID") {
+        Ok(d) if !d.is_empty() => Some(d),
+        _ => {
+            assert!(
+                std::env::var("VELOCITY_TEST_STRICT").as_deref() != Ok("1"),
+                "VELOCITY_TEST_STRICT=1 but VELOCITY_TEST_ANDROID names no device"
+            );
+            None
+        }
+    }
+}

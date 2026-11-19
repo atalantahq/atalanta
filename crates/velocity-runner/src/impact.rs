@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use velocity_common::{Action, Flow, Step, TestCase};
 use velocity_core::impact::{file_matches_pattern, ImpactMapping, Unmapped};
 
-use crate::history::{Outcome, TestHistory};
+use crate::history::{HistoryOutcome, TestHistory};
 
 /// Changes to these mean every test is affected.
 const RUN_ALL_PATTERNS: &[&str] = &[
@@ -145,7 +145,7 @@ pub fn select(
             o.iter()
                 .rev()
                 .take(RECENT_RUNS)
-                .any(|x| matches!(x, Outcome::Fail | Outcome::Flaky))
+                .any(|x| matches!(x, HistoryOutcome::Fail | HistoryOutcome::Flaky))
         }) {
             recent.then(|| "failed or flaked recently".to_string())
         } else {

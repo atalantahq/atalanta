@@ -809,3 +809,135 @@ async fn verify_tap_takes_a_web_views_content_process_as_the_app() {
     assert!(e.contains("another process draws"), "{e}");
     assert_eq!(f.taps().len(), 1);
 }
+
+fn row_switch(value: u8) -> String {
+    app(&format!(
+        r#"<XCUIElementTypeSwitch type="XCUIElementTypeSwitch" label="Outdoor Seating" value="{value}" x="0" y="300" width="402" height="44" enabled="true"/>"#
+    ))
+}
+
+/// Review 09 #11: a SwiftUI Toggle row is tapped at its trailing end (the
+/// knob in a left-to-right layout). In an RTL layout that is the label: the
+/// value stays as it was, and the leading end is tapped once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_switch_that_did_not_flip_is_tapped_at_its_other_end() {
+    let xml = Arc::new(Mutex::new(row_switch(0)));
+    let f = fake_on(xml.clone()).await;
+    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let el = d
+        .find_element(SIM, &Selector::Text("Outdoor Seating".into()))
+        .await
+        .unwrap();
+    d.tap(SIM, &el).await.unwrap();
+    let taps = f.taps();
+    assert_eq!(taps.len(), 2, "{taps:?}");
+    assert!(taps[0].0 > 350.0, "trailing end first: {taps:?}");
+    assert!(taps[1].0 < 50.0, "then the leading end: {taps:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_row_switch_that_flipped_is_tapped_once() {
+    let xml = Arc::new(Mutex::new(row_switch(0)));
+    let f = FakeWda::start({
+        let xml = xml.clone();
+        move |r| {
+            if r.path.ends_with("/actions") {
+                *xml.lock().unwrap() = row_switch(1);
+            }
+            let xml = xml.lock().unwrap().clone();
+            if r.path == "/status" {
+                return Resp::Json(200, r#"{"value":{"ready":true},"sessionId":"S"}"#.into());
+            }
+            if r.path.ends_with("/source") {
+                return source(&xml);
+            }
+            if r.path.ends_with("/wda/screen") {
+                return ok(r#"{"statusBarSize":{"width":402,"height":62}}"#);
+            }
+            if r.path.ends_with("/window/size") {
+                return ok(r#"{"width":402,"height":874}"#);
+            }
+            if r.path.contains("alert") {
+                return w3c(404, "no such alert", "none");
+            }
+            ok("null")
+        }
+    })
+    .await;
+    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let el = d
+        .find_element(SIM, &Selector::Text("Outdoor Seating".into()))
+        .await
+        .unwrap();
+    d.tap(SIM, &el).await.unwrap();
+    assert_eq!(f.taps().len(), 1, "{:?}", f.taps());
+}
+
+/// Review 09 #2: trees are read without `visible`, so a button behind a
+/// sheet passed for shown. With a modal layer up, the lookup tree gets
+/// WDA's `visible` flags (one more read), and the hidden match is gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn behind_a_sheet_the_lookup_tree_reads_visibility() {
+    let screen = |behind_visible: &str| {
+        app(&format!(
+            r#"<XCUIElementTypeButton type="XCUIElementTypeButton" label="Delete" visible="{behind_visible}" x="20" y="700" width="362" height="44" enabled="true"/><XCUIElementTypeSheet type="XCUIElementTypeSheet" label="Options" x="0" y="400" width="402" height="474" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Cancel" x="20" y="800" width="362" height="44" enabled="true"/></XCUIElementTypeSheet>"#
+        ))
+    };
+    let (cheap, full) = (screen("true"), screen("false"));
+    let f = FakeWda::start(move |r| {
+        if r.path == "/status" {
+            return Resp::Json(200, r#"{"value":{"ready":true},"sessionId":"S"}"#.into());
+        }
+        if r.path.ends_with("/source") {
+            // The cheap read leaves `visible` out: the parser takes every
+            // node as shown, as with WDA's real reply.
+            return if r.query.contains("visible") {
+                source(&cheap.replace(r#" visible="true""#, ""))
+            } else {
+                source(&full)
+            };
+        }
+        if r.path.ends_with("/wda/screen") {
+            return ok(r#"{"statusBarSize":{"width":402,"height":62}}"#);
+        }
+        if r.path.ends_with("/window/size") {
+            return ok(r#"{"width":402,"height":874}"#);
+        }
+        if r.path.contains("alert") {
+            return w3c(404, "no such alert", "none");
+        }
+        ok("null")
+    })
+    .await;
+    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let tree = d.get_hierarchy_cached(SIM).await.unwrap();
+    fn find<'a>(
+        e: &'a velocity_common::Element,
+        label: &str,
+    ) -> Option<&'a velocity_common::Element> {
+        if e.label.as_deref() == Some(label) {
+            return Some(e);
+        }
+        e.children.iter().find_map(|c| find(c, label))
+    }
+    assert!(!find(&tree, "Delete").unwrap().visible, "behind the sheet");
+    assert!(find(&tree, "Cancel").unwrap().visible, "in the sheet");
+    let full_reads = f
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path.ends_with("/source") && !r.query.contains("visible"))
+        .count();
+    assert_eq!(full_reads, 1);
+    // The same tree again: no second visibility read.
+    d.get_hierarchy_cached(SIM).await.unwrap();
+    let again = f
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path.ends_with("/source") && !r.query.contains("visible"))
+        .count();
+    assert_eq!(again, 1);
+}

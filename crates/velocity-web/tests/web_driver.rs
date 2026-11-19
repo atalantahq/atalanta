@@ -657,7 +657,7 @@ async fn input_text_into_a_field_inside_an_iframe_is_not_refused() {
          src=\"http://localhost:{port}/card.html\" style=\"width:320px;height:80px;border:0\"></iframe></body></html>"
     );
     let same = format!(
-        "<!doctype html><html><body style=\"margin:0\"><iframe id=\"sh\" \
+        "<!doctype html><html><body style=\"margin:0\"><iframe id=\"sh\" onload=\"window.shLoaded=1\" \
          src=\"{inner}/shadow.html\" style=\"width:320px;height:80px;border:0\"></iframe></body></html>"
     );
     let outer = serve(&[
@@ -669,7 +669,19 @@ async fn input_text_into_a_field_inside_an_iframe_is_not_refused() {
         d.launch_app("web", &format!("{outer}/{page}"), false)
             .await
             .unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // The frame's document loaded: its field is found (another
+        // origin's frame), or its `load` fired (the shadow-DOM one).
+        let ready = if page == "cross.html" {
+            common::wait_found(&d, "#n").await
+        } else {
+            common::eventually(|| async {
+                d.debug_eval_main("window.shLoaded === 1")
+                    .await
+                    .is_ok_and(|v| v == true)
+            })
+            .await
+        };
+        assert!(ready, "{page}: the frame never loaded");
         let f = find(&d, frame).await;
         d.input_text("web", &f, "4242")
             .await

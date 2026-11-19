@@ -9,6 +9,7 @@ macro_rules! cprintln {
 }
 
 pub mod artifacts;
+pub mod completeness;
 pub mod copies;
 pub mod farm;
 pub mod flake_cause;
@@ -24,6 +25,7 @@ pub mod parallel;
 pub mod quarantine;
 pub mod reporter;
 pub mod result_cache;
+pub mod results_check;
 mod retry;
 pub mod runner;
 pub mod scheduler;

@@ -88,6 +88,9 @@ pub struct RuntimeConfig {
     pub report_format: ReportFormat,
     pub artifacts_dir: String,
     pub suite_timeout_ms: Option<u64>,
+    /// `--test-timeout`: the most one attempt of one test may take. Past
+    /// it that attempt fails (and may be retried); the run goes on.
+    pub test_timeout_ms: Option<u64>,
     pub fail_fast: bool,
     /// Run tests that failed last time first (sequential runs). Fastest
     /// feedback, and with `fail_fast` the quickest red build.
@@ -216,6 +219,7 @@ impl Default for RuntimeConfig {
             report_format: ReportFormat::default(),
             artifacts_dir: "./velocity-results".to_string(),
             suite_timeout_ms: None,
+            test_timeout_ms: None,
             fail_fast: false,
             failed_first: false,
             shuffle_seed: None,

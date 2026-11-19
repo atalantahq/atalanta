@@ -368,7 +368,12 @@ async fn type_and_swipe_return_parseable_steps() {
         ])),
         index: 1,
     };
-    let body = serde_json::json!({"selector": sel, "text": "a\"b"}).to_string();
+    // The flat DSL form the API speaks (review 02 M5).
+    let body = serde_json::json!({
+        "selector": velocity_core::selector_wire::to_value(&sel),
+        "text": "a\"b ${HOME}"
+    })
+    .to_string();
     let r = send(port, "POST", "/api/devices/dev/type", &h, &body).await;
     assert_eq!(r.code, 200, "{}", r.body);
     let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
@@ -393,7 +398,12 @@ async fn type_and_swipe_return_parseable_steps() {
     match &suite.tests[0].steps[0].action {
         velocity_common::types::Action::InputText { selector, text } => {
             assert_eq!(selector, &sel);
-            assert_eq!(text, "a\"b");
+            // Escaped in the YAML, so loading reads no variable.
+            assert_eq!(text, "a\"b $${HOME}");
+            assert_eq!(
+                velocity_core::env::interpolate(text, &Default::default()).unwrap(),
+                "a\"b ${HOME}"
+            );
         }
         other => panic!("{other:?}"),
     }
@@ -581,6 +591,35 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
     )
     .await;
     assert_eq!(r.code, 200, "{}", r.body);
+    let review_page = r;
+    // Audit 2026-11 INSP-1: the review token reaches nothing but review.
+    for (method, path, body) in [
+        (
+            "POST",
+            "/api/tasks/run",
+            r#"{"suite":"s.yaml","deviceId":"emulator-5554"}"#,
+        ),
+        ("POST", "/api/flow/save", r#"{"name":"x","yaml":"x"}"#),
+        ("GET", "/api/tasks", ""),
+        ("GET", "/api/devices", ""),
+        ("GET", "/", ""),
+    ] {
+        let r = send(
+            port,
+            method,
+            path,
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Cookie", &cookie),
+                ("Content-Type", "application/json"),
+            ],
+            body,
+        )
+        .await;
+        assert_eq!(r.code, 404, "{method} {path}: {}", r.body);
+    }
+    let r = review_page;
     assert!(r.head.contains("content-security-policy"), "{}", r.head);
     assert!(r.body.contains("2 pending"), "{}", r.body);
     for want in [
@@ -686,7 +725,8 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
         r.body
     );
 
-    // The review-only inspector has no device to drive.
+    // The review-only inspector has no device API at all (audit 2026-11
+    // INSP-1: it serves review and nothing else).
     let r = send(
         port,
         "GET",
@@ -695,7 +735,7 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
         "",
     )
     .await;
-    assert_eq!(r.code, 200, "{}", r.body);
+    assert_eq!(r.code, 404, "{}", r.body);
     task.abort();
     let _ = std::fs::remove_dir_all(&root);
 }

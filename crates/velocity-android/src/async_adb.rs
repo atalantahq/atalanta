@@ -446,7 +446,10 @@ impl AsyncAdb {
     pub async fn screenshot(&self, device_id: &str) -> Result<Vec<u8>> {
         // Raw bytes, untouched: rewriting "\r\n" would corrupt the PNG
         // signature (89 50 4E 47 0D 0A 1A 0A) and any CRLF in the data.
-        self.shell_raw(device_id, "screencap -p").await
+        // Output that isn't a PNG is a capture failure, as on the
+        // subprocess backend (review 03 M1), not a "screenshot" to decode.
+        let bytes = self.shell_raw(device_id, "screencap -p").await?;
+        crate::adb::screencap_result(device_id, true, bytes, b"")
     }
 
     pub async fn screen_size(&self, device_id: &str) -> Result<(i32, i32)> {

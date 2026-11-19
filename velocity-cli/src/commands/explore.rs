@@ -70,13 +70,25 @@ pub struct ExploreArgs {
     #[arg(long = "secret", value_name = "NAME")]
     secrets: Vec<String>,
 
+    /// Before exploring, replay this suite's first test with no model:
+    /// typically a login. Its ${NAME}s come from the environment, --env,
+    /// ${keychain:NAME} or ${totp:NAME}, and the model never sees them; the
+    /// written test starts with the same steps, by name
+    #[arg(long, value_name = "SUITE")]
+    after: Option<String>,
+
+    /// With --after: the test to replay (default: the first)
+    #[arg(long, value_name = "NAME", requires = "after")]
+    after_test: Option<String>,
+
     /// Planning turns at most
     #[arg(long, default_value_t = 40)]
     max_steps: usize,
 
-    /// Seconds the exploration may take
-    #[arg(long, default_value_t = 600)]
-    timeout: u64,
+    /// How long the exploration may take; exceeding it exits 4. Takes a
+    /// unit (90s, 10m, 1h); a bare number is seconds
+    #[arg(long, default_value = "600", value_name = "DURATION", value_parser = super::duration_arg::bare_secs)]
+    timeout: Duration,
 
     /// Stop when the estimated spend reaches this many dollars (needs --price)
     #[arg(long, value_name = "USD")]
@@ -86,17 +98,27 @@ pub struct ExploreArgs {
     #[arg(long)]
     max_tokens: Option<u64>,
 
-    /// Price for the cost estimate: dollars per million input,output tokens
-    #[arg(long, value_name = "IN,OUT")]
+    /// Price for the cost estimate: dollars per million input,output tokens,
+    /// optionally then the cache-read and cache-write rates (default a
+    /// tenth and 1.25x the input price, Anthropic's ratios)
+    #[arg(long, value_name = "IN,OUT[,CACHE_READ[,CACHE_WRITE]]")]
     price: Option<String>,
 
     /// AI check of the goal: off, final (default), checkpoints or strict
-    #[arg(long, default_value = "final")]
+    #[arg(long, default_value = "final", ignore_case = true,
+          value_parser = ["off", "final", "checkpoints", "strict"])]
     verify: String,
 
-    /// Replays of the written test (no model calls); 0 skips the check
-    #[arg(long, default_value_t = 1)]
+    /// Replays of the written test (no model calls; all must pass, the
+    /// later ones with timing jitter); 0 skips the check
+    #[arg(long, default_value_t = 5)]
     replay: usize,
+
+    /// Skip the trust gates: the wrong-path replay (the last tap moved to a
+    /// neighbour must make the test fail) and the goal-text rule (an
+    /// assertion must name text from the goal). See docs/EXPLORE.md
+    #[arg(long)]
+    no_gates: bool,
 
     /// Don't try a repair round when a replay fails
     #[arg(long)]
@@ -127,9 +149,10 @@ pub struct ExploreArgs {
     #[arg(long, value_name = "PATH")]
     inject_file: Option<PathBuf>,
 
-    /// Seconds to wait for a device another Velocity process holds
-    #[arg(long, default_value_t = 600)]
-    lease_wait: u64,
+    /// How long to wait for a device another Velocity process holds. Takes
+    /// a unit (30s, 10m); a bare number is seconds
+    #[arg(long, default_value = "600", value_name = "DURATION", value_parser = super::duration_arg::bare_secs)]
+    lease_wait: Duration,
 
     /// Benchmark run (e.g. AndroidWorld): start from the screen as it is,
     /// write and replay no test, no auto-dismissed dialogs, `launch` off
@@ -139,11 +162,30 @@ pub struct ExploreArgs {
     #[arg(long)]
     benchmark: bool,
 
-    /// Let the model propose text to type itself: accepted only when it
-    /// occurs in the goal or on a screen seen in this run (or is a number,
-    /// or such pieces joined by lines or commas). See docs/EXPLORE.md
+    /// Let the model propose text to type itself, copied from the goal:
+    /// accepted only when it occurs in the goal (or is a number, or such
+    /// pieces joined by lines or commas). See docs/EXPLORE.md
     #[arg(long)]
     values_from_goal: bool,
+
+    /// Let the model type text copied from a screen seen in this run
+    /// (copying between apps). Screen text is untrusted: the app or a web
+    /// page wrote it, so this is a separate opt-in. See docs/EXPLORE.md
+    #[arg(long)]
+    values_from_screen: bool,
+
+    /// Let the model type text it read from a screenshot sent in this run
+    /// (an image, a receipt, a video frame). Code can't check the pixels, so
+    /// the model's reading is trusted: a separate opt-in. Needs a provider
+    /// that takes images. See docs/EXPLORE.md
+    #[arg(long)]
+    values_from_screenshots: bool,
+
+    /// Let the model type text it writes itself (a reply, a message body),
+    /// for runs where composing it is the task. Nothing grounds it, and it
+    /// is written into the test as is: the widest opt-in. See docs/EXPLORE.md
+    #[arg(long)]
+    values_from_model: bool,
 
     /// An app the agent may open by name (openApp): NAME=APP_ID, repeatable
     #[arg(long = "open-app", value_name = "NAME=APP_ID")]
@@ -155,7 +197,7 @@ pub struct ExploreArgs {
 
     /// When a screenshot goes with the screen list: never, poor (only when
     /// the tree says little; the default) or always (default with --benchmark)
-    #[arg(long)]
+    #[arg(long, value_parser = ["never", "poor", "always"])]
     screenshots: Option<String>,
 
     /// Don't show the model the project's tests most like the goal (by
@@ -226,16 +268,8 @@ fn parse_apps_file(text: &str) -> Result<Vec<(String, String)>, String> {
         .collect()
 }
 
-fn parse_price(s: &str) -> Result<(f64, f64), String> {
-    let bad = || format!("--price {s:?} must be IN,OUT (dollars per million tokens)");
-    let (i, o) = s.split_once(',').ok_or_else(bad)?;
-    let num = |v: &str| {
-        v.trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|n| n.is_finite() && *n >= 0.0)
-    };
-    Ok((num(i).ok_or_else(bad)?, num(o).ok_or_else(bad)?))
+fn parse_price(s: &str) -> Result<velocity_nl::Price, String> {
+    velocity_nl::Price::parse(s)
 }
 
 /// A value name usable as `${NAME}`.
@@ -384,7 +418,8 @@ fn printer(to_stderr: bool) -> velocity_explore::EventSink {
                 "accepted".green(),
                 sources.join(", ")
             )),
-            ExploreEvent::Observed { .. } | ExploreEvent::Finished { .. } => None,
+            // Observed, Finished, and events added later: not printed.
+            _ => None,
         };
         if let Some(l) = line {
             if to_stderr {
@@ -574,7 +609,7 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
         None if platform == Platform::Web => "web".to_string(),
         None => pick_device(&*driver).await?,
     };
-    let _lease = lease(&device, Duration::from_secs(args.lease_wait), args.json).await?;
+    let _lease = lease(&device, args.lease_wait, args.json).await?;
     driver.prepare(&device).await?;
 
     let mut opts = ExploreOptions::new(&args.goal, &args.app_id, &device, platform);
@@ -586,16 +621,31 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
         LaunchMode::Launch
     };
     opts.max_steps = args.max_steps.max(1);
-    opts.timeout = Duration::from_secs(args.timeout.max(1));
+    opts.timeout = args.timeout.max(Duration::from_secs(1));
     opts.max_cost_usd = args.max_cost;
     opts.max_tokens = args.max_tokens;
     opts.price = price;
     opts.verify = verify;
+    // `--after`: read and check the flow (and its secrets) before exploring.
+    let after = match &args.after {
+        Some(path) => {
+            let yaml =
+                std::fs::read_to_string(path).map_err(|e| usage_err!("--after {path}: {e}"))?;
+            let overrides: std::collections::HashMap<String, String> =
+                data.iter().chain(secrets.iter()).cloned().collect();
+            velocity_explore::after::login_prefix(&yaml, args.after_test.as_deref(), &overrides)
+                .map_err(|e| usage_err!("{e}"))?
+        }
+        None => Vec::new(),
+    };
     opts.data = data;
     opts.secrets = secrets;
     opts.images = images;
     opts.benchmark = args.benchmark;
     opts.values_from_goal = args.values_from_goal;
+    opts.values_from_screen = args.values_from_screen;
+    opts.values_from_screenshots = args.values_from_screenshots;
+    opts.values_from_model = args.values_from_model;
     opts.apps = apps;
     opts.demos = !args.no_demos;
     // The project's own tests, wherever the new one goes: not whatever
@@ -648,6 +698,7 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
         print(e);
     });
     let mut job = ExploreJob::new(driver.clone(), planner, checker, opts).with_events(events);
+    job.after = after;
     // Ctrl-C (or a supervisor's stop) ends the session at its next turn as
     // `stopped`, still with a report; a second one exits at once.
     crate::signals::install();
@@ -670,6 +721,8 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
     job.repair = !args.no_repair && !args.benchmark;
     job.dry_run = dry_run;
     job.keep_nl = args.keep_nl;
+    // Benchmarks judge the run, not a test: no gates there.
+    job.gates = !args.no_gates && !args.benchmark && !dry_run;
     let result = Box::pin(job.run()).await;
     on_signal.abort();
     crate::signals::cleaning_up();
@@ -777,6 +830,31 @@ fn print_summary(r: &JobResult, written: &[String]) {
     if let Some(repair) = &r.repair {
         println!("   repair: {repair}");
     }
+    if let Some(g) = &r.gates {
+        use velocity_explore::gates::WrongPath;
+        let wrong = match &g.wrong_path {
+            WrongPath::Rejected { tapped, .. } => format!("fails when it taps {tapped} instead"),
+            WrongPath::Passed { tapped, .. } => {
+                format!("still passes when it taps {tapped} instead")
+            }
+            WrongPath::Skipped { why } => format!("not checked ({why})"),
+        };
+        let verdict = if g.trusted {
+            "trusted".green().bold()
+        } else {
+            "not trusted".red().bold()
+        };
+        println!(
+            "   gates: {verdict}: {}/{} replays passed (jitter up to {} ms), wrong path {wrong}, goal text {}",
+            g.replays_passed,
+            g.replays,
+            g.jitter_ms,
+            g.goal_text.as_deref().unwrap_or("not asserted")
+        );
+        for reason in &g.reasons {
+            println!("     - {reason}");
+        }
+    }
     if let Some(f) = written.first() {
         if r.ok() {
             println!("\n   next: velocity run {f}   (commit it; CI replays it with no model)");
@@ -843,13 +921,14 @@ mod tests {
             "com.google.android.apps.nexuslauncher",
             "--benchmark",
             "--values-from-goal",
+            "--values-from-screen",
             "--open-app",
             "Contacts=com.google.android.contacts",
             "--screenshots",
             "never",
         ])
         .unwrap();
-        assert!(c.args.benchmark && c.args.values_from_goal);
+        assert!(c.args.benchmark && c.args.values_from_goal && c.args.values_from_screen);
         assert_eq!(c.args.apps, vec!["Contacts=com.google.android.contacts"]);
         assert_eq!(c.args.screenshots.as_deref(), Some("never"));
         assert_eq!(
@@ -876,7 +955,12 @@ mod tests {
             PathBuf::from("open-network-internet.yaml")
         );
         assert_eq!(default_out("!!!"), PathBuf::from("explore.yaml"));
-        assert_eq!(parse_price("3,15").unwrap(), (3.0, 15.0));
+        assert_eq!(
+            parse_price("3,15").unwrap(),
+            velocity_nl::Price::new(3.0, 15.0)
+        );
+        let p = parse_price("3,15,0.3,3.75").unwrap();
+        assert_eq!((p.cache_read(), p.cache_write()), (0.3, 3.75));
         assert!(parse_price("3").is_err());
         assert!(check_name("EMAIL_2", "--data").is_ok());
         assert!(check_name("2X", "--data").is_err());

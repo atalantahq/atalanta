@@ -30,7 +30,6 @@ const UNSUPPORTED_CONSTRUCTS: &[&str] = &[
     "assertNoDefectsWithAI",
     "copyTextFrom",
     "pasteText",
-    "setLocation",
     "travel",
     "startRecording",
     "stopRecording",
@@ -63,6 +62,9 @@ struct Converted {
     flows: BTreeMap<String, Vec<Value>>,
     issues: Vec<MigrationIssue>,
     skipped: usize,
+    /// Host programs the converted `exec` steps run (`setLocation`): the
+    /// suite's `config.exec.allow`.
+    exec_allow: std::collections::BTreeSet<String>,
 }
 
 /// Header keys that are read (or that need nothing in Velocity).
@@ -120,7 +122,35 @@ impl MaestroMigrator {
         Ok(report)
     }
 
+    /// `migrate maestro --dry-run`: convert every flow in `input_dir`
+    /// (top level, as [`Self::migrate_directory`]) and write nothing.
+    pub fn dry_run_directory(&self, input_dir: &str) -> Result<MigrationReport> {
+        let input_path = Path::new(input_dir);
+        if !input_path.is_dir() {
+            return Err(VelocityError::Config(format!(
+                "Input directory does not exist: {input_dir}"
+            )));
+        }
+        let mut files: Vec<PathBuf> = fs::read_dir(input_path)
+            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to read directory: {e}")))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml")))
+            .collect();
+        files.sort();
+        let mut report = MigrationReport::new();
+        for path in files {
+            report.add_result(self.convert_checked(&path.to_string_lossy(), None)?);
+        }
+        Ok(report)
+    }
+
     pub fn migrate_file(&self, input: &str, output: &str) -> Result<FileMigrationResult> {
+        self.convert_checked(input, Some(output))
+    }
+
+    /// Convert `input`, check that the result loads, and write it to
+    /// `output` when there is one and it does.
+    fn convert_checked(&self, input: &str, output: Option<&str>) -> Result<FileMigrationResult> {
         let mut converted = self.convert_file(Path::new(input))?;
         let steps_migrated = converted.steps.len();
         let mut success = converted
@@ -141,14 +171,14 @@ impl MaestroMigrator {
                 success = false;
             }
         }
-        if success {
+        if let (true, Some(output)) = (success, output) {
             fs::write(output, yaml).map_err(|e| {
                 VelocityError::Internal(anyhow::anyhow!("Failed to write {output}: {e}"))
             })?;
         }
         Ok(FileMigrationResult {
             source_file: input.to_string(),
-            output_file: success.then(|| output.to_string()),
+            output_file: output.filter(|_| success).map(String::from),
             success,
             steps_migrated,
             steps_skipped: converted.skipped,
@@ -189,11 +219,35 @@ impl MaestroMigrator {
             flows: BTreeMap::new(),
             issues: Vec::new(),
             skipped: 0,
+            exec_allow: Default::default(),
         };
         if !out.tags.iter().any(|t| t == "migrated") {
             out.tags.push("migrated".into());
         }
-        if header.contains_key("env") {
+        let env = header
+            .get("env")
+            .and_then(Value::as_mapping)
+            .map(env_defaults);
+        if let Some((ok, left)) = &env {
+            let mut note = String::new();
+            if !ok.is_empty() {
+                note = format!(
+                    "Maestro `env:` became defaults: ${{NAME}} is ${{NAME:-value}} for {} (`--env` still overrides)",
+                    ok.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+                );
+            }
+            if !left.is_empty() {
+                if !note.is_empty() {
+                    note.push_str("; ");
+                }
+                note.push_str(&format!(
+                    "pass {} with `velocity run --env KEY=VALUE` (the value can't be a default)",
+                    left.join(", ")
+                ));
+            }
+            out.issues
+                .push(issue(lines.header, Severity::Info, "env", &note));
+        } else if header.contains_key("env") {
             out.issues.push(issue(
                 lines.header,
                 Severity::Info,
@@ -209,8 +263,20 @@ impl MaestroMigrator {
             flow_ids: &mut flow_ids,
             visiting: &mut visiting,
             skipped: &mut out.skipped,
+            exec_allow: &mut out.exec_allow,
+            app_id: out.app_id.clone(),
         };
         out.steps = convert_flow(&header, &steps, &lines, &mut ctx);
+        if let Some((defaults, _)) = env.filter(|(ok, _)| !ok.is_empty()) {
+            out.steps
+                .iter_mut()
+                .for_each(|st| apply_env_defaults(st, &defaults));
+            for steps in out.flows.values_mut() {
+                steps
+                    .iter_mut()
+                    .for_each(|st| apply_env_defaults(st, &defaults));
+            }
+        }
         Ok(out)
     }
 }
@@ -226,6 +292,10 @@ struct Ctx<'a> {
     /// Files being converted right now (a `runFlow` cycle guard).
     visiting: &'a mut HashSet<PathBuf>,
     skipped: &'a mut usize,
+    exec_allow: &'a mut std::collections::BTreeSet<String>,
+    /// The top flow's `appId`, for commands that default to it
+    /// (`setPermissions`).
+    app_id: String,
 }
 
 /// Line numbers for reporting: the header's, and each step's.
@@ -399,6 +469,20 @@ fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> 
         }
         if command == "retry" {
             out.extend(inline_retry(&arg, line, ctx));
+            continue;
+        }
+        if command == "setLocation" {
+            match convert_set_location(&arg, line, ctx) {
+                Some(body) => out.extend(body),
+                None => *ctx.skipped += 1,
+            }
+            continue;
+        }
+        // Device settings Maestro sets itself become `exec` steps with adb /
+        // xcrun simctl; what can't be converted falls through to the
+        // unsupported report below.
+        if let Some(body) = convert_device_command(command, &arg, line, ctx) {
+            out.extend(body);
             continue;
         }
         if command == "eraseText" {
@@ -679,7 +763,35 @@ fn unsupported_hint(command: &str, arg: &Value) -> &'static str {
     match command {
         "runScript" | "evalScript" => {
             ": Velocity runs no JavaScript. An HTTP call the script made becomes an `http` \
-             step (its `capture:` replaces `output.*`; docs/DSL.md#http-and-api-tests)"
+             step (its `capture:` replaces `output.*`; docs/DSL.md#http-and-api-tests); a \
+             script that seeds data on the host can run as an `exec` step \
+             (`exec: { run: \"./seed.sh\", capture: NAME }`, the program listed in \
+             config.exec.allow; docs/DSL.md#host-commands-exec)"
+        }
+        "copyTextFrom" => {
+            ": Velocity can't read text off the screen into a variable. Get the value where \
+             the app got it: an `http` step's `capture:` (the order id from the API), an \
+             `exec` step's `capture:`, or `--env NAME=value`; then use `${NAME}` \
+             (inputText: ${NAME}, assertVisible: ${NAME})"
+        }
+        "pasteText" => {
+            ": it pastes what copyTextFrom read, which doesn't convert; type the value with \
+             `inputText: ${NAME}` once it is captured (see the copyTextFrom note)"
+        }
+        "travel" => {
+            ": write one `exec` step per point instead (adb -s ${VELOCITY_DEVICE_ID} emu geo \
+             fix LON LAT on an emulator, xcrun simctl location ${VELOCITY_DEVICE_ID} set \
+             LAT,LON on a simulator), with a `wait` between them"
+        }
+        "setPermissions" => {
+            ": grant them with an `exec` step (adb -s ${VELOCITY_DEVICE_ID} shell pm grant \
+             APP PERMISSION; xcrun simctl privacy ${VELOCITY_DEVICE_ID} grant SERVICE APP), \
+             or launchApp with clearState and accept the dialogs"
+        }
+        "addMedia" | "clearKeychain" | "setAirplaneMode" | "toggleAirplaneMode"
+        | "setOrientation" => {
+            ": an `exec` step can do it with adb or xcrun simctl on the test's device \
+             (${VELOCITY_DEVICE_ID}); docs/DSL.md#host-commands-exec"
         }
         "repeat" if arg.as_mapping().is_some_and(|m| m.contains_key("while")) => {
             ": a `while` loop depends on the screen at run time; write the steps out, or use \
@@ -1553,20 +1665,442 @@ fn convert_swipe(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
     }
 }
 
+/// `setLocation: { latitude, longitude }` → two `exec` steps, one per
+/// platform, each `optional: true` because only one of them applies to the
+/// device the test runs on: `adb emu geo fix` (an Android emulator) and
+/// `xcrun simctl location … set` (an iOS simulator). `adb` and `xcrun` go
+/// into `config.exec.allow`. Real devices can't be moved this way.
+fn convert_set_location(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Vec<Value>> {
+    let coord = |k: &str| -> Option<String> {
+        let v = arg.as_mapping()?.get(k)?;
+        let n = match v {
+            Value::Number(n) => n.as_f64(),
+            Value::String(t) => t.trim().parse::<f64>().ok(),
+            _ => None,
+        }?;
+        n.is_finite().then(|| n.to_string())
+    };
+    let (Some(lat), Some(lon)) = (coord("latitude"), coord("longitude")) else {
+        ctx.issues.push(issue(
+            line,
+            Severity::Warning,
+            "setLocation",
+            "setLocation needs numeric latitude and longitude; skipped",
+        ));
+        return None;
+    };
+    warn_unused(arg, &["latitude", "longitude"], line, "setLocation", ctx);
+    let exec = |run: Vec<&str>| {
+        let mut m = Mapping::new();
+        m.insert(
+            Value::from("exec"),
+            map(vec![(
+                "run",
+                Value::Sequence(run.into_iter().map(Value::from).collect()),
+            )]),
+        );
+        m.insert(Value::from("optional"), Value::from(true));
+        Value::Mapping(m)
+    };
+    let dev = "${VELOCITY_DEVICE_ID}";
+    let ll = format!("{lat},{lon}");
+    ctx.exec_allow.insert("adb".into());
+    ctx.exec_allow.insert("xcrun".into());
+    ctx.issues.push(issue(
+        line,
+        Severity::Info,
+        "setLocation",
+        "setLocation became two optional `exec` steps (adb emu geo fix for an Android \
+         emulator, xcrun simctl location for an iOS simulator; the one for the other platform \
+         fails as a warning), with adb and xcrun in config.exec.allow. Real devices can't be \
+         moved this way; keep the one your suite needs",
+    ));
+    Some(vec![
+        exec(vec!["adb", "-s", dev, "emu", "geo", "fix", &lon, &lat]),
+        exec(vec!["xcrun", "simctl", "location", dev, "set", &ll]),
+    ])
+}
+
+/// An `exec` step running `run`, `optional: true` when it applies to one
+/// platform only (the other platform's step then fails as a warning).
+fn exec_step(run: &[&str], optional: bool) -> Value {
+    let mut m = Mapping::new();
+    m.insert(
+        Value::from("exec"),
+        map(vec![(
+            "run",
+            Value::Sequence(run.iter().map(|a| Value::from(*a)).collect()),
+        )]),
+    );
+    if optional {
+        m.insert(Value::from("optional"), Value::from(true));
+    }
+    Value::Mapping(m)
+}
+
+/// Maestro's permission name → (Android permission, `simctl privacy`
+/// service). `None` where the platform has no single equivalent.
+fn permission_names(name: &str) -> Option<(Option<&'static str>, Option<&'static str>)> {
+    Some(match name.to_ascii_lowercase().as_str() {
+        "camera" => (Some("android.permission.CAMERA"), Some("camera")),
+        "contacts" => (Some("android.permission.READ_CONTACTS"), Some("contacts")),
+        "location" => (
+            Some("android.permission.ACCESS_FINE_LOCATION"),
+            Some("location"),
+        ),
+        "microphone" => (Some("android.permission.RECORD_AUDIO"), Some("microphone")),
+        "calendar" => (Some("android.permission.READ_CALENDAR"), Some("calendar")),
+        "phone" => (Some("android.permission.CALL_PHONE"), None),
+        "sms" => (Some("android.permission.READ_SMS"), None),
+        "storage" => (Some("android.permission.READ_EXTERNAL_STORAGE"), None),
+        "notifications" => (Some("android.permission.POST_NOTIFICATIONS"), None),
+        "photos" | "medialibrary" => (Some("android.permission.READ_MEDIA_IMAGES"), Some("photos")),
+        "reminders" => (None, Some("reminders")),
+        "motion" => (None, Some("motion")),
+        _ => return None,
+    })
+}
+
+/// `setPermissions`, `clearKeychain`, `addMedia`, `setAirplaneMode` and
+/// `setOrientation` as `exec` steps on `${VELOCITY_DEVICE_ID}` (review 15
+/// §2: each is one adb or simctl call). `None` when the command isn't one
+/// of these or its argument can't be converted: the caller reports it.
+fn convert_device_command(
+    command: &str,
+    arg: &Value,
+    line: usize,
+    ctx: &mut Ctx,
+) -> Option<Vec<Value>> {
+    let dev = "${VELOCITY_DEVICE_ID}";
+    let (steps, tools, note): (Vec<Value>, &[&str], String) =
+        match command {
+            "setPermissions" => {
+                let m = arg.as_mapping()?;
+                let app = m
+                    .get("appId")
+                    .and_then(Value::as_str)
+                    .map(String::from)
+                    .unwrap_or_else(|| ctx.app_id.clone());
+                let perms = m.get("permissions")?.as_mapping()?;
+                let mut steps = Vec::new();
+                let mut unmapped = Vec::new();
+                for (k, v) in perms {
+                    let (Some(name), Some(state)) = (k.as_str(), v.as_str()) else {
+                        continue;
+                    };
+                    let Some((android, ios)) = permission_names(name) else {
+                        unmapped.push(name.to_string());
+                        continue;
+                    };
+                    let (pm, privacy) = match state.to_ascii_lowercase().as_str() {
+                        "allow" => ("grant", "grant"),
+                        "deny" => ("revoke", "revoke"),
+                        "unset" => ("revoke", "reset"),
+                        _ => {
+                            unmapped.push(format!("{name}: {state}"));
+                            continue;
+                        }
+                    };
+                    if let Some(a) = android {
+                        steps.push(exec_step(
+                            &["adb", "-s", dev, "shell", "pm", pm, &app, a],
+                            true,
+                        ));
+                    }
+                    if let Some(i) = ios {
+                        steps.push(exec_step(
+                            &["xcrun", "simctl", "privacy", dev, privacy, i, &app],
+                            true,
+                        ));
+                    }
+                }
+                if steps.is_empty() {
+                    return None;
+                }
+                let mut note = "setPermissions became optional `exec` steps (pm grant/revoke on \
+                            Android, simctl privacy on an iOS simulator; the other platform's \
+                            step fails as a warning)"
+                    .to_string();
+                if !unmapped.is_empty() {
+                    note.push_str(&format!("; not converted: {}", unmapped.join(", ")));
+                }
+                (steps, &["adb", "xcrun"], note)
+            }
+            "clearKeychain" => (
+                vec![exec_step(
+                    &["xcrun", "simctl", "keychain", dev, "reset"],
+                    false,
+                )],
+                &["xcrun"],
+                "clearKeychain became `xcrun simctl keychain reset` (iOS simulators only)".into(),
+            ),
+            "addMedia" => {
+                let files: Vec<String> = match arg {
+                    Value::String(f) => vec![f.clone()],
+                    Value::Sequence(v) => v
+                        .iter()
+                        .filter_map(|f| f.as_str().map(String::from))
+                        .collect(),
+                    Value::Mapping(m) => m
+                        .get("files")
+                        .and_then(Value::as_sequence)?
+                        .iter()
+                        .filter_map(|f| f.as_str().map(String::from))
+                        .collect(),
+                    _ => return None,
+                };
+                if files.is_empty() {
+                    return None;
+                }
+                let mut steps = Vec::new();
+                for f in &files {
+                    let name = Path::new(f).file_name()?.to_string_lossy().into_owned();
+                    let remote = format!("/sdcard/Pictures/{name}");
+                    steps.push(exec_step(&["adb", "-s", dev, "push", f, &remote], true));
+                    steps.push(exec_step(
+                        &[
+                            "adb",
+                            "-s",
+                            dev,
+                            "shell",
+                            "am",
+                            "broadcast",
+                            "-a",
+                            "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                            "-d",
+                            &format!("file://{remote}"),
+                        ],
+                        true,
+                    ));
+                }
+                let mut ios = vec!["xcrun", "simctl", "addmedia", dev];
+                ios.extend(files.iter().map(String::as_str));
+                steps.push(exec_step(&ios, true));
+                (
+                    steps,
+                    &["adb", "xcrun"],
+                    "addMedia became optional `exec` steps (adb push + a media scan on Android, \
+                 simctl addmedia on an iOS simulator). The paths are as the flow wrote them: \
+                 relative to where `velocity run` starts"
+                        .into(),
+                )
+            }
+            "setAirplaneMode" => {
+                let on = match arg {
+                    Value::String(s) => match s.to_ascii_lowercase().as_str() {
+                        "enabled" | "true" | "on" => true,
+                        "disabled" | "false" | "off" => false,
+                        _ => return None,
+                    },
+                    Value::Bool(b) => *b,
+                    _ => return None,
+                };
+                let mode = if on { "enable" } else { "disable" };
+                (
+                vec![exec_step(
+                    &["adb", "-s", dev, "shell", "cmd", "connectivity", "airplane-mode", mode],
+                    false,
+                )],
+                &["adb"],
+                "setAirplaneMode became `adb shell cmd connectivity airplane-mode` (Android 9+; \
+                 iOS simulators have no airplane mode)"
+                    .into(),
+            )
+            }
+            "setOrientation" => {
+                let o = arg
+                    .as_str()
+                    .or_else(|| arg.get("orientation").and_then(Value::as_str))?;
+                let rotation = match o.to_ascii_uppercase().as_str() {
+                    "PORTRAIT" => "0",
+                    "LANDSCAPE_LEFT" | "LANDSCAPE" => "1",
+                    "UPSIDE_DOWN" => "2",
+                    "LANDSCAPE_RIGHT" => "3",
+                    _ => return None,
+                };
+                (
+                    vec![
+                        exec_step(
+                            &[
+                                "adb",
+                                "-s",
+                                dev,
+                                "shell",
+                                "settings",
+                                "put",
+                                "system",
+                                "accelerometer_rotation",
+                                "0",
+                            ],
+                            false,
+                        ),
+                        exec_step(
+                            &[
+                                "adb",
+                                "-s",
+                                dev,
+                                "shell",
+                                "settings",
+                                "put",
+                                "system",
+                                "user_rotation",
+                                rotation,
+                            ],
+                            false,
+                        ),
+                    ],
+                    &["adb"],
+                    "setOrientation became `adb shell settings put system user_rotation` (Android \
+                 only: an iOS simulator can't be rotated from the command line)"
+                        .into(),
+                )
+            }
+            _ => return None,
+        };
+    for t in tools {
+        ctx.exec_allow.insert((*t).into());
+    }
+    ctx.issues.push(issue(
+        line,
+        Severity::Info,
+        command,
+        &format!("{note}; {} in config.exec.allow", tools.join(" and ")),
+    ));
+    Some(steps)
+}
+
+/// Maestro header `env:` as defaults: every `${NAME}` the flow uses
+/// becomes `${NAME:-value}`, so the flow runs as it did in Maestro and
+/// `--env NAME=…` still overrides it. A value that can't sit inside
+/// `${…:-…}` (it has `}` or `${`) is left for `--env`, and named.
+fn env_defaults(env: &Mapping) -> (Vec<(String, String)>, Vec<String>) {
+    let mut ok = Vec::new();
+    let mut left = Vec::new();
+    for (k, v) in env {
+        let Some(name) = k.as_str() else { continue };
+        let value = match v {
+            Value::String(s) => s.clone(),
+            Value::Number(n) => n.to_string(),
+            Value::Bool(b) => b.to_string(),
+            _ => {
+                left.push(name.to_string());
+                continue;
+            }
+        };
+        if value.contains('}') || value.contains("${") {
+            left.push(name.to_string());
+        } else {
+            ok.push((name.to_string(), value));
+        }
+    }
+    (ok, left)
+}
+
+/// Rewrite `${NAME}` to `${NAME:-value}` in every string under `v`.
+fn apply_env_defaults(v: &mut Value, defaults: &[(String, String)]) {
+    match v {
+        Value::String(s) => {
+            for (name, value) in defaults {
+                let plain = format!("${{{name}}}");
+                if s.contains(&plain) {
+                    *s = s.replace(&plain, &format!("${{{name}:-{value}}}"));
+                }
+            }
+        }
+        Value::Sequence(items) => items
+            .iter_mut()
+            .for_each(|i| apply_env_defaults(i, defaults)),
+        Value::Mapping(m) => m
+            .iter_mut()
+            .for_each(|(_, i)| apply_env_defaults(i, defaults)),
+        _ => {}
+    }
+}
+
+/// A `runFlow`'s `when:` as a gate step at the start of the flow: an
+/// `assertVisible` / `assertNotVisible` for `visible:` / `notVisible:`.
+/// `None` for a condition Velocity can't check (`platform:`, `true:` with
+/// a JavaScript expression).
+fn when_gate(when: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
+    let m = when.as_mapping()?;
+    if m.len() != 1 {
+        return None;
+    }
+    let (k, v) = m.iter().next()?;
+    let action = match k.as_str()? {
+        "visible" => "assertVisible",
+        "notVisible" => "assertNotVisible",
+        _ => return None,
+    };
+    Some(step(action, selector(v, line, "runFlow", ctx)?))
+}
+
 /// `runFlow: login.yaml` → `runFlow: login`, with login.yaml converted into
 /// the suite's `flows:` so the suite runs on its own.
+///
+/// `when:` becomes an optional block (`optional: true` on the `runFlow`:
+/// the first step that fails skips the rest of the flow and the test goes
+/// on). For `visible:` / `notVisible:` the flow is wrapped in one that
+/// first asserts the condition, so when it doesn't hold nothing in the flow
+/// runs, as in Maestro; it waits up to the element timeout to find out,
+/// where Maestro checks once. Other conditions (`platform:`, `true:`) can't
+/// be checked: the flow is attempted and any failure in it is a warning.
 fn convert_run_flow(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
+    let when = arg.as_mapping().and_then(|m| m.get("when")).cloned();
+    let call = convert_run_flow_file(arg, line, ctx)?;
+    let Some(when) = when else {
+        return Some(call);
+    };
+    let flow_id = call
+        .as_mapping()
+        .and_then(|m| m.get("runFlow"))
+        .and_then(Value::as_str)
+        .map(String::from)?;
+    let gated = match when_gate(&when, line, ctx) {
+        Some(gate) => {
+            let id = unique_flow_id(&format!("{flow_id}_when"), ctx.flows);
+            ctx.flows.insert(
+                id.clone(),
+                vec![gate, step("runFlow", Value::from(flow_id))],
+            );
+            ctx.issues.push(issue(
+                line,
+                Severity::Info,
+                "runFlow",
+                &format!(
+                    "runFlow `when: {}` became flow '{id}': it checks the condition first and \
+                     runs as an optional block, so the flow is skipped when the condition \
+                     doesn't hold (waiting up to the element timeout to find out)",
+                    yaml_inline(&when)
+                ),
+            ));
+            id
+        }
+        None => {
+            ctx.issues.push(issue(
+                line,
+                Severity::Warning,
+                "runFlow",
+                &format!(
+                    "runFlow `when: {}` can't be checked in Velocity (only visible/notVisible \
+                     convert); the flow runs as an optional block: it is attempted every \
+                     time and a failure in it is a warning, not a test failure",
+                    yaml_inline(&when)
+                ),
+            ));
+            flow_id
+        }
+    };
+    let mut m = Mapping::new();
+    m.insert(Value::from("runFlow"), Value::from(gated));
+    m.insert(Value::from("optional"), Value::from(true));
+    Some(Value::Mapping(m))
+}
+
+fn convert_run_flow_file(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
     let file = match arg {
         Value::String(s) => Some(s.clone()),
         Value::Mapping(m) => {
-            if m.contains_key("when") {
-                ctx.issues.push(issue(
-                    line,
-                    Severity::Warning,
-                    "runFlow",
-                    "runFlow `when:` conditions aren't supported; the flow always runs",
-                ));
-            }
             if m.contains_key("env") {
                 ctx.issues.push(issue(
                     line,
@@ -1673,6 +2207,8 @@ fn convert_run_flow(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
         flow_ids: &mut *ctx.flow_ids,
         visiting: &mut *ctx.visiting,
         skipped: &mut *ctx.skipped,
+        exec_allow: &mut *ctx.exec_allow,
+        app_id: ctx.app_id.clone(),
     };
     let converted = convert_flow(&header, &steps, &lines, &mut sub);
     ctx.flows.insert(id.clone(), converted);
@@ -1717,6 +2253,13 @@ fn canonical(p: &Path) -> PathBuf {
 fn build_velocity_yaml(c: &Converted) -> String {
     let mut doc = Mapping::new();
     doc.insert("appId".into(), Value::from(c.app_id.clone()));
+    if !c.exec_allow.is_empty() {
+        let allow: Vec<Value> = c.exec_allow.iter().cloned().map(Value::from).collect();
+        doc.insert(
+            "config".into(),
+            map(vec![("exec", map(vec![("allow", Value::Sequence(allow))]))]),
+        );
+    }
     if !c.flows.is_empty() {
         let flows: Vec<Value> = c
             .flows
@@ -2065,6 +2608,156 @@ mod tests {
             assert_eq!(i.severity, Severity::Warning);
             assert!(i.message.contains("`http` step"), "{}", i.message);
         }
+    }
+
+    #[test]
+    fn set_location_becomes_one_exec_step_per_platform() {
+        let (result, suite) = migrate(
+            "setloc",
+            &[(
+                "f.yaml",
+                "appId: a\n---\n- setLocation:\n    latitude: 52.37\n    longitude: \"4.89\"\n- tapOn: \"Go\"\n",
+            )],
+        );
+        assert!(result.success, "{:?}", result.issues);
+        let a = actions(&suite);
+        assert!(
+            a[0].contains("adb") && a[0].contains("4.89") && a[0].contains("52.37"),
+            "{}",
+            a[0]
+        );
+        assert!(
+            a[1].contains("simctl") && a[1].contains("52.37,4.89"),
+            "{}",
+            a[1]
+        );
+        assert!(suite.tests[0].steps[0].modifiers.optional);
+        assert!(suite.tests[0].steps[1].modifiers.optional);
+        let allow = &suite.config.exec.as_ref().unwrap().allow;
+        assert!(
+            allow.iter().any(|p| p == "adb") && allow.iter().any(|p| p == "xcrun"),
+            "{allow:?}"
+        );
+    }
+
+    /// Review 15 §2: device settings Maestro sets itself are one adb or
+    /// simctl call each, so they convert instead of being skipped.
+    #[test]
+    fn device_settings_become_exec_steps() {
+        let (result, suite) = migrate(
+            "devcmds",
+            &[(
+                "f.yaml",
+                "appId: com.example.app\n---\n- setPermissions:\n    permissions:\n      camera: allow\n      location: deny\n- clearKeychain\n- setOrientation: LANDSCAPE_LEFT\n- setAirplaneMode: enabled\n- addMedia:\n    - ./img/cat.png\n- tapOn: \"Go\"\n",
+            )],
+        );
+        assert!(result.success, "{:?}", result.issues);
+        let a = actions(&suite).join("\n");
+        assert!(
+            a.contains("\"pm\", \"grant\", \"com.example.app\", \"android.permission.CAMERA\""),
+            "{a}"
+        );
+        assert!(
+            a.contains("\"privacy\", \"${VELOCITY_DEVICE_ID}\", \"revoke\", \"location\""),
+            "{a}"
+        );
+        assert!(a.contains("\"keychain\""), "{a}");
+        assert!(a.contains("\"user_rotation\", \"1\""), "{a}");
+        assert!(a.contains("\"airplane-mode\", \"enable\""), "{a}");
+        assert!(a.contains("\"addmedia\"") && a.contains("cat.png"), "{a}");
+        assert!(
+            !result
+                .issues
+                .iter()
+                .any(|i| i.severity == Severity::Warning),
+            "{:?}",
+            result.issues
+        );
+        let allow = &suite.config.exec.as_ref().unwrap().allow;
+        assert!(allow.iter().any(|p| p == "adb") && allow.iter().any(|p| p == "xcrun"));
+    }
+
+    #[test]
+    fn header_env_becomes_defaults_that_env_still_overrides() {
+        let (result, suite) = migrate(
+            "envdef",
+            &[(
+                "f.yaml",
+                "appId: a\nenv:\n  VEL_MIG_USER: alice\n  VEL_MIG_ODD: \"a}b\"\n---\n- tapOn: \"${VEL_MIG_USER}\"\n- inputText: \"${VEL_MIG_ODD}\"\n",
+            )],
+        );
+        assert!(result.success, "{:?}", result.issues);
+        let a = actions(&suite).join("\n");
+        assert!(a.contains("${VEL_MIG_USER:-alice}"), "{a}");
+        assert!(a.contains("${VEL_MIG_ODD}"), "left for --env: {a}");
+        let note = result
+            .issues
+            .iter()
+            .find(|i| i.maestro_construct == "env")
+            .unwrap();
+        assert!(note.message.contains("VEL_MIG_ODD"), "{}", note.message);
+    }
+
+    #[test]
+    fn a_when_visible_flow_is_gated_on_the_condition_and_optional() {
+        let (result, suite) = migrate(
+            "whenvis",
+            &[
+                (
+                    "f.yaml",
+                    "appId: a\n---\n- runFlow:\n    when:\n      visible: \"Allow\"\n    file: allow.yaml\n- tapOn: \"Go\"\n",
+                ),
+                ("allow.yaml", "appId: a\n---\n- tapOn: \"Allow\"\n"),
+            ],
+        );
+        assert!(result.success, "{:?}", result.issues);
+        assert!(!warned(&result, "always runs"), "{:?}", result.issues);
+        assert!(suite.tests[0].steps[0].modifiers.optional);
+        let tests = velocity_core::resolver::resolve_flows(&suite).unwrap();
+        let steps = &tests[0].steps;
+        // The first inlined step is the gate, inside one optional block.
+        let first = format!("{:?}", steps[0].action);
+        assert!(
+            first.contains("AssertVisible") && first.contains("Allow"),
+            "{first}"
+        );
+        assert!(
+            !steps[0].modifiers.optional_flows.is_empty(),
+            "{:?}",
+            steps[0]
+        );
+        assert!(format!("{:?}", steps[1].action).contains("Allow"));
+        assert!(steps.last().unwrap().modifiers.optional_flows.is_empty());
+    }
+
+    #[test]
+    fn a_when_platform_flow_runs_as_an_optional_block_with_a_warning() {
+        let (result, suite) = migrate(
+            "whenplat",
+            &[
+                (
+                    "f.yaml",
+                    "appId: a\n---\n- runFlow:\n    when:\n      platform: Android\n    file: a.yaml\n",
+                ),
+                ("a.yaml", "appId: a\n---\n- tapOn: \"Only on Android\"\n"),
+            ],
+        );
+        assert!(warned(&result, "can't be checked"), "{:?}", result.issues);
+        let tests = velocity_core::resolver::resolve_flows(&suite).unwrap();
+        assert!(!tests[0].steps[0].modifiers.optional_flows.is_empty());
+    }
+
+    #[test]
+    fn copy_text_from_says_how_to_get_the_value_instead() {
+        let (result, _) = migrate(
+            "copytext",
+            &[(
+                "f.yaml",
+                "appId: a\n---\n- copyTextFrom: { id: \"order\" }\n- pasteText\n- tapOn: \"Go\"\n",
+            )],
+        );
+        assert!(warned(&result, "`capture:`"), "{:?}", result.issues);
+        assert!(warned(&result, "inputText: ${NAME}"), "{:?}", result.issues);
     }
 
     #[test]
@@ -2596,12 +3289,14 @@ mod tests {
             "devicecmds",
             &[(
                 "f.yaml",
-                "appId: a\n---\n- tapOn: \"Go\"\n- clearKeychain\n- setOrientation: LANDSCAPE_LEFT\n",
+                "appId: a\n---\n- tapOn: \"Go\"\n- toggleAirplaneMode\n- setOrientation: SIDEWAYS\n",
             )],
         );
+        // What `convert_device_command` can't express is still reported,
+        // never mistaken for an unknown command.
         assert!(warned(
             &result,
-            "Unsupported Maestro construct 'clearKeychain'"
+            "Unsupported Maestro construct 'toggleAirplaneMode'"
         ));
         assert!(warned(
             &result,

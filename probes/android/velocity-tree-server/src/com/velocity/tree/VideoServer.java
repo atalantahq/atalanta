@@ -56,11 +56,26 @@ import java.nio.ByteBuffer;
  * Started by the host with
  *   CLASSPATH=velocity-tree.jar app_process / com.velocity.tree.VideoServer
  *       [--max-size N] [--bit-rate N] [--max-fps N] [--iframe S] [--socket NAME]
- * it prints "velocity-video <version> listening on @NAME", accepts one
- * connection on that abstract socket (adb forward), and streams until the
- * client closes it or sends 'Q'; then the process exits. No client within
- * {@link #ACCEPT_MS} also exits, so a host that died never leaves an
+ * it writes a new token to {@link #tokenFile} (readable by shell or root
+ * only: the host reads it with `adb shell cat`), prints "velocity-video
+ * <version> listening on @NAME", and accepts connections on that abstract
+ * socket (adb forward) until one authenticates, then streams to it until
+ * it closes or sends 'Q'; then the process exits. No authenticated client
+ * within {@link #ACCEPT_MS} also exits, so a host that died never leaves an
  * encoder running.
+ *
+ * Version 2 (security review #10): the host's `adb forward` port is on the
+ * Mac's loopback, where any local process could take the one client slot
+ * and read the screen. Now a client must authenticate first, both ways,
+ * with HMAC-SHA256 over the token (the tree server's scheme; the token
+ * never crosses the socket):
+ *   client: "HELLO <client nonce, 16-64 hex>\n"
+ *   server: "PROOF <server nonce> <hmac(token, "velocity-video server " +
+ *            client nonce + " " + server nonce)>\n"
+ *   client: "AUTH <hmac(token, "velocity-video client " + client nonce +
+ *            " " + server nonce)>\n"   (after checking the proof)
+ *   server: "OK\n", then the stream below. Anything else closes that
+ *           connection and the server waits for the next one.
  *
  * Stream (all integers big-endian):
  *   u32 codec id ("h264")
@@ -74,7 +89,7 @@ import java.nio.ByteBuffer;
  * Host to device, one byte each: 'K' asks for a key frame now, 'Q' stops.
  */
 public final class VideoServer {
-    static final String VERSION = "1";
+    static final String VERSION = "2";
     static final String SOCKET = "velocity_video";
     static final int CODEC_H264 = 0x68323634;
     static final long FLAG_SESSION = 1L << 63;
@@ -108,12 +123,16 @@ public final class VideoServer {
             }
         }
         LocalServerSocket server = new LocalServerSocket(socket);
+        String token = Server.newToken();
+        String tokenFile = tokenFile(socket);
+        Server.writePrivate(tokenFile, token + "\n");
         Thread watchdog = new Thread(() -> {
             try {
                 Thread.sleep(ACCEPT_MS);
             } catch (InterruptedException e) {
                 return;
             }
+            new java.io.File(tokenFile).delete();
             System.err.println("velocity-video: no client in " + ACCEPT_MS + " ms");
             System.exit(2);
         });
@@ -121,14 +140,20 @@ public final class VideoServer {
         watchdog.start();
         System.out.println("velocity-video " + VERSION + " listening on @" + socket);
         System.out.flush();
-        LocalSocket client = server.accept();
-        watchdog.interrupt();
-        // The abstract socket name is public (see Server.serve): adb only.
-        int uid = client.getPeerCredentials().getUid();
-        if (uid % 100000 >= 10000) {
-            client.close();
-            System.exit(3);
+        LocalSocket client;
+        while (true) {
+            client = server.accept();
+            // The abstract socket name is public (see Server.serve): adb only.
+            int uid = client.getPeerCredentials().getUid();
+            if (uid % 100000 < 10000 && authenticated(client, token)) break;
+            try {
+                client.close();
+            } catch (IOException ignored) {
+                // gone anyway
+            }
         }
+        watchdog.interrupt();
+        new java.io.File(tokenFile).delete();
         server.close();
         final InputStream in = client.getInputStream();
         Thread control = new Thread(() -> {
@@ -166,6 +191,61 @@ public final class VideoServer {
             // closing anyway
         }
         System.exit(code);
+    }
+
+    /** Where the token for `socket` is left for the host. */
+    static String tokenFile(String socket) {
+        return "/data/local/tmp/" + socket + ".token";
+    }
+
+    static String serverProof(String token, String clientNonce, String serverNonce) {
+        return Server.hmac(token, "velocity-video server " + clientNonce + " " + serverNonce);
+    }
+
+    static String clientProof(String token, String clientNonce, String serverNonce) {
+        return Server.hmac(token, "velocity-video client " + clientNonce + " " + serverNonce);
+    }
+
+    /**
+     * The handshake (see the class comment), within 3 s. True when the
+     * client proved it holds the token; it has been told "OK".
+     */
+    private static boolean authenticated(LocalSocket c, String token) {
+        try {
+            c.setSoTimeout(3000);
+            InputStream in = c.getInputStream();
+            OutputStream out = c.getOutputStream();
+            String hello = line(in);
+            if (hello == null || !hello.startsWith("HELLO ")) return false;
+            String cn = hello.substring(6).trim();
+            if (!Server.validNonce(cn)) return false;
+            String sn = Server.newToken();
+            out.write(("PROOF " + sn + " " + serverProof(token, cn, sn) + "\n").getBytes("UTF-8"));
+            out.flush();
+            String auth = line(in);
+            if (auth == null || !auth.startsWith("AUTH ")) return false;
+            boolean ok = java.security.MessageDigest.isEqual(
+                    clientProof(token, cn, sn).getBytes("UTF-8"), auth.substring(5).trim().getBytes("UTF-8"));
+            if (!ok) return false;
+            out.write("OK\n".getBytes("UTF-8"));
+            out.flush();
+            c.setSoTimeout(0);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** One line of at most 256 bytes, without its newline; null otherwise. */
+    private static String line(InputStream in) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int ch;
+        while ((ch = in.read()) != -1) {
+            if (ch == '\n') return sb.toString();
+            if (sb.length() >= 256) return null;
+            sb.append((char) ch);
+        }
+        return null;
     }
 
     private static void stop() {

@@ -8,7 +8,7 @@ pub struct LintArgs {
     #[arg(value_name = "PATH")]
     path: Option<String>,
 
-    /// Path to the test suite YAML config
+    /// The suite file to lint
     #[arg(short, long, default_value = "velocity.yaml")]
     config: String,
 }
@@ -27,7 +27,11 @@ pub fn execute(mut args: LintArgs) -> anyhow::Result<i32> {
         Ok(s) => s,
         Err(e) => {
             println!();
-            println!("  {} Parse error: {e}", "\u{2717}".red().bold());
+            println!(
+                "  {} Parse error: {}",
+                "\u{2717}".red().bold(),
+                super::load_error(&args.config, &e)
+            );
             return Ok(2);
         }
     };

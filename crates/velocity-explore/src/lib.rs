@@ -29,17 +29,24 @@
 //! println!("{}", result.yaml.unwrap_or_default());
 //! # let _ = handle; Ok(()) }
 //! ```
+#![forbid(unsafe_code)]
 
+pub mod after;
 pub mod demos;
 pub mod events;
 pub mod expect;
+pub mod gates;
 pub mod job;
+pub mod notes;
+pub mod pixels;
 pub mod replay;
 pub mod screen;
 /// Public: `velocity explore --script` plays it.
 pub mod scripted;
 pub mod session;
-/// A fake app for this crate's integration tests; not part of the API.
+/// A fake app for this crate's integration tests (`feature = "testkit"`);
+/// not part of the API.
+#[cfg(feature = "testkit")]
 #[doc(hidden)]
 pub mod testkit;
 pub mod values;
@@ -48,9 +55,10 @@ pub mod yaml;
 pub use events::{EventSink, ExploreEvent, InstructionSource};
 pub use expect::{ExpectCheck, ExpectOutcome, ExpectationCounts, PostAssertion};
 pub use job::{ExploreJob, JobResult};
+pub use notes::{NoEffect, TurnNote};
 pub use replay::{replay_once, ReplayReport, ReplayRun};
 pub use session::{
-    ExploreHandle, ExploreOptions, ExploreReport, ExploreSession, LaunchMode, Outcome,
-    RecordedStep, ScreenshotMode, ValueKind, ValueSlot,
+    ExploreHandle, ExploreOptions, ExploreOutcome, ExploreReport, ExploreSession, ExploreTiming,
+    LaunchMode, Outcome, RecordedStep, ScreenshotMode, ValueKind, ValueSlot,
 };
 pub use yaml::{generate, generate_nl, GenOptions, Generated};

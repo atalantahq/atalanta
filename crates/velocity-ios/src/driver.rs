@@ -53,14 +53,24 @@ struct DeviceConn {
     /// from the last failed recovery: the step fails with it (exit 3)
     /// instead of "unreachable".
     runner_failing: std::sync::Mutex<Option<VelocityError>>,
+    /// The tree (by address) whose `visible` flags were read under a modal
+    /// layer ([`IosDriver::with_visibility`]), so it is read once.
+    visible_for: std::sync::Mutex<Option<usize>>,
 }
 
 impl DeviceConn {
-    fn new(base_url: &str, port: u16, physical: bool, timeout: Option<Duration>) -> Self {
-        let wda = match timeout {
+    fn new(
+        device_id: &str,
+        base_url: &str,
+        port: u16,
+        physical: bool,
+        timeout: Option<Duration>,
+    ) -> Self {
+        let mut wda = match timeout {
             Some(t) => WdaManager::with_timeout(base_url, t),
             None => WdaManager::new(base_url),
         };
+        wda.client_mut().set_device_id(device_id);
         Self {
             port,
             wda: Mutex::new(wda),
@@ -73,6 +83,7 @@ impl DeviceConn {
             keys_primed: std::sync::Mutex::new(None),
             reports_focus: std::sync::atomic::AtomicU8::new(0),
             runner_failing: std::sync::Mutex::new(None),
+            visible_for: std::sync::Mutex::new(None),
         }
     }
 
@@ -203,6 +214,54 @@ const DEVICE_APP_GONE: &str = "the app is not running on the device (it died sin
 
 /// iOS platform driver using xcrun simctl for device management and
 /// WebDriverAgent for UI automation.
+/// Steps a picker wheel may take to reach a value (a minutes wheel has 60).
+const PICKER_MAX_STEPS: usize = 80;
+
+/// How long a picker wheel's value may lag a step (its scroll animation)
+/// before an unchanged read means the wheel did not move.
+const PICKER_SETTLE: Duration = Duration::from_millis(200);
+
+/// A picker wheel (`XCUIElementTypePickerWheel`).
+fn is_picker_wheel(el: &Element) -> bool {
+    el.element_type
+        .strip_prefix("XCUIElementType")
+        .unwrap_or(&el.element_type)
+        == "PickerWheel"
+}
+
+/// The number a value starts with ("6 o’clock" → 6, "05 minutes" → 5).
+fn leading_number(s: &str) -> Option<u32> {
+    let d: String = s.trim().chars().take_while(char::is_ascii_digit).collect();
+    d.parse().ok()
+}
+
+/// A picker wheel's value read: the text, "" when the wheel is gone
+/// (`no such element`), and the error for anything else (a lost, busy or
+/// restarted WDA is the device's failure, never the test's).
+fn wheel_value(read: Result<String>) -> Result<String> {
+    match read {
+        Err(VelocityError::ElementNotFound { .. }) => Ok(String::new()),
+        other => other,
+    }
+}
+
+/// Whether a wheel showing `value` is at `want`: the same text (ignoring
+/// case and typographic quotes), or the same leading number when `want` is
+/// a number or starts with one ("6" and "6 o'clock" both match "6 o’clock").
+fn wheel_value_matches(value: &str, want: &str) -> bool {
+    let norm = |s: &str| s.trim().to_lowercase().replace(['’', '‘'], "'");
+    let (v, w) = (norm(value), norm(want));
+    if v == w {
+        return true;
+    }
+    match (leading_number(&v), leading_number(&w)) {
+        (Some(a), Some(b)) => {
+            a == b && (w.chars().all(|c| c.is_ascii_digit()) || v.starts_with(&w))
+        }
+        _ => false,
+    }
+}
+
 pub struct IosDriver {
     simctl: Simctl,
     /// Real iPhones and iPads.
@@ -296,6 +355,116 @@ impl Default for IosDriver {
 }
 
 impl IosDriver {
+    /// `inputText` on a picker wheel turns it to `text` ("6", "6 o'clock",
+    /// "45", "pm"). Typing into a time picker on iOS 26 goes to its number
+    /// pad (an hour typed as "6 o'clock" set the minutes to 06), so the
+    /// wheel is turned instead: WDA's exact set first, then one step at a
+    /// time (`/wda/pickerwheel/select`), reading its value after each,
+    /// until it matches (iOSWorld, 2026-11-08: every alarm task stalled).
+    async fn set_picker_wheel(&self, device_id: &str, element: &Element, text: &str) -> Result<()> {
+        // VelocityRunner serves none of the routes below (`POST /elements`
+        // answers `[]`): say so, not "a picker wheel not found" while it is
+        // on screen (review 09 #6).
+        if self.fixed_url.is_none() && crate::wda_bootstrap::velocity_runner() {
+            return Err(VelocityError::Config(
+                "setting a picker wheel needs WebDriverAgent's picker-wheel routes, which \
+                 VelocityRunner (VELOCITY_IOS_RUNNER=velocity) does not serve: run this test \
+                 with the default WebDriverAgent runner, or tap the wheel's rows instead"
+                    .into(),
+            ));
+        }
+        let target = text.to_string();
+        let bounds = element.bounds;
+        self.act(device_id, |c| {
+            let target = target.clone();
+            async move {
+                let guard = c.wda.lock().await;
+                let wda = guard.client();
+                let wheels = wda
+                    .find_elements("class name", "XCUIElementTypePickerWheel")
+                    .await?;
+                // The wheel the tree read: the one whose frame is nearest.
+                let (cx, cy) = bounds.center();
+                let mut best: Option<(f64, String)> = None;
+                for w in wheels {
+                    if let Ok((x, y, wd, ht)) = wda.element_rect(&w.element_id).await {
+                        let d = (x + wd / 2.0 - f64::from(cx)).abs()
+                            + (y + ht / 2.0 - f64::from(cy)).abs();
+                        if best.as_ref().is_none_or(|(b, _)| d < *b) {
+                            best = Some((d, w.element_id));
+                        }
+                    }
+                }
+                let Some((_, id)) = best else {
+                    return Err(VelocityError::ElementNotFound {
+                        selector: "a picker wheel".into(),
+                        timeout_ms: 0,
+                        screenshot: None,
+                        hierarchy_snapshot: None,
+                    });
+                };
+                // A read that failed is not an empty wheel: a lost or busy
+                // WDA folded into "" ended in "it stopped at \"\"", a test
+                // failure on a healthy-looking device (review 03 M4). Only a
+                // wheel gone from the screen reads as empty.
+                let value = |id: &str| {
+                    let id = id.to_string();
+                    async move { wheel_value(wda.element_value(&id).await) }
+                };
+                let mut now = value(&id).await?;
+                if wheel_value_matches(&now, &target) {
+                    return Ok(());
+                }
+                // WDA's own adjust when `text` is one of the wheel's values.
+                let _ = wda.send_keys(&id, &target).await;
+                now = value(&id).await?;
+                if wheel_value_matches(&now, &target) {
+                    return Ok(());
+                }
+                let mut order = match (leading_number(&now), leading_number(&target)) {
+                    (Some(a), Some(b)) if b < a => "previous",
+                    _ => "next",
+                };
+                let mut flipped = false;
+                for _ in 0..PICKER_MAX_STEPS {
+                    wda.picker_step(&id, order).await?;
+                    let next = value(&id).await?;
+                    if wheel_value_matches(&next, &target) {
+                        return Ok(());
+                    }
+                    if next == now {
+                        // UIPickerView updates its value when the scroll
+                        // settles: one read inside the animation is not the
+                        // end of the wheel. Read again before turning back.
+                        tokio::time::sleep(PICKER_SETTLE).await;
+                        let settled = value(&id).await?;
+                        if wheel_value_matches(&settled, &target) {
+                            return Ok(());
+                        }
+                        if settled != now {
+                            now = settled;
+                            continue;
+                        }
+                        // The end of a wheel that doesn't wrap: the other way.
+                        if flipped {
+                            break;
+                        }
+                        flipped = true;
+                        order = if order == "next" { "previous" } else { "next" };
+                    }
+                    now = next;
+                }
+                Err(VelocityError::AssertionFailed {
+                    expected: format!("picker wheel set to {target:?}"),
+                    actual: format!("it stopped at {now:?}"),
+                    selector: "picker wheel".into(),
+                    screenshot: None,
+                })
+            }
+        })
+        .await
+    }
+
     /// One WDA per simulator on ports from 8100 up, unless `VELOCITY_WDA_URL`
     /// names a WDA to use instead.
     pub fn new() -> Self {
@@ -553,29 +722,27 @@ impl IosDriver {
         let seen = self.crash_watch.seen.clone();
         let key = CrashWatch::key(device_id, app_id);
         let (dev, app) = key.clone();
-        // Its own short-timeout client: the device's lock is held only to
-        // read the session, never across the call, so a slow runner never
-        // holds up a step.
-        let (url, auth) = {
+        // Its own short-timeout client. The session id and auth are read
+        // through the client's published handle, never the device's
+        // request lock: a stuck 30 s `/source` used to hold every tick up
+        // (review 01 #9).
+        let (url, published, udid) = {
             let wda = conn.wda.lock().await;
             (
                 wda.client().base_url().to_string(),
-                wda.client().auth().clone(),
+                wda.client().published(),
+                wda.client().device_id().to_string(),
             )
         };
+        drop(conn);
         let mut probe =
             crate::wda::WdaClient::with_timeout(&url, every.min(Duration::from_secs(2)));
-        probe.set_auth(auth);
+        probe.set_device_id(&udid);
         let task = tokio::spawn(async move {
             loop {
                 tokio::time::sleep(every).await;
-                let sid = conn
-                    .wda
-                    .lock()
-                    .await
-                    .client()
-                    .session_id()
-                    .map(str::to_string);
+                let (sid, auth) = published.get();
+                probe.set_auth(auth);
                 if probe.session_id() != sid.as_deref() {
                     probe.set_session_id_opt(sid);
                 }
@@ -648,6 +815,7 @@ impl IosDriver {
             }
             debug!(device_id, port, "WDA connection for device");
             let conn = Arc::new(DeviceConn::new(
+                device_id,
                 &url,
                 port,
                 is_physical(device_id),
@@ -704,13 +872,18 @@ impl IosDriver {
     /// `timeout` (a wedged runner would otherwise hold the launch for the
     /// client's full 30 s), and simctl has to do it.
     async fn terminate_in_session(conn: &DeviceConn, app_id: &str, timeout: Duration) -> bool {
-        let wda = conn.wda.lock().await;
-        if wda.client().session_id().is_none() {
-            return false;
-        }
-        match tokio::time::timeout(timeout, wda.client().terminate_app(app_id)).await {
-            Ok(Ok(())) => true,
-            Ok(Err(e)) => {
+        // The timeout covers the wait for the connection too: a request
+        // stuck on it (up to the client's 30 s) used to come first (review
+        // 01 #9).
+        let attempt = async {
+            let wda = conn.wda.lock().await;
+            wda.client().session_id()?;
+            Some(wda.client().terminate_app(app_id).await)
+        };
+        match tokio::time::timeout(timeout, attempt).await {
+            Ok(None) => false,
+            Ok(Some(Ok(()))) => true,
+            Ok(Some(Err(e))) => {
                 debug!(app_id, "runner terminate failed ({e}); using simctl");
                 false
             }
@@ -1006,6 +1179,11 @@ impl IosDriver {
             other => other?,
         };
         let mut tree = parse_ios_hierarchy(&xml)?;
+        conn.wda
+            .lock()
+            .await
+            .client()
+            .note_app_frame(tree.bounds.width, tree.bounds.height);
         let due = conn
             .alert_clear_until
             .lock()
@@ -1039,10 +1217,66 @@ impl IosDriver {
     /// The step's tree: the one already read since the last action, else fresh.
     async fn tree(&self, device_id: &str) -> Result<Arc<Element>> {
         let conn = self.conn(device_id).await;
-        if let Some(t) = conn.cached_tree() {
-            return Ok(t);
+        let tree = match conn.cached_tree() {
+            Some(t) => t,
+            None => self.read_tree(device_id).await?,
+        };
+        Ok(self.with_visibility(&conn, tree).await)
+    }
+
+    /// A tree with a modal layer in it (a sheet, a popover, an in-app
+    /// alert, the `PopoverDismissRegion`), its `visible` flags read from
+    /// WebDriverAgent. Trees are read without `visible` (it costs ~10x),
+    /// so everything with a frame on screen passes for shown, a target
+    /// behind a sheet included. The tap guard refuses those by tree order,
+    /// but an `assertVisible` or a bare selector still took them. Paid only
+    /// for the step's lookup tree (never for the settle's polls) and only
+    /// while a modal layer is up: one more `/source` there. VelocityRunner's
+    /// `visible` is frame-only, so it isn't asked. The flags are copied onto
+    /// the tree already read, and only when both reads have the same shape
+    /// (the screen didn't change between them); otherwise nothing changes.
+    /// Off with `VELOCITY_IOS_SHEET_VISIBILITY=off`.
+    async fn with_visibility(&self, conn: &DeviceConn, tree: Arc<Element>) -> Arc<Element> {
+        let key = Arc::as_ptr(&tree) as usize;
+        if !sheet_visibility()
+            || (self.fixed_url.is_none() && crate::wda_bootstrap::velocity_runner())
+            || velocity_common::env::var("VELOCITY_IOS_FULL_SOURCE").as_deref() == Ok("1")
+            || *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) == Some(key)
+            || !crate::hit::has_modal_layer(&tree)
+        {
+            return tree;
         }
-        self.read_tree(device_id).await
+        let xml = conn
+            .wda
+            .lock()
+            .await
+            .client()
+            .get_source_with_visibility()
+            .await;
+        let full = match xml.and_then(|x| parse_ios_hierarchy(&x)) {
+            Ok(t) => t,
+            Err(e) => {
+                debug!("visibility read under a sheet failed: {e}");
+                return tree;
+            }
+        };
+        let mut merged = (*tree).clone();
+        if !crate::hit::copy_visibility(&mut merged, &full) {
+            debug!("the screen changed between reads; visibility not applied");
+            return tree;
+        }
+        let merged = Arc::new(merged);
+        let mut cache = conn.tree.lock().unwrap_or_else(|e| e.into_inner());
+        // Only replace the cached tree this was built from.
+        if let Some((t, _)) = cache.as_mut() {
+            if Arc::ptr_eq(t, &tree) {
+                *t = merged.clone();
+            }
+        }
+        drop(cache);
+        *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(Arc::as_ptr(&merged) as usize);
+        merged
     }
 
     /// Run an action. Actions are never replayed after an ambiguous failure
@@ -1290,6 +1524,42 @@ impl IosDriver {
         .await
     }
 
+    /// A row switch is tapped at its trailing end, where the knob is in a
+    /// left-to-right layout. In a mirrored (RTL) row that is the label, and
+    /// the switch stays as it was. So when its value hasn't changed after
+    /// [`ROW_SWITCH_WAIT`], tap the leading end once (review 09 #11). The
+    /// value is read several times first: a flip that shows late must not
+    /// be flipped back.
+    async fn row_switch_fallback(&self, device_id: &str, el: &Element) -> Result<()> {
+        let deadline = Instant::now() + ROW_SWITCH_WAIT;
+        let tree = loop {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            let tree = self.read_tree(device_id).await?;
+            let now = crate::hit::find_again(&tree, el).map(|n| n.checked);
+            match now {
+                // Gone (the row moved, the screen changed): nothing to judge.
+                None => return Ok(()),
+                Some(v) if v != el.checked => return Ok(()),
+                Some(_) => {}
+            }
+            if Instant::now() >= deadline {
+                break tree;
+            }
+        };
+        let Some((x, y)) = crate::hit::row_switch_leading_point(&tree, el) else {
+            return Ok(());
+        };
+        debug!(
+            element = ?el.label,
+            x, y, "row switch unchanged after a trailing-end tap; tapping its leading end (RTL)"
+        );
+        self.act(device_id, move |c| async move {
+            let wda = c.wda.lock().await;
+            wda.client().tap_at(x as f64, y as f64).await
+        })
+        .await
+    }
+
     /// Where to tap `element` (VEL-341): on the screen, off the keyboard,
     /// the bars and the status bar; an error naming what covers it when no
     /// part is free (as on Android). `VELOCITY_IOS_TAP_GUARD=off` taps the
@@ -1343,6 +1613,14 @@ impl IosDriver {
                 crate::hit::Blocker::Covered("status bar") => format!(
                     "{why}; scroll it into view first, or, if the app hides its status \
                      bar, set VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off"
+                ),
+                // A tap behind a presented layer lands on its dimming view
+                // and dismisses it (review 09 #2).
+                crate::hit::Blocker::Covered(
+                    "sheet" | "popover" | "alert" | "sheet's dimming view",
+                ) => format!(
+                    "{why}, which is in front; act on it or dismiss it first, or set \
+                     VELOCITY_IOS_TAP_GUARD=off"
                 ),
                 _ => format!("{why}; scroll it into view first, or set VELOCITY_IOS_TAP_GUARD=off"),
             },
@@ -1510,7 +1788,7 @@ impl IosDriver {
         if let Some(el) =
             velocity_common::selector_match::find_in_tree(&tree, selector, Some(&screen))
         {
-            return Ok(Some(el));
+            return Ok(Some(prefer_in_front(&tree, selector, &screen, el)));
         }
         if !wda_can_answer(selector) {
             return Ok(None);
@@ -2157,7 +2435,12 @@ impl PlatformDriver for IosDriver {
                 }
             }
         })
-        .await
+        .await?;
+        if point.is_some() && tap_guard() && crate::hit::is_row_switch(&el) && el.checked.is_some()
+        {
+            self.row_switch_fallback(device_id, &el).await?;
+        }
+        Ok(())
     }
 
     /// `tapXY` in points, the unit of iOS element bounds.
@@ -2215,6 +2498,9 @@ impl PlatformDriver for IosDriver {
 
     async fn input_text(&self, device_id: &str, element: &Element, text: &str) -> Result<()> {
         debug!(element_id = %element.platform_id, "inputting text");
+        if is_picker_wheel(element) {
+            return self.set_picker_wheel(device_id, element, text).await;
+        }
         let conn = self.ready(device_id).await?;
         if !Self::is_hierarchy_element(element) {
             let id = element.platform_id.clone();
@@ -2243,7 +2529,7 @@ impl PlatformDriver for IosDriver {
         // adds a space that typing wouldn't.
         let empty = element.text.as_deref().is_none_or(str::is_empty);
         let primed = self.keys_primed(device_id, &conn);
-        let paste = use_paste(&text, empty, primed);
+        let paste = element.element_type != "SecureTextField" && use_paste(&text, empty, primed);
         // The tap and the typing are separate actions: a session lost or a
         // WDA restarted while typing replays the typing only, never the tap
         // (VEL-296: the field was tapped twice, after the screen may have
@@ -2412,6 +2698,30 @@ impl PlatformDriver for IosDriver {
         self.drag_line(device_id, from, to, true).await
     }
 
+    async fn drag(
+        &self,
+        device_id: &str,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        self.act(device_id, |c| async move {
+            c.wda
+                .lock()
+                .await
+                .client()
+                .drag_hold(
+                    (from.0 as f64, from.1 as f64),
+                    (to.0 as f64, to.1 as f64),
+                    hold_ms,
+                    move_ms,
+                )
+                .await
+        })
+        .await
+    }
+
     async fn scroll(&self, device_id: &str, finger: Direction) -> Result<()> {
         self.drag_direction(device_id, finger, false).await
     }
@@ -2435,7 +2745,11 @@ impl PlatformDriver for IosDriver {
         // came first, a right-hand "Delete" included (VEL-344).
         let back = if key == Key::Back {
             let tree = self.tree(device_id).await?;
-            match back_button(&tree) {
+            // No navigation back button: a sheet's own way out (Close,
+            // Cancel, ✕) near the top. The edge swipe pops a pushed screen
+            // but never closes a sheet, and "back" in a sheet did nothing
+            // (iOSWorld, 2026-11-08).
+            match back_button(&tree).or_else(|| sheet_close_button(&tree)) {
                 Some(b) => Some(self.tap_point(device_id, &b).await?),
                 None => None,
             }
@@ -2485,6 +2799,7 @@ impl PlatformDriver for IosDriver {
         }
         if is_physical(device_id) {
             return Err(VelocityError::WdaUnreachable {
+                device_id: device_id.to_string(),
                 url: device_id.to_string(),
                 detail: "screenshot: WebDriverAgent did not answer".into(),
             });
@@ -2584,8 +2899,6 @@ async fn clone_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-/// Real devices have non-UUID UDIDs (`00008130-001451402EC1001C`, or 40
-/// hex digits on older models); simulator UDIDs are always RFC 4122 UUIDs.
 /// Whether `e` is a text input or holds one.
 fn holds_text_input(e: &Element) -> bool {
     is_text_input(&e.element_type) || e.children.iter().any(holds_text_input)
@@ -2615,9 +2928,58 @@ fn is_physical(udid: &str) -> bool {
     }
 }
 
+/// A sheet's close button: a button in the top quarter of the screen whose
+/// label, text or identifier is exactly one of the standard ways out
+/// ([`is_close_name`]), never Done or Save (those commit), the topmost one,
+/// the last in the tree when two are level. Prefix and suffix forms are not
+/// matched: "Close account" or "Close all tabs" near the top of a sheet is an
+/// app action, not a way out (review 09 #3). A button behind a presented
+/// layer is skipped: the tap would land on the layer's dimming view.
+fn sheet_close_button(tree: &Element) -> Option<Element> {
+    fn walk<'a>(e: &'a Element, top: i32, out: &mut Vec<&'a Element>) {
+        if e.element_type == "Button" && e.visible && !e.bounds.is_empty() && e.bounds.y < top {
+            let names = [
+                e.label.as_deref(),
+                e.text.as_deref(),
+                Some(e.platform_id.as_str()),
+            ];
+            if names.into_iter().flatten().any(is_close_name) {
+                out.push(e);
+            }
+        }
+        for c in &e.children {
+            walk(c, top, out);
+        }
+    }
+    let mut found = Vec::new();
+    walk(tree, tree.bounds.y + tree.bounds.height / 4, &mut found);
+    found
+        .into_iter()
+        .rev()
+        .filter(|e| crate::hit::behind_modal(tree, e).is_none())
+        .min_by_key(|e| e.bounds.y)
+        .cloned()
+}
+
+/// A standard name for a sheet's way out: Close, Cancel, Dismiss, ✕, the
+/// `xmark` SF Symbols (`xmark`, `xmark.circle.fill`, …) and the usual
+/// close-button identifiers, compared whole and ignoring case.
+fn is_close_name(s: &str) -> bool {
+    let s = s.trim().to_lowercase();
+    matches!(
+        s.as_str(),
+        "close" | "cancel" | "dismiss" | "xmark" | "✕" | "close_button" | "closebutton"
+    ) || (s.starts_with("xmark.") && !s.contains(' '))
+}
+
 /// The back button of the front-most navigation bar on screen: a button
-/// labelled "Back", else its left-most button in the left third of the bar.
-/// `None` when the bar has neither (a root screen): swipe from the edge.
+/// whose label or identifier is "Back", or the identifier UIKit and SwiftUI
+/// give the system back button ("BackButton"; its label is the previous
+/// screen's title). Nothing else: a positional "left-most button of the
+/// bar" was a root screen's Edit, Menu or avatar button (review 09 #3).
+/// `None` when the bar has none (a root screen): `pressKey: back` then
+/// swipes in from the edge, which does nothing on a root screen. A button
+/// behind a presented layer (a sheet over the screen) doesn't count.
 fn back_button(tree: &Element) -> Option<Element> {
     fn bars<'a>(e: &'a Element, screen: &Rect, out: &mut Vec<&'a Element>) {
         if e.element_type == "NavigationBar" && !e.bounds.is_empty() && e.bounds.intersects(screen)
@@ -2643,19 +3005,15 @@ fn back_button(tree: &Element) -> Option<Element> {
     let mut candidates = Vec::new();
     buttons(bar, &mut candidates);
     let is_back = |b: &&Element| {
-        [b.label.as_deref(), Some(b.platform_id.as_str())]
-            .into_iter()
-            .flatten()
-            .any(|s| s.eq_ignore_ascii_case("back") || s == "BackButton")
+        b.label
+            .as_deref()
+            .is_some_and(|s| s.trim().eq_ignore_ascii_case("back"))
+            || b.platform_id.eq_ignore_ascii_case("back")
+            || b.platform_id == "BackButton"
     };
-    if let Some(b) = candidates.iter().find(|b| is_back(b)) {
-        return Some((*b).clone());
-    }
-    let third = bar.bounds.x + bar.bounds.width / 3;
     candidates
         .into_iter()
-        .filter(|b| b.bounds.center().0 < third)
-        .min_by_key(|b| b.bounds.x)
+        .find(|b| is_back(b) && crate::hit::behind_modal(tree, b).is_none())
         .cloned()
 }
 
@@ -2671,6 +3029,26 @@ fn xcui_type(class: &str) -> String {
     } else {
         format!("XCUIElementType{class}")
     }
+}
+
+/// `first`, the bare pick for `selector`, unless it is behind a presented
+/// layer (a sheet, popover or alert) and another match is not: then the
+/// first such match in tree order. The presenting screen stays in the tree
+/// under a sheet, so `tapOn: Save` picked the "Save" behind an action sheet
+/// and the tap dismissed it (review 09 #2). An `index:` or a relation keeps
+/// its own pick, and with nothing in front the pick stands (the tap guard
+/// then refuses it, naming the layer).
+fn prefer_in_front(tree: &Element, selector: &Selector, screen: &Rect, first: Element) -> Element {
+    if matches!(selector, Selector::Index { .. } | Selector::Relative { .. })
+        || crate::hit::behind_modal(tree, &first).is_none()
+    {
+        return first;
+    }
+    velocity_common::selector_match::find_all_tree_order(tree, selector, Some(screen))
+        .into_iter()
+        .find(|e| crate::hit::behind_modal(tree, e).is_none())
+        .cloned()
+        .unwrap_or(first)
 }
 
 /// Whether a WDA query means the same as `selector` (no index, no relation).
@@ -2726,6 +3104,18 @@ fn alert_recheck() -> Duration {
 
 /// `VELOCITY_IOS_TAP_GUARD=off` taps the centre of the frame, as before the
 /// tap-point resolver ([`crate::hit`]).
+/// `VELOCITY_IOS_SHEET_VISIBILITY=off`: don't read `visible` under a sheet.
+fn sheet_visibility() -> bool {
+    !matches!(
+        velocity_common::env::var("VELOCITY_IOS_SHEET_VISIBILITY").as_deref(),
+        Ok("off") | Ok("0") | Ok("false")
+    )
+}
+
+/// How long a row switch's value may take to show a flip before the other
+/// end is tapped ([`IosDriver::row_switch_fallback`]).
+const ROW_SWITCH_WAIT: Duration = Duration::from_millis(600);
+
 fn tap_guard() -> bool {
     velocity_common::env::var("VELOCITY_IOS_TAP_GUARD")
         .as_deref()
@@ -3027,8 +3417,15 @@ fn is_unfocused(e: &VelocityError) -> bool {
 /// costs ~0.4 s (~0.75 s for the first after a launch, which primes the
 /// keyboard) against ~9 ms a typed character. Text with a newline or
 /// backspace is always typed: those are key presses (submit, delete).
+/// So is a secret (a registered `--secret`/secret-named value, or any text
+/// for a secure field), whatever `ios.text` says: the simulator's
+/// pasteboard is the Mac's, and clipboard managers keep what passes
+/// through it (security review #9).
 fn use_paste(text: &str, field_empty: bool, primed: bool) -> bool {
     if text.contains(['\n', '\r', '\u{8}']) {
+        return false;
+    }
+    if velocity_common::redact::redact(text) != text {
         return false;
     }
     match velocity_common::env::var("VELOCITY_IOS_TEXT")
@@ -3063,6 +3460,10 @@ mod paste_tests {
         assert!(!use_paste(&long, false, true));
         assert!(!use_paste("short", true, true));
         assert!(!use_paste(&format!("{long}\n"), true, true));
+        // A registered secret is typed, never put on the pasteboard.
+        let secret = format!("pw-{}", "s".repeat(60));
+        velocity_common::redact::register_secret(&secret);
+        assert!(!use_paste(&secret, true, true));
         assert!(select_to_clear(45, 370) && select_to_clear(30, 200));
         assert!(!select_to_clear(5, 370) && !select_to_clear(0, 370));
     }
@@ -3164,7 +3565,7 @@ mod wda_query_tests {
     }
 
     #[test]
-    fn back_is_the_left_button_of_the_front_bar_never_a_right_hand_one() {
+    fn back_is_the_front_bars_back_button_never_a_positional_guess() {
         // VEL-344: a root screen's bar with only "Delete" on the right.
         let mut root = node("Application", "app", 0, 0, 402, 874);
         let mut bar = node("NavigationBar", "Inbox", 0, 62, 402, 44);
@@ -3172,18 +3573,85 @@ mod wda_query_tests {
         root.children = vec![bar];
         assert!(back_button(&root).is_none(), "edge swipe instead");
 
-        let mut pushed = node("NavigationBar", "Detail", 0, 62, 402, 44);
-        pushed.children = vec![
-            node("Button", "Edit", 330, 66, 64, 36),
-            node("Button", "Inbox", 8, 66, 80, 36),
+        // Review 09 #3: a root screen's leading "Edit" / "Menu" / avatar
+        // button is not back, however far left it sits.
+        let mut root_bar = node("NavigationBar", "Mail", 0, 62, 402, 44);
+        root_bar.children = vec![
+            node("Button", "Edit", 8, 66, 50, 36),
+            node("Button", "Compose", 340, 66, 50, 36),
         ];
+        root.children.push(root_bar);
+        assert!(back_button(&root).is_none(), "edge swipe, never Edit");
+
+        // The system back button: labelled with the previous title,
+        // identified as "BackButton".
+        let mut pushed = node("NavigationBar", "Detail", 0, 62, 402, 44);
+        let mut system_back = node("Button", "Inbox", 8, 66, 80, 36);
+        system_back.platform_id = "BackButton".into();
+        pushed.children = vec![node("Button", "Edit", 330, 66, 64, 36), system_back];
         root.children.push(pushed);
-        assert_eq!(back_button(&root).unwrap().platform_id, "Inbox");
+        assert_eq!(back_button(&root).unwrap().platform_id, "BackButton");
 
         let mut labelled = node("NavigationBar", "X", 0, 62, 402, 44);
         labelled.children = vec![node("Button", "Back", 150, 66, 60, 36)];
         root.children.push(labelled);
         assert_eq!(back_button(&root).unwrap().platform_id, "Back");
+    }
+
+    #[test]
+    fn a_bare_selector_picks_the_match_in_front_of_a_sheet() {
+        // Review 09 #2: "Save" behind an action sheet comes first in tree
+        // order; the sheet's own "Save" is the one a user can tap.
+        let screen = Rect {
+            x: 0,
+            y: 0,
+            width: 402,
+            height: 874,
+        };
+        let mut root = node("Application", "app", 0, 0, 402, 874);
+        let behind = node("Button", "Save", 300, 100, 80, 44);
+        let mut sheet = node("Sheet", "", 8, 600, 386, 266);
+        let mut in_front = node("Button", "Save", 8, 650, 386, 56);
+        in_front.platform_id = "sheet_save".into();
+        sheet.children = vec![in_front];
+        root.children = vec![behind.clone(), sheet];
+        let sel = Selector::Text("Save".into());
+        let first = velocity_common::selector_match::find_in_tree(&root, &sel, Some(&screen))
+            .expect("a match");
+        assert_eq!(first.platform_id, "Save", "tree order puts it first");
+        let picked = prefer_in_front(&root, &sel, &screen, first.clone());
+        assert_eq!(picked.platform_id, "sheet_save");
+        // An index keeps its own pick.
+        let indexed = Selector::Index {
+            selector: Box::new(sel),
+            index: 0,
+        };
+        assert_eq!(
+            prefer_in_front(&root, &indexed, &screen, first).platform_id,
+            "Save"
+        );
+        // Nothing in front: the pick stands (the tap guard names the sheet).
+        root.children.truncate(1);
+        root.children.push(node("Sheet", "", 8, 600, 386, 266));
+        let only = behind.clone();
+        assert_eq!(
+            prefer_in_front(&root, &Selector::Text("Save".into()), &screen, only).platform_id,
+            "Save"
+        );
+    }
+
+    #[test]
+    fn back_skips_a_back_button_behind_a_presented_sheet() {
+        let mut root = node("Application", "app", 0, 0, 402, 874);
+        let mut bar = node("NavigationBar", "Detail", 0, 62, 402, 44);
+        bar.children = vec![node("Button", "Back", 8, 66, 60, 36)];
+        root.children = vec![bar];
+        assert!(back_button(&root).is_some());
+        // An action sheet over it: the tap would dismiss the sheet.
+        let mut sheet = node("Sheet", "", 0, 600, 402, 274);
+        sheet.children = vec![node("Button", "Cancel", 8, 800, 386, 56)];
+        root.children.push(sheet);
+        assert!(back_button(&root).is_none());
     }
 
     #[test]
@@ -3757,6 +4225,116 @@ mod sync_port_tests {
 
 #[cfg(test)]
 mod relaunch_and_typing_tests {
+
+    #[test]
+    fn back_in_a_sheet_finds_its_close_button_never_done() {
+        let b = |label: &str, id: &str, y: i32| Element {
+            element_type: "Button".into(),
+            label: Some(label.into()),
+            platform_id: id.into(),
+            bounds: Rect {
+                x: 20,
+                y,
+                width: 60,
+                height: 40,
+            },
+            visible: true,
+            enabled: true,
+            ..Default::default()
+        };
+        let mut root = Element {
+            element_type: "Application".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 402,
+                height: 874,
+            },
+            visible: true,
+            ..Default::default()
+        };
+        root.children = vec![b("Done", "done", 90), b("Close", "thread_close_button", 90)];
+        assert_eq!(
+            sheet_close_button(&root).map(|e| e.platform_id),
+            Some("thread_close_button".into()),
+            "its label is exactly Close"
+        );
+        root.children = vec![b("Done", "done", 90), b("Close", "x", 700)];
+        assert!(
+            sheet_close_button(&root).is_none(),
+            "a close button low on the screen isn't the sheet's"
+        );
+        root.children = vec![b("xmark", "xmark", 80)];
+        assert!(sheet_close_button(&root).is_some());
+        root.children = vec![b("xmark.circle.fill", "", 80)];
+        assert!(sheet_close_button(&root).is_some());
+        // Review 09 #3: app actions that start or end like a close are not
+        // a way out of the sheet.
+        for (label, id) in [
+            ("Close account", "close_account"),
+            ("Close all tabs", "tabs_close"),
+            ("Close tab", "tab_close"),
+            ("Close Ring", "ring_close_button"),
+            ("Delete", "delete_xmarker"),
+            ("X", "share_x"),
+        ] {
+            root.children = vec![b(label, id, 90)];
+            assert!(sheet_close_button(&root).is_none(), "{label}");
+        }
+        for name in [
+            "Close",
+            "cancel",
+            "Dismiss",
+            "✕",
+            "closeButton",
+            "close_button",
+        ] {
+            root.children = vec![b("", name, 90)];
+            assert!(sheet_close_button(&root).is_some(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_failed_wheel_read_is_the_devices_error_not_an_empty_value() {
+        // Review 03 M4: a dead WDA read was folded into "" and the loop
+        // ended in an assertion failure (exit 1).
+        let lost = wheel_value(Err(VelocityError::WdaLost {
+            device_id: String::new(),
+            url: "http://127.0.0.1:8100".into(),
+            detail: "connection reset".into(),
+        }))
+        .unwrap_err();
+        assert_eq!(lost.exit_code(), 3, "{lost}");
+        let busy = wheel_value(Err(VelocityError::CommandFailed {
+            device_id: "http://127.0.0.1:8100".into(),
+            command: "WDA element value".into(),
+            detail: "WDA busy".into(),
+        }));
+        assert!(busy.is_err());
+        let gone = wheel_value(Err(VelocityError::ElementNotFound {
+            selector: "element value".into(),
+            timeout_ms: 0,
+            screenshot: None,
+            hierarchy_snapshot: None,
+        }));
+        assert_eq!(gone.unwrap(), "");
+        assert_eq!(wheel_value(Ok("PM".into())).unwrap(), "PM");
+    }
+
+    #[test]
+    fn picker_values_match_by_text_or_leading_number() {
+        assert!(wheel_value_matches("6 o’clock", "6 o'clock"));
+        assert!(wheel_value_matches("6 o’clock", "6"));
+        assert!(wheel_value_matches("45 minutes", "45"));
+        assert!(wheel_value_matches("05 minutes", "5"));
+        assert!(wheel_value_matches("PM", "pm"));
+        assert!(!wheel_value_matches("16 o’clock", "6"));
+        assert!(!wheel_value_matches("6 o’clock", "7"));
+        assert!(!wheel_value_matches("am", "pm"));
+        assert_eq!(leading_number("12 o’clock"), Some(12));
+        assert_eq!(leading_number("pm"), None);
+    }
+
     use super::fake_wda::*;
     use super::*;
 

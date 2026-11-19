@@ -36,6 +36,7 @@
 //! The verdict: any `Fail` → [`Verdict::Blocked`]; else any `Warn` →
 //! [`Verdict::Degraded`]; else [`Verdict::Ready`]. [`Report::exit_code`]
 //! maps it onto Velocity's exit codes (2 config, 3 device/environment).
+#![forbid(unsafe_code)]
 
 mod ai;
 mod android;

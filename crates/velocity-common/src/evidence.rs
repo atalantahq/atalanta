@@ -218,6 +218,12 @@ pub trait EvidenceSession: Send + Sync {
 
 /// The most log lines one test keeps in memory; older ones are dropped.
 pub const MAX_LOG_LINES: usize = 200_000;
+/// The longest one log line is kept (a page's `console.log('x'.repeat(5e7))`
+/// or an app's huge logcat entry); the rest is cut with a marker.
+pub const MAX_LOG_LINE_BYTES: usize = 16 * 1024;
+/// The most log text one test keeps in memory; older lines are dropped
+/// (audit 2026-11 WEB-3: the line cap alone allowed gigabytes).
+pub const MAX_LOG_BYTES: usize = 64 * 1024 * 1024;
 
 /// Log lines collected by a background reader, shared with the session.
 #[derive(Debug, Clone, Default)]
@@ -229,15 +235,31 @@ pub struct LogBuffer {
 struct LogBufferInner {
     lines: std::collections::VecDeque<LogLine>,
     dropped: usize,
+    bytes: usize,
 }
 
 impl LogBuffer {
-    pub fn push(&self, line: LogLine) {
+    pub fn push(&self, mut line: LogLine) {
+        if line.text.len() > MAX_LOG_LINE_BYTES {
+            let total = line.text.len();
+            let mut cut = MAX_LOG_LINE_BYTES;
+            while !line.text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            line.text.truncate(cut);
+            line.text
+                .push_str(&format!("… ({} bytes cut)", total - cut));
+        }
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if g.lines.len() >= MAX_LOG_LINES {
-            g.lines.pop_front();
+        while !g.lines.is_empty()
+            && (g.lines.len() >= MAX_LOG_LINES || g.bytes + line.text.len() > MAX_LOG_BYTES)
+        {
+            if let Some(old) = g.lines.pop_front() {
+                g.bytes -= old.text.len();
+            }
             g.dropped += 1;
         }
+        g.bytes += line.text.len();
         g.lines.push_back(line);
     }
 
@@ -292,6 +314,33 @@ pub fn redacted(lines: Vec<LogLine>) -> Vec<LogLine> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_huge_log_line_is_cut_and_the_buffer_is_bounded_in_bytes() {
+        let buf = LogBuffer::default();
+        buf.push(LogLine {
+            t: 0,
+            level: 'I',
+            text: "é".repeat(5_000_000),
+        });
+        let kept = buf.snapshot();
+        assert!(
+            kept[0].text.len() < MAX_LOG_LINE_BYTES + 64,
+            "{}",
+            kept[0].text.len()
+        );
+        assert!(kept[0].text.ends_with("bytes cut)"));
+        for _ in 0..(MAX_LOG_BYTES / MAX_LOG_LINE_BYTES + 10) {
+            buf.push(LogLine {
+                t: 0,
+                level: 'I',
+                text: "x".repeat(MAX_LOG_LINE_BYTES),
+            });
+        }
+        let total: usize = buf.snapshot().iter().map(|l| l.text.len()).sum();
+        assert!(total <= MAX_LOG_BYTES);
+        assert!(buf.dropped() > 0);
+    }
     use super::*;
 
     #[test]

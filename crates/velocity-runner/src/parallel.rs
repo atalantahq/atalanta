@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use velocity_common::{
     PlatformDriver, Result, RuntimeConfig, SuiteResult, TestCase, TestResult, TestStatus,
 };
@@ -12,7 +12,9 @@ use velocity_core::TestExecutor;
 use crate::copies::{CopyKind, CopyOutcome, CopyTag};
 use crate::farm::DeviceFarm;
 use crate::history;
-use crate::retry::{print_result, run_test_with_retries, unmet_dependency};
+use crate::retry::{
+    print_result, run_test_with_retries, run_test_with_retries_from, unmet_dependency,
+};
 use crate::runner::{Cut, RunOutcome, Termination};
 use crate::scheduler;
 
@@ -133,6 +135,8 @@ struct Shared {
     /// `app:` build every actor installs (by hash) once it has its device.
     app_build: Option<String>,
     retry_count: u32,
+    /// `--test-timeout`, per attempt.
+    test_timeout: Option<std::time::Duration>,
     resolver: Option<Arc<velocity_nl::NaturalResolver>>,
     jitter: Option<(u64, u64)>,
     /// `--stress`: each actor loads its device's CPU while it holds it.
@@ -150,6 +154,9 @@ struct Shared {
     /// `--cache-results`, and every test (to tell dependency chains).
     result_cache: Option<std::sync::Mutex<crate::result_cache::ResultCache>>,
     all_tests: Vec<TestCase>,
+    /// Each test's saved memory baseline from before this run, for the
+    /// memory check (`config.performance`).
+    memory_baselines: std::collections::HashMap<String, history::ResourceBaseline>,
 }
 
 /// Actor → supervisor.
@@ -160,7 +167,7 @@ enum Event {
     Done {
         actor: usize,
         device: String,
-        outcome: Outcome,
+        outcome: ActorOutcome,
         /// The device was quarantined by this item; the actor has stopped.
         quarantined: bool,
         /// The item's copy tag, if it was a copy.
@@ -170,7 +177,7 @@ enum Event {
     NoDevice { actor: usize, reason: String },
 }
 
-enum Outcome {
+enum ActorOutcome {
     Final(Vec<TestResult>),
     /// Failed in a way worth another attempt elsewhere. `used_budget`: a
     /// normal retry (not the free infrastructure re-run).
@@ -294,6 +301,7 @@ impl ParallelRunner {
         let mut hist = history::load(&config.artifacts_dir).unwrap_or_default();
         let tests = scheduler::plan_tests(&suite.tests, &config, &hist);
         crate::live::plan(tests.iter().map(|t| t.name.as_str()));
+        let planned: Vec<String> = tests.iter().map(|t| t.name.clone()).collect();
         // Every test in the suite, selected or not: history keeps them (m-6).
         let suite_tests: std::collections::HashSet<String> =
             suite.tests.iter().map(|t| t.name.clone()).collect();
@@ -332,6 +340,7 @@ impl ParallelRunner {
             // One shared resolver: its mutex serializes cache reads/writes.
             resolver: crate::nl::build_resolver_for_suite(&suite, config.verify)?,
             verify: config.verify,
+            test_timeout: config.test_timeout_ms.map(std::time::Duration::from_millis),
             jitter: config
                 .jitter_ms
                 .map(|ms| (ms, config.shuffle_seed.unwrap_or(0))),
@@ -351,6 +360,7 @@ impl ParallelRunner {
                 ))
             }),
             all_tests,
+            memory_baselines: hist.resource_baselines.clone(),
         });
 
         let mut sup = Supervisor {
@@ -389,6 +399,8 @@ impl ParallelRunner {
         let copies = std::mem::take(&mut sup.copies);
         let mut results = std::mem::take(&mut sup.results);
         results.extend(merge_copies(&copies, plan, &hist));
+        // NEW-001: every planned test has a result, or a failed one.
+        crate::completeness::account_for_every_test(&planned, &mut results);
         // Cut short (`--timeout`, Ctrl-C): what never finished is still in
         // the report, as skipped (VEL-043/044).
         let termination = match sup.cut.take() {
@@ -581,6 +593,10 @@ fn merge_copies(
 }
 
 /// A live actor as the supervisor sees it.
+/// The most a cut-short run waits for its actors to stop and their
+/// devices' stress to be turned off before it reports.
+const CUT_CLEANUP: Duration = Duration::from_secs(15);
+
 struct ActorHandle {
     /// `Some` once it holds a lease.
     device: Option<String>,
@@ -805,7 +821,7 @@ impl Supervisor {
                     }
                 }
                 match outcome {
-                    Outcome::Final(results) if copy.is_some() => {
+                    ActorOutcome::Final(results) if copy.is_some() => {
                         let tag = copy.expect("checked");
                         let passed = results
                             .iter()
@@ -824,11 +840,11 @@ impl Supervisor {
                             });
                         }
                     }
-                    Outcome::Final(results) => {
+                    ActorOutcome::Final(results) => {
                         self.failed |= results.iter().any(|r| r.status == TestStatus::Failed);
                         self.results.extend(results);
                     }
-                    Outcome::Retry {
+                    ActorOutcome::Retry {
                         mut item,
                         used_budget,
                     } => {
@@ -966,17 +982,36 @@ impl Supervisor {
             .chain(self.copies.iter().map(|c| &c.result))
             .map(|r| r.test_name.clone())
             .collect();
-        let actors: Vec<ActorHandle> = self.actors.drain().map(|(_, a)| a).collect();
+        let mut actors: Vec<ActorHandle> = self.actors.drain().map(|(_, a)| a).collect();
         for a in &actors {
             a.task.abort();
         }
-        for a in actors {
-            let _ = a.task.await;
-            if let Some(device) = &a.device {
-                if self.shared.stress {
-                    self.shared.driver.set_stress(device, false).await;
+        // All at once, under one deadline: one device after another, each
+        // adb call with its own 60 s limit, kept a run with N wedged devices
+        // N minutes past its own deadline before the reports (review 01 #8).
+        let stress = self.shared.stress;
+        let driver = self.shared.driver.clone();
+        let stops = actors.iter_mut().map(|a| {
+            let driver = driver.clone();
+            let device = a.device.clone();
+            let task = &mut a.task;
+            async move {
+                let _ = task.await;
+                if let (true, Some(device)) = (stress, device) {
+                    driver.set_stress(&device, false).await;
                 }
             }
+        });
+        if tokio::time::timeout(CUT_CLEANUP, futures::future::join_all(stops))
+            .await
+            .is_err()
+        {
+            warn!(
+                "turning device CPU stress off took over {}s; reporting without waiting",
+                CUT_CLEANUP.as_secs()
+            );
+        }
+        for a in actors {
             for name in a.in_flight {
                 if done.insert(name.clone()) {
                     let r = cut.cut_test(&name, self.timeout_ms, Duration::ZERO);
@@ -1172,6 +1207,16 @@ async fn reattach(driver: &dyn PlatformDriver, device: &str, window: Duration) -
     }
 }
 
+/// Whether `test` starts by launching the suite's app (a plain or
+/// `clearState` `launchApp` with no other app id).
+fn launches_suite_app(test: &velocity_common::TestCase, app_id: &str) -> bool {
+    !app_id.is_empty()
+        && matches!(
+            test.steps.first().map(|s| &s.action),
+            Some(velocity_common::Action::LaunchApp { app_id: a, .. }) if a.is_empty() || a == app_id
+        )
+}
+
 /// One independent test: a single attempt here; a retry goes back to the
 /// supervisor for another device.
 async fn run_single(
@@ -1180,7 +1225,7 @@ async fn run_single(
     mut item: Item,
     device: &str,
     flags: RunFlags,
-) -> (Outcome, bool) {
+) -> (ActorOutcome, bool) {
     let test = item.group[0].clone();
     item.started.get_or_insert_with(Instant::now);
     debug!(test = %test.name, device, attempt = item.attempt, "executing test");
@@ -1204,20 +1249,55 @@ async fn run_single(
             .hit(key, &test);
         if let Some(hit) = hit {
             print_result(&hit, Some(device));
-            return (Outcome::Final(vec![hit]), false);
+            return (ActorOutcome::Final(vec![hit]), false);
         }
     }
-    // A retry runs elsewhere with attempt 0 in its executor: name its trace
-    // apart so it doesn't overwrite the first attempt's.
-    let retry_tag = (item.attempt > 0 || item.infra_rerun)
-        .then(|| format!("retry{}-{device}", item.failed_on.len()));
+    let is_retry = item.attempt > 0 || item.infra_rerun;
+    // The how-many-th attempt this is across devices: the executor names
+    // the attempt's files `-retry<N>` from it, and the device keeps two
+    // attempts apart.
+    let base_attempt = if is_retry {
+        u32::try_from(item.failed_on.len())
+            .unwrap_or(u32::MAX)
+            .max(1)
+    } else {
+        0
+    };
+    let retry_tag = is_retry.then(|| device.to_string());
     let copy_tag = item.copy.as_ref().map(|c| c.trace_tag(device));
     executor.set_trace_tag(match (copy_tag, retry_tag) {
         (Some(c), Some(r)) => Some(format!("{c}-{r}")),
         (c, r) => c.or(r),
     });
-    let mut result = run_test_with_retries(executor, &test, device, &shared.app_id, 0).await;
+    // A retry on another device is an independent trial only if it starts
+    // the way the first attempt did: from a launch. Stop the app first so
+    // the test's own `launchApp` is a cold start (a plain launch on Android
+    // only brings a running app forward), and tell the executor it is a
+    // retry so batching never skips that launch. App data, permissions and
+    // the clipboard are not reset: use `launchApp: {clearState: true}` (or
+    // `isolated: true`) for tests that need that.
+    if is_retry && launches_suite_app(&test, &shared.app_id) {
+        if let Err(e) = shared.driver.stop_app(device, &shared.app_id).await {
+            debug!(test = %test.name, device, error = %e, "stop before retry failed");
+        }
+    }
+    let mut result = run_test_with_retries_from(
+        executor,
+        &test,
+        device,
+        &shared.app_id,
+        0,
+        base_attempt,
+        shared.test_timeout,
+    )
+    .await;
     executor.set_trace_tag(None);
+    // A memory breach fails the test before it is cached, retried or shown.
+    history::apply_memory_check(
+        &mut result,
+        shared.memory_baselines.get(&test.name),
+        shared.suite_config.performance.pss_growth_threshold_pct,
+    );
     if let (Some(cache), Some(key)) = (&shared.result_cache, cache_key.clone()) {
         cache
             .lock()
@@ -1289,7 +1369,7 @@ async fn run_single(
                 elsewhere
             );
             return (
-                Outcome::Retry {
+                ActorOutcome::Retry {
                     item: Box::new(item),
                     used_budget,
                 },
@@ -1324,7 +1404,7 @@ async fn run_single(
         result.duration = started.elapsed();
     }
     print_result(&result, Some(device));
-    (Outcome::Final(vec![result]), quarantined)
+    (ActorOutcome::Final(vec![result]), quarantined)
 }
 
 /// A dependency group runs in order on one device. It can't move devices
@@ -1336,7 +1416,7 @@ async fn run_group(
     group: &[TestCase],
     device: &str,
     flags: RunFlags,
-) -> (Outcome, bool) {
+) -> (ActorOutcome, bool) {
     let mut results: Vec<TestResult> = Vec::with_capacity(group.len());
     let mut quarantined = false;
     for test in group {
@@ -1359,8 +1439,15 @@ async fn run_group(
             continue;
         }
         debug!(test = %test.name, device, "executing test");
-        let result =
-            run_test_with_retries(executor, test, device, &shared.app_id, shared.retry_count).await;
+        let result = run_test_with_retries(
+            executor,
+            test,
+            device,
+            &shared.app_id,
+            shared.retry_count,
+            shared.test_timeout,
+        )
+        .await;
         quarantined |= shared
             .farm
             .record_outcome(device, result.infrastructure_failure);
@@ -1381,7 +1468,7 @@ async fn run_group(
         r.infrastructure_failure = true;
         results.push(r);
     }
-    (Outcome::Final(results), quarantined)
+    (ActorOutcome::Final(results), quarantined)
 }
 
 #[cfg(test)]
@@ -1406,6 +1493,7 @@ mod tests {
             app_id: "app".into(),
             app_build: None,
             retry_count: 0,
+            test_timeout: None,
             resolver: None,
             jitter: None,
             stress: false,
@@ -1417,6 +1505,7 @@ mod tests {
             state_dir: None,
             result_cache: None,
             all_tests: Vec::new(),
+            memory_baselines: Default::default(),
         });
         Supervisor {
             shared,
@@ -1474,7 +1563,7 @@ mod tests {
         tx.send(Event::Done {
             actor: 0,
             device: "d1".into(),
-            outcome: Outcome::Final(vec![pass]),
+            outcome: ActorOutcome::Final(vec![pass]),
             quarantined: true,
             copy: None,
         })
@@ -1620,6 +1709,9 @@ mod tests {
     static GONE: std::sync::Mutex<std::collections::BTreeSet<String>> =
         std::sync::Mutex::new(std::collections::BTreeSet::new());
 
+    /// Devices [`SplitDriver::stop_app`] was called on.
+    static STOPPED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
     /// Every device works except `bad`, where nothing is ever found.
     struct SplitDriver {
         devices: Vec<String>,
@@ -1660,6 +1752,14 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PlatformDriver for SplitDriver {
+        async fn collect_resource_metrics(&self, _: &str, _: &str) -> Result<(u64, u64, u64, f32)> {
+            Ok((
+                0,
+                0,
+                SPLIT_PSS_KB.load(std::sync::atomic::Ordering::SeqCst),
+                0.0,
+            ))
+        }
         async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
             // A wedged listing (`…-hanglist`): never answers.
             if self.devices.iter().any(|d| d.ends_with("-hanglist")) {
@@ -1692,7 +1792,8 @@ mod tests {
         async fn launch_app(&self, _: &str, _: &str, _: bool) -> Result<()> {
             Ok(())
         }
-        async fn stop_app(&self, _: &str, _: &str) -> Result<()> {
+        async fn stop_app(&self, d: &str, _: &str) -> Result<()> {
+            STOPPED.lock().unwrap().push(d.to_string());
             Ok(())
         }
         async fn find_element(&self, d: &str, _: &Selector) -> Result<Element> {
@@ -1897,6 +1998,42 @@ mod tests {
         dir
     }
 
+    /// The total PSS [`SplitDriver`] reports (read only by suites with
+    /// `performance.enabled`).
+    static SPLIT_PSS_KB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    // NEW-021: the memory check runs in the parallel runner too; a breach
+    // fails, and keeps failing on the next run.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_memory_breach_fails_in_the_parallel_runner_too() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let dir = scratch("membreach");
+        let mut statuses = Vec::new();
+        for pss in [100_000, 130_000, 130_000] {
+            SPLIT_PSS_KB.store(pss, SeqCst);
+            let driver = Arc::new(SplitDriver {
+                devices: vec!["par-mem-a".into(), "par-mem-b".into()],
+                bad: "none",
+                infra: false,
+            });
+            let mut s = suite(1, 0);
+            s.config.performance.enabled = true;
+            let r = ParallelRunner::run(s, config(&dir), driver, 2)
+                .await
+                .unwrap();
+            statuses.push((r.tests[0].status, r.tests[0].error_message.clone()));
+        }
+        assert_eq!(statuses[0].0, TestStatus::Passed, "{statuses:?}");
+        for (status, msg) in &statuses[1..] {
+            assert_eq!(*status, TestStatus::Failed, "{statuses:?}");
+            assert!(
+                msg.as_deref().unwrap().contains("memory regression"),
+                "{msg:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_retry_moves_to_another_device() {
         let dir = scratch("move");
@@ -1920,6 +2057,41 @@ mod tests {
                 );
             }
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 12 #4: a retry on another device starts from a cold launch,
+    /// not from whatever that device's previous test left on screen.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_retry_elsewhere_stops_the_app_before_its_launch() {
+        let dir = scratch("coldretry");
+        let driver = Arc::new(SplitDriver {
+            devices: vec!["par-cold-good".into(), "par-cold-bad".into()],
+            bad: "par-cold-bad",
+            infra: false,
+        });
+        let yaml = "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\n  retry:\n    count: 1\ntests:\n  - name: t0\n    steps:\n      - launchApp\n      - assertVisible: { text: \"Go\" }\n  - name: t1\n    steps:\n      - launchApp\n      - assertVisible: { text: \"Go\" }\n";
+        let s = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let result = ParallelRunner::run(s, config(&dir), driver, 2)
+            .await
+            .unwrap();
+        assert_eq!(result.failed, 0, "{:#?}", result.tests);
+        let retried = result
+            .tests
+            .iter()
+            .filter(|t| t.status == TestStatus::Retried)
+            .count();
+        let stopped = STOPPED
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|d| *d == "par-cold-good")
+            .count();
+        assert!(retried >= 1, "{:#?}", result.tests);
+        assert!(
+            stopped >= retried,
+            "{retried} retried, app stopped {stopped}x on the good device"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2480,7 +2652,7 @@ mod tests {
 
     /// History in `dir` that flags `t0` flaky, failing 50% of its runs.
     fn flaky_history(dir: &std::path::Path) {
-        use crate::history::Outcome::{Fail, Pass};
+        use crate::history::HistoryOutcome::{Fail, Pass};
         let mut h = history::TestHistory::default();
         h.outcomes
             .insert("t0".into(), vec![Pass, Fail, Pass, Fail, Pass, Fail]);

@@ -249,7 +249,10 @@ pub fn generate_test_skeleton(
             }
             let mut snaps = crate::snapshot::Snapshots::default();
             snaps.platform = Some(platform);
-            let listing = snaps.take(tree, rect.as_ref(), Default::default());
+            // An unfiltered snapshot can't fail.
+            let listing = snaps
+                .take(tree, rect.as_ref(), Default::default())
+                .unwrap_or(Value::Null);
             notes.push("On screen now (selectors to build steps from):".into());
             notes.extend(
                 listing

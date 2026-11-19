@@ -188,6 +188,12 @@ struct BrowserSession {
     /// The device's browser context in the shared Chrome (context mode).
     context: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
     page: Arc<Page>,
+    /// The pages that opened `page`, the first opener first: a popup or
+    /// new tab the page opened is driven from then on, and when it closes
+    /// its opener is again (review 10 #5).
+    openers: Vec<Arc<Page>>,
+    /// The tabs `page` and its popups open and close.
+    tabs: TabWatch,
     /// This browser's requests and mocks.
     network: crate::network::Network,
     /// DOM hierarchy cache with TTL.
@@ -303,6 +309,18 @@ impl WebDriver {
     pub async fn debug_live_ids(&self) -> Result<u64> {
         let page = self.page_handle(&self.debug_device().await).await?;
         Ok(page.call("liveIds", vec![]).await?.as_u64().unwrap_or(0))
+    }
+
+    /// Runs the in-page library's `op` on the element `id` (tests only).
+    #[doc(hidden)]
+    pub async fn debug_call_el(
+        &self,
+        op: &str,
+        id: &str,
+        rest: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
+        let page = self.page_handle(&self.debug_device().await).await?;
+        page.call_el(op, id, rest).await
     }
 
     /// Runs `js` in the page's own world (tests only).
@@ -487,25 +505,25 @@ impl WebDriver {
                 }
                 Selector::Index { selector, index } => {
                     let ids = Self::ids_for(page, tree, selector).await?;
-                    // A regex selector counts its shown matches in reading
-                    // order, as on the devices.
-                    let ids = if matches!(
-                        **selector,
-                        Selector::TextMatches(_) | Selector::IdMatches(_)
-                    ) {
-                        let found: Vec<&Element> = ids
-                            .iter()
-                            .filter_map(|id| find_by_id(tree, id))
-                            .filter(|e| e.visible && !e.bounds.is_empty())
-                            .collect();
-                        velocity_common::selector_match::in_reading_order(found)
-                            .into_iter()
-                            .map(|e| e.platform_id.clone())
-                            .collect()
-                    } else {
-                        ids
-                    };
-                    ids.into_iter().nth(*index).into_iter().collect()
+                    // Its on-screen matches in reading order, as the page
+                    // counts any other index and explore counted it when it
+                    // wrote it (review 10 #1): rendered, a box, and part of
+                    // it in the viewport (`vb`).
+                    let found: Vec<&Element> = ids
+                        .iter()
+                        .filter_map(|id| find_by_id(tree, id))
+                        .filter(|e| {
+                            e.visible
+                                && !e.bounds.is_empty()
+                                && e.visible_bounds.is_none_or(|v| !v.is_empty())
+                        })
+                        .collect();
+                    velocity_common::selector_match::in_reading_order(found)
+                        .into_iter()
+                        .nth(*index)
+                        .map(|e| e.platform_id.clone())
+                        .into_iter()
+                        .collect()
                 }
                 Selector::Compound(parts) => {
                     let mut ids: Option<Vec<String>> = None;
@@ -724,11 +742,9 @@ impl WebDriver {
         const MAX_BLOCKED: usize = 3;
         let id = element.platform_id.as_str();
         let in_frame = crate::frames::Frames::split(id).is_some();
-        let disarm_args = if in_frame {
-            vec![FRAME_CLICK_WAIT_MS.into()]
-        } else {
-            vec![]
-        };
+        // The page only waits for a click it hasn't seen when the target
+        // is in a frame (it says `nested`).
+        let disarm_args = vec![serde_json::Value::from(FRAME_CLICK_WAIT_MS)];
         let mut intruder = String::new();
         for _ in 0..MAX_BLOCKED {
             let (x, y) = Self::actionable_point(page, element).await?;
@@ -758,7 +774,10 @@ impl WebDriver {
             done?;
             // An old library (or a frame that navigated) says nothing of
             // `seen`: nothing was blocked.
-            let missed = in_frame && verdict["seen"] == false;
+            // A same-origin frame too: a banner on the page over its
+            // <iframe> takes the click, and the frame sees nothing
+            // (review 10 #2).
+            let missed = (in_frame || verdict["nested"] == true) && verdict["seen"] == false;
             match verdict["blocked"].as_str() {
                 None if missed => {
                     debug!(
@@ -797,6 +816,14 @@ impl WebDriver {
         // is `text` (D-14): no click, which would open the popup, and
         // typing never reached it (VEL-133).
         let id = element.platform_id.as_str();
+        // An <input type=file> (or its label) gets the files whose paths
+        // are `text`, one per line, as Playwright's `setInputFiles`: typed
+        // text never reached it, and the step failed with "focus is on
+        // <input>, which takes no text" (review 10 #11).
+        let file = page.call_el("fileInput", id, vec![]).await?;
+        if file.is_object() {
+            return Self::set_files(page, device_id, element, &file, text).await;
+        }
         if page.call_el("isSelect", id, vec![]).await?.as_bool() == Some(true) {
             Self::actionable_point(page, element).await?;
             let v = page.call_el("selectOption", id, vec![text.into()]).await?;
@@ -871,8 +898,36 @@ impl WebDriver {
             // nothing and passed. Fail, as Playwright's `fill` does.
             return Err(not_editable(element, focus["tag"].as_str()));
         }
-        // Input.insertText inserts a full string atomically — works with React controlled inputs.
-        page.insert_text(text).await
+        // Key by key, as a user types (React's controlled inputs see that
+        // too), so `keydown`/`keyup` handlers run (review 10 #7).
+        page.type_text(text).await
+    }
+
+    /// `inputText` on a file input: the paths in `text` (one per line,
+    /// relative ones from the working directory) must exist; then the
+    /// input gets them. `file` is the page's `fileInput` reply.
+    async fn set_files(
+        page: &dyn BrowserProtocol,
+        device_id: &str,
+        element: &Element,
+        file: &serde_json::Value,
+        text: &str,
+    ) -> Result<()> {
+        if file["disabled"] == true {
+            return Err(not_actionable(element, "disabled"));
+        }
+        let paths = file_paths(text)?;
+        if paths.len() > 1 && file["multiple"] != true {
+            return Err(VelocityError::CommandFailed {
+                device_id: device_id.into(),
+                command: "inputText".into(),
+                detail: format!(
+                    "the file input takes one file (no `multiple`), and {} were given",
+                    paths.len()
+                ),
+            });
+        }
+        page.set_files(&element.platform_id, paths).await
     }
 
     /// After a navigation: a Flutter web app's semantics tree is enabled
@@ -973,8 +1028,15 @@ impl WebDriver {
     }
 
     async fn page_handle(&self, device_id: &str) -> Result<Arc<Page>> {
-        if let Some(s) = self.sessions.lock().await.get(device_id) {
-            return Ok(s.page.clone());
+        let follow = match self.sessions.lock().await.get_mut(device_id) {
+            Some(s) => match s.tabs.next_change(&s.page, &s.openers) {
+                None => return Ok(s.page.clone()),
+                Some(change) => Some((change, s.chrome.clone(), s.network.clone())),
+            },
+            None => None,
+        };
+        if let Some((change, chrome, network)) = follow {
+            return self.follow_tab(device_id, change, &chrome, &network).await;
         }
         if !self.device_ids().iter().any(|d| d == device_id) {
             return Err(self.no_session(device_id));
@@ -993,6 +1055,89 @@ impl WebDriver {
         Ok(page)
     }
 
+    /// Drive the tab `change` says: a new one the page opened, or the
+    /// opener of one that closed. The sessions lock is not held while the
+    /// new tab is set up.
+    async fn follow_tab(
+        &self,
+        device_id: &str,
+        change: TabChange,
+        chrome: &Arc<Chrome>,
+        network: &crate::network::Network,
+    ) -> Result<Arc<Page>> {
+        let opened = match change {
+            TabChange::Opened(id) => {
+                let found = self.adopt_tab(chrome, &id, network).await;
+                if found.is_none() {
+                    // Not a page that can be driven (closed already, or
+                    // never attached): forget it.
+                    if let Some(s) = self.sessions.lock().await.get(device_id) {
+                        s.tabs.forget(&id);
+                    }
+                }
+                found
+            }
+            TabChange::Closed => None,
+        };
+        let mut sessions = self.sessions.lock().await;
+        let s = sessions
+            .get_mut(device_id)
+            .ok_or_else(|| self.no_session(device_id))?;
+        match opened {
+            Some(tab) => {
+                tracing::warn!(
+                    "velocity-web: the page opened a new tab ({}); following it",
+                    tab.page.url().await.ok().flatten().unwrap_or_default()
+                );
+                let opener = std::mem::replace(&mut s.page, tab);
+                s.openers.push(opener);
+            }
+            None => {
+                // Back to the newest opener still open.
+                while s.tabs.is_gone(&s.page) {
+                    let Some(opener) = s.openers.pop() else { break };
+                    tracing::warn!("velocity-web: the tab closed; back to the one that opened it");
+                    s.page = opener;
+                }
+            }
+        }
+        s.hierarchy_cache = None;
+        Ok(s.page.clone())
+    }
+
+    /// The tab `id` set up to be driven as `device_id`'s page is; `None`
+    /// when it can't be had.
+    async fn adopt_tab(
+        &self,
+        chrome: &Chrome,
+        id: &str,
+        network: &crate::network::Network,
+    ) -> Option<Arc<Page>> {
+        use chromiumoxide::cdp::browser_protocol::target::TargetId;
+        // chromiumoxide attaches a new target on its own, a moment after
+        // Chrome announces it.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let page = loop {
+            let got = {
+                let browser = chrome.browser.lock().await;
+                tokio::time::timeout(
+                    PING_TIMEOUT,
+                    browser.get_page(TargetId::from(id.to_string())),
+                )
+                .await
+            };
+            match got {
+                Ok(Ok(p)) => break p,
+                failed if Instant::now() >= deadline => {
+                    debug!("velocity-web: the new tab {id} can't be driven: {failed:?}");
+                    return None;
+                }
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        };
+        Some(self.set_up_tab(chrome, page, network).await)
+    }
+
     /// `device_id`'s network rules and requests, if its browser runs.
     async fn network(&self, device_id: &str) -> Option<crate::network::Network> {
         self.sessions
@@ -1009,7 +1154,7 @@ impl WebDriver {
         if !self.uses_contexts() {
             let chrome = self.start_chrome(device_id).await?;
             return match self.open_page(&chrome, None, device_id).await {
-                Ok((page, network)) => Ok(Self::session(chrome, None, page, network)),
+                Ok((page, network, tabs)) => Ok(Self::session(chrome, None, page, network, tabs)),
                 Err(e) => {
                     chrome.close().await;
                     Err(e)
@@ -1043,7 +1188,9 @@ impl WebDriver {
             .open_page(&chrome, Some(context.clone()), device_id)
             .await
         {
-            Ok((page, network)) => Ok(Self::session(chrome, Some(context), page, network)),
+            Ok((page, network, tabs)) => {
+                Ok(Self::session(chrome, Some(context), page, network, tabs))
+            }
             Err(e) => {
                 Self::dispose_context(&chrome, context).await;
                 Err(e)
@@ -1056,11 +1203,14 @@ impl WebDriver {
         context: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
         page: Arc<Page>,
         network: crate::network::Network,
+        tabs: TabWatch,
     ) -> BrowserSession {
         BrowserSession {
             chrome,
             context,
             page,
+            openers: Vec::new(),
+            tabs,
             network,
             hierarchy_cache: None,
             cache_ttl: Duration::from_millis(1500),
@@ -1131,6 +1281,14 @@ impl WebDriver {
             builder = builder.with_head();
         }
 
+        // chromiumoxide ignores certificate errors unless told otherwise
+        // (`Security.setIgnoreCertificateErrors` on every tab), so a forged
+        // certificate on a hostile network loaded silently and the next
+        // secret was typed into the attacker's page (audit 2026-11 WEB-1).
+        if !insecure_certs() {
+            builder = builder.respect_https_errors();
+        }
+
         if let Some(ref path) = self.config.chrome_path {
             builder = builder.chrome_executable(path);
         }
@@ -1194,37 +1352,17 @@ impl WebDriver {
         }))
     }
 
-    /// Open `device_id`'s page in `chrome` (in `context`, if given), set it
-    /// up (touch, user agent, dialogs, network) and load the start URL.
-    async fn open_page(
+    /// A page of `device_id`'s browser made ready to drive: touch and user
+    /// agent as the profile says, JS dialogs answered, crashes watched, the
+    /// network's requests and mocks, and its cross-origin frames.
+    async fn set_up_tab(
         &self,
         chrome: &Chrome,
-        context: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
-        device_id: &str,
-    ) -> Result<(Arc<Page>, crate::network::Network)> {
-        use chromiumoxide::cdp::browser_protocol::target::CreateTargetParams;
+        page: chromiumoxide::Page,
+        network: &crate::network::Network,
+    ) -> Arc<Page> {
         let device = self.config.device;
         let touch = device.is_some_and(|d| d.touch);
-        let mut params = CreateTargetParams::new("about:blank");
-        params.browser_context_id = context;
-        let opened = {
-            let browser = chrome.browser.lock().await;
-            tokio::time::timeout(cdp::CDP_TIMEOUT, browser.new_page(params)).await
-        };
-        let page = match opened {
-            Ok(Ok(p)) => p,
-            failed => {
-                let detail = match failed {
-                    Ok(Err(e)) => e.to_string(),
-                    _ => format!("no answer in {:?}", cdp::CDP_TIMEOUT),
-                };
-                return Err(VelocityError::DeviceBootFailed {
-                    id: device_id.into(),
-                    reason: format!("Failed to open page: {detail}"),
-                });
-            }
-        };
-
         let page = Arc::new(Page::new(page, chrome.alive.clone()).with_touch(touch));
         // chromiumoxide turns touch emulation on for every page, whatever
         // the viewport says, so a 1280x800 desktop page reported
@@ -1250,7 +1388,7 @@ impl WebDriver {
             }
         }
         spawn_dialog_handler(&page).await;
-        let network = crate::network::Network::new(self.config.mocks.clone());
+        spawn_crash_watch(&page).await;
         network.attach(&page).await;
         if frames_enabled() {
             // Cross-origin frames (W4): their own connection, attached
@@ -1265,6 +1403,43 @@ impl WebDriver {
                 Err(e) => debug!("velocity-web: cross-origin frames not tracked: {e}"),
             }
         }
+        page
+    }
+
+    /// Open `device_id`'s page in `chrome` (in `context`, if given), set it
+    /// up (touch, user agent, dialogs, network) and load the start URL.
+    async fn open_page(
+        &self,
+        chrome: &Chrome,
+        context: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
+        device_id: &str,
+    ) -> Result<(Arc<Page>, crate::network::Network, TabWatch)> {
+        use chromiumoxide::cdp::browser_protocol::target::CreateTargetParams;
+        let mut params = CreateTargetParams::new("about:blank");
+        params.browser_context_id = context.clone();
+        let opened = {
+            let browser = chrome.browser.lock().await;
+            tokio::time::timeout(cdp::CDP_TIMEOUT, browser.new_page(params)).await
+        };
+        let page = match opened {
+            Ok(Ok(p)) => p,
+            failed => {
+                let detail = match failed {
+                    Ok(Err(e)) => e.to_string(),
+                    _ => format!("no answer in {:?}", cdp::CDP_TIMEOUT),
+                };
+                return Err(VelocityError::DeviceBootFailed {
+                    id: device_id.into(),
+                    reason: format!("Failed to open page: {detail}"),
+                });
+            }
+        };
+
+        let network = crate::network::Network::new(self.config.mocks.clone());
+        let tabs = TabWatch::default();
+        let page = self.set_up_tab(chrome, page, &network).await;
+        tabs.watch(chrome, &page).await;
+        watch_downloads(chrome, context, &page).await;
 
         // Navigate to start URL if configured.
         if let Some(ref url) = self.config.start_url {
@@ -1275,7 +1450,7 @@ impl WebDriver {
         }
 
         debug!("velocity-web: Chrome session ready for {device_id}");
-        Ok((page, network))
+        Ok((page, network, tabs))
     }
 
     /// Close a device's browser: its context (context mode, the shared
@@ -1744,6 +1919,20 @@ impl velocity_common::PlatformDriver for WebDriver {
 
     async fn tap(&self, device_id: &str, element: &Element) -> Result<()> {
         let page = self.page_handle(device_id).await?;
+        // An <option> of a closed drop-down has no box to click (its popup
+        // is native): it is chosen, as `inputText` on the <select> does.
+        // It failed as "zero size" (review 10 #11).
+        if element.element_type == "option" {
+            let v = page
+                .call_el("tapOption", &element.platform_id, vec![])
+                .await?;
+            if let Some(why) = v["disabled"].as_str() {
+                return Err(not_actionable(element, why));
+            }
+            if v["ok"] == true {
+                return Ok(());
+            }
+        }
         Self::pointer_action(&*page, element, Pointer::Click)
             .await
             .map(drop)
@@ -1782,9 +1971,9 @@ impl velocity_common::PlatformDriver for WebDriver {
     }
 
     async fn input_raw(&self, device_id: &str, text: &str) -> Result<()> {
-        // For web, input_raw inserts text into whatever is currently focused.
+        // For web, input_raw types into whatever is currently focused.
         let page = self.page_handle(device_id).await?;
-        page.insert_text(text).await
+        page.type_text(text).await
     }
 
     /// `swipe: up` is the finger moving up, as on a phone: the content
@@ -1841,6 +2030,20 @@ impl velocity_common::PlatformDriver for WebDriver {
         }
     }
 
+    async fn drag(
+        &self,
+        device_id: &str,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        let page = self.page_handle(device_id).await?;
+        page.drag_held(from, to, hold_ms, move_ms).await?;
+        tokio::time::sleep(Duration::from_millis(WHEEL_SETTLE_MS)).await;
+        Ok(())
+    }
+
     /// `scrollUntilVisible` (and `swipe`) on the web: the wheel, at the
     /// viewport centre. `finger` is a touch direction (up shows what's
     /// below), so the page moves the other way.
@@ -1894,6 +2097,12 @@ impl velocity_common::PlatformDriver for WebDriver {
             Key::VolumeUp | Key::VolumeDown => {
                 return Err(VelocityError::Config(format!(
                     "pressKey: {} has no browser equivalent",
+                    key.name()
+                )))
+            }
+            _ => {
+                return Err(VelocityError::Config(format!(
+                    "pressKey: {} is not supported on the web",
                     key.name()
                 )))
             }
@@ -2001,16 +2210,44 @@ impl velocity_common::PlatformDriver for WebDriver {
         Ok(!v.is_null() && v["visible"].as_bool().unwrap_or(false))
     }
 }
-/// Answers every JavaScript dialog as soon as it opens. An open alert,
-/// confirm or prompt blocks the page's JS thread, so every later CDP
-/// `Runtime.evaluate` (each find, tap and assert) would hang until the step
-/// timed out. Like Playwright's default: alerts and beforeunload are accepted
-/// (there is nothing to choose, and navigation should proceed), while
-/// confirm and prompt are dismissed so a test never triggers a destructive
-/// action it did not ask for.
+/// How a JavaScript dialog of `kind` (`alert`, `confirm`, `prompt`,
+/// `beforeunload`, CDP's names) is answered: accept or dismiss, and the
+/// text an accepted prompt gets. Alerts and beforeunload are accepted
+/// (there is nothing to choose, and navigation should proceed). Confirm
+/// and prompt follow `web.dialogs` (`VELOCITY_WEB_DIALOGS`): `dismiss` by
+/// default, so a test never triggers a destructive action it did not ask
+/// for; `accept` lets a suite test a confirm-guarded delete (review 10
+/// #9). `web.promptText` (`VELOCITY_WEB_PROMPT_TEXT`) is what an accepted
+/// prompt returns.
+fn dialog_answer(kind: &str) -> (bool, Option<String>) {
+    match kind {
+        "confirm" | "prompt" => {
+            let accept = matches!(
+                velocity_common::env::var("VELOCITY_WEB_DIALOGS")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "accept" | "1" | "true"
+            );
+            let text = (accept && kind == "prompt")
+                .then(|| velocity_common::env::var("VELOCITY_WEB_PROMPT_TEXT").unwrap_or_default());
+            (accept, text)
+        }
+        _ => (true, None),
+    }
+}
+
+/// Answers every JavaScript dialog as soon as it opens, as
+/// [`dialog_answer`] says. An open alert, confirm or prompt blocks the
+/// page's JS thread, so every later CDP `Runtime.evaluate` (each find, tap
+/// and assert) would hang until the step timed out. Chrome reports a
+/// dialog opened in a cross-origin frame on the page's own session too,
+/// so this answers those as well (pinned by `tests/web_dialogs.rs`; the
+/// frames' sessions never see it, review 10 #9).
 async fn spawn_dialog_handler(page: &Arc<Page>) {
     use chromiumoxide::cdp::browser_protocol::page::{
-        DialogType, EventJavascriptDialogOpening, HandleJavaScriptDialogParams,
+        EventJavascriptDialogOpening, HandleJavaScriptDialogParams,
     };
     let mut events = match page
         .page
@@ -2026,15 +2263,147 @@ async fn spawn_dialog_handler(page: &Arc<Page>) {
     let page = page.clone();
     tokio::spawn(async move {
         while let Some(event) = events.next().await {
-            let accept = matches!(event.r#type, DialogType::Alert | DialogType::Beforeunload);
+            let kind = event.r#type.as_ref().to_string();
+            let (accept, text) = dialog_answer(&kind);
             tracing::info!(
-                "velocity-web: {} JS {:?} \"{}\"",
+                "velocity-web: {} JS {kind} \"{}\"",
                 if accept { "accepted" } else { "dismissed" },
-                event.r#type,
                 event.message
             );
-            if let Err(e) = page.exec(HandleJavaScriptDialogParams::new(accept)).await {
+            let mut params = HandleJavaScriptDialogParams::new(accept);
+            params.prompt_text = text;
+            if let Err(e) = page.exec(params).await {
                 debug!("velocity-web: answering the JS dialog failed: {e}");
+            }
+        }
+    });
+}
+
+/// The tabs a device's page opened and closed (review 10 #5): a popup
+/// (`window.open`, `target="_blank"`, a sign-in or payment window) was a
+/// new target nobody drove, so the step that opened it "did nothing" and
+/// the next one looked for its content on the old page.
+#[derive(Clone, Default)]
+struct TabWatch(Arc<std::sync::Mutex<Tabs>>);
+
+#[derive(Default)]
+struct Tabs {
+    /// The device's pages: the first and every tab opened from one of them.
+    ours: std::collections::HashSet<String>,
+    /// Tabs opened and not driven yet, oldest first.
+    opened: Vec<String>,
+    /// Tabs of ours that closed.
+    gone: std::collections::HashSet<String>,
+}
+
+/// What [`TabWatch::next_change`] found.
+enum TabChange {
+    /// A tab to drive.
+    Opened(String),
+    /// The driven tab closed.
+    Closed,
+}
+
+impl TabWatch {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Tabs> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Watch `page`'s browser for tabs `page` (or one of its tabs) opens
+    /// and for ours that close.
+    async fn watch(&self, chrome: &Chrome, page: &Page) {
+        use chromiumoxide::cdp::browser_protocol::target::{
+            EventTargetCreated, EventTargetDestroyed,
+        };
+        self.lock()
+            .ours
+            .insert(page.page.target_id().inner().clone());
+        let (created, destroyed) = {
+            let browser = chrome.browser.lock().await;
+            (
+                browser.event_listener::<EventTargetCreated>().await,
+                browser.event_listener::<EventTargetDestroyed>().await,
+            )
+        };
+        let (Ok(mut created), Ok(mut destroyed)) = (created, destroyed) else {
+            debug!("velocity-web: new tabs are not followed (no target events)");
+            return;
+        };
+        // Weak, so a device's watch ends with its session even while the
+        // shared Chrome lives on.
+        let weak = Arc::downgrade(&self.0);
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    ev = created.next() => {
+                        let Some(ev) = ev else { break };
+                        let Some(tabs) = weak.upgrade() else { break };
+                        let info = &ev.target_info;
+                        let mut t = tabs.lock().unwrap_or_else(|e| e.into_inner());
+                        let mine = info.opener_id.as_ref().is_some_and(|o| t.ours.contains(o.inner()));
+                        if info.r#type == "page" && mine {
+                            let id = info.target_id.inner().clone();
+                            t.ours.insert(id.clone());
+                            t.opened.push(id);
+                        }
+                    }
+                    ev = destroyed.next() => {
+                        let Some(ev) = ev else { break };
+                        let Some(tabs) = weak.upgrade() else { break };
+                        let mut t = tabs.lock().unwrap_or_else(|e| e.into_inner());
+                        let id = ev.target_id.inner();
+                        if t.ours.contains(id) {
+                            t.opened.retain(|o| o != id);
+                            t.gone.insert(id.clone());
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// What to switch to before driving `page`: the oldest tab opened and
+    /// not driven yet, or (`page` closed) its opener.
+    fn next_change(&self, page: &Page, openers: &[Arc<Page>]) -> Option<TabChange> {
+        let mut t = self.lock();
+        if !t.opened.is_empty() {
+            return Some(TabChange::Opened(t.opened.remove(0)));
+        }
+        let gone = t.gone.contains(page.page.target_id().inner());
+        (gone && !openers.is_empty()).then_some(TabChange::Closed)
+    }
+
+    fn is_gone(&self, page: &Page) -> bool {
+        self.lock().gone.contains(page.page.target_id().inner())
+    }
+
+    fn forget(&self, id: &str) {
+        self.lock().ours.remove(id);
+    }
+}
+
+/// Marks `page` crashed when its renderer goes ("Aw, Snap!"), so its next
+/// call fails at once as a lost connection, which the executor recovers
+/// from with a new browser, instead of each one waiting out
+/// `CDP_TIMEOUT` and failing as an internal error (review 10 #6).
+async fn spawn_crash_watch(page: &Arc<Page>) {
+    use chromiumoxide::cdp::browser_protocol::inspector::{EnableParams, EventTargetCrashed};
+    let mut events = match page.page.event_listener::<EventTargetCrashed>().await {
+        Ok(events) => events,
+        Err(e) => {
+            debug!("velocity-web: cannot watch for renderer crashes: {e}");
+            return;
+        }
+    };
+    if let Err(e) = page.exec(EnableParams::default()).await {
+        debug!("velocity-web: Inspector.enable: {e}");
+    }
+    let page = Arc::downgrade(page);
+    tokio::spawn(async move {
+        if events.next().await.is_some() {
+            if let Some(page) = page.upgrade() {
+                tracing::warn!("velocity-web: the page's renderer crashed");
+                page.mark_crashed();
             }
         }
     });
@@ -2275,6 +2644,135 @@ async fn remove_profile_dir(dir: &std::path::Path) {
             return;
         }
     }
+}
+
+/// The paths an `inputText` on a file input names: one per line, blank
+/// lines skipped, relative ones from the working directory. A path that
+/// isn't a file is a config error, before anything is sent.
+fn file_paths(text: &str) -> Result<Vec<String>> {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let paths: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let p = std::path::Path::new(l);
+            let p = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                cwd.join(p)
+            };
+            if p.is_file() {
+                Ok(p.to_string_lossy().into_owned())
+            } else {
+                Err(VelocityError::Config(format!(
+                    "inputText on a file input: no file at {}",
+                    p.display()
+                )))
+            }
+        })
+        .collect::<Result<_>>()?;
+    if paths.is_empty() {
+        return Err(VelocityError::Config(
+            "inputText on a file input needs a file path (one per line)".into(),
+        ));
+    }
+    Ok(paths)
+}
+
+/// `web.insecureCerts` (`VELOCITY_WEB_INSECURE_CERTS`): accept any TLS
+/// certificate. Off by default.
+fn insecure_certs() -> bool {
+    insecure_certs_from(
+        velocity_common::env::var("VELOCITY_WEB_INSECURE_CERTS")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn insecure_certs_from(v: Option<&str>) -> bool {
+    v.is_some_and(|v| matches!(v.trim(), "1" | "true" | "on"))
+}
+
+/// `web.downloads` (`VELOCITY_WEB_DOWNLOADS`): a folder downloads are
+/// saved in, or `None` (unset, `deny`, `off`) to refuse them. A download
+/// in headless Chrome used to go into the temporary profile, deleted on
+/// close, or nowhere (review 10 #11).
+fn downloads_dir() -> Option<PathBuf> {
+    let v = velocity_common::env::var("VELOCITY_WEB_DOWNLOADS").ok()?;
+    let v = v.trim();
+    if v.is_empty() || matches!(v, "deny" | "off" | "0" | "false") {
+        return None;
+    }
+    let dir = std::env::current_dir().unwrap_or_default().join(v);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(
+            "velocity-web: downloads refused: can't make {}: {e}",
+            dir.display()
+        );
+        return None;
+    }
+    Some(dir)
+}
+
+/// Sets `context`'s download behaviour ([`downloads_dir`]) and says, for
+/// each download `page` starts, what became of it.
+async fn watch_downloads(
+    chrome: &Chrome,
+    context: Option<chromiumoxide::cdp::browser_protocol::browser::BrowserContextId>,
+    page: &Arc<Page>,
+) {
+    use chromiumoxide::cdp::browser_protocol::browser::{
+        EventDownloadWillBegin, SetDownloadBehaviorBehavior, SetDownloadBehaviorParams,
+    };
+    let dir = downloads_dir();
+    let mut params = SetDownloadBehaviorParams::new(if dir.is_some() {
+        SetDownloadBehaviorBehavior::Allow
+    } else {
+        SetDownloadBehaviorBehavior::Deny
+    });
+    params.browser_context_id = context.clone();
+    params.download_path = dir.as_ref().map(|d| d.to_string_lossy().into_owned());
+    params.events_enabled = Some(true);
+    let events = {
+        let browser = chrome.browser.lock().await;
+        match tokio::time::timeout(cdp::CDP_TIMEOUT, browser.execute(params)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => debug!("velocity-web: download behaviour not set: {e}"),
+            Err(_) => debug!("velocity-web: download behaviour not set: no answer"),
+        }
+        browser.event_listener::<EventDownloadWillBegin>().await
+    };
+    let Ok(mut events) = events else {
+        return;
+    };
+    let frame = page.page.target_id().inner().clone();
+    let shared = context.is_some();
+    let weak = Arc::downgrade(page);
+    tokio::spawn(async move {
+        while let Some(ev) = events.next().await {
+            if weak.upgrade().is_none() {
+                break;
+            }
+            // In a shared Chrome, only this page's own downloads.
+            if shared && ev.frame_id.inner() != &frame {
+                continue;
+            }
+            match &dir {
+                Some(d) => tracing::warn!(
+                    "velocity-web: the page downloads {} into {}",
+                    ev.suggested_filename,
+                    d.display()
+                ),
+                None => tracing::warn!(
+                    "velocity-web: the page started a download of {} ({}), which was refused; \
+                     set web.downloads (VELOCITY_WEB_DOWNLOADS) to a folder to keep downloads",
+                    ev.suggested_filename,
+                    ev.url
+                ),
+            }
+        }
+    });
 }
 
 /// `web.frames` (`VELOCITY_WEB_FRAMES`): `off` leaves cross-origin
@@ -2609,7 +3107,7 @@ mod fake_protocol {
             .await
             .unwrap();
         assert_eq!(seen.clicks.lock().unwrap().len(), 1);
-        // A page element's verdict has no `seen` to check.
+        // A top-document element's verdict has no `seen` to check.
         let page = Fake::default()
             .answer("act", vec![json!({"ok": true, "x": 10, "y": 20})])
             .answer("arm", vec![json!(true)])
@@ -2617,7 +3115,20 @@ mod fake_protocol {
         WebDriver::pointer_action(&page, &button(), Pointer::Click)
             .await
             .unwrap();
-        assert!(page.ops("disarm")[0].is_empty());
+        assert_eq!(page.clicks.lock().unwrap().len(), 1);
+        // review 10 #2: one in a same-origin frame (`nested`) has: a
+        // banner on the page over its <iframe> took the click.
+        let nested = Fake::default()
+            .answer("act", vec![json!({"ok": true, "x": 10, "y": 20})])
+            .answer("arm", vec![json!(true)])
+            .answer(
+                "disarm",
+                vec![json!({"blocked": null, "seen": false, "nested": true})],
+            );
+        let e = WebDriver::pointer_action(&nested, &button(), Pointer::Click)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("never reached the frame"), "{e}");
     }
 
     /// The opaque-frame focus check of `inputText` (review MINOR 10 as
@@ -2708,6 +3219,16 @@ mod fake_protocol {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn certificate_errors_are_respected_unless_the_suite_opts_out() {
+        // Audit 2026-11 WEB-1.
+        assert!(!super::insecure_certs_from(None));
+        assert!(!super::insecure_certs_from(Some("0")));
+        assert!(!super::insecure_certs_from(Some("")));
+        assert!(super::insecure_certs_from(Some("1")));
+        assert!(super::insecure_certs_from(Some("true")));
+    }
     use super::{chrome_arg, remove_profile_dir, same_document, touch_stroke};
     use velocity_common::Direction;
 

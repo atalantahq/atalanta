@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 /// Classification of errors for automatic retry decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ErrorKind {
     // Transient — auto-retry with backoff
     ConnectionLost,
@@ -54,6 +55,7 @@ impl ErrorKind {
 }
 
 #[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
 pub enum VelocityError {
     // Configuration Errors (exit code 2)
     #[error("{}", yaml_parse_message(file, *line, *col, message))]
@@ -79,6 +81,29 @@ pub enum VelocityError {
 
     #[error("Configuration error: {0}")]
     Config(String),
+
+    /// The step or driver call isn't supported on this platform (a
+    /// `PlatformDriver` default): exit 2 like a config error, but kind
+    /// `PlatformNotSupported`, so an agent is told "unsupported", not
+    /// "fix your arguments" (review 02 H4).
+    #[error("{0}")]
+    Unsupported(String),
+
+    /// An agent's element ref (`@e12` from `snapshot`, `e3` from
+    /// `list_elements`) no longer names a current element: the agent must
+    /// take a new snapshot. Exit code 1, never retried by the executor.
+    #[error("{0}")]
+    StaleRef(String),
+
+    /// A step the executor ran on an agent's behalf (an MCP step tool)
+    /// failed: the executor's message and the kind of the error behind it,
+    /// so the agent is told "not found" or "crashed", not "bad arguments".
+    #[error("{message}")]
+    StepFailed {
+        kind: ErrorKind,
+        crashed: bool,
+        message: String,
+    },
 
     // Device Errors (exit code 3)
     #[error("Device '{id}' not found. Available: {}", available.join(", "))]
@@ -110,13 +135,29 @@ pub enum VelocityError {
 
     /// WebDriverAgent didn't accept the connection (crashed or not started).
     /// The request never reached it, so it is safe to replay after a restart.
-    #[error("WebDriverAgent at {url} is not reachable: {detail}")]
-    WdaUnreachable { url: String, detail: String },
+    #[error(
+        "WebDriverAgent at {url}{} is not reachable: {detail}",
+        on_device(device_id)
+    )]
+    WdaUnreachable {
+        /// The device's UDID; empty when the client wasn't told it.
+        device_id: String,
+        url: String,
+        detail: String,
+    },
 
     /// The connection to WebDriverAgent broke mid-request (reset, closed,
     /// timed out): the request may have run, so an action is not replayed.
-    #[error("Lost the connection to WebDriverAgent at {url}: {detail}")]
-    WdaLost { url: String, detail: String },
+    #[error(
+        "Lost the connection to WebDriverAgent at {url}{}: {detail}",
+        on_device(device_id)
+    )]
+    WdaLost {
+        /// The device's UDID; empty when the client wasn't told it.
+        device_id: String,
+        url: String,
+        detail: String,
+    },
 
     /// Too many driver failures in a row on this device; calls fail fast
     /// until the breaker's cool-down passes.
@@ -127,6 +168,12 @@ pub enum VelocityError {
     /// crashed or was killed). Transient: the session is restarted.
     #[error("Chrome DevTools connection lost: {detail}")]
     BrowserConnectionLost { detail: String },
+
+    /// The connection to an in-app native sync probe broke or went quiet
+    /// (reset, closed, no reply in time). Transient: the next settle
+    /// reconnects, and callers fall back to tree polling meanwhile.
+    #[error("Native sync probe on port {port}: {detail}")]
+    SyncProbeLost { port: u16, detail: String },
 
     #[error("ADB connection lost to device '{device_id}': {reason}")]
     AdbConnectionLost { device_id: String, reason: String },
@@ -243,6 +290,14 @@ impl VelocityError {
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::AtSource { inner, .. } => inner.exit_code(),
+            Self::StepFailed { kind, .. } => match kind {
+                ErrorKind::ConfigError | ErrorKind::InvalidSelector => 2,
+                ErrorKind::ConnectionLost
+                | ErrorKind::SessionExpired
+                | ErrorKind::DeviceNotReady
+                | ErrorKind::DeviceUnresponsive => 3,
+                _ => 1,
+            },
             Self::ElementNotFound { .. }
             | Self::NotActionable { .. }
             | Self::AssertionFailed { .. }
@@ -250,13 +305,15 @@ impl VelocityError {
             | Self::HttpCheckFailed { .. }
             | Self::HttpUnreachable { .. }
             | Self::SyncTimeout { .. }
-            | Self::StepTimeout { .. } => 1,
+            | Self::StepTimeout { .. }
+            | Self::StaleRef(_) => 1,
 
             Self::YamlParse { .. }
             | Self::UnknownFlowRef { .. }
             | Self::InvalidSelector { .. }
             | Self::MissingEnvVars { .. }
-            | Self::Config(_) => 2,
+            | Self::Config(_)
+            | Self::Unsupported(_) => 2,
 
             Self::DeviceNotFound { .. }
             | Self::DeviceBootFailed { .. }
@@ -266,6 +323,7 @@ impl VelocityError {
             | Self::WdaSessionLost { .. }
             | Self::WdaUnreachable { .. }
             | Self::WdaLost { .. }
+            | Self::SyncProbeLost { .. }
             | Self::AdbConnectionLost { .. }
             | Self::BrowserConnectionLost { .. }
             | Self::CircuitOpen { .. }
@@ -287,6 +345,7 @@ impl VelocityError {
             Self::AdbConnectionLost { .. }
             | Self::WdaUnreachable { .. }
             | Self::WdaLost { .. }
+            | Self::SyncProbeLost { .. }
             | Self::BrowserConnectionLost { .. }
             | Self::ServiceUnavailable { .. } => ErrorKind::ConnectionLost,
             // Ambiguous: a read may be retried once; actions never are.
@@ -322,12 +381,34 @@ impl VelocityError {
             | Self::MissingEnvVars { .. }
             | Self::Config(_) => ErrorKind::ConfigError,
 
+            Self::Unsupported(_) => ErrorKind::PlatformNotSupported,
+
+            Self::StaleRef(_) => ErrorKind::ElementStale,
+            Self::StepFailed { kind, .. } => *kind,
+
             Self::Internal(_) => ErrorKind::Unknown,
         }
     }
 
     pub fn is_transient(&self) -> bool {
         self.kind().is_transient()
+    }
+
+    /// Velocity couldn't read or write its own files (reports, baselines,
+    /// healed mappings, history) or serialize its own data: an internal
+    /// error (exit 5), never `Config` (exit 2), which tells the user their
+    /// YAML or flags are wrong (review 03 M2).
+    pub fn io(context: impl std::fmt::Display, e: impl std::fmt::Display) -> Self {
+        Self::Internal(anyhow::anyhow!("{context}: {e}"))
+    }
+}
+
+/// ` (device 'X')`, or nothing when the id isn't known.
+fn on_device(device_id: &str) -> String {
+    if device_id.is_empty() {
+        String::new()
+    } else {
+        format!(" (device '{device_id}')")
     }
 }
 

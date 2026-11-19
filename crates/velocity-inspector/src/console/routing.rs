@@ -260,6 +260,16 @@ impl PlatformDriver for RoutingDriver {
     async fn swipe_coords(&self, id: &str, from: (i32, i32), to: (i32, i32)) -> Result<()> {
         self.of(id)?.swipe_coords(id, from, to).await
     }
+    async fn drag(
+        &self,
+        id: &str,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        self.of(id)?.drag(id, from, to, hold_ms, move_ms).await
+    }
     async fn network_busy(&self, id: &str) -> bool {
         match self.of(id) {
             Ok(d) => d.network_busy(id).await,

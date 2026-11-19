@@ -36,6 +36,10 @@ pub struct AppState {
     /// `<platform>/<W>x<H>/<file>` inside) instead of the path the run
     /// recorded: for results downloaded from a CI runner.
     pub baselines_dir: Option<PathBuf>,
+    /// `velocity baselines review --serve`: only `/review` and
+    /// `/api/baselines*` are routed. The review URL is meant to be shared,
+    /// and it used to reach the whole console (start runs, save flows).
+    pub review_only: bool,
     /// The hierarchy each device's page was last sent, by device id.
     pub snapshots: RwLock<HashMap<String, Arc<Snapshot>>>,
     /// The last screenshot pushed per device: (content hash, PNG bytes).
@@ -71,6 +75,7 @@ impl AppState {
             flows_dir: None,
             results_dir: PathBuf::from("velocity-results"),
             baselines_dir: None,
+            review_only: false,
             snapshots: RwLock::new(HashMap::new()),
             screenshots: RwLock::new(HashMap::new()),
             snapshot_version: AtomicU64::new(0),

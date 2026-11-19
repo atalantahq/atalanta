@@ -151,42 +151,68 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
     let mut visible_bounds = None;
 
     for attr in e.attributes().flatten() {
-        let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+        // Keys are matched as bytes and only a kept attribute's value is
+        // decoded: WDA writes ~10 attributes a node, and allocating every
+        // key and value was the parser's main cost (review 04 #4).
+        let key = attr.key.as_ref();
+        if !matches!(
+            key,
+            b"type"
+                | b"name"
+                | b"label"
+                | b"value"
+                | b"placeholderValue"
+                | b"x"
+                | b"y"
+                | b"width"
+                | b"height"
+                | b"visible"
+                | b"isVisible"
+                | b"enabled"
+                | b"focused"
+                | b"hasFocus"
+                | b"selected"
+                | b"isSelected"
+                | b"visibleFrame"
+                | b"visible-frame"
+        ) {
+            continue;
+        }
         // Decode entities: label="Network &amp; internet" must match the text.
         let val = attr
             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map(|v| v.into_owned())
             .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
 
-        match key.as_str() {
-            "type" => element_type = simplify_ios_type(&val),
-            "name" => {
+        match key {
+            b"type" => element_type = simplify_ios_type(&val),
+            b"name" => {
                 if !val.is_empty() {
                     name = Some(val);
                 }
             }
-            "label" => {
+            b"label" => {
                 if !val.is_empty() {
                     label = Some(val);
                 }
             }
-            "value" => {
+            b"value" => {
                 if !val.is_empty() {
                     value = Some(val);
                 }
             }
-            "placeholderValue" => placeholder = Some(val),
-            "x" => x = coord(&val),
-            "y" => y = coord(&val),
-            "width" => width = coord(&val),
-            "height" => height = coord(&val),
-            "visible" | "isVisible" => is_visible = val == "true" || val == "1",
-            "enabled" => enabled = val == "true" || val == "1",
+            b"placeholderValue" => placeholder = Some(val),
+            b"x" => x = coord(&val),
+            b"y" => y = coord(&val),
+            b"width" => width = coord(&val),
+            b"height" => height = coord(&val),
+            b"visible" | b"isVisible" => is_visible = val == "true" || val == "1",
+            b"enabled" => enabled = val == "true" || val == "1",
             // VelocityRunner (hasKeyboardFocus) and WDA (`focused`) only
             // say it when true.
-            "focused" | "hasFocus" => focused = val == "true" || val == "1",
-            "selected" | "isSelected" => selected = val == "true" || val == "1",
-            "visibleFrame" | "visible-frame" => visible_bounds = frame(&val),
+            b"focused" | b"hasFocus" => focused = val == "true" || val == "1",
+            b"selected" | b"isSelected" => selected = val == "true" || val == "1",
+            b"visibleFrame" | b"visible-frame" => visible_bounds = frame(&val),
             _ => {}
         }
     }
@@ -265,6 +291,9 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
         obscured,
         checked,
         visible_bounds,
+        dom_id: None,
+        css_class: None,
+        ..Default::default()
     })
 }
 
@@ -303,6 +332,63 @@ fn simplify_ios_type(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review 07 M8: device bytes are untrusted. Mutate a valid input a few
+    /// thousand ways (flips, cuts, markup and huge numbers spliced in) and
+    /// require an answer, never a panic. Deterministic (a fixed seed).
+    fn mutations(seed_input: &str, rounds: usize) -> Vec<String> {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        const SPLICE: [&str; 9] = [
+            "<",
+            ">",
+            "\"",
+            "=",
+            "&amp;",
+            "-99999999999",
+            "2147483648",
+            "\n",
+            "][",
+        ];
+        let base = seed_input.as_bytes();
+        (0..rounds)
+            .map(|_| {
+                let mut b = base.to_vec();
+                for _ in 0..1 + next() % 4 {
+                    if b.is_empty() {
+                        break;
+                    }
+                    let at = (next() as usize) % b.len();
+                    match next() % 4 {
+                        0 => b[at] = next() as u8,
+                        1 => b.truncate(at),
+                        2 => {
+                            let s = SPLICE[(next() as usize) % SPLICE.len()].as_bytes();
+                            b.splice(at..at, s.iter().copied());
+                        }
+                        _ => {
+                            b.remove(at);
+                        }
+                    }
+                }
+                String::from_utf8_lossy(&b).into_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn mangled_sources_never_panic() {
+        let xml = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" name="Demo" label="Demo" enabled="true" visible="true" x="0" y="0" width="402" height="874"><XCUIElementTypeTextField type="XCUIElementTypeTextField" name="email" value="Email" placeholderValue="Email" enabled="true" focused="true" visibleFrame="{{20, 100}, {362, 30}}" x="20" y="100" width="362" height="44"/><XCUIElementTypeSwitch type="XCUIElementTypeSwitch" label="A &amp; B" value="1" x="0" y="200" width="402" height="44"/></XCUIElementTypeApplication>"#;
+        assert!(parse_ios_hierarchy(xml).is_ok());
+        for m in mutations(xml, 3000) {
+            let _ = parse_ios_hierarchy(&m);
+        }
+    }
 
     #[test]
     fn test_simplify_ios_type() {

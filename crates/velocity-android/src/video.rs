@@ -25,6 +25,13 @@
 //!
 //! and one byte at a time to the device: `K` asks for a key frame, `Q`
 //! stops the server. The process exits when its client goes.
+//!
+//! Before the stream (video server 2, security review #10) the host proves
+//! it holds the server's per-start token, and the server that it does
+//! ([`authenticate`]): the `adb forward` port is on the host's loopback,
+//! where any local process used to be able to take the one client slot and
+//! watch the screen. The token is in a device file only shell or root can
+//! read; it never crosses the socket.
 
 use std::collections::VecDeque;
 use std::process::Stdio;
@@ -49,6 +56,70 @@ const MAX_PACKET: usize = 16 << 20;
 /// Packets a slow subscriber may fall behind before it misses some.
 const BROADCAST_CAPACITY: usize = 512;
 const START_TIMEOUT: Duration = Duration::from_secs(8);
+/// The video server protocol this host speaks (`VideoServer.VERSION`).
+const VIDEO_VERSION: &str = "2";
+
+/// The handshake before the stream: `HELLO <client nonce>`, check the
+/// server's `PROOF <server nonce> <hmac>`, `AUTH <hmac>`, then `OK`. Lines
+/// are read a byte at a time, so nothing of the stream after `OK` is
+/// buffered away.
+pub(crate) async fn authenticate<S>(stream: &mut S, token: &str) -> Result<(), String>
+where
+    S: AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    use crate::tree_server::{client_nonce, constant_time_eq, hex, hmac_sha256};
+    let mac = |label: &str, cn: &str, sn: &str| {
+        hex(&hmac_sha256(
+            token.as_bytes(),
+            format!("velocity-video {label} {cn} {sn}").as_bytes(),
+        ))
+    };
+    let fut = async {
+        let cn = client_nonce();
+        stream
+            .write_all(format!("HELLO {cn}\n").as_bytes())
+            .await
+            .map_err(|e| format!("video handshake: {e}"))?;
+        let proof = read_line(stream).await?;
+        let mut it = proof.strip_prefix("PROOF ").unwrap_or("").split(' ');
+        let (sn, got) = (it.next().unwrap_or(""), it.next().unwrap_or(""));
+        if sn.is_empty() || !constant_time_eq(got.as_bytes(), mac("server", &cn, sn).as_bytes()) {
+            return Err(
+                "the video socket's server could not prove it is Velocity's; not streaming from it"
+                    .to_string(),
+            );
+        }
+        stream
+            .write_all(format!("AUTH {}\n", mac("client", &cn, sn)).as_bytes())
+            .await
+            .map_err(|e| format!("video handshake: {e}"))?;
+        match read_line(stream).await?.as_str() {
+            "OK" => Ok(()),
+            other => Err(format!("the video server refused the handshake: {other:?}")),
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(3), fut)
+        .await
+        .map_err(|_| "video handshake timed out (3s)".to_string())?
+}
+
+/// One line (at most 256 bytes) without its newline.
+async fn read_line<S: AsyncRead + Unpin>(stream: &mut S) -> Result<String, String> {
+    let mut line = Vec::new();
+    loop {
+        let b = stream
+            .read_u8()
+            .await
+            .map_err(|e| format!("video handshake: {e}"))?;
+        if b == b'\n' {
+            return Ok(String::from_utf8_lossy(&line).into_owned());
+        }
+        if line.len() >= 256 {
+            return Err("video handshake: line too long".into());
+        }
+        line.push(b);
+    }
+}
 
 /// Encoder settings sent to the device server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,6 +478,13 @@ impl VideoStream {
         let ready = tokio::time::timeout(START_TIMEOUT, async {
             while let Ok(Some(line)) = lines.next_line().await {
                 if line.contains("listening") {
+                    // The jar is pushed by content hash, so this is always
+                    // the embedded server; say so plainly if it isn't.
+                    if !line.starts_with(&format!("velocity-video {VIDEO_VERSION} ")) {
+                        return Err(format!(
+                            "video server speaks {line:?}, expected version {VIDEO_VERSION}"
+                        ));
+                    }
                     return Ok(());
                 }
             }
@@ -437,8 +515,28 @@ impl VideoStream {
             .trim()
             .parse()
             .map_err(|e| format!("unexpected forward output {out:?}: {e}"))?;
+        // The server's token, from the file only shell or root can read.
+        let token_file = format!("/data/local/tmp/{socket}.token");
+        let token = crate::tree_server::run_adb(
+            adb_path,
+            device_id,
+            &["shell", &format!("cat {token_file}")],
+        )
+        .await
+        .map(|t| t.trim().to_string())
+        .ok()
+        .filter(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit()));
+        let Some(token) = token else {
+            let _ = crate::tree_server::run_adb(
+                adb_path,
+                device_id,
+                &["forward", "--remove", &format!("tcp:{port}")],
+            )
+            .await;
+            return Err(format!("no video server token in {token_file}"));
+        };
         let host = crate::adb::server_host(device_id);
-        let stream = tokio::time::timeout(
+        let mut stream = tokio::time::timeout(
             Duration::from_secs(3),
             TcpStream::connect((host.as_str(), port)),
         )
@@ -446,6 +544,15 @@ impl VideoStream {
         .map_err(|_| format!("video connect to {host}:{port} timed out"))?
         .map_err(|e| format!("video connect: {e}"))?;
         let _ = stream.set_nodelay(true);
+        if let Err(e) = authenticate(&mut stream, &token).await {
+            let _ = crate::tree_server::run_adb(
+                adb_path,
+                device_id,
+                &["forward", "--remove", &format!("tcp:{port}")],
+            )
+            .await;
+            return Err(e);
+        }
         let (read, write) = stream.into_split();
         let mut read = BufReader::with_capacity(256 << 10, read);
         let codec = tokio::time::timeout(Duration::from_secs(5), read_codec(&mut read))
@@ -661,7 +768,42 @@ pub struct ScreenRecord {
     device_id: String,
     tag: String,
     stop: Arc<std::sync::atomic::AtomicBool>,
-    task: tokio::task::JoinHandle<Vec<(String, Instant)>>,
+    /// `None` once [`Self::finish`] took it.
+    task: Option<tokio::task::JoinHandle<Vec<(String, Instant)>>>,
+}
+
+/// Dropped without [`ScreenRecord::finish`] (an aborted actor, a cut
+/// finish budget), the detached loop used to keep starting 180 s
+/// `screenrecord` segments until the process exited and left their mp4s
+/// on the device (review 01 #5). Stop the loop (aborting it drops the
+/// running `adb` child, which is `kill_on_drop`), and when a runtime is
+/// still there, stop the device side and delete this recording's files.
+impl Drop for ScreenRecord {
+    fn drop(&mut self) {
+        let Some(task) = self.task.take() else {
+            return;
+        };
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        task.abort();
+        if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            let (adb, dev, tag) = (
+                self.adb_path.clone(),
+                self.device_id.clone(),
+                self.tag.clone(),
+            );
+            rt.spawn(async move {
+                let _ = crate::tree_server::run_adb(
+                    &adb,
+                    &dev,
+                    &[
+                        "shell",
+                        &format!("pkill -INT -f {tag}; sleep 1; rm -f /data/local/tmp/{tag}-*.mp4"),
+                    ],
+                )
+                .await;
+            });
+        }
+    }
 }
 
 impl ScreenRecord {
@@ -718,7 +860,7 @@ impl ScreenRecord {
             device_id: device_id.to_string(),
             tag,
             stop,
-            task,
+            task: Some(task),
         }
     }
 
@@ -726,7 +868,7 @@ impl ScreenRecord {
     /// as `dest`, later ones as `<stem>-2.mp4`, …). Returns the files and
     /// when the first segment started.
     pub async fn finish(
-        self,
+        mut self,
         keep: Option<&std::path::Path>,
     ) -> (Vec<std::path::PathBuf>, Option<Instant>) {
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -737,9 +879,14 @@ impl ScreenRecord {
             &["shell", &format!("pkill -INT -f {}", self.tag)],
         )
         .await;
-        let segments = match tokio::time::timeout(Duration::from_secs(10), self.task).await {
-            Ok(Ok(s)) => s,
-            _ => Vec::new(),
+        // Taken only now: a finish cut short before this (its caller's
+        // budget) still leaves Drop to stop the loop and clean the device.
+        let segments = match self.task.take() {
+            Some(task) => match tokio::time::timeout(Duration::from_secs(10), task).await {
+                Ok(Ok(s)) => s,
+                _ => Vec::new(),
+            },
+            None => Vec::new(),
         };
         let mut out = Vec::new();
         let first = segments.first().map(|(_, t)| *t);
@@ -835,6 +982,54 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(read_event(&mut r).await.unwrap().is_none(), "clean end");
+    }
+
+    /// Security review #10: the stream only after both sides proved they
+    /// hold the token; an impostor's proof is refused before AUTH is sent.
+    #[tokio::test]
+    async fn the_video_handshake_is_mutual() {
+        use crate::tree_server::{hex, hmac_sha256};
+        let token = "0123456789abcdef0123456789abcdef";
+        let mac = |label: &str, cn: &str, sn: &str| {
+            hex(&hmac_sha256(
+                token.as_bytes(),
+                format!("velocity-video {label} {cn} {sn}").as_bytes(),
+            ))
+        };
+        // A server that knows the token (as VideoServer.authenticated).
+        let (mut host, mut dev) = tokio::io::duplex(1024);
+        let server = tokio::spawn(async move {
+            let hello = read_line(&mut dev).await.unwrap();
+            let cn = hello.strip_prefix("HELLO ").unwrap().to_string();
+            let sn = "ffeeddccbbaa99887766554433221100";
+            dev.write_all(format!("PROOF {sn} {}\n", mac("server", &cn, sn)).as_bytes())
+                .await
+                .unwrap();
+            let auth = read_line(&mut dev).await.unwrap();
+            assert_eq!(auth, format!("AUTH {}", mac("client", &cn, sn)));
+            dev.write_all(b"OK\n").await.unwrap();
+            dev.write_u32(CODEC_H264).await.unwrap();
+        });
+        authenticate(&mut host, token).await.unwrap();
+        // Nothing of the stream was read with the handshake.
+        assert_eq!(read_codec(&mut host).await.unwrap(), CODEC_H264);
+        server.await.unwrap();
+
+        // An impostor without the token gets no AUTH.
+        let (mut host, mut dev) = tokio::io::duplex(1024);
+        let impostor = tokio::spawn(async move {
+            let _ = read_line(&mut dev).await.unwrap();
+            dev.write_all(format!("PROOF ab {}\n", "0".repeat(64)).as_bytes())
+                .await
+                .unwrap();
+            let mut rest = Vec::new();
+            let _ = dev.read_to_end(&mut rest).await;
+            rest
+        });
+        let e = authenticate(&mut host, token).await.unwrap_err();
+        assert!(e.contains("could not prove"), "{e}");
+        drop(host);
+        assert!(impostor.await.unwrap().is_empty(), "no AUTH sent");
     }
 
     #[tokio::test]
@@ -983,7 +1178,7 @@ mod tests {
     /// file probes as H.264 of the stream's size.
     #[tokio::test]
     async fn records_from_a_real_device() {
-        let Ok(device) = std::env::var("VELOCITY_TEST_ANDROID") else {
+        let Some(device) = crate::test_support::device_under_test() else {
             return;
         };
         let adb = velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".into());

@@ -9,6 +9,10 @@
 //! visibility check): clip to the screen, keep off the bars that are always
 //! in front (keyboard, navigation bar, tab bar, toolbar, in-app alert, status
 //! bar), and pick the centre of what is left, else a point of a 5×5 grid.
+//! A modal layer (an action sheet, a popover, an in-app alert, or the
+//! dimming view XCTest reports as `PopoverDismissRegion`) covers everything
+//! presented before it: a tap there lands on its dimming view and dismisses
+//! it, so the target is refused rather than tapped (review 09 #2).
 
 use velocity_common::{Element, Rect};
 
@@ -30,6 +34,47 @@ impl std::fmt::Display for Blocker {
     }
 }
 
+/// A switch laid out as a whole row (a SwiftUI Toggle with its label): far
+/// wider than tall. A bare UISwitch is about 51x31 and keeps its centre.
+pub fn is_row_switch(el: &Element) -> bool {
+    let t = el
+        .element_type
+        .strip_prefix("XCUIElementType")
+        .unwrap_or(&el.element_type);
+    t == "Switch" && el.bounds.width > 3 * el.bounds.height.max(1)
+}
+
+/// Where a row switch's knob sits when the row is mirrored (RTL: ar, he,
+/// fa): its leading end. [`tap_point`] aims at the trailing end, which is
+/// the label there; the driver taps here when that tap left the switch's
+/// value as it was (review 09 #11). `None` when it is not a row switch,
+/// no part of it is on screen, or the point is covered.
+pub fn row_switch_leading_point(tree: &Element, target: &Element) -> Option<(i32, i32)> {
+    if !is_row_switch(target) {
+        return None;
+    }
+    let visible = intersect(&target.bounds, &tree.bounds)?;
+    let p = (
+        visible.x + (visible.height / 2).clamp(12, 40),
+        visible.y + visible.height / 2,
+    );
+    let mut covers = Vec::new();
+    collect_occluders(tree, target, &mut covers);
+    if covers.iter().any(|(r, _)| contains(r, p.0, p.1)) || behind_modal(tree, target).is_some() {
+        return None;
+    }
+    Some(p)
+}
+
+/// The node of `tree` that is `target` (same type and frame, and its
+/// identifier or label): how a read after a tap finds the switch again.
+pub fn find_again<'a>(tree: &'a Element, target: &Element) -> Option<&'a Element> {
+    if same(tree, target) {
+        return Some(tree);
+    }
+    tree.children.iter().find_map(|c| find_again(c, target))
+}
+
 /// What a node of this type covers when it isn't the target's own (types
 /// drawn above the content in every UIKit and SwiftUI app). The system
 /// alert Velocity adds to the tree (`XCUIElementTypeAlert`, a full-screen
@@ -40,9 +85,94 @@ fn occluder_kind(element_type: &str) -> Option<&'static str> {
         "NavigationBar" => "navigation bar",
         "TabBar" => "tab bar",
         "Toolbar" => "toolbar",
+        _ => return None,
+    })
+}
+
+/// The identifier XCTest gives the dimming view behind a popover, a form or
+/// page sheet and an action sheet ("dismiss popup"): a tap on it dismisses
+/// what is presented.
+const DISMISS_REGION: &str = "PopoverDismissRegion";
+
+/// A modal layer: what is presented over the screen, blocking every touch
+/// outside it. Its dimming view is not in `/source` (or, as the
+/// `PopoverDismissRegion`, is a leaf before the content), so its own frame
+/// says nothing about what it blocks: everything listed before it is
+/// covered. `Alert` is an in-app `UIAlertController` (the system alert
+/// Velocity adds keeps its `XCUIElementTypeAlert` type and is the dialog
+/// handler's).
+fn modal_kind(node: &Element) -> Option<&'static str> {
+    if node.platform_id == DISMISS_REGION {
+        return Some("sheet's dimming view");
+    }
+    Some(match node.element_type.as_str() {
+        "Sheet" => "sheet",
+        "Popover" => "popover",
         "Alert" => "alert",
         _ => return None,
     })
+}
+
+/// Whether a modal layer is up anywhere in `tree`.
+pub fn has_modal_layer(tree: &Element) -> bool {
+    modal_kind(tree).is_some() || tree.children.iter().any(has_modal_layer)
+}
+
+/// Copy `src`'s `visible` flags onto `dst`, node by node, when the two
+/// trees have the same shape (type and frame of every node `src` holds;
+/// `dst` may hold more trailing children: the system alert Velocity adds).
+/// False, with `dst` partly updated, when they differ: the caller drops it.
+pub fn copy_visibility(dst: &mut Element, src: &Element) -> bool {
+    if dst.element_type != src.element_type
+        || dst.bounds != src.bounds
+        || dst.children.len() < src.children.len()
+    {
+        return false;
+    }
+    dst.visible = src.visible;
+    dst.children
+        .iter_mut()
+        .zip(&src.children)
+        .all(|(d, s)| copy_visibility(d, s))
+}
+
+/// The modal layer `target` is behind, if any: one listed after the target
+/// (presented later, so drawn over it) that neither holds it nor is inside
+/// it. A target the tree doesn't hold (WDA found it beyond the snapshot
+/// depth) can't be ordered: it is behind any modal layer whose frame doesn't
+/// hold all of it. A layer the runner reports as not visible is gone.
+pub fn behind_modal(tree: &Element, target: &Element) -> Option<&'static str> {
+    fn walk(
+        n: &Element,
+        target: &Element,
+        i: &mut usize,
+        target_at: &mut Option<usize>,
+        out: &mut Vec<(usize, &'static str, Rect, bool)>,
+    ) {
+        let me = *i;
+        *i += 1;
+        if target_at.is_none() && same(n, target) {
+            *target_at = Some(me);
+        }
+        if let Some(kind) = modal_kind(n) {
+            if n.visible && !contains_node(target, n) {
+                out.push((me, kind, n.bounds, contains_node(n, target)));
+            }
+        }
+        for c in &n.children {
+            walk(c, target, i, target_at, out);
+        }
+    }
+    let (mut i, mut target_at, mut layers) = (0, None, Vec::new());
+    walk(tree, target, &mut i, &mut target_at, &mut layers);
+    layers
+        .into_iter()
+        .filter(|&(_, _, _, holds)| !holds)
+        .find(|&(order, _, bounds, _)| match target_at {
+            Some(t) => order > t,
+            None => !covers_all(&bounds, &target.bounds),
+        })
+        .map(|(_, kind, _, _)| kind)
 }
 
 /// A point inside `target` that is on the screen and under none of the
@@ -64,8 +194,21 @@ pub fn tap_point(tree: &Element, target: &Element, status_bar: i32) -> Result<(i
     // a bar around all of it is taken to be its container (review M3).
     let in_tree = contains_node(tree, target);
     collect_occluders(tree, target, &mut covers);
+    if in_tree {
+        covers.retain(|(r, kind)| {
+            let bar_type = match *kind {
+                "tab bar" => "TabBar",
+                "navigation bar" => "NavigationBar",
+                _ => return true,
+            };
+            !presented_over(tree, target, r, bar_type)
+        });
+    }
     if !in_tree {
         covers.retain(|(r, _)| !covers_all(r, &target.bounds));
+    }
+    if let Some(kind) = behind_modal(tree, target) {
+        return Err(Blocker::Covered(kind));
     }
     let bar = (status_bar > 0).then_some(Rect {
         x: screen.x,
@@ -77,15 +220,17 @@ pub fn tap_point(tree: &Element, target: &Element, status_bar: i32) -> Result<(i
     let covered = |(x, y): (i32, i32)| covers.iter().find(|(r, _)| contains(r, x, y));
     let under_bar = |(x, y): (i32, i32)| bar.as_ref().is_some_and(|r| contains(r, x, y));
     let centre = visible.center();
-    let mut grid = vec![centre];
-    for fy in [50, 25, 75, 10, 90] {
-        for fx in [50, 25, 75, 10, 90] {
-            grid.push((
-                visible.x + visible.width * fx / 100,
-                visible.y + visible.height * fy / 100,
-            ));
-        }
+    let mut grid = Vec::new();
+    // A SwiftUI Toggle's switch element spans its whole row (label and
+    // knob): the centre is the label, and a tap there leaves the switch as
+    // it was ("Outdoor Seating" never turned on: iOSWorld, 2026-11-08).
+    // Aim at the knob, at the trailing end, first.
+    if is_row_switch(target) {
+        let knob_x = visible.x + visible.width - (visible.height / 2).clamp(12, 40);
+        grid.push((knob_x, visible.y + visible.height / 2));
     }
+    // Then the centre and the grid every platform's tap guard tries.
+    grid.extend(velocity_common::tap_guard::candidate_points(&visible));
     let mut free = grid.iter().copied().filter(|&p| covered(p).is_none());
     let Some(first_free) = free.next() else {
         let (_, what) = covered(centre).copied().unwrap_or((screen, "screen edge"));
@@ -340,19 +485,91 @@ fn covers_all(outer: &Rect, inner: &Rect) -> bool {
 
 /// Occluders anywhere in `node`'s subtree that are neither the target's
 /// ancestors nor inside it.
+/// The bars that cover `target`. A bar the runner reports as not visible
+/// covers nothing: SwiftUI keeps a hidden tab bar in the tree with its
+/// frame, and a chat screen's message field at the bottom was refused as
+/// "covered by the tab bar" (iOSWorld rerun, 2026-11-08).
 fn collect_occluders(node: &Element, target: &Element, out: &mut Vec<(Rect, &'static str)>) {
     if same(node, target) {
         return; // the target and everything inside it
     }
     if let Some(kind) = occluder_kind(&node.element_type) {
         if !node.bounds.is_empty() && !contains_node(node, target) {
-            out.push((node.bounds, kind));
+            if node.visible {
+                out.push((node.bounds, kind));
+            }
             return; // its own children are under it anyway
         }
     }
     for c in &node.children {
         collect_occluders(c, target, out);
     }
+}
+
+/// Whether `target` sits in a container listed after the bar at `bar` that
+/// covers the target: a sheet presented over a screen with a tab bar. The
+/// tab bar stays in the tree, visible, under the sheet, and a chat sheet's
+/// message field over it was refused as "covered by the tab bar" (iOSWorld
+/// rerun, 2026-11-08). UIKit lists a screen's content before its own tab
+/// bar, so content scrolled under a tab bar is still covered. Navigation
+/// bars are listed before the content they float over, so this can't apply
+/// to them.
+fn presented_over(tree: &Element, target: &Element, bar: &Rect, bar_type: &str) -> bool {
+    // Depth-first orders of the bar and of the target's ancestors.
+    #[allow(clippy::too_many_arguments)]
+    fn walk<'a>(
+        n: &'a Element,
+        target: &Element,
+        bar: &Rect,
+        bar_type: &str,
+        i: &mut usize,
+        path: &mut Vec<(usize, &'a Element)>,
+        bar_at: &mut Option<usize>,
+        bar_parent: &mut Option<usize>,
+        found: &mut Option<Vec<(usize, &'a Element)>>,
+    ) {
+        let me = *i;
+        *i += 1;
+        if bar_at.is_none() && n.element_type == bar_type && n.bounds == *bar {
+            *bar_at = Some(me);
+            *bar_parent = path.last().map(|(o, _)| *o);
+        }
+        if found.is_none() && same(n, target) {
+            *found = Some(path.clone());
+        }
+        path.push((me, n));
+        for c in &n.children {
+            walk(c, target, bar, bar_type, i, path, bar_at, bar_parent, found);
+        }
+        path.pop();
+    }
+    let (mut i, mut path, mut bar_at, mut bar_parent, mut found) =
+        (0, Vec::new(), None, None, None);
+    walk(
+        tree,
+        target,
+        bar,
+        bar_type,
+        &mut i,
+        &mut path,
+        &mut bar_at,
+        &mut bar_parent,
+        &mut found,
+    );
+    let (Some(bar_at), Some(ancestors)) = (bar_at, found) else {
+        return false;
+    };
+    // A navigation bar is listed before its own screen's content, which it
+    // floats over: that content shares the bar's parent. Only a target in
+    // another branch (a sheet presented over the screen) is drawn over it.
+    if bar_type == "NavigationBar"
+        && bar_parent.is_some_and(|p| ancestors.iter().any(|(o, _)| *o == p))
+    {
+        return false;
+    }
+    ancestors
+        .iter()
+        .any(|(order, a)| *order > bar_at && covers_all(&a.bounds, &target.bounds))
 }
 
 /// The same node of the tree: lookups return clones, so compare fields.
@@ -510,6 +727,129 @@ mod tests {
     }
 
     #[test]
+    fn a_sheet_over_a_tab_bar_is_not_covered_but_content_under_it_is() {
+        let tabs = el("TabBar", "Tab Bar", 0, 791, 402, 83);
+        let field = el("TextField", "Message", 63, 802, 271, 19);
+        // A screen's own content, listed before its tab bar: covered.
+        let mut content = el("Other", "", 0, 0, 402, 874);
+        content.children = vec![field.clone()];
+        let tree = screen(vec![content, tabs.clone()]);
+        assert_eq!(
+            tap_point(&tree, &field, 62),
+            Err(Blocker::Covered("tab bar"))
+        );
+        // A sheet presented after it, holding the field: drawn over the bar.
+        let mut sheet = el("Other", "", 0, 70, 402, 804);
+        sheet.children = vec![field.clone()];
+        let tree = screen(vec![el("Other", "", 0, 0, 402, 874), tabs, sheet]);
+        assert!(tap_point(&tree, &field, 62).is_ok());
+    }
+
+    #[test]
+    fn a_sheet_over_a_navigation_bar_is_not_covered_but_the_screen_under_it_is() {
+        let nav = el("NavigationBar", "Home", 0, 62, 402, 54);
+        let close = el("Button", "Close", 25, 80, 26, 36);
+        // The screen's own content (sharing the bar's parent): covered.
+        let mut screen_view = el("Other", "", 0, 0, 402, 874);
+        screen_view.children = vec![nav.clone(), close.clone()];
+        let tree = screen(vec![screen_view]);
+        assert_eq!(
+            tap_point(&tree, &close, 62),
+            Err(Blocker::Covered("navigation bar"))
+        );
+        // A sheet presented over that screen holds the button: drawn over it.
+        let mut presenting = el("Other", "", 0, 0, 402, 874);
+        presenting.children = vec![nav];
+        let mut sheet = el("Other", "", 0, 70, 402, 804);
+        sheet.children = vec![close.clone()];
+        let tree = screen(vec![presenting, sheet]);
+        assert!(tap_point(&tree, &close, 62).is_ok());
+    }
+
+    #[test]
+    fn a_row_switch_is_tapped_on_its_knob_and_a_bare_one_in_its_centre() {
+        let row = el("Switch", "Outdoor Seating", 16, 612, 370, 52);
+        let tree = screen(vec![row.clone()]);
+        let (x, y) = tap_point(&tree, &row, 62).unwrap();
+        assert!(
+            x > 16 + 370 - 45 && x < 16 + 370,
+            "near the trailing end: {x}"
+        );
+        assert_eq!(y, 612 + 26);
+        let bare = el("Switch", "Wi-Fi", 300, 200, 51, 31);
+        let tree = screen(vec![bare.clone()]);
+        assert_eq!(tap_point(&tree, &bare, 62), Ok((325, 215)));
+    }
+
+    #[test]
+    fn visibility_is_copied_only_onto_a_tree_of_the_same_shape() {
+        let mut sheet = el("Sheet", "Options", 0, 400, 402, 474);
+        sheet.children = vec![el("Button", "Cancel", 20, 800, 362, 44)];
+        let cheap = screen(vec![el("Button", "Delete", 20, 700, 362, 44), sheet]);
+        assert!(has_modal_layer(&cheap));
+        assert!(!has_modal_layer(&screen(vec![keyboard()])));
+        let mut full = cheap.clone();
+        full.children[0].visible = false;
+        let mut merged = cheap.clone();
+        assert!(copy_visibility(&mut merged, &full));
+        assert!(!merged.children[0].visible && merged.children[1].children[0].visible);
+        // The system alert Velocity appends is not in the full read.
+        let mut with_alert = cheap.clone();
+        with_alert
+            .children
+            .push(el("XCUIElementTypeAlert", "alert", 0, 0, 402, 874));
+        assert!(copy_visibility(&mut with_alert, &full));
+        // The screen moved between the reads: not applied.
+        let mut moved = cheap.clone();
+        moved.children[0].bounds.y = 650;
+        assert!(!copy_visibility(&mut moved, &full));
+    }
+
+    #[test]
+    fn a_row_switch_has_a_leading_end_unless_it_is_covered() {
+        let row = el("Switch", "Outdoor Seating", 0, 300, 402, 44);
+        let tree = screen(vec![row.clone()]);
+        assert_eq!(row_switch_leading_point(&tree, &row), Some((22, 322)));
+        let plain = el("Switch", "wifi", 300, 300, 51, 31);
+        assert_eq!(
+            row_switch_leading_point(&screen(vec![plain.clone()]), &plain),
+            None
+        );
+        let low = el("Switch", "Low", 0, 600, 402, 44);
+        assert_eq!(
+            row_switch_leading_point(&screen(vec![low.clone(), keyboard()]), &low),
+            None
+        );
+        assert!(find_again(&tree, &row).is_some());
+    }
+
+    /// How a hidden tab bar really shows up. With the default (cheap)
+    /// read every node is `visible`, so the case that happens is UIKit's
+    /// `hidesBottomBarWhenPushed`: the bar stays in the tree, moved below
+    /// the screen. `visible="false"` with an on-screen frame comes only
+    /// from a read that asks for `visible` (`VELOCITY_IOS_FULL_SOURCE=1`,
+    /// or the read under a sheet), for a bar whose view is hidden in place.
+    #[test]
+    fn a_hidden_tab_bar_covers_nothing() {
+        let tabs = el("TabBar", "Tab Bar", 0, 791, 402, 83);
+        let field = el("TextField", "Message", 63, 802, 271, 19);
+        let tree_shown = screen(vec![field.clone(), tabs.clone()]);
+        assert_eq!(
+            tap_point(&tree_shown, &field, 62),
+            Err(Blocker::Covered("tab bar"))
+        );
+        // Pushed with hidesBottomBarWhenPushed: moved off the bottom edge.
+        let pushed_away = el("TabBar", "Tab Bar", 0, 874, 402, 83);
+        let tree_pushed = screen(vec![field.clone(), pushed_away]);
+        assert!(tap_point(&tree_pushed, &field, 62).is_ok());
+        // Hidden in place, read with `visible`.
+        let mut hidden = tabs;
+        hidden.visible = false;
+        let tree_hidden = screen(vec![field.clone(), hidden]);
+        assert!(tap_point(&tree_hidden, &field, 62).is_ok());
+    }
+
+    #[test]
     fn the_status_bar_never_turns_a_hard_cover_into_a_pass() {
         let mut nav = el("NavigationBar", "Bar", 0, 0, 402, 100);
         nav.children = vec![el("Button", "Mine", 8, 50, 60, 44)];
@@ -541,6 +881,98 @@ mod tests {
         field.platform_id = "AF000000-0000-0000-WDA".into();
         let (_, y) = tap_point(&tree, &field, 62).unwrap();
         assert!((500..538).contains(&y), "{y}");
+    }
+
+    /// Review 09 #2: the presenting screen stays in the tree under an
+    /// action sheet; a tap on it lands on the dimming view.
+    #[test]
+    fn content_behind_an_action_sheet_is_covered_its_buttons_are_not() {
+        let save_behind = el("Button", "Save", 300, 100, 80, 44);
+        let mut sheet = el("Sheet", "", 8, 600, 386, 266);
+        let save_in_sheet = el("Button", "Save", 8, 650, 386, 56);
+        let cancel = el("Button", "Cancel", 8, 800, 386, 56);
+        sheet.children = vec![save_in_sheet.clone(), cancel.clone()];
+        let mut content = el("Other", "", 0, 0, 402, 874);
+        content.children = vec![save_behind.clone()];
+        let tree = screen(vec![content, sheet]);
+        assert_eq!(
+            tap_point(&tree, &save_behind, 62),
+            Err(Blocker::Covered("sheet")),
+            "far from the sheet's own frame, still behind its dimming view"
+        );
+        assert_eq!(behind_modal(&tree, &save_behind), Some("sheet"));
+        assert_eq!(tap_point(&tree, &save_in_sheet, 62), Ok((201, 678)));
+        assert!(tap_point(&tree, &cancel, 62).is_ok());
+        assert_eq!(behind_modal(&tree, &cancel), None);
+    }
+
+    #[test]
+    fn a_popover_and_its_dismiss_region_cover_what_was_presented_before() {
+        let row = el("Cell", "Row", 0, 300, 402, 44);
+        let mut region = el("Other", "dismiss popup", 0, 0, 402, 874);
+        region.platform_id = DISMISS_REGION.into();
+        let mut card = el("Other", "", 0, 60, 402, 814);
+        let field = el("TextField", "Title", 16, 120, 370, 44);
+        card.children = vec![field.clone()];
+        let mut content = el("Other", "", 0, 0, 402, 874);
+        content.children = vec![row.clone()];
+        // A page sheet: the dimming view XCTest reports, then the card.
+        let tree = screen(vec![content.clone(), region.clone(), card.clone()]);
+        assert_eq!(
+            tap_point(&tree, &row, 62),
+            Err(Blocker::Covered("sheet's dimming view"))
+        );
+        assert!(tap_point(&tree, &field, 62).is_ok());
+        // A popover, with the keyboard up for its field: keys stay tappable.
+        let mut popover = el("Popover", "", 100, 100, 300, 400);
+        let pop_field = el("TextField", "Name", 110, 120, 280, 44);
+        popover.children = vec![pop_field.clone()];
+        let tree = screen(vec![content, popover, keyboard()]);
+        assert_eq!(tap_point(&tree, &row, 62), Err(Blocker::Covered("popover")));
+        assert!(tap_point(&tree, &pop_field, 62).is_ok());
+        let key = el("Key", "g", 181, 566, 40, 42);
+        assert!(tap_point(&tree, &key, 62).is_ok());
+    }
+
+    #[test]
+    fn an_in_app_alert_covers_the_screen_but_not_its_buttons() {
+        let behind = el("Button", "Buy", 20, 760, 362, 50);
+        let mut alert = el("Alert", "Discard draft?", 60, 360, 282, 150);
+        let ok = el("Button", "Discard", 60, 460, 141, 50);
+        alert.children = vec![ok.clone()];
+        let tree = screen(vec![behind.clone(), alert]);
+        assert_eq!(
+            tap_point(&tree, &behind, 62),
+            Err(Blocker::Covered("alert"))
+        );
+        assert_eq!(tap_point(&tree, &ok, 62), Ok((130, 485)));
+        // Velocity's own system-alert node is the dialog handler's.
+        let mut system = el("XCUIElementTypeAlert", "Allow?", 0, 0, 402, 874);
+        system.children = vec![];
+        let tree = screen(vec![behind.clone(), system]);
+        assert!(tap_point(&tree, &behind, 62).is_ok());
+    }
+
+    #[test]
+    fn a_sheet_reported_hidden_or_a_target_found_beyond_the_tree() {
+        let behind = el("Button", "Save", 300, 100, 80, 44);
+        let mut sheet = el("Sheet", "", 8, 600, 386, 266);
+        sheet.visible = false;
+        let tree = screen(vec![behind.clone(), sheet.clone()]);
+        assert!(tap_point(&tree, &behind, 62).is_ok(), "a gone sheet");
+        // WDA found the target below the snapshot depth: inside the sheet's
+        // frame it is the sheet's, elsewhere it is behind it.
+        sheet.visible = true;
+        let tree = screen(vec![sheet]);
+        let mut inside = el("Button", "Delete", 16, 700, 370, 56);
+        inside.platform_id = "8D000000-0000-0000-WDA".into();
+        assert!(tap_point(&tree, &inside, 62).is_ok());
+        let mut outside = behind;
+        outside.platform_id = "9E000000-0000-0000-WDA".into();
+        assert_eq!(
+            tap_point(&tree, &outside, 62),
+            Err(Blocker::Covered("sheet"))
+        );
     }
 
     #[test]

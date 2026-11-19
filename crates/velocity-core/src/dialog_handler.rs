@@ -47,8 +47,11 @@ const IOS_SYSTEM_ALERT_BUTTON: &str = "velocity-system-alert-button:";
 
 /// Wording of iOS system prompts (permissions, "Open in …?"), for an alert
 /// that reached the tree some other way: "“Shop” Would Like to Access…",
-/// "Allow “Shop” to use your location?", "Open in “Shop”?".
-const IOS_SYSTEM_ALERT_PHRASES: &[&str] = &["would like to"];
+/// "Allow “Shop” to use your location?", "Open in “Shop”?". "Would like
+/// to" counts only right after the quoted app name: a bare one matched the
+/// app's own "We would like to send you offers [No thanks][Continue]"
+/// (review 09 #7).
+const IOS_SYSTEM_ALERT_PHRASES: &[&str] = &["\u{201d} would like to", "\" would like to"];
 const IOS_SYSTEM_ALERT_STARTS: &[&str] = &["allow ", "open in \"", "open in \u{201c}"];
 /// What follows "Allow …" in a permission prompt. A bare "to access" also
 /// matched the app's own "Sign in to access your account" (C-m2).
@@ -69,6 +72,17 @@ const ANDROID_ALERT_INDICATORS: &[&str] = &[
     "com.android.permissioncontroller",
     "grant_dialog",
     "grant_singleton",
+];
+
+/// The permission controller's grant buttons by resource id, most wanted
+/// first (the order of [`ANDROID_DISMISS_LABELS`]): found whatever the
+/// device's language, where the English labels find nothing on a de-DE
+/// device ("Bei Nutzung der App") and the test failed on its next step
+/// (review 09 #7).
+const ANDROID_PERMISSION_BUTTON_IDS: &[&str] = &[
+    ":id/permission_allow_foreground_only_button",
+    ":id/permission_allow_one_time_button",
+    ":id/permission_allow_button",
 ];
 
 /// Handles automatic detection and dismissal of system dialogs
@@ -276,7 +290,11 @@ impl DialogHandler {
 
         // Sort by priority: first match in dismiss_labels list wins
         candidates.sort_by_key(|(priority, _)| *priority);
-        candidates.into_iter().next().map(|(_, el)| el)
+        candidates
+            .into_iter()
+            .next()
+            .map(|(_, el)| el)
+            .or_else(|| permission_button_by_id(dialog))
     }
 
     /// Collect all buttons within an element tree that match dismiss labels.
@@ -309,24 +327,51 @@ impl DialogHandler {
     }
 }
 
-/// Whether a dialog of `pkg` is the system's to show: a known system
-/// package, or the platform's (`com.android.*`, `com.google.android.*`).
-/// Any other package is not enough: a library module's namespace
-/// (`com.stripe:id/…`) or the app's own under another namespace than its
-/// applicationId is the app's dialog, and the test's to answer.
+/// A visible, enabled permission-controller grant button, by id
+/// ([`ANDROID_PERMISSION_BUTTON_IDS`]), in `dialog`.
+fn permission_button_by_id(dialog: &Element) -> Option<Element> {
+    fn find<'a>(el: &'a Element, suffix: &str) -> Option<&'a Element> {
+        if el.visible
+            && el.enabled
+            && el.platform_id.ends_with(suffix)
+            && el
+                .platform_id
+                .split_once(":id/")
+                .is_some_and(|(pkg, _)| pkg.ends_with(".permissioncontroller"))
+        {
+            return Some(el);
+        }
+        el.children.iter().find_map(|c| find(c, suffix))
+    }
+    ANDROID_PERMISSION_BUTTON_IDS
+        .iter()
+        .find_map(|id| find(dialog, id))
+        .cloned()
+}
+
+/// Whether a dialog of `pkg` is the system's to show: one of the known
+/// system packages, exactly. Any other package is not enough: a library
+/// module's namespace (`com.stripe:id/…`) or the app's own under another
+/// namespace than its applicationId is the app's dialog, and the test's to
+/// answer. A `com.android.*` / `com.google.android.*` prefix used to count
+/// too, but an AOSP-derived or rebranded app keeps such a namespace under
+/// another applicationId, and its own "Discard changes? [Cancel][OK]" was
+/// answered OK before the step ran (review 09 #7).
 fn is_system_package(pkg: &str) -> bool {
     SYSTEM_PACKAGES.contains(&pkg)
-        || pkg.starts_with("com.android.")
-        || pkg.starts_with("com.google.android.")
 }
 
 /// Packages whose dialogs are the system's, not the app's.
 const SYSTEM_PACKAGES: &[&str] = &[
     "com.google.android.gms",
+    "com.google.android.gsf",
+    "com.android.vending",
     "com.android.systemui",
     "com.android.settings",
     "com.google.android.permissioncontroller",
     "com.android.permissioncontroller",
+    "com.android.packageinstaller",
+    "com.google.android.packageinstaller",
 ];
 
 /// A SpringBoard alert the driver merged in (and not a copy of an in-app
@@ -582,6 +627,49 @@ mod tests {
         assert!(handler.find_dismiss_button(&dialog).is_none());
     }
 
+    /// Review 09 #7: "would like to" without the quoted app name before it
+    /// is the app's own marketing prompt.
+    #[test]
+    fn in_app_would_like_to_is_not_a_system_prompt() {
+        let handler = DialogHandler::new(DialogConfig::default());
+        let mut alert = in_app_alert();
+        alert.label = Some("We would like to send you offers".into());
+        assert!(handler.find_dismiss_button(&alert).is_none());
+        alert.label = Some("\"Shop\" Would Like to Send You Notifications".into());
+        assert!(handler.find_dismiss_button(&alert).is_some());
+    }
+
+    /// Review 09 #7: a localised permission prompt is answered by the
+    /// grant button's id when no English label is there.
+    #[test]
+    fn a_localised_permission_prompt_is_answered_by_id() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.shop");
+        let pc = "com.android.permissioncontroller";
+        let button = |id: &str, label: &str| Element {
+            platform_id: format!("{pc}:id/{id}"),
+            ..make_button(label, "android.widget.Button")
+        };
+        let mut dialog = make_button("", "android.widget.LinearLayout");
+        dialog.platform_id = format!("{pc}:id/grant_dialog");
+        dialog.children = vec![
+            button("permission_allow_button", "Zulassen"),
+            button(
+                "permission_allow_foreground_only_button",
+                "Bei Nutzung der App",
+            ),
+            button("permission_allow_one_time_button", "Nur dieses Mal"),
+            button("permission_deny_button", "Nicht zulassen"),
+        ];
+        let tapped = handler.find_dismiss_button(&dialog).unwrap();
+        assert_eq!(tapped.label.as_deref(), Some("Bei Nutzung der App"));
+        // Only the permission controller's ids count.
+        let mut app = dialog.clone();
+        for b in &mut app.children {
+            b.platform_id = b.platform_id.replace(pc, "com.shop");
+        }
+        assert!(permission_button_by_id(&app).is_none());
+    }
+
     #[test]
     fn in_app_wording_with_to_access_is_not_a_system_prompt() {
         // C-m2: "Sign in to access your account" [Cancel][Continue] was
@@ -673,6 +761,11 @@ mod tests {
             assert!(h
                 .find_dismiss_button(&dialog("com.google.android.gms"))
                 .is_some());
+        }
+        // A system-looking namespace that is no known system package (an
+        // AOSP-derived app under another applicationId) is the app's.
+        for pkg in ["com.android.contacts", "com.google.android.apps.notes"] {
+            assert!(handler.find_dismiss_button(&dialog(pkg)).is_none(), "{pkg}");
         }
         // An app whose own id is a system-looking package still owns it.
         let settings = DialogHandler::new(DialogConfig::default()).for_app("com.android.settings");

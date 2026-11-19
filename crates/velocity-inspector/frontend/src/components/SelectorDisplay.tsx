@@ -3,11 +3,14 @@ import { generateSelector } from "../api/client";
 import { useInspectorStore } from "../store/inspectorStore";
 
 function selectorToString(sel: Record<string, unknown>): string {
+  // The flat DSL form: every key counts (`text: "Edit", index: 2`).
   const entries = Object.entries(sel);
   if (entries.length === 0) return "?";
-  const [key, value] = entries[0];
-  if (typeof value === "string") return `${key}: "${value}"`;
-  return `${key}: ${JSON.stringify(value)}`;
+  return entries
+    .map(([key, value]) =>
+      typeof value === "string" ? `${key}: "${value}"` : `${key}: ${JSON.stringify(value)}`,
+    )
+    .join(", ");
 }
 
 export function SelectorDisplay() {

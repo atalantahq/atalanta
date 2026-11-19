@@ -695,7 +695,6 @@ impl ExploreLauncher for VelocityBinary {
     fn command(&self, spec: &ExploreSpec, files: &ExploreFiles) -> tokio::process::Command {
         let mut c = tokio::process::Command::new(&self.exe);
         c.arg("explore")
-            .arg(&spec.goal)
             .args(["--app-id", &spec.app_id, "--device", &spec.device_id])
             .arg("--json")
             .arg("--force")
@@ -718,6 +717,9 @@ impl ExploreLauncher for VelocityBinary {
         if let Some(v) = &spec.verify {
             c.args(["--verify", v]);
         }
+        // The goal last, after `--`: a goal that starts with `-` is text,
+        // never a flag (security review 05 #8).
+        c.arg("--").arg(&spec.goal);
         c.env(velocity_common::live_events::EVENTS_FILE_ENV, &files.events)
             .env("NO_COLOR", "1")
             .env("CLICOLOR", "0");
@@ -862,10 +864,7 @@ impl ConsoleTask for ExploreTask {
                 let kind = v.get("event").and_then(Value::as_str).unwrap_or("");
                 // The replays' tests and steps fill the steps table; the
                 // session's own events are the explore stream.
-                if matches!(
-                    kind,
-                    "testStarted" | "stepStarted" | "stepFinished" | "testFinished"
-                ) {
+                if velocity_common::live_events::LiveEvent::TEST_EVENTS.contains(&kind) {
                     ctx.emit(kind, v.clone());
                 } else {
                     ctx.emit("explore", v);

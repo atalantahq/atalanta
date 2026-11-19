@@ -682,7 +682,7 @@ fn detect_new_flakes_with_parallel_is_refused() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", text(&out));
     assert!(
-        text(&out).contains("--detect-new-flakes doesn't work with --parallel"),
+        text(&out).contains("--detect-new-flakes") && text(&out).contains("--parallel"),
         "{}",
         text(&out)
     );

@@ -11,6 +11,7 @@ use serde::Serialize;
 /// (`{"event":"acted","atMs":1234,…}`) for JSON lines and MCP progress.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event", rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum ExploreEvent {
     /// A step from the start of the run was replayed without the model
     /// (the launch, or the prefix a repair starts from).
@@ -44,8 +45,13 @@ pub enum ExploreEvent {
         target: Option<String>,
         reason: String,
         model_ms: u64,
+        /// Prompt tokens, cache reads and writes included.
         input_tokens: u64,
         output_tokens: u64,
+        /// The part of `input_tokens` read from the provider's prompt cache.
+        cache_read_tokens: u64,
+        /// The model's memo after this turn (it steers the next turn).
+        memo: String,
     },
     /// Code refused the model's choice; the model is told why.
     #[serde(rename_all = "camelCase")]
@@ -69,6 +75,10 @@ pub enum ExploreEvent {
         /// the screen the action led to.
         #[serde(skip_serializing_if = "Option::is_none")]
         expectation: Option<crate::expect::ExpectCheck>,
+        /// Where a typed literal came from (`goal`, `screen`, `number`,
+        /// `screenshot`, `model`, `composed`) under `--values-from-*`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        typed_source: Option<String>,
     },
     /// An assertion the model proposed, built and run by code.
     #[serde(rename_all = "camelCase")]
@@ -111,6 +121,14 @@ pub enum ExploreEvent {
         turn: usize,
         note: String,
     },
+    /// Every note the model gets at the start of a turn, as code decided
+    /// them ([`crate::notes::TurnNote`]); the prose is rendered from these.
+    #[serde(rename_all = "camelCase")]
+    Notes {
+        at_ms: u64,
+        turn: usize,
+        notes: Vec<crate::notes::TurnNote>,
+    },
     /// One replay of the generated test finished (no model calls).
     #[serde(rename_all = "camelCase")]
     ReplayRun {
@@ -138,16 +156,24 @@ pub enum ExploreEvent {
     #[serde(rename_all = "camelCase")]
     Finished {
         at_ms: u64,
-        outcome: crate::session::Outcome,
+        outcome: crate::session::ExploreOutcome,
         reason: String,
         turns: usize,
         actions: usize,
         model_calls: u64,
+        /// Prompt tokens, cache reads and writes included.
         input_tokens: u64,
         output_tokens: u64,
+        /// The parts of `input_tokens` read from and written to the
+        /// provider's prompt cache (billed at other rates).
+        cache_read_tokens: u64,
+        cache_write_tokens: u64,
         cost_usd: Option<f64>,
         /// How the model's expected post-conditions turned out.
         expectations: crate::expect::ExpectationCounts,
+        /// Turns spent on screens the run had left and came back to with
+        /// nothing changed (the cost of circling).
+        revisit_turns: usize,
     },
 }
 

@@ -18,6 +18,9 @@ pub const DEFAULT_RETRY_INTERVAL_MS: u64 = 1_000;
 /// Most of a response body a failure shows (reports keep it short; the
 /// whole body is in the debug log).
 const BODY_EXCERPT: usize = 512;
+/// Largest response body read into memory (a hostile or runaway server
+/// could otherwise fill it; security audit 2026-11).
+pub const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 
 /// The `http` steps of one test: the suite's `config.http` and one cookie
 /// jar, so a login's session cookie goes with the requests after it. Made
@@ -25,6 +28,9 @@ const BODY_EXCERPT: usize = 512;
 pub struct HttpSession {
     config: HttpConfig,
     follow: reqwest::Client,
+    /// Follows redirects on the request's own origin only: for a request
+    /// that carries headers of its own (`crate::guard`).
+    follow_same_origin: reqwest::Client,
     no_follow: reqwest::Client,
 }
 
@@ -38,18 +44,23 @@ pub struct Passed {
 impl HttpSession {
     pub fn new(config: &HttpConfig) -> Result<Self> {
         let jar = Arc::new(reqwest::cookie::Jar::default());
+        let block = crate::guard::metadata_blocked();
         let build = |policy: Policy| {
-            reqwest::Client::builder()
+            let mut b = reqwest::Client::builder()
                 .cookie_provider(jar.clone())
                 .redirect(policy)
                 .danger_accept_invalid_certs(config.insecure)
-                .user_agent(concat!("velocity/", env!("CARGO_PKG_VERSION")))
-                .build()
+                .user_agent(concat!("velocity/", env!("CARGO_PKG_VERSION")));
+            if block {
+                b = b.dns_resolver(Arc::new(crate::guard::FilteringResolver));
+            }
+            b.build()
                 .map_err(|e| VelocityError::Config(format!("http: can't make a client: {e}")))
         };
         Ok(Self {
             config: config.clone(),
-            follow: build(Policy::limited(10))?,
+            follow: build(crate::guard::redirect_policy(false))?,
+            follow_same_origin: build(crate::guard::redirect_policy(true))?,
             no_follow: build(Policy::none())?,
         })
     }
@@ -109,8 +120,11 @@ impl HttpSession {
             ))
         })?;
         let url = resolve_url(self.config.base_url.as_deref(), &req.url)?;
+        let own_headers = !self.config.headers.is_empty() || !req.headers.is_empty();
         let client = if req.follow_redirects == Some(false) {
             &self.no_follow
+        } else if own_headers {
+            &self.follow_same_origin
         } else {
             &self.follow
         };
@@ -132,6 +146,9 @@ impl HttpSession {
             .build()
             .map_err(|e| VelocityError::Config(format!("http: {method} {url}: {}", chain(&e))))?;
         let label = format!("{method} {}", request.url());
+        if let Some(why) = crate::guard::refused_url(request.url()) {
+            return Err(VelocityError::Config(why));
+        }
         tracing::debug!("http {label}");
 
         let started = Instant::now();
@@ -146,7 +163,20 @@ impl HttpSession {
         let response = client.execute(request).await.map_err(unreachable)?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
-        let bytes = response.bytes().await.map_err(unreachable)?;
+        let mut response = response;
+        let mut bytes: Vec<u8> = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
+            if bytes.len() + chunk.len() > MAX_BODY_BYTES {
+                return Err(VelocityError::HttpUnreachable {
+                    request: label.clone(),
+                    detail: format!(
+                        "the response body is over {} MiB; Velocity reads at most that much",
+                        MAX_BODY_BYTES / (1024 * 1024)
+                    ),
+                });
+            }
+            bytes.extend_from_slice(&chunk);
+        }
         let exchange = Exchange {
             status,
             headers,

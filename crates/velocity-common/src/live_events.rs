@@ -79,8 +79,16 @@ pub fn emit(event: Value) {
     }
     if let Some((_, f)) = sink.as_mut() {
         // One write per line, under the lock: lines never interleave. A full
-        // disk must not fail the run: the events are a view only.
-        let _ = f.write_all(line(event).as_bytes());
+        // disk must not fail the run: the events are a view only. But a
+        // supervisor's progress comes from this file, so the first failure
+        // is said once (review 03 L4).
+        if let Err(e) = f.write_all(line(event).as_bytes()) {
+            static WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(error = %e, "can't write the live events file; progress stops updating");
+            }
+        }
     }
 }
 
@@ -88,35 +96,134 @@ fn masked(s: &str) -> String {
     crate::redact::redact(s).into_owned()
 }
 
+/// The test and step events this module writes, typed: the one schema the
+/// writers here and the readers (MCP tasks, the console) share (review 02
+/// M4). Lines it doesn't know (an exploration's own events, which
+/// `velocity_explore::ExploreEvent` types, or one added later) read as
+/// [`LiveEvent::Other`].
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "camelCase")]
+#[non_exhaustive]
+pub enum LiveEvent {
+    TestStarted {
+        test: String,
+        device: String,
+        steps: usize,
+    },
+    StepStarted {
+        test: String,
+        index: usize,
+        total: usize,
+        step: String,
+    },
+    StepFinished {
+        test: String,
+        index: usize,
+        total: usize,
+        step: String,
+        status: crate::StepStatus,
+        ms: u64,
+        error: Option<String>,
+    },
+    TestFinished {
+        test: String,
+        status: FinishedStatus,
+        /// Absent when the attempt ended in an error before a result.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ms: Option<u64>,
+        error: Option<String>,
+    },
+    /// Any other line (an exploration's events).
+    #[serde(other)]
+    Other,
+}
+
+impl LiveEvent {
+    /// The `event` names of the test and step events, for a reader that
+    /// routes them apart from an exploration's own.
+    pub const TEST_EVENTS: [&'static str; 4] =
+        ["testStarted", "stepStarted", "stepFinished", "testFinished"];
+
+    /// Read one events line; `None` for one that isn't JSON.
+    pub fn parse(line: &str) -> Option<Self> {
+        serde_json::from_str(line).ok()
+    }
+}
+
+/// How a test attempt ended, as `testFinished` says: a [`crate::TestStatus`],
+/// or `error` when it ended in an error before a result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum FinishedStatus {
+    Passed,
+    Failed,
+    Skipped,
+    Retried,
+    Error,
+}
+
+impl FinishedStatus {
+    /// Whether the attempt counts as failed: anything but passed, passed
+    /// on a retry, or skipped. Readers ask this rather than keep their own
+    /// list of passing strings, so a status added here is decided here.
+    pub fn is_failure(self) -> bool {
+        !matches!(self, Self::Passed | Self::Retried | Self::Skipped)
+    }
+}
+
+impl From<crate::TestStatus> for FinishedStatus {
+    fn from(s: crate::TestStatus) -> Self {
+        match s {
+            crate::TestStatus::Passed => Self::Passed,
+            crate::TestStatus::Failed => Self::Failed,
+            crate::TestStatus::Skipped => Self::Skipped,
+            crate::TestStatus::Retried => Self::Retried,
+        }
+    }
+}
+
+fn emit_typed(event: &LiveEvent) {
+    if let Ok(v) = serde_json::to_value(event) {
+        emit(v);
+    }
+}
+
 /// A test (or a retry of it) with `steps` steps starts on `device`.
 pub fn test_started(test: &str, device: &str, steps: usize) {
     if enabled() {
-        emit(json!({"event": "testStarted", "test": test, "device": device, "steps": steps}));
+        emit_typed(&LiveEvent::TestStarted {
+            test: test.to_string(),
+            device: device.to_string(),
+            steps,
+        });
     }
 }
 
 /// Step `index` (0-based) of `total` starts.
 pub fn step_started(test: &str, index: usize, total: usize, step: &str) {
     if enabled() {
-        emit(json!({
-            "event": "stepStarted", "test": test, "index": index, "total": total,
-            "step": masked(step),
-        }));
+        emit_typed(&LiveEvent::StepStarted {
+            test: test.to_string(),
+            index,
+            total,
+            step: masked(step),
+        });
     }
 }
 
 /// The event for a finished step.
 pub fn step_finished_event(test: &str, total: usize, r: &StepResult) -> Value {
-    json!({
-        "event": "stepFinished",
-        "test": test,
-        "index": r.step_index,
-        "total": total,
-        "step": masked(&r.action_name),
-        "status": r.status,
-        "ms": r.duration.as_millis() as u64,
-        "error": r.error_message.as_deref().map(masked),
+    serde_json::to_value(LiveEvent::StepFinished {
+        test: test.to_string(),
+        index: r.step_index,
+        total,
+        step: masked(&r.action_name),
+        status: r.status,
+        ms: r.duration.as_millis() as u64,
+        error: r.error_message.as_deref().map(masked),
     })
+    .unwrap_or(Value::Null)
 }
 
 pub fn step_finished(test: &str, total: usize, r: &StepResult) {
@@ -125,22 +232,34 @@ pub fn step_finished(test: &str, total: usize, r: &StepResult) {
     }
 }
 
+/// The event for a finished test attempt: its result, or the error that
+/// ended it (status `error`).
+pub fn test_finished_event(
+    test: &str,
+    result: std::result::Result<&TestResult, String>,
+) -> LiveEvent {
+    match result {
+        Ok(r) => LiveEvent::TestFinished {
+            test: test.to_string(),
+            status: r.status.into(),
+            ms: Some(r.duration.as_millis() as u64),
+            error: r.error_message.as_deref().map(masked),
+        },
+        Err(e) => LiveEvent::TestFinished {
+            test: test.to_string(),
+            status: FinishedStatus::Error,
+            ms: None,
+            error: Some(masked(&e)),
+        },
+    }
+}
+
 /// A test attempt ended: its result, or the error that ended it (status
 /// `error`).
 pub fn test_finished(test: &str, result: std::result::Result<&TestResult, String>) {
-    if !enabled() {
-        return;
+    if enabled() {
+        emit_typed(&test_finished_event(test, result));
     }
-    emit(match result {
-        Ok(r) => json!({
-            "event": "testFinished", "test": test, "status": r.status,
-            "ms": r.duration.as_millis() as u64,
-            "error": r.error_message.as_deref().map(masked),
-        }),
-        Err(e) => json!({
-            "event": "testFinished", "test": test, "status": "error", "error": masked(&e),
-        }),
-    });
 }
 
 #[cfg(test)]
@@ -172,5 +291,44 @@ mod tests {
         assert_eq!(v["ms"], 42);
         assert_eq!(v["error"], "not found");
         assert!(v["t"].as_u64().unwrap() > 0);
+        // ...and reads back as the same typed event.
+        match LiveEvent::parse(l.trim()) {
+            Some(LiveEvent::StepFinished { index, status, .. }) => {
+                assert_eq!((index, status), (2, StepStatus::Failed));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_test_attempt_that_errored_is_a_failure_with_no_time() {
+        let e = test_finished_event("pay", Err("device gone".into()));
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["event"], "testFinished");
+        assert_eq!(v["status"], "error");
+        assert!(v.get("ms").is_none(), "{v}");
+        let LiveEvent::TestFinished { status, .. } = e else {
+            panic!("{e:?}")
+        };
+        assert!(status.is_failure());
+        for (s, failed) in [
+            (crate::TestStatus::Passed, false),
+            (crate::TestStatus::Retried, false),
+            (crate::TestStatus::Skipped, false),
+            (crate::TestStatus::Failed, true),
+        ] {
+            assert_eq!(FinishedStatus::from(s).is_failure(), failed, "{s:?}");
+        }
+    }
+
+    #[test]
+    fn an_exploration_line_reads_as_other() {
+        let l = r#"{"event":"planned","turn":3,"op":"tap","t":1}"#;
+        assert_eq!(LiveEvent::parse(l), Some(LiveEvent::Other));
+        let l = r#"{"event":"testStarted","test":"a","device":"d","steps":2,"t":1}"#;
+        assert!(matches!(
+            LiveEvent::parse(l),
+            Some(LiveEvent::TestStarted { steps: 2, .. })
+        ));
     }
 }

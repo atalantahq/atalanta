@@ -170,6 +170,7 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
     let (mut focused, mut password) = (None, false);
     let (mut checkable, mut checked) = (None, false);
     let (mut selected, mut role_desc) = (None, None);
+    let mut indeterminate = false;
 
     for attr in e.attributes().flatten() {
         // Match the key as bytes and decode only the values kept: a big
@@ -191,6 +192,7 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
                 | b"checked"
                 | b"selected"
                 | b"role-desc"
+                | b"indeterminate"
         ) {
             continue;
         }
@@ -221,6 +223,8 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
             // Protocol 11: the node's role description (Compose's
             // `Role.Switch` / `Role.Tab` are a plain View with one).
             b"role-desc" => role_desc = non_empty(val),
+            // Protocol 18: a ProgressBar with no range, a spinner.
+            b"indeterminate" => indeterminate = val == "true",
             _ => {}
         }
     }
@@ -266,6 +270,7 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
         enabled,
         visible,
         children: Vec::new(),
+        indeterminate,
         ..Default::default()
     })
 }
@@ -318,6 +323,64 @@ fn parse_bounds(bounds: &str) -> Rect {
 mod tests {
     use super::*;
 
+    /// Review 07 M8: device bytes are untrusted. Mutate a valid input a few
+    /// thousand ways (flips, cuts, markup and huge numbers spliced in) and
+    /// require an answer, never a panic. Deterministic (a fixed seed).
+    fn mutations(seed_input: &str, rounds: usize) -> Vec<String> {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        const SPLICE: [&str; 9] = [
+            "<",
+            ">",
+            "\"",
+            "=",
+            "&amp;",
+            "-99999999999",
+            "2147483648",
+            "\n",
+            "][",
+        ];
+        let base = seed_input.as_bytes();
+        (0..rounds)
+            .map(|_| {
+                let mut b = base.to_vec();
+                for _ in 0..1 + next() % 4 {
+                    if b.is_empty() {
+                        break;
+                    }
+                    let at = (next() as usize) % b.len();
+                    match next() % 4 {
+                        0 => b[at] = next() as u8,
+                        1 => b.truncate(at),
+                        2 => {
+                            let s = SPLICE[(next() as usize) % SPLICE.len()].as_bytes();
+                            b.splice(at..at, s.iter().copied());
+                        }
+                        _ => {
+                            b.remove(at);
+                        }
+                    }
+                }
+                String::from_utf8_lossy(&b).into_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn mangled_dumps_never_panic() {
+        let xml = r#"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0"><node index="0" text="Network &amp; internet" resource-id="com.app:id/row" class="android.widget.TextView" package="com.app" content-desc="" checkable="true" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,63][1080,240]" hint="Name" test-tag="row"><node index="0" text="" class="android.widget.ProgressBar" indeterminate="true" bounds="[10,70][50,110]" /></node></hierarchy>"#;
+        assert!(parse_hierarchy_v2(xml).is_ok());
+        for m in mutations(xml, 3000) {
+            let _ = parse_hierarchy_v2(&m);
+            let _ = parse_hierarchy(&m);
+        }
+    }
+
     #[test]
     fn test_parse_bounds() {
         let rect = parse_bounds("[120,640][960,736]");
@@ -335,6 +398,17 @@ mod tests {
         let node = &root.children[0];
         assert_eq!(node.text.as_deref(), Some("Network & internet"));
         assert_eq!(node.label.as_deref(), Some("\"Hi\" <3"));
+    }
+
+    #[test]
+    fn an_indeterminate_progress_bar_is_read_as_a_spinner() {
+        // Protocol 18: the tree server marks a ProgressBar with no range.
+        let xml = r#"<hierarchy><node class="android.widget.ProgressBar" indeterminate="true"
+            bounds="[0,0][10,10]" /><node class="android.widget.ProgressBar"
+            bounds="[0,20][10,30]" /></hierarchy>"#;
+        let root = parse_hierarchy_v2(xml).unwrap();
+        assert!(root.children[0].indeterminate);
+        assert!(!root.children[1].indeterminate, "a meter with a range");
     }
 
     #[test]

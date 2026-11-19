@@ -13,11 +13,13 @@ macro_rules! usage_err {
     };
 }
 
+pub mod agent;
 pub mod api;
 pub mod baselines;
 pub mod daemon;
 pub mod device;
 pub mod doctor;
+pub mod duration_arg;
 pub mod env_file;
 pub mod explore;
 pub mod heal;
@@ -25,11 +27,13 @@ pub mod history;
 pub mod init;
 pub mod inspect;
 pub mod lint;
+pub mod login;
 pub mod mcp;
 pub mod migrate;
 pub mod nl_eval;
 pub mod provision;
 pub mod repl;
+pub mod results;
 pub mod run;
 pub mod schema;
 pub mod settings;
@@ -37,8 +41,24 @@ pub mod shard_plan;
 pub mod signing;
 pub mod trace;
 pub mod validate;
+pub mod verify_change;
 
 use velocity_common::{Platform, PlatformDriver, VelocityError};
+
+/// A suite load error as shown under `✗`: a configuration error without
+/// its `Configuration error:` prefix (the line already says what failed),
+/// a missing file as one plain sentence with what to do.
+pub fn load_error(path: &str, e: &VelocityError) -> String {
+    if !std::path::Path::new(path).exists() {
+        return format!(
+            "{path} does not exist (velocity init writes a first suite; velocity run -c FILE picks another)"
+        );
+    }
+    match e {
+        VelocityError::Config(m) => m.clone(),
+        other => other.to_string(),
+    }
+}
 
 /// A usage or configuration error as an `anyhow::Error` that exits 2.
 pub fn usage(message: String) -> anyhow::Error {

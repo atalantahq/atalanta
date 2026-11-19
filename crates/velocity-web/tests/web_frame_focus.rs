@@ -27,7 +27,10 @@ async fn focus_left_in_a_card_frame_fails_the_next_input_text() {
     d.launch_app("web", &format!("{outer}/p.html"), false)
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        common::wait_found(&d, "#n").await,
+        "the card frame never loaded"
+    );
     // Into the card: the frame takes the focus, unknown inside, allowed.
     let card = find(&d, "#card").await;
     d.input_text("web", &card, "4242").await.unwrap();
@@ -65,7 +68,10 @@ async fn two_input_texts_into_a_card_widget_container() {
     d.launch_app("web", &format!("{outer}/p.html"), false)
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        common::wait_found(&d, "#n").await,
+        "the card frame never loaded"
+    );
     let card = find(&d, "#card-element").await;
     d.input_text("web", &card, "4242").await.unwrap();
     let card = find(&d, "#card-element").await;
@@ -100,7 +106,10 @@ async fn a_container_clicked_beside_its_frame_does_not_take_the_frames_focus() {
     d.launch_app("web", &format!("{outer}/p.html"), false)
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        common::wait_found(&d, "#n").await,
+        "the card frame never loaded"
+    );
     let card = find(&d, "#card").await;
     d.input_text("web", &card, "4242").await.unwrap();
     let wrap = find(&d, "#wrap").await;

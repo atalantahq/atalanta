@@ -16,6 +16,12 @@ pub enum MigrateCommand {
         /// Output migration report as JSON
         #[arg(long)]
         report_json: bool,
+
+        /// Write nothing: convert every flow and report which Maestro
+        /// commands don't convert cleanly, ranked by how many flows they
+        /// affect (with --report-json, as JSON)
+        #[arg(long)]
+        dry_run: bool,
     },
 
     /// Remove fixed `wait:` steps that sit before a step which already waits
@@ -66,8 +72,59 @@ pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
         }
         MigrateCommand::Maestro {
             dir,
+            output: _,
+            report_json,
+            dry_run: true,
+        } => {
+            let report = MaestroMigrator::new().dry_run_directory(&dir)?;
+            let summary = velocity_migrate::summarize_dry_run(&report);
+            if report_json {
+                println!("{}", serde_json::to_string_pretty(&summary)?);
+                return Ok(0);
+            }
+            println!(
+                "{} Dry run of {}: nothing written",
+                "=>".cyan().bold(),
+                dir.bold()
+            );
+            println!(
+                "  {} flow(s): {} convert cleanly, {} with steps skipped or changed, {} would not convert",
+                summary.files_total,
+                summary.files_clean.to_string().green(),
+                summary.files_lossy.to_string().yellow(),
+                summary.files_failed.to_string().red()
+            );
+            if summary.gaps.is_empty() {
+                println!("  Every command converts.");
+            } else {
+                println!(
+                    "\n  {:<28} {:>6} {:>6}  example",
+                    "command", "flows", "times"
+                );
+                for g in &summary.gaps {
+                    let cmd = if g.blocks {
+                        format!("{} (blocks)", g.command).red().to_string()
+                    } else {
+                        g.command.clone()
+                    };
+                    println!(
+                        "  {cmd:<28} {:>6} {:>6}  {}",
+                        g.files,
+                        g.occurrences,
+                        g.example.chars().take(90).collect::<String>().dimmed()
+                    );
+                }
+            }
+            println!(
+                "\n  Run without --dry-run to write the converted suites (each file's issues are listed then)."
+            );
+            Ok(0)
+        }
+        MigrateCommand::Maestro {
+            dir,
             output,
             report_json,
+            dry_run: false,
         } => {
             println!(
                 "{} Migrating Maestro tests from {}",

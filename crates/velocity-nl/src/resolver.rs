@@ -2,94 +2,34 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use tokio::sync::Mutex;
-use velocity_common::{
-    Action, Element, NaturalKind, Platform, Rect, Result, VelocityError, VerifyCheck,
-};
+use velocity_common::{Action, Element, Platform, Rect, Result, VelocityError, VerifyCheck};
 
 use crate::cache::{Hit, NlCache};
 use crate::checker::ScreenChecker;
-use crate::grounding::{ground, quoted_spans, GroundingError};
+use crate::grounding::{ground, GroundingError};
 use crate::planner::{
     is_model_failure, NaturalPlanner, PlanRequest, ScreenIndex, UNPARSEABLE_REPLY,
 };
 
-/// One natural-language step, as written in the test.
-#[derive(Debug, Clone, Copy)]
-pub struct NaturalStep<'a> {
-    pub intent: &'a str,
-    pub kind: NaturalKind,
-    pub data: Option<&'a str>,
-    /// The `data` as written, before `${VAR}` substitution. A data value
-    /// is never part of the cache key; a name marks the value as the
-    /// test's, so it is masked like a secret when the name looks like one.
-    pub data_name: Option<&'a str>,
-    pub wait_until: Option<&'a str>,
-    pub platform: Platform,
-    /// Separates identical step text that appears more than once (e.g. "tap
-    /// Next" on two screens) so each keeps its own cached action.
-    pub scope: &'a str,
-    /// Skip the cache (a retry attempt must re-plan, not replay what just
-    /// failed).
-    pub fresh: bool,
-    /// `nl.dataPolicy: describe` (D-30): the model gets a description of
-    /// the data (`<value, 5 chars>`), never the value, and the value is
-    /// masked on the screen it reads. Grounding still uses the real value.
-    pub describe_data: bool,
-    /// `intent` as written, before `${VAR}` substitution (when it had
-    /// any). Steps are cached under it, so a new value replays the same
-    /// plan instead of re-planning (Stagehand, Arbigent).
-    pub intent_template: Option<&'a str>,
-}
+pub use velocity_common::natural::{step_shape, NaturalStep, PendingPlan};
 
 /// At most this many quoted values in one step are tried as data slots
 /// (2^n candidate keys per lookup).
 const MAX_SLOTS: usize = 3;
 
-impl<'a> NaturalStep<'a> {
-    /// The step as written: `${VAR}`s unresolved.
-    pub fn written(&self) -> &'a str {
-        self.intent_template.unwrap_or(self.intent)
-    }
+/// The cache keys of a [`NaturalStep`].
+pub trait StepKeys {
+    /// The step's cache key with no slots. No test data is in it: not the
+    /// `data` value (only whether there is one), not a `${VAR}`'s value.
+    fn cache_key(&self) -> String;
+    /// The key with the quoted values at `slots` as slots.
+    fn key_with(&self, slots: &[usize]) -> String;
+    /// Every key the step may be cached under: no slots first, then each
+    /// subset of its quoted values as slots.
+    fn candidate_keys(&self) -> Vec<(Vec<usize>, String)>;
+}
 
-    /// The quoted values of the step as it runs, when they line up one to
-    /// one with the quoted spans of the step as written (a `${VAR}` that
-    /// expands to a quote breaks that, and then no value is a slot).
-    fn literals(&self) -> Option<Vec<&'a str>> {
-        let written = quoted_spans(self.written());
-        let resolved = quoted_spans(self.intent);
-        (written.len() == resolved.len() && !resolved.is_empty()).then_some(resolved)
-    }
-
-    /// The step as written with the quoted values at `slots` replaced by
-    /// a slot marker: `type "ann@x.io" into Email` and `type "bob@x.io"
-    /// into Email` share `type "␁0" into Email` when the quoted value was
-    /// the text typed.
-    pub fn template_with(&self, slots: &[usize]) -> String {
-        let written = self.written();
-        if slots.is_empty() {
-            return written.to_string();
-        }
-        let mut out = String::with_capacity(written.len());
-        let mut at = 0;
-        for (i, span) in quoted_spans(written).into_iter().enumerate() {
-            let start = span.as_ptr() as usize - written.as_ptr() as usize;
-            out.push_str(&written[at..start]);
-            if slots.contains(&i) {
-                out.push_str(&format!("\u{1}{i}"));
-            } else {
-                out.push_str(span);
-            }
-            at = start + span.len();
-        }
-        out.push_str(&written[at..]);
-        out
-    }
-
-    /// The step's template: as written, no slots.
-    pub fn template(&self) -> String {
-        self.template_with(&[])
-    }
-
+impl StepKeys for NaturalStep<'_> {
     fn key_with(&self, slots: &[usize]) -> String {
         NlCache::key(
             self.platform,
@@ -100,14 +40,10 @@ impl<'a> NaturalStep<'a> {
         )
     }
 
-    /// The step's cache key with no slots. No test data is in it: not the
-    /// `data` value (only whether there is one), not a `${VAR}`'s value.
-    pub fn cache_key(&self) -> String {
+    fn cache_key(&self) -> String {
         self.key_with(&[])
     }
 
-    /// Every key the step may be cached under: no slots first, then each
-    /// subset of its quoted values as slots.
     fn candidate_keys(&self) -> Vec<(Vec<usize>, String)> {
         let n = self.literals().map_or(0, |l| l.len());
         let n = if n > MAX_SLOTS { 0 } else { n };
@@ -119,22 +55,6 @@ impl<'a> NaturalStep<'a> {
             })
             .collect()
     }
-}
-
-/// The written step with every quoted value blanked: what the executor
-/// counts occurrences by, so `type "a"` then `type "b"` in one test are the
-/// first and second of one step and never share an entry.
-pub fn step_shape(written: &str) -> String {
-    let mut out = String::with_capacity(written.len());
-    let mut at = 0;
-    for span in quoted_spans(written) {
-        let start = span.as_ptr() as usize - written.as_ptr() as usize;
-        out.push_str(&written[at..start]);
-        out.push('\u{1}');
-        at = start + span.len();
-    }
-    out.push_str(&written[at..]);
-    out
 }
 
 /// Stands for the step's data in a cached action, filled in on replay.
@@ -174,37 +94,6 @@ impl CacheMode {
     }
 }
 
-/// A working resolution waiting to be cached: what [`NaturalResolver::commit_pending`]
-/// writes, with the test's data already taken out.
-///
-/// The cache contract: a plan is written only after the run verified it.
-/// The executor [`prepare`](NaturalResolver::prepare)s one when the action
-/// and its `waitUntil` passed, holds it, and commits it when the next step
-/// passes or the test passes (with `verify:` on, only when the test passes,
-/// checks included). A plan the run didn't verify is dropped.
-#[derive(Debug, Clone)]
-pub struct PendingPlan {
-    key: String,
-    template: String,
-    platform: Platform,
-    action: Action,
-    twins: Option<usize>,
-    effect: Option<bool>,
-    bound: Option<String>,
-}
-
-impl PendingPlan {
-    /// The step as written (never its values).
-    pub fn template(&self) -> &str {
-        &self.template
-    }
-
-    /// The stored action, placeholders in place of the data.
-    pub fn action(&self) -> &Action {
-        &self.action
-    }
-}
-
 /// Resolves natural-language steps to concrete [`Action`]s, backed by a planner
 /// and a disk cache.
 ///
@@ -229,6 +118,54 @@ pub struct NaturalResolver {
     mode: CacheMode,
     /// Keys read or written this run (for `prune`).
     used: Mutex<HashSet<String>>,
+}
+
+/// The executor's view of the resolver: each method is the inherent one.
+#[async_trait::async_trait]
+impl velocity_common::natural::NaturalStepResolver for NaturalResolver {
+    async fn cached_hit(&self, step: &NaturalStep<'_>) -> Option<Hit> {
+        NaturalResolver::cached_hit(self, step).await
+    }
+
+    async fn plan_on_screen(
+        &self,
+        step: &NaturalStep<'_>,
+        hierarchy: &Element,
+        screen: Option<&Rect>,
+        hint: Option<&str>,
+    ) -> Result<Action> {
+        NaturalResolver::plan_on_screen(self, step, hierarchy, screen, hint).await
+    }
+
+    fn prepare(
+        &self,
+        step: &NaturalStep<'_>,
+        action: Action,
+        twins: Option<usize>,
+        effect: Option<bool>,
+    ) -> Option<PendingPlan> {
+        NaturalResolver::prepare(self, step, action, twins, effect)
+    }
+
+    async fn commit_pending(&self, plans: Vec<PendingPlan>) {
+        NaturalResolver::commit_pending(self, plans).await
+    }
+
+    async fn invalidate(&self, step: &NaturalStep<'_>) {
+        NaturalResolver::invalidate(self, step).await
+    }
+
+    async fn check(
+        &self,
+        at: &str,
+        claim: &str,
+        hierarchy: &Element,
+        screen: Option<&Rect>,
+        platform: Platform,
+        screenshot: Option<&[u8]>,
+    ) -> VerifyCheck {
+        NaturalResolver::check(self, at, claim, hierarchy, screen, platform, screenshot).await
+    }
 }
 
 /// How many times to re-ask the planner after a grounding rejection.
@@ -302,6 +239,14 @@ impl NaturalResolver {
             let Some(mut hit) = cache.hit(&key) else {
                 continue;
             };
+            if !velocity_common::natural::cacheable(step.kind, &hit.action) {
+                tracing::warn!(
+                    intent = step.intent,
+                    "velocity-nl: the cached resolution is not an action this step can ground \
+                     to (an edited nl-cache.json?); ignoring it and re-planning"
+                );
+                continue;
+            }
             if let Some(bound) = &hit.bound {
                 let now = step.data.map(NlCache::fingerprint);
                 if now.as_ref() != Some(bound) {
@@ -876,6 +821,7 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
+    use velocity_common::NaturalKind;
     use velocity_common::Selector;
 
     /// Replays scripted answers and records the feedback it was given.
@@ -1072,6 +1018,48 @@ mod tests {
         assert_eq!(fb.len(), 2);
         assert!(fb[0].is_none());
         assert!(fb[1].as_deref().unwrap().contains("not in the list"));
+    }
+
+    #[tokio::test]
+    async fn a_cached_action_the_grounder_never_makes_is_not_replayed() {
+        // Audit 2026-11 NL-1: nl-cache.json is committed; an entry a pull
+        // request adds must not replay an http request, a launchApp that
+        // wipes another app, or an hour-long wait.
+        let h = harness("forged", vec![]);
+        let s = step("tap login");
+        for forged in [
+            Action::LaunchApp {
+                app_id: "com.other.bank".into(),
+                clear_state: true,
+            },
+            Action::Wait { ms: 3_600_000 },
+            Action::GoBack,
+        ] {
+            h.resolver
+                .commit(&s, forged.clone(), None, Some(true))
+                .await;
+            let hit = h.resolver.cached(&s).await;
+            if forged == Action::GoBack {
+                assert_eq!(hit, Some(forged));
+            } else {
+                assert!(hit.is_none(), "{forged:?} replayed");
+            }
+        }
+        let assert_step = NaturalStep {
+            kind: NaturalKind::Assert,
+            ..step("the cart is empty")
+        };
+        h.resolver
+            .commit(
+                &assert_step,
+                Action::Tap {
+                    selector: Selector::Id("buy".into()),
+                },
+                None,
+                Some(true),
+            )
+            .await;
+        assert!(h.resolver.cached(&assert_step).await.is_none());
     }
 
     #[tokio::test]

@@ -28,6 +28,13 @@
 //! the server's session token (`AUTH`) before anything but `PING`/`QUIT`.
 //! The server writes a fresh token to [`TOKEN_FILE`] on the device (shell
 //! or root only) at each start; the host reads it through adb (R-2, R-3).
+//!
+//! Since protocol 18 the handshake is mutual ([`CHALLENGE_VERSION`]): the
+//! socket name is public, and an app that bound it first used to answer
+//! `PONG` and receive the token and every typed secret. Now the host sends
+//! `HELLO <nonce>` and checks the server's HMAC over it with the token
+//! before it sends anything else, and authenticates with an HMAC of its
+//! own: the token never crosses the socket.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -43,7 +50,7 @@ use tracing::{debug, info, warn};
 /// The dex jar built by `probes/android/velocity-tree-server/build.sh`.
 const SERVER_JAR: &[u8] = include_bytes!("../assets/velocity-tree.jar");
 /// Must match `Server.VERSION` in the embedded jar.
-const SERVER_VERSION: &str = "13";
+const SERVER_VERSION: &str = "19";
 /// The oldest protocol the host still speaks. Protocol 7 has no request
 /// ids: a command that changes the device and loses its reply is never
 /// resent. Protocol 8 tags those commands `#<id>`; the server answers a
@@ -57,11 +64,19 @@ const SERVER_VERSION: &str = "13";
 /// (`com.velocity.tree.VideoServer`, see [`crate::video`]) in the same jar;
 /// the tree commands are unchanged. Protocol 13 (R-2) closes the
 /// connection on any line that isn't a command and requires `AUTH <token>`
-/// first ([`AUTH_VERSION`]); the commands themselves are unchanged, so an
-/// older server is still spoken to without it.
+/// first; the commands themselves are unchanged. Protocol 18 makes the
+/// handshake mutual ([`CHALLENGE_VERSION`]), and with a token in hand the
+/// host speaks to nothing older (tests' stand-ins without a token still
+/// exercise 7 to 17). Protocol 19 adds whether each `WINDOWS` line is the
+/// active window ([`Window::active`]), dumps only same-app popups and
+/// reads the active window's display, and takes the host's wait in the
+/// request tag (`#<id>@<ms>`, see [`TreeServer::call`]).
 const OLDEST_VERSION: u32 = 7;
-/// The first protocol whose server requires `AUTH <token>`.
-const AUTH_VERSION: u32 = 13;
+/// The first protocol whose server proves it holds the token (`HELLO` →
+/// `PROOF`) and takes an HMAC, not the token, in `AUTH`. With a token in
+/// hand the host talks to no older server: one that can't prove itself
+/// may be an app squatting on the socket name (security review #2).
+const CHALLENGE_VERSION: u32 = 18;
 /// Where a protocol 13 server leaves its session token on the device:
 /// readable by its own uid (shell or root) only.
 const TOKEN_FILE: &str = "/data/local/tmp/velocity-tree.token";
@@ -110,6 +125,60 @@ struct Session {
     /// The `adb shell app_process …` process; `None` when we attached to a
     /// server left running by an earlier Velocity process.
     _child: Option<velocity_common::process::GroupChild>,
+    /// Removes `port`'s `adb forward` if the session is dropped without
+    /// [`TreeServer::release`] (a cancelled caller); `None` in tests.
+    forward: Option<ForwardGuard>,
+}
+
+/// An `adb forward` that is removed when this is dropped armed: a caller
+/// cancelled between `adb forward` and its `--remove` (a step deadline
+/// during a start) used to leave the forward behind (review 01 #6).
+struct ForwardGuard {
+    adb_path: String,
+    device_id: String,
+    port: u16,
+    armed: bool,
+}
+
+impl ForwardGuard {
+    fn new(adb_path: &str, device_id: &str, port: u16) -> Self {
+        Self {
+            adb_path: adb_path.to_string(),
+            device_id: device_id.to_string(),
+            port,
+            armed: true,
+        }
+    }
+
+    /// The forward is removed (or handed on) by other means now.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ForwardGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let (adb, device, port) = (
+            std::mem::take(&mut self.adb_path),
+            std::mem::take(&mut self.device_id),
+            self.port,
+        );
+        debug!(device_id = %device, port, "removing an abandoned tree server forward");
+        rt.spawn(async move {
+            let _ = run_adb(
+                &adb,
+                &device,
+                &["forward", "--remove", &format!("tcp:{port}")],
+            )
+            .await;
+        });
+    }
 }
 
 #[derive(Default)]
@@ -545,11 +614,15 @@ impl TreeServer {
     }
 
     pub async fn windows(&self, device_id: &str) -> Option<Result<Vec<Window>, String>> {
-        Some(
-            self.call(device_id, "WINDOWS", true, DUMP_TIMEOUT)
-                .await?
-                .map(|(_, b)| parse_windows(&String::from_utf8_lossy(&b))),
-        )
+        let reply = self.call(device_id, "WINDOWS", true, DUMP_TIMEOUT).await?;
+        let proto = self
+            .slot(device_id)
+            .lock()
+            .await
+            .session
+            .as_ref()
+            .map_or(OLDEST_VERSION, |s| s.proto);
+        Some(reply.map(|(_, b)| parse_windows(&String::from_utf8_lossy(&b), proto)))
     }
 
     /// Remember now as the start of an action (inputs through the server
@@ -639,11 +712,25 @@ impl TreeServer {
                 }
             }
         }
-        if std::mem::take(&mut state.in_flight) {
-            if let Some(s) = state.session.take() {
-                state.session = self.fresh_connection(device_id, s).await;
+        if state.in_flight {
+            // The session stays in `state` while it reconnects, and
+            // `in_flight` is cleared only once the new connection is in:
+            // a caller dropped meanwhile (a step deadline) leaves either
+            // the old, still out-of-step connection marked as such, or
+            // the new one; never a killed server or a stream read as
+            // in step (review 01 #6).
+            let reconnected = match state.session.as_mut() {
+                Some(s) => self.fresh_connection(device_id, s).await,
+                None => false,
+            };
+            if !reconnected {
+                if let Some(s) = state.session.take() {
+                    self.shutdown(device_id, s).await;
+                }
+                state.in_flight = false;
+                return None;
             }
-            state.session.as_ref()?;
+            state.in_flight = false;
         }
         let mutate = mutates(cmd);
         // Protocol 8: tag a command that changes the device, so that sending
@@ -653,6 +740,13 @@ impl TreeServer {
             let st = &mut *state;
             let session = st.session.as_mut()?;
             let line = match &id {
+                // Protocol 19: how long this host waits, so a resend whose
+                // first run is still going doesn't park a server thread
+                // for 60 s after the host gave up (review 01 #12). Older
+                // servers take `<id>@<ms>` as the id, which is as unique.
+                Some(id) if session.proto >= 19 => {
+                    format!("#{id}@{} {cmd}", timeout.as_millis())
+                }
                 Some(id) if session.proto >= 8 => format!("#{id} {cmd}"),
                 _ => cmd.to_string(),
             };
@@ -692,31 +786,38 @@ impl TreeServer {
                     ));
                 }
                 Ok(Err(RequestError::Unanswered(why) | RequestError::Broken(why))) if mutate => {
-                    if let Some(s) = state.session.take() {
-                        if s.proto >= 8 {
-                            // Same server, same id: answered from its cache
-                            // if it ran, run now if it never arrived.
-                            match self.resend(device_id, s, &line, payload, timeout).await {
-                                Ok((s, reply)) => {
-                                    state.session = Some(s);
-                                    state.succeeded();
-                                    debug!(device_id, "resent {} after a lost reply", verb(cmd));
-                                    return Some(match reply {
-                                        Reply::Ok(l, b) => Ok((l, b)),
-                                        Reply::Err(m) => Err(m.replace(
-                                            OUTCOME_UNKNOWN,
-                                            "whether it ran is not known",
-                                        )),
-                                    });
-                                }
-                                Err((port, resend_why)) => {
-                                    debug!(device_id, "no safe resend: {resend_why}");
-                                    self.unforward(device_id, port).await;
-                                }
+                    let proto = state.session.as_ref().map_or(0, |s| s.proto);
+                    if proto >= 8 {
+                        // Same server, same id: answered from its cache if
+                        // it ran, run now if it never arrived. The session
+                        // stays in `state` (marked in flight) while it is
+                        // resent: a dropped caller leaves it for the next
+                        // command to reconnect, not killed (review 01 #6).
+                        state.in_flight = true;
+                        let resent = match state.session.as_mut() {
+                            Some(s) => self.resend(device_id, s, &line, payload, timeout).await,
+                            None => Err("no session".into()),
+                        };
+                        match resent {
+                            Ok(reply) => {
+                                state.in_flight = false;
+                                state.succeeded();
+                                debug!(device_id, "resent {} after a lost reply", verb(cmd));
+                                return Some(match reply {
+                                    Reply::Ok(l, b) => Ok((l, b)),
+                                    Reply::Err(m) => Err(
+                                        m.replace(OUTCOME_UNKNOWN, "whether it ran is not known")
+                                    ),
+                                });
                             }
-                        } else {
-                            self.unforward(device_id, s.port).await;
+                            Err(resend_why) => {
+                                debug!(device_id, "no safe resend: {resend_why}");
+                            }
                         }
+                    }
+                    state.in_flight = false;
+                    if let Some(s) = state.session.take() {
+                        self.release(device_id, s).await;
                     }
                     state.failed(device_id, &why);
                     return Some(Err(format!(
@@ -736,7 +837,7 @@ impl TreeServer {
                         "tree server connection stale ({why}); restarting"
                     );
                     if let Some(s) = state.session.take() {
-                        self.unforward(device_id, s.port).await;
+                        self.release(device_id, s).await;
                     }
                     match self.start(device_id).await {
                         Ok(s) => state.session = Some(s),
@@ -769,34 +870,35 @@ impl TreeServer {
     /// After a lost reply: reconnect to the same server and send `line`
     /// (with its request id) again. Only when the server is the one the
     /// first send reached (same boot nonce): a restarted server has no
-    /// record of the id and could run the command a second time. `Err`
-    /// gives back the port to unforward.
+    /// record of the id and could run the command a second time. The new
+    /// connection replaces `s`'s stream only once the reply is in, so a
+    /// dropped caller leaves `s` as it was.
     async fn resend(
         &self,
         device_id: &str,
-        old: Session,
+        s: &mut Session,
         line: &str,
         payload: bool,
         timeout: Duration,
-    ) -> Result<(Session, Reply), (u16, String)> {
-        let port = old.port;
-        let mut s = open_session(
+    ) -> Result<Reply, String> {
+        let (mut stream, proto, nonce) = handshake(
             &crate::adb::server_host(device_id),
-            port,
-            old._child,
-            old.token.clone(),
+            s.port,
+            s.token.as_deref(),
         )
-        .await
-        .map_err(|e| (port, e))?;
-        if s.nonce.is_none() || s.nonce != old.nonce {
-            return Err((port, "the server restarted".into()));
+        .await?;
+        if nonce.is_none() || nonce != s.nonce || proto != s.proto {
+            return Err("the server restarted".into());
         }
-        match tokio::time::timeout(timeout, request(&mut s.stream, line, payload)).await {
-            Ok(Ok(reply)) => Ok((s, reply)),
+        match tokio::time::timeout(timeout, request(&mut stream, line, payload)).await {
+            Ok(Ok(reply)) => {
+                s.stream = stream;
+                Ok(reply)
+            }
             Ok(Err(
                 RequestError::Stale(e) | RequestError::Unanswered(e) | RequestError::Broken(e),
-            )) => Err((port, e)),
-            Err(_) => Err((port, "timed out".into())),
+            )) => Err(e),
+            Err(_) => Err("timed out".into()),
         }
     }
 
@@ -809,11 +911,13 @@ impl TreeServer {
         let jar = self.push_jar(device_id).await?;
         let host = crate::adb::server_host(device_id);
         if let Ok(port) = self.forward(device_id).await {
+            let mut guard = ForwardGuard::new(&self.adb_path, device_id, port);
             let pinged = match connect(&host, port).await {
                 Ok(mut stream) => ping(&mut stream).await.ok(),
                 Err(_) => None,
             };
             self.unforward(device_id, port).await;
+            guard.disarm();
             if let Some((version, _)) = pinged {
                 return Ok(Probe {
                     jar,
@@ -862,7 +966,7 @@ impl TreeServer {
         let mut state = slot.lock().await;
         state.succeeded();
         if let Some(s) = state.session.take() {
-            self.unforward(device_id, s.port).await;
+            self.release(device_id, s).await;
         }
     }
 
@@ -886,45 +990,92 @@ impl TreeServer {
 
     async fn start(&self, device_id: &str) -> Result<Session, String> {
         // A server from an earlier run may still be listening: reuse it if it
-        // speaks our version, otherwise ask it to quit.
+        // speaks our version (and proves it is ours), otherwise ask it to quit.
+        let mut replaced = false;
         if let Ok(port) = self.forward(device_id).await {
+            let mut guard = ForwardGuard::new(&self.adb_path, device_id, port);
             if let Ok(mut stream) = connect(&crate::adb::server_host(device_id), port).await {
                 match ping(&mut stream).await {
                     Ok((v, nonce)) if v == SERVER_VERSION => {
                         // Its token is in the device file it wrote at start;
-                        // one we can't present is asked to quit (QUIT needs
-                        // no token) and replaced.
+                        // a server that can't prove it holds that token is
+                        // asked to quit (QUIT needs no token) and replaced,
+                        // and is never sent the token.
+                        let proto = supported(&v).unwrap_or(OLDEST_VERSION);
                         let token = self.read_token(device_id).await;
                         match &token {
-                            Ok(t) => match auth(&mut stream, t).await {
-                                Ok(()) => {
-                                    debug!(device_id, port, "attached to running tree server");
-                                    return Ok(Session {
-                                        stream,
-                                        port,
-                                        proto: supported(&v).unwrap_or(OLDEST_VERSION),
-                                        nonce,
-                                        token: token.ok(),
-                                        _child: None,
-                                    });
+                            Ok(t) => {
+                                match present_token(&mut stream, proto, nonce.as_deref(), Some(t))
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        debug!(device_id, port, "attached to running tree server");
+                                        return Ok(Session {
+                                            stream,
+                                            port,
+                                            proto,
+                                            nonce,
+                                            token: token.ok(),
+                                            _child: None,
+                                            forward: Some(guard),
+                                        });
+                                    }
+                                    Err(e) => warn!(device_id, "running tree server: {e}"),
                                 }
-                                Err(e) => debug!(device_id, "running tree server: {e}"),
-                            },
+                            }
                             Err(e) => debug!(device_id, "running tree server: {e}"),
                         }
                         let _ = stream.get_mut().write_all(b"QUIT\n").await;
-                        tokio::time::sleep(Duration::from_millis(300)).await;
+                        replaced = true;
                     }
                     Ok(_) => {
                         let _ = stream.get_mut().write_all(b"QUIT\n").await;
-                        tokio::time::sleep(Duration::from_millis(300)).await;
+                        replaced = true;
                     }
                     Err(_) => {}
                 }
             }
+            if replaced {
+                self.wait_gone(device_id, port).await;
+            }
             self.unforward(device_id, port).await;
+            guard.disarm();
         }
 
+        match self.spawn_server(device_id).await {
+            // The server we just asked to quit may still hold UiAutomation:
+            // its registration goes when system_server sees it die. Give it
+            // a second and try once more before blaming another tool
+            // (review 01 #2).
+            Err(e) if replaced && e.contains(ANOTHER_CLIENT) => {
+                debug!(device_id, "old tree server still registered; retrying: {e}");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                self.spawn_server(device_id).await
+            }
+            other => other,
+        }
+    }
+
+    /// After `QUIT`: until the old server stops answering `PING` (at most
+    /// ~3 s), instead of a fixed 300 ms that a loaded emulator outlasts.
+    async fn wait_gone(&self, device_id: &str, port: u16) {
+        let host = crate::adb::server_host(device_id);
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let alive = match connect(&host, port).await {
+                Ok(mut stream) => ping(&mut stream).await.is_ok(),
+                Err(_) => false,
+            };
+            if !alive {
+                return;
+            }
+        }
+        debug!(device_id, "old tree server still answering after QUIT");
+    }
+
+    /// Push the jar, start the server and open a session to it.
+    async fn spawn_server(&self, device_id: &str) -> Result<Session, String> {
         let remote = self.push_jar(device_id).await?;
         // Its own process group, registered for the second-signal kill:
         // `std::process::exit` skips `kill_on_drop` (review d4 m2).
@@ -988,6 +1139,19 @@ impl TreeServer {
                      this device; stop it to use the fast tree server ({why})"
                 ));
             }
+            if joined.contains("already bound") {
+                // Protocol 18 says so in words: something else holds
+                // @velocity_tree. If it isn't a Velocity server, it may be
+                // an app waiting for typed text: worth a loud warning.
+                warn!(
+                    device_id,
+                    "the tree server's socket @{SOCKET_NAME} is held by another process \
+                     on the device (maybe an app impersonating it); using adb instead"
+                );
+                return Err(format!(
+                    "@{SOCKET_NAME} is already bound on the device by another process: {joined}"
+                ));
+            }
             return Err(if joined.is_empty() {
                 why
             } else {
@@ -998,14 +1162,16 @@ impl TreeServer {
         tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
 
         let port = self.forward(device_id).await?;
+        let mut guard = ForwardGuard::new(&self.adb_path, device_id, port);
         let token = match self.read_token(device_id).await {
             Ok(t) => Some(t),
             Err(e) => {
                 self.unforward(device_id, port).await;
+                guard.disarm();
                 return Err(e);
             }
         };
-        let session = match open_session(
+        let mut session = match open_session(
             &crate::adb::server_host(device_id),
             port,
             Some(child),
@@ -1016,9 +1182,11 @@ impl TreeServer {
             Ok(s) => s,
             Err(e) => {
                 self.unforward(device_id, port).await;
+                guard.disarm();
                 return Err(e);
             }
         };
+        session.forward = Some(guard);
         info!(
             device_id,
             port,
@@ -1031,40 +1199,43 @@ impl TreeServer {
     /// The same server on a new connection, after an abandoned request left
     /// the old one out of step. The server serves each connection on its own
     /// thread, so this works even while the old request is still running.
-    async fn fresh_connection(&self, device_id: &str, old: Session) -> Option<Session> {
+    /// `s` keeps its old stream unless the new one is ready: false when
+    /// none could be opened (the caller shuts the session down).
+    async fn fresh_connection(&self, device_id: &str, s: &mut Session) -> bool {
         debug!(device_id, "tree server request was abandoned; reconnecting");
         let started = std::time::Instant::now();
         let host = crate::adb::server_host(device_id);
-        match connect(&host, old.port).await {
-            Ok(mut stream) => match ping(&mut stream).await {
-                Ok((v, nonce))
-                    if supported(&v) == Some(old.proto)
-                        && present_token(&mut stream, old.proto, old.token.as_deref())
-                            .await
-                            .is_ok() =>
-                {
-                    debug!(
-                        device_id,
-                        ms = started.elapsed().as_millis() as u64,
-                        "reconnected"
-                    );
-                    return Some(Session {
-                        stream,
-                        nonce,
-                        ..old
-                    });
-                }
-                other => debug!(device_id, ?other, "reconnect ping failed"),
-            },
-            Err(e) => debug!(device_id, %e, "reconnect failed"),
+        match handshake(&host, s.port, s.token.as_deref()).await {
+            Ok((stream, proto, nonce)) if proto == s.proto => {
+                debug!(
+                    device_id,
+                    ms = started.elapsed().as_millis() as u64,
+                    "reconnected"
+                );
+                s.stream = stream;
+                s.nonce = nonce;
+                true
+            }
+            other => {
+                debug!(
+                    device_id,
+                    ok = other.is_ok(),
+                    ms = started.elapsed().as_millis() as u64,
+                    "reconnect failed"
+                );
+                false
+            }
         }
-        self.shutdown(device_id, old).await;
-        debug!(
-            device_id,
-            ms = started.elapsed().as_millis() as u64,
-            "tree server shut down after a failed reconnect"
-        );
-        None
+    }
+
+    /// Remove `s`'s forward and let it go (its server, if we started it,
+    /// is killed with it). Unforwarded first and only then disarmed: a
+    /// drop in between still removes the forward.
+    async fn release(&self, device_id: &str, mut s: Session) {
+        self.unforward(device_id, s.port).await;
+        if let Some(f) = s.forward.as_mut() {
+            f.disarm();
+        }
     }
 
     async fn shutdown(&self, device_id: &str, mut s: Session) {
@@ -1077,7 +1248,7 @@ impl TreeServer {
                 .await;
         })
         .await;
-        self.unforward(device_id, s.port).await;
+        self.release(device_id, s).await;
     }
 
     /// Protocol 13: the running server's session token, from the file it
@@ -1194,12 +1365,7 @@ async fn open_session(
     child: Option<velocity_common::process::GroupChild>,
     token: Option<String>,
 ) -> Result<Session, String> {
-    let mut stream = connect(host, port).await?;
-    let (version, nonce) = ping(&mut stream).await?;
-    let proto = supported(&version).ok_or_else(|| {
-        format!("server version {version}, expected {OLDEST_VERSION} to {SERVER_VERSION}")
-    })?;
-    present_token(&mut stream, proto, token.as_deref()).await?;
+    let (stream, proto, nonce) = handshake(host, port, token.as_deref()).await?;
     Ok(Session {
         stream,
         port,
@@ -1207,46 +1373,141 @@ async fn open_session(
         nonce,
         token,
         _child: child,
+        forward: None,
     })
 }
 
-/// `AUTH` on a protocol 13+ server when there is a token (tests talk to
-/// stand-in servers without one); older servers have no `AUTH`.
+/// A new connection to the server on `port`, past `PING` and (with a
+/// token) the mutual handshake: the stream, the protocol and the boot
+/// nonce.
+async fn handshake(
+    host: &str,
+    port: u16,
+    token: Option<&str>,
+) -> Result<(BufReader<TcpStream>, u32, Option<String>), String> {
+    let mut stream = connect(host, port).await?;
+    let (version, nonce) = ping(&mut stream).await?;
+    let proto = supported(&version).ok_or_else(|| {
+        format!("server version {version}, expected {OLDEST_VERSION} to {SERVER_VERSION}")
+    })?;
+    present_token(&mut stream, proto, nonce.as_deref(), token).await?;
+    Ok((stream, proto, nonce))
+}
+
+/// The mutual handshake when there is a token (tests talk to stand-in
+/// servers without one). With a token, a server older than
+/// [`CHALLENGE_VERSION`] is refused: it can't prove it holds the token, so
+/// it may be an app that bound the public socket name, and the old `AUTH`
+/// would hand it the token.
 async fn present_token(
     stream: &mut BufReader<TcpStream>,
     proto: u32,
+    boot_nonce: Option<&str>,
     token: Option<&str>,
 ) -> Result<(), String> {
-    match token {
-        Some(t) if proto >= AUTH_VERSION => auth(stream, t).await,
-        _ => Ok(()),
+    let Some(token) = token else { return Ok(()) };
+    if proto < CHALLENGE_VERSION {
+        return Err(format!(
+            "tree server at protocol {proto} can't prove it holds the session token \
+             (needs {CHALLENGE_VERSION}); not sending it"
+        ));
     }
-}
-
-/// `AUTH <token>` → `OK 0`; the server closes the connection otherwise.
-async fn auth(stream: &mut BufReader<TcpStream>, token: &str) -> Result<(), String> {
+    let Some(boot_nonce) = boot_nonce else {
+        return Err("tree server sent no boot nonce; not authenticating".into());
+    };
+    let client_nonce = client_nonce();
     let fut = async {
-        stream
-            .get_mut()
-            .write_all(format!("AUTH {token}\n").as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut line = Vec::new();
-        (&mut *stream)
-            .take(MAX_HEADER)
-            .read_until(b'\n', &mut line)
-            .await
-            .map_err(|e| e.to_string())?;
-        let line = String::from_utf8_lossy(&line);
-        if line.trim() == "OK 0" {
+        let proof = exchange(stream, &format!("HELLO {client_nonce}")).await?;
+        let want = server_proof(token, boot_nonce, &client_nonce);
+        let got = proof.strip_prefix("PROOF ").unwrap_or("");
+        if !constant_time_eq(got.as_bytes(), want.as_bytes()) {
+            return Err(format!(
+                "the process on @{SOCKET_NAME} could not prove it is Velocity's tree server \
+                 (another app may have bound the socket name); nothing was sent to it"
+            ));
+        }
+        let reply = exchange(
+            stream,
+            &format!("AUTH {}", client_proof(token, boot_nonce, &client_nonce)),
+        )
+        .await?;
+        if reply == "OK 0" {
             Ok(())
         } else {
-            Err(format!("tree server refused the token: {:?}", line.trim()))
+            Err(format!("tree server refused the token: {reply:?}"))
         }
     };
     tokio::time::timeout(Duration::from_secs(2), fut)
         .await
         .map_err(|_| "auth timed out (2s)".to_string())?
+}
+
+/// Send one line and read one reply line (at most [`MAX_HEADER`] bytes).
+async fn exchange(stream: &mut BufReader<TcpStream>, line: &str) -> Result<String, String> {
+    stream
+        .get_mut()
+        .write_all(format!("{line}\n").as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut reply = Vec::new();
+    (&mut *stream)
+        .take(MAX_HEADER)
+        .read_until(b'\n', &mut reply)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(String::from_utf8_lossy(&reply).trim().to_string())
+}
+
+/// 128 random bits as hex, new for every handshake.
+pub(crate) fn client_nonce() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// What the server answers `HELLO <client nonce>` with (`Server.serverProof`).
+fn server_proof(token: &str, boot_nonce: &str, client_nonce: &str) -> String {
+    hex(&hmac_sha256(
+        token.as_bytes(),
+        format!("velocity-tree server {boot_nonce} {client_nonce}").as_bytes(),
+    ))
+}
+
+/// What `AUTH` carries (`Server.clientProofMatches`): another message, so a
+/// server's proof is never a client's.
+fn client_proof(token: &str, boot_nonce: &str, client_nonce: &str) -> String {
+    hex(&hmac_sha256(
+        token.as_bytes(),
+        format!("velocity-tree client {boot_nonce} {client_nonce}").as_bytes(),
+    ))
+}
+
+/// HMAC-SHA256 (RFC 2104).
+pub(crate) fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    const BLOCK: usize = 64;
+    let mut k = [0u8; BLOCK];
+    if key.len() > BLOCK {
+        k[..32].copy_from_slice(&Sha256::digest(key));
+    } else {
+        k[..key.len()].copy_from_slice(key);
+    }
+    let pad = |b: u8| k.map(|x| x ^ b);
+    let inner = Sha256::new()
+        .chain_update(pad(0x36))
+        .chain_update(msg)
+        .finalize();
+    Sha256::new()
+        .chain_update(pad(0x5c))
+        .chain_update(inner)
+        .finalize()
+        .into()
+}
+
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 async fn ping(stream: &mut BufReader<TcpStream>) -> Result<(String, Option<String>), String> {
@@ -1256,16 +1517,26 @@ async fn ping(stream: &mut BufReader<TcpStream>) -> Result<(String, Option<Strin
             .write_all(b"PING\n")
             .await
             .map_err(|e| e.to_string())?;
-        let mut line = String::new();
-        stream
-            .read_line(&mut line)
+        // Capped like every other reply: whatever holds the socket (an app
+        // squatting `@velocity_tree`) could stream bytes with no newline
+        // and grow this buffer for the whole timeout (audit 2026-11 AND-2).
+        let mut raw = Vec::new();
+        (&mut *stream)
+            .take(MAX_HEADER)
+            .read_until(b'\n', &mut raw)
             .await
             .map_err(|e| e.to_string())?;
-        parse_pong(&line).ok_or_else(|| format!("bad ping reply {line:?}"))
+        let line = String::from_utf8_lossy(&raw).into_owned();
+        parse_pong(&line).ok_or_else(|| format!("bad ping reply {:?}", clip_reply(&line)))
     };
     tokio::time::timeout(Duration::from_secs(2), fut)
         .await
         .map_err(|_| "ping timed out (2s)".to_string())?
+}
+
+/// A reply quoted in an error, cut short.
+fn clip_reply(s: &str) -> String {
+    s.chars().take(80).collect()
 }
 
 enum Reply {
@@ -1371,9 +1642,26 @@ pub struct Window {
     pub kind: i32,
     pub bounds: velocity_common::Rect,
     pub package: String,
+    /// Whether the window takes touches (protocol 18, API 33+); `None`
+    /// when the server can't tell.
+    pub touchable: Option<bool>,
+    /// The window's title (protocol 18), empty when none.
+    pub title: String,
+    /// Whether it is the active window, the one the dump is read from
+    /// (protocol 19); `None` from an older server.
+    pub active: Option<bool>,
 }
 
 impl Window {
+    /// Whether a tap at a point inside this window can be taken by it, so
+    /// it hides what is under it from a finger. A window with no touchable
+    /// region, or SystemUI's rounded-corner / cutout strips (titled
+    /// `ScreenDecorOverlay…`, `FLAG_NOT_TOUCHABLE`), passes touches through
+    /// (review 09 #5).
+    pub fn takes_touches(&self) -> bool {
+        self.touchable != Some(false) && !self.title.starts_with("ScreenDecorOverlay")
+    }
+
     pub fn kind_name(&self) -> &'static str {
         match self.kind {
             1 => "app window",
@@ -1402,7 +1690,10 @@ fn parse_encoders(text: &str) -> Vec<(String, Option<bool>)> {
         .collect()
 }
 
-fn parse_windows(text: &str) -> Vec<Window> {
+/// `WINDOWS` lines from a server speaking `proto`: `<layer> <type>
+/// <l,t,r,b> <package>`, then (18) `<touchable 1|0|?>`, then (19) `<active
+/// 1|0>`, then (18) the title to the end of the line.
+fn parse_windows(text: &str, proto: u32) -> Vec<Window> {
     text.lines()
         .filter_map(|l| {
             let mut it = l.split_whitespace();
@@ -1414,6 +1705,23 @@ fn parse_windows(text: &str) -> Vec<Window> {
                 .filter_map(|v| v.parse().ok())
                 .collect();
             let package = it.next().unwrap_or("-").to_string();
+            // Protocol 18: whether it takes touches, then its title.
+            let touchable = match it.next() {
+                Some("1") => Some(true),
+                Some("0") => Some(false),
+                _ => None,
+            };
+            let active = if proto >= 19 {
+                match it.next() {
+                    Some("1") => Some(true),
+                    Some("0") => Some(false),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let title = it.collect::<Vec<_>>().join(" ");
+            let title = if title == "-" { String::new() } else { title };
             (b.len() == 4).then(|| Window {
                 layer,
                 kind,
@@ -1424,9 +1732,32 @@ fn parse_windows(text: &str) -> Vec<Window> {
                     height: b[3].saturating_sub(b[1]),
                 },
                 package,
+                touchable,
+                title,
+                active,
             })
         })
         .collect()
+}
+
+/// Entry points for the cargo-fuzz targets in `fuzz/` (built only with
+/// `--cfg fuzzing`, which `cargo fuzz` sets): the reply-line parsers stay
+/// private to this module otherwise.
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub mod fuzzing {
+    /// Every reply-line parser on `text`, line by line and whole.
+    pub fn parse_reply_lines(text: &str) {
+        for line in text.lines() {
+            let _ = super::parse_set_text(line);
+            let _ = super::parse_pong(line);
+            let _ = super::supported(line);
+        }
+        let _ = super::parse_encoders(text);
+        for proto in [17, 18, 19] {
+            let _ = super::parse_windows(text, proto);
+        }
+    }
 }
 
 /// Write `bytes` to a new file in the temp dir that only this user can
@@ -1529,6 +1860,31 @@ pub(crate) mod tests {
         port
     }
 
+    /// Audit 2026-11 AND-2: a squatter streaming bytes with no newline gets
+    /// a quick "bad reply", not an unbounded buffer.
+    #[tokio::test]
+    async fn a_ping_reply_without_a_newline_is_cut_at_the_header_cap() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let junk = vec![b'A'; 1 << 20];
+            for _ in 0..64 {
+                if s.write_all(&junk).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut reader = BufReader::new(stream);
+        let started = std::time::Instant::now();
+        let e = ping(&mut reader).await.unwrap_err();
+        assert!(e.contains("bad ping reply"), "{e}");
+        assert!(e.len() < 200, "{}", e.len());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
     #[tokio::test]
     async fn an_abandoned_request_does_not_answer_the_next_one() {
         let port = fake_server().await;
@@ -1552,6 +1908,94 @@ pub(crate) mod tests {
         );
     }
 
+    /// Review 01 #6: a caller dropped while the session reconnects (after an
+    /// abandoned request) used to drop the moved-out session: the server was
+    /// killed and the next call restarted it. Now it stays, still marked out
+    /// of step, and the next call reconnects.
+    #[tokio::test]
+    async fn a_reconnect_cut_short_keeps_the_session() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut n = 0;
+            while let Ok((sock, _)) = listener.accept().await {
+                n += 1;
+                // Every connection after the first answers PING late.
+                let slow_ping = n > 1;
+                tokio::spawn(async move {
+                    let mut sock = BufReader::new(sock);
+                    let mut line = String::new();
+                    while sock.read_line(&mut line).await.unwrap_or(0) > 0 {
+                        let cmd = line.trim().to_string();
+                        line.clear();
+                        let reply = match cmd.as_str() {
+                            "PING" => {
+                                if slow_ping {
+                                    tokio::time::sleep(Duration::from_millis(300)).await;
+                                }
+                                format!("PONG {SERVER_VERSION}\n")
+                            }
+                            "SLOW" => {
+                                tokio::time::sleep(Duration::from_millis(300)).await;
+                                "OK slow\n".to_string()
+                            }
+                            other => format!("OK {other}\n"),
+                        };
+                        if sock.get_mut().write_all(reply.as_bytes()).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        let ts = TreeServer {
+            adb_path: "adb".into(),
+            enabled: true,
+            devices: Default::default(),
+        };
+        ts.slot("dev").lock().await.session =
+            Some(open_session("127.0.0.1", port, None, None).await.unwrap());
+        let t = Duration::from_secs(2);
+        let cut =
+            tokio::time::timeout(Duration::from_millis(50), ts.call("dev", "SLOW", false, t)).await;
+        assert!(cut.is_err());
+        // Cut again, this time inside the reconnect's PING.
+        let cut =
+            tokio::time::timeout(Duration::from_millis(100), ts.call("dev", "FAST", false, t))
+                .await;
+        assert!(cut.is_err());
+        {
+            let slot = ts.slot("dev");
+            let state = slot.lock().await;
+            assert!(state.session.is_some(), "the session was dropped");
+            assert!(state.in_flight, "the old stream passes for in step");
+        }
+        let reply = ts.call("dev", "FAST", false, t).await.unwrap().unwrap();
+        assert_eq!(reply.0, "OK FAST");
+    }
+
+    /// A forward whose owner was dropped before `--remove` is removed.
+    #[tokio::test]
+    async fn an_abandoned_forward_is_removed() {
+        let fake = crate::test_support::FakeAdb::new("abandoned-forward");
+        fake.stub("adb-forward", "exit 0");
+        drop(ForwardGuard::new(&fake.path(), "dev", 4321));
+        let mut disarmed = ForwardGuard::new(&fake.path(), "dev", 4322);
+        disarmed.disarm();
+        drop(disarmed);
+        let log = fake.dir.join("adb.log");
+        let mut seen = String::new();
+        for _ in 0..50 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            seen = std::fs::read_to_string(&log).unwrap_or_default();
+            if seen.contains("tcp:4321") {
+                break;
+            }
+        }
+        assert!(seen.contains("[forward][--remove][tcp:4321]"), "{seen}");
+        assert!(!seen.contains("tcp:4322"), "{seen}");
+    }
+
     /// What the scripted server does with a command.
     #[derive(Clone)]
     pub(crate) enum Act {
@@ -1570,13 +2014,30 @@ pub(crate) mod tests {
     /// other command (given how many times that verb came before). Every
     /// command it receives is recorded.
     pub(crate) async fn scripted(script: Script) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
-        scripted_as(Arc::new(|_| format!("PONG {SERVER_VERSION}\n")), script).await
+        // A boot nonce: protocol 18's handshake (after a restart through
+        // the fake adb, which holds a token) needs one.
+        scripted_as(
+            Arc::new(|_| format!("PONG {SERVER_VERSION} b007\n")),
+            script,
+        )
+        .await
     }
 
     /// [`scripted`], answering `PING` with `pong(connection number)`.
     async fn scripted_as(
         pong: Arc<dyn Fn(usize) -> String + Send + Sync>,
         script: Script,
+    ) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+        scripted_proving(pong, script, false).await
+    }
+
+    /// [`scripted_as`]; with `lie`, a server that doesn't know the token
+    /// (an app squatting on the socket name) and answers `HELLO` with a
+    /// made-up proof.
+    async fn scripted_proving(
+        pong: Arc<dyn Fn(usize) -> String + Send + Sync>,
+        script: Script,
+        lie: bool,
     ) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
         let conns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1591,6 +2052,7 @@ pub(crate) mod tests {
                 tokio::spawn(async move {
                     let mut sock = BufReader::new(sock);
                     let mut line = String::new();
+                    let mut hello: Option<String> = None;
                     while sock.read_line(&mut line).await.unwrap_or(0) > 0 {
                         let cmd = line.trim().to_string();
                         line.clear();
@@ -1598,9 +2060,29 @@ pub(crate) mod tests {
                             let _ = sock.get_mut().write_all(pong.as_bytes()).await;
                             continue;
                         }
-                        if let Some(token) = cmd.strip_prefix("AUTH ") {
+                        // Protocol 18's handshake, as Server.java does it.
+                        let tok = crate::test_support::FAKE_TREE_TOKEN;
+                        let boot = parse_pong(&pong).and_then(|(_, n)| n).unwrap_or_default();
+                        if let Some(cn) = cmd.strip_prefix("HELLO ") {
                             log.lock().unwrap().push(cmd.clone());
-                            if token != crate::test_support::FAKE_TREE_TOKEN {
+                            hello = Some(cn.to_string());
+                            let proof = if lie {
+                                "0".repeat(64)
+                            } else {
+                                server_proof(tok, &boot, cn)
+                            };
+                            let _ = sock
+                                .get_mut()
+                                .write_all(format!("PROOF {proof}\n").as_bytes())
+                                .await;
+                            continue;
+                        }
+                        if let Some(proof) = cmd.strip_prefix("AUTH ") {
+                            log.lock().unwrap().push(cmd.clone());
+                            let ok = hello
+                                .as_deref()
+                                .is_some_and(|cn| proof == client_proof(tok, &boot, cn));
+                            if !ok {
                                 let _ = sock.get_mut().write_all(b"ERR bad token\n").await;
                                 break;
                             }
@@ -1665,10 +2147,16 @@ pub(crate) mod tests {
     /// connection: the server was restarted and the tap sent again.
     #[tokio::test]
     async fn read_error_after_write_is_not_replayed_for_taps() {
-        let (port, seen) = scripted(Arc::new(|cmd, _| match verb(cmd) {
-            "TAPS" => Act::Close,
-            _ => Act::Say(b"OK\n".to_vec()),
-        }))
+        // A new boot nonce per connection: every reconnect reaches a
+        // "restarted" server, which has no record of the tap's id (with the
+        // same nonce the id would be resent, and the server dedupes it).
+        let (port, seen) = scripted_as(
+            Arc::new(|conn| format!("PONG {SERVER_VERSION} n{conn}\n")),
+            Arc::new(|cmd, _| match verb(cmd) {
+                "TAPS" => Act::Close,
+                _ => Act::Say(b"OK\n".to_vec()),
+            }),
+        )
         .await;
         let (ts, _fake) = attached("ts-replay", port).await;
         let r = ts.taps("dev", 10, 20, 1).await;
@@ -1824,15 +2312,36 @@ pub(crate) mod tests {
         let log = seen.lock().unwrap().clone();
         assert_ne!(log[2], log[0]);
         assert_eq!(log.last().unwrap(), "MARK");
+        assert!(!log[0].contains('@'), "protocol 8 has no wait in its tag");
     }
 
-    /// R-2: a protocol 13 session presents its token first, and again on
-    /// the new connection a resend opens; a server that refuses it is no
-    /// session at all. An older server gets no `AUTH` (it has none).
+    /// Review 01 #12: from protocol 19 the tag carries how long the host
+    /// waits, so a resend never parks a server thread longer.
     #[tokio::test]
-    async fn protocol_13_presents_the_token_on_every_connection() {
+    async fn protocol_19_tags_carry_the_hosts_wait() {
         let (port, seen) = scripted_as(
-            Arc::new(|_| "PONG 13 b007\n".to_string()),
+            Arc::new(|_| "PONG 19 b007\n".to_string()),
+            Arc::new(|_, _| Act::Say(b"OK 0\n".to_vec())),
+        )
+        .await;
+        let (ts, _fake) = attached("ts-wait-tag", port).await;
+        assert_eq!(ts.key("dev", 4).await, Some(Ok(())));
+        let log = seen.lock().unwrap().clone();
+        let key = log.iter().find(|c| verb(c) == "KEY").unwrap();
+        let tag = key.split_whitespace().next().unwrap();
+        assert!(tag.starts_with('#') && tag.contains('@'), "{key}");
+        let ms: u64 = tag.rsplit('@').next().unwrap().parse().unwrap();
+        assert!(ms > 0 && ms <= 60_000, "{key}");
+    }
+
+    /// R-2 and security review #2: a session runs the protocol 18
+    /// handshake first, and again on the new connection a resend opens. The
+    /// token itself never goes down the socket; a server that refuses the
+    /// proof is no session at all.
+    #[tokio::test]
+    async fn protocol_18_authenticates_both_ways_on_every_connection() {
+        let (port, seen) = scripted_as(
+            Arc::new(|_| "PONG 18 b007\n".to_string()),
             Arc::new(|cmd, n| match verb(cmd) {
                 "TAPS" if n == 0 => Act::Close,
                 _ => Act::Say(b"OK 0\n".to_vec()),
@@ -1854,31 +2363,85 @@ pub(crate) mod tests {
         assert_eq!(ts.taps("dev", 10, 20, 1).await, Some(Ok(())));
         let log = seen.lock().unwrap().clone();
         let verbs: Vec<&str> = log.iter().map(|c| verb(c)).collect();
-        assert_eq!(verbs, ["AUTH", "TAPS", "AUTH", "TAPS"], "{log:?}");
-        assert!(log
-            .iter()
-            .filter(|c| verb(c) == "AUTH")
-            .all(|c| *c == format!("AUTH {tok}")));
+        assert_eq!(
+            verbs,
+            ["HELLO", "AUTH", "TAPS", "HELLO", "AUTH", "TAPS"],
+            "{log:?}"
+        );
+        assert!(log.iter().all(|c| !c.contains(&tok)), "token sent: {log:?}");
+        // A fresh client nonce per connection.
+        assert_ne!(log[0], log[3]);
 
-        let refused = open_session("127.0.0.1", port, None, Some("wrong".into())).await;
+        let refused = open_session("127.0.0.1", port, None, Some("f".repeat(32))).await;
         assert!(
             refused
                 .as_ref()
-                .is_err_and(|e| e.contains("refused the token")),
+                .is_err_and(|e| e.contains("could not prove")),
             "{:?}",
             refused.map(|_| ())
         );
+    }
 
-        let (old, seen) = scripted_as(
-            Arc::new(|_| "PONG 12 b007\n".to_string()),
+    /// Security review #2: something on the socket that can't prove it
+    /// holds the token (an app that bound `@velocity_tree` first, or an old
+    /// server that would take the token in the clear) is sent nothing
+    /// after `HELLO`: no `AUTH`, no token, no command.
+    #[tokio::test]
+    async fn an_impostor_server_gets_neither_token_nor_commands() {
+        let tok = crate::test_support::FAKE_TREE_TOKEN.to_string();
+        let (port, seen) = scripted_proving(
+            Arc::new(|_| "PONG 18 b007\n".to_string()),
             Arc::new(|_, _| Act::Say(b"OK 0\n".to_vec())),
+            true,
         )
         .await;
-        let s = open_session("127.0.0.1", old, None, Some(tok))
+        let err = open_session("127.0.0.1", port, None, Some(tok.clone()))
             .await
-            .unwrap();
-        assert_eq!(s.proto, 12);
-        assert!(seen.lock().unwrap().is_empty(), "no AUTH to protocol 12");
+            .map(|_| ())
+            .unwrap_err();
+        assert!(err.contains("could not prove"), "{err}");
+        let log = seen.lock().unwrap().clone();
+        assert_eq!(log.len(), 1, "{log:?}");
+        assert!(log[0].starts_with("HELLO "), "{log:?}");
+
+        // A server claiming an older protocol gets nothing at all: from
+        // 13 to 17 it would have been sent the token.
+        for v in ["17", "13", "12", "7"] {
+            let (old, seen) = scripted_as(
+                Arc::new(move |_| format!("PONG {v} b007\n")),
+                Arc::new(|_, _| Act::Say(b"OK 0\n".to_vec())),
+            )
+            .await;
+            let err = open_session("127.0.0.1", old, None, Some(tok.clone()))
+                .await
+                .map(|_| ())
+                .unwrap_err();
+            assert!(err.contains("can't prove"), "{v}: {err}");
+            assert!(seen.lock().unwrap().is_empty(), "{v}: sent to");
+        }
+    }
+
+    /// The HMAC both sides compute: RFC 4231 test case 2 (Server.java's
+    /// HostChecks pins the same vector), and the two proofs differ.
+    #[test]
+    fn hmac_matches_the_rfc_and_the_proofs_are_distinct() {
+        assert_eq!(
+            hex(&hmac_sha256(b"Jefe", b"what do ya want for nothing?")),
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        // A key longer than the block is hashed first (RFC 4231 case 6).
+        assert_eq!(
+            hex(&hmac_sha256(
+                &[0xaa; 131],
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            )),
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+        );
+        let t = crate::test_support::FAKE_TREE_TOKEN;
+        assert_ne!(server_proof(t, "b", "c"), client_proof(t, "b", "c"));
+        assert_ne!(server_proof(t, "b", "c"), server_proof(t, "b2", "c"));
+        assert_eq!(client_nonce().len(), 32);
+        assert_ne!(client_nonce(), client_nonce());
     }
 
     /// A reconnect that reaches a restarted server (new nonce): its reply
@@ -1961,8 +2524,15 @@ pub(crate) mod tests {
         assert_eq!(supported("11"), Some(11));
         assert_eq!(supported("12"), Some(12));
         assert_eq!(supported("13"), Some(13));
-        assert_eq!(supported("14"), None);
+        assert_eq!(supported("14"), Some(14));
+        assert_eq!(supported("15"), Some(15));
+        assert_eq!(supported("16"), Some(16));
+        assert_eq!(supported("17"), Some(17));
+        assert_eq!(supported("18"), Some(18));
+        assert_eq!(supported("19"), Some(19));
+        assert_eq!(supported("20"), None);
         assert_eq!(supported("x"), None);
+        assert_eq!(verb("#ab-1@10000 TAP 1 2"), "TAP");
         assert_eq!(verb("#ab-1 TAPS 1 2 1"), "TAPS");
         assert!(mutates("#ab-1 TEXT 68"));
     }
@@ -2094,13 +2664,17 @@ pub(crate) mod tests {
         assert!(SERVER_JAR.windows(11).any(|w| w == b"classes.dex"));
     }
 
-    /// The jar was rebuilt with `Server.java`'s protocol 13 (protocol 9's
+    /// The jar was rebuilt with `Server.java`'s protocol 14 (protocol 9's
     /// hint and state in dumps and no password append, the Compose
-    /// `test-tag` of D-53, 11's `role-desc`, S1, and 13's AUTH gate, R-2);
-    /// a forgotten `build.sh` leaves older strings.
+    /// `test-tag` of D-53, 11's `role-desc`, S1, 13's AUTH gate, R-2, and
+    /// 14's finger touches, which the Files app requires, 15's popup
+    /// windows in front of the active one, and 16's read from a cleared
+    /// accessibility cache, and 17's empty text for a field showing its
+    /// placeholder, and 18's mutual HELLO/AUTH handshake, gated cache
+    /// clears and `indeterminate` spinners); a forgotten
+    /// `build.sh` leaves older strings.
     #[test]
-    fn embedded_jar_speaks_protocol_13() {
-        assert_eq!(SERVER_VERSION, "13");
+    fn embedded_jar_speaks_protocol_19() {
         assert_eq!(supported("7"), Some(7));
         assert_eq!(supported("8"), Some(8));
         assert_eq!(supported("9"), Some(9));
@@ -2108,16 +2682,38 @@ pub(crate) mod tests {
         assert_eq!(supported("11"), Some(11));
         assert_eq!(supported("12"), Some(12));
         assert_eq!(supported("13"), Some(13));
-        assert_eq!(supported("14"), None);
+        assert_eq!(supported("14"), Some(14));
+        assert_eq!(supported("15"), Some(15));
+        assert_eq!(supported("16"), Some(16));
+        assert_eq!(supported("17"), Some(17));
+        assert_eq!(supported("18"), Some(18));
+        assert_eq!(supported("19"), Some(19));
+        assert_eq!(supported("20"), None);
         // The dex is stored deflated: inflate it with the system `unzip`.
         let jar = write_private_temp("velocity-tree-test", ".jar", SERVER_JAR).unwrap();
         let out = std::process::Command::new("unzip")
             .args(["-p", &jar.to_string_lossy(), "classes.dex"])
             .output();
         let _ = std::fs::remove_file(&jar);
-        let Ok(out) = out else { return };
-        if !out.status.success() {
-            return;
+        // Never a vacuous pass (review 07 H4): without `unzip` the jar went
+        // unchecked and the test still reported PASS.
+        let out = out.expect("`unzip` is needed to read the embedded jar");
+        assert!(
+            out.status.success(),
+            "unzip couldn't read classes.dex: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // The version the host expects is the one compiled into the jar:
+        // javac folds `"PONG " + VERSION + " "` into one constant. This, not
+        // `SERVER_VERSION` compared with itself, catches a stale jar.
+        for marker in [
+            format!("PONG {SERVER_VERSION} "),
+            format!("velocity-tree {SERVER_VERSION} listening on @"),
+        ] {
+            assert!(
+                out.stdout.windows(marker.len()).any(|w| w == marker.as_bytes()),
+                "the embedded jar doesn't speak protocol {SERVER_VERSION} ({marker:?} missing): rerun build.sh"
+            );
         }
         for marker in [
             &b"is still running"[..],
@@ -2133,7 +2729,23 @@ pub(crate) mod tests {
             b"ENCODERS",
             b"Lcom/velocity/tree/VideoServer;",
             b"max-fps-to-encoder",
+            b"PointerProperties",
+            b"popupsAbove",
             b"createVirtualDisplay",
+            // 18: the mutual handshake, the gated cache clear (and its
+            // pre-34 fallback), spinners, keyboard-sourced keys.
+            b"velocity-tree server ",
+            b"PROOF ",
+            b"AccessibilityInteractionClient",
+            b"indeterminate",
+            b"getRegionInScreen",
+            b"listening on @",
+            // 19: the active window's display, same-app popups, the
+            // host's wait in the request tag, the video server's handshake.
+            b"getWindowsOnAllDisplays",
+            b"the host stopped waiting",
+            b"velocity-video server ",
+            b"velocity-video client ",
         ] {
             assert!(
                 out.stdout.windows(marker.len()).any(|w| w == marker),
@@ -2141,6 +2753,20 @@ pub(crate) mod tests {
                 String::from_utf8_lossy(marker)
             );
         }
+    }
+
+    /// Review 07 M5: CLAUDE.md, which agents read first, names the
+    /// protocol the code speaks (it said 13 while the code said 17).
+    #[test]
+    fn claude_md_names_this_protocol() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../CLAUDE.md");
+        let Ok(doc) = std::fs::read_to_string(path) else {
+            panic!("CLAUDE.md not found at {path}");
+        };
+        assert!(
+            doc.contains(&format!("(protocol {SERVER_VERSION}:")),
+            "CLAUDE.md's tree-server line must say protocol {SERVER_VERSION}"
+        );
     }
 
     #[tokio::test]
@@ -2153,10 +2779,48 @@ pub(crate) mod tests {
         assert!(server.dump("emulator-5554").await.is_none());
     }
 
+    /// Review 07 M8: the line protocol's parsers take any bytes.
+    #[test]
+    fn mangled_replies_never_panic() {
+        let windows = "40 3 0,0,1080,120 com.android.systemui 0 0 ScreenDecorOverlay\n\
+                       3 1 0,0,1080,2400 com.app 1 1 -\n12 2 0,1500,1080,2400 ime\n";
+        let mut state: u64 = 0x2545_F491_4F6C_DD1D;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..3000 {
+            let mut b = windows.as_bytes().to_vec();
+            for _ in 0..1 + next() % 4 {
+                let at = (next() as usize) % b.len().max(1);
+                match next() % 3 {
+                    0 if !b.is_empty() => {
+                        let i = at.min(b.len() - 1);
+                        b[i] = next() as u8;
+                    }
+                    1 => b.truncate(at),
+                    _ => {
+                        let at = at.min(b.len());
+                        b.splice(at..at, *b"-2147483649,");
+                    }
+                };
+            }
+            let text = String::from_utf8_lossy(&b);
+            for proto in [17, 18, 19] {
+                let _ = parse_windows(&text, proto);
+            }
+            let _ = parse_pong(&text);
+            let _ = parse_set_text(&text);
+            let _ = parse_encoders(&text);
+        }
+    }
+
     /// VEL-310: extreme bounds overflowed the subtraction.
     #[test]
     fn window_bounds_saturate() {
-        let w = parse_windows("1 1 -2147483648,0,2147483647,10 x\n");
+        let w = parse_windows("1 1 -2147483648,0,2147483647,10 x\n", 19);
         assert_eq!(w[0].bounds.width, i32::MAX);
     }
 
@@ -2175,18 +2839,50 @@ pub(crate) mod tests {
 
     #[test]
     fn parses_windows_front_first() {
-        let w = parse_windows("12 2 0,1500,1080,2400 com.google.android.inputmethod.latin\n3 1 0,0,1080,2400 com.app\n");
+        let w = parse_windows("12 2 0,1500,1080,2400 com.google.android.inputmethod.latin\n3 1 0,0,1080,2400 com.app\n", 17);
         assert_eq!(w.len(), 2);
         assert_eq!(w[0].kind_name(), "keyboard");
         assert_eq!(w[0].bounds.y, 1500);
         assert_eq!(w[0].bounds.height, 900);
         assert_eq!(w[1].package, "com.app");
+        assert_eq!(w[1].touchable, None);
+        assert!(w[1].title.is_empty());
+        // Protocol 18: touchable and the title to the end of the line.
+        let w = parse_windows(
+            "40 3 0,0,1080,120 com.android.systemui 0 ScreenDecorOverlay\n\
+             39 3 0,0,1080,63 com.android.systemui 1 Status Bar\n\
+             3 1 0,0,1080,2400 com.app ? -\n",
+            18,
+        );
+        assert_eq!(w[0].touchable, Some(false));
+        assert!(!w[0].takes_touches());
+        assert_eq!(w[1].title, "Status Bar");
+        assert!(w[1].takes_touches());
+        assert_eq!(w[2].touchable, None);
+        assert!(w[2].title.is_empty() && w[2].takes_touches());
+        let decor = Window {
+            touchable: None,
+            title: "ScreenDecorOverlayBottom".into(),
+            ..w[0].clone()
+        };
+        assert!(!decor.takes_touches());
+        assert_eq!(w[1].active, None);
+        // Protocol 19: whether it is the active window, before the title.
+        let w = parse_windows(
+            "5 1 100,200,700,900 com.other 1 0 Floating\n\
+             3 1 0,0,1080,2400 com.app 1 1 -\n",
+            19,
+        );
+        assert_eq!(w[0].active, Some(false));
+        assert_eq!(w[0].title, "Floating");
+        assert_eq!(w[1].active, Some(true));
+        assert!(w[1].title.is_empty());
     }
 
     /// Runs against a real device when one is named in VELOCITY_TEST_ANDROID.
     #[tokio::test]
     async fn dumps_from_a_real_device() {
-        let Ok(device) = std::env::var("VELOCITY_TEST_ANDROID") else {
+        let Some(device) = crate::test_support::device_under_test() else {
             return;
         };
         let server = TreeServer::new();

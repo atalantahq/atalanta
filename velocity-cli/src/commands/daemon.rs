@@ -9,6 +9,12 @@
 //! `velocity_common::env::install` for the run, never with `set_var`: the
 //! daemon's other threads read the process environment meanwhile.
 //!
+//! It also serves the agent commands for the web (`velocity tap @e3 -p
+//! web`, `Request::Agent`): Chrome dies with the process that launched it,
+//! so a browser that lasts from one command to the next has to live here.
+//! Those commands start a daemon themselves when none answers
+//! ([`spawn_background`]).
+//!
 //! Runs are served one at a time, so for each run the daemon points its
 //! stdout and stderr at the client's socket — output, colours and reports
 //! look exactly like a local run, with no changes to the runner's printing.
@@ -24,6 +30,12 @@ use serde::{Deserialize, Serialize};
 use velocity_common::{Platform, ResilientDriver};
 
 const EXIT_MARKER: &str = "\u{0}VELOCITY-EXIT ";
+/// Sent by the daemon when it starts serving a request, so a client can
+/// tell "queued behind another run" from "running, nothing printed yet".
+const START_MARKER: &str = "\u{0}VELOCITY-START";
+/// How long a client waits for the daemon to start its request before it
+/// says it is queued.
+const QUEUED_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Args)]
 pub struct DaemonArgs {
@@ -50,6 +62,15 @@ enum Request {
         argv: Vec<String>,
         env: Vec<(String, String)>,
         color: bool,
+    },
+    /// One agent command (`tap`, `snapshot`, …), argv after `velocity`.
+    Agent {
+        cwd: String,
+        argv: Vec<String>,
+        env: Vec<(String, String)>,
+        color: bool,
+        #[serde(default)]
+        stdin: Option<String>,
     },
     Stop,
     Ping,
@@ -188,7 +209,7 @@ pub fn socket_path() -> PathBuf {
     velocity_common::env::var("VELOCITY_DAEMON_SOCKET")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            PathBuf::from(velocity_common::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+            velocity_common::host::home_dir()
                 .join(".velocity")
                 .join("daemon.sock")
         })
@@ -230,8 +251,77 @@ fn no_daemon(e: &anyhow::Error) -> String {
     }
 }
 
+/// The uid of the process at the other end of a connected Unix socket.
+fn peer_uid(fd: std::os::fd::RawFd) -> Option<u32> {
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+    {
+        let mut uid: libc::uid_t = 0;
+        let mut gid: libc::gid_t = 0;
+        // SAFETY: `fd` is a socket this process owns; uid/gid are valid
+        // out-pointers.
+        let r = unsafe { libc::getpeereid(fd, &mut uid, &mut gid) };
+        (r == 0).then_some(uid)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: `cred` and `len` are valid for writing and `len` is its size.
+        let r = unsafe {
+            libc::getsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut cred as *mut libc::ucred).cast(),
+                &mut len,
+            )
+        };
+        (r == 0).then_some(cred.uid)
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "linux"
+    )))]
+    {
+        let _ = fd;
+        None
+    }
+}
+
+/// Whether the other end of `fd` runs as this user. A run sends the whole
+/// environment (API keys) and the daemon runs whatever argv it gets, so
+/// both ends check: the socket's 0600 mode is set only after `bind`, and a
+/// socket path in a shared directory (or the old HOME-less
+/// `/tmp/.velocity/daemon.sock`) could be bound first by another user
+/// (audit 2026-11 FS-3).
+fn peer_is_us(fd: std::os::fd::RawFd) -> bool {
+    // SAFETY: geteuid has no preconditions and can't fail.
+    let me = unsafe { libc::geteuid() };
+    peer_uid(fd) == Some(me)
+}
+
+/// Connect to the daemon socket, refusing one another user is serving.
+fn connect_own(path: &std::path::Path) -> anyhow::Result<std::os::unix::net::UnixStream> {
+    use std::os::fd::AsRawFd;
+    let s = std::os::unix::net::UnixStream::connect(path)?;
+    if !peer_is_us(s.as_raw_fd()) {
+        anyhow::bail!(
+            "the daemon socket {} is served by another user; refusing to send it this \
+             environment (remove it, or set VELOCITY_DAEMON_SOCKET to a path of your own)",
+            path.display()
+        );
+    }
+    Ok(s)
+}
+
 fn send(req: &Request) -> anyhow::Result<String> {
-    let mut s = std::os::unix::net::UnixStream::connect(socket_path())?;
+    let mut s = connect_own(&socket_path())?;
     // A daemon busy with a run answers after it: don't hang on it.
     s.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     s.set_write_timeout(Some(std::time::Duration::from_secs(10)))?;
@@ -254,48 +344,244 @@ fn send(req: &Request) -> anyhow::Result<String> {
 /// Client side of `velocity run --daemon`. `Ok(None)`: no daemon is
 /// running; the caller runs locally.
 pub fn client_run(argv: Vec<String>) -> anyhow::Result<Option<i32>> {
-    let Ok(mut s) = std::os::unix::net::UnixStream::connect(socket_path()) else {
-        return Ok(None);
-    };
     // All of it: suites read their own `${VARS}`, and the socket is the
     // owner's only (0600).
-    let env = std::env::vars().collect();
     let req = Request::Run {
         cwd: std::env::current_dir()?.to_string_lossy().into_owned(),
         argv,
-        env,
+        env: std::env::vars().collect(),
         // The client's decision (`--color`, NO_COLOR, its terminal), C4.
         color: velocity_common::color::enabled(),
     };
-    s.write_all(serde_json::to_string(&req)?.as_bytes())?;
+    client_stream(&req)
+}
+
+/// Client side of a web agent command. `Ok(None)`: no daemon is running.
+pub fn client_agent(argv: Vec<String>, stdin: Option<String>) -> anyhow::Result<Option<i32>> {
+    let req = Request::Agent {
+        cwd: std::env::current_dir()?.to_string_lossy().into_owned(),
+        argv,
+        // Secrets (`type --secret NAME`) and VELOCITY_SESSION are read
+        // from the client's environment.
+        env: std::env::vars().collect(),
+        color: velocity_common::color::enabled(),
+        stdin,
+    };
+    client_stream(&req)
+}
+
+/// Start `velocity daemon start` detached from this process (its own
+/// process group, output in `~/.velocity/daemon.log`) and wait until it
+/// answers, for at most 10 s.
+pub fn spawn_background() -> anyhow::Result<()> {
+    use std::os::unix::process::CommandExt;
+    let path = socket_path();
+    let dir = path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    std::fs::create_dir_all(&dir)?;
+    let log = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(dir.join("daemon.log"))?
+    };
+    let log_path = dir.join("daemon.log");
+    let mut child = std::process::Command::new(std::env::current_exe()?)
+        .args(["daemon", "start"])
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log)
+        .process_group(0)
+        .spawn()?;
+    eprintln!("=> started velocity daemon (stop it with `velocity daemon stop`)");
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < until {
+        if send(&Request::Ping).is_ok() {
+            return Ok(());
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            // Another client's daemon may have won the race for the socket
+            // (and may be busy with a run already: it queues ours).
+            if legacy_daemon_present()
+                || matches!(take_daemon_lock(&path), Ok(Err(Taken::Locked(_))))
+            {
+                return Ok(());
+            }
+            let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+            let last = log.lines().last().unwrap_or("").to_string();
+            anyhow::bail!("velocity daemon exited at start ({status}): {last}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    anyhow::bail!(
+        "velocity daemon did not start within 10 s; see {}",
+        log_path.display()
+    )
+}
+
+/// Send `req` and copy the daemon's output to stdout until its exit code.
+fn client_stream(req: &Request) -> anyhow::Result<Option<i32>> {
+    let path = socket_path();
+    let Ok(raw) = std::os::unix::net::UnixStream::connect(&path) else {
+        return Ok(None);
+    };
+    {
+        use std::os::fd::AsRawFd;
+        if !peer_is_us(raw.as_raw_fd()) {
+            anyhow::bail!(
+                "the daemon socket {} is served by another user; refusing to send it this \
+                 environment (remove it, or set VELOCITY_DAEMON_SOCKET to a path of your own)",
+                path.display()
+            );
+        }
+    }
+    let mut s = raw;
+    s.write_all(serde_json::to_string(req)?.as_bytes())?;
     s.write_all(b"\n")?;
+    // The daemon serves one request at a time: say so when ours waits
+    // instead of sitting silent until the other run ends.
+    let started = Arc::new(AtomicBool::new(false));
+    {
+        let started = started.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(QUEUED_AFTER);
+            if !started.load(Ordering::SeqCst) {
+                eprintln!(
+                    "=> queued: the daemon is busy with another run; this one starts when it \
+                     finishes (Ctrl-C to give up, or run without --daemon)"
+                );
+            }
+        });
+    }
     let mut reader = BufReader::new(s);
     let mut stdout = std::io::stdout();
     let mut line = Vec::new();
     loop {
         line.clear();
-        if reader.read_until(b'\n', &mut line)? == 0 {
-            anyhow::bail!("the daemon closed the connection before the run finished");
+        let n = reader.read_until(b'\n', &mut line)?;
+        // Any byte means the daemon got to us (an older daemon sends no
+        // start marker, only output).
+        started.store(true, Ordering::SeqCst);
+        if n == 0 {
+            // Infrastructure, not a bug in the run: exit 3 so pipelines that
+            // retry on device/infra failures retry this too.
+            eprintln!(
+                "error: the daemon closed the connection before the run finished \
+                 (it crashed or was stopped); see {} and run again",
+                socket_path().with_file_name("daemon.log").display()
+            );
+            return Ok(Some(3));
         }
         let text = String::from_utf8_lossy(&line);
         if let Some(code) = text.strip_prefix(EXIT_MARKER) {
             return Ok(Some(code.trim().parse().unwrap_or(5)));
+        }
+        if text.trim_end() == START_MARKER {
+            continue;
         }
         stdout.write_all(&line)?;
         stdout.flush()?;
     }
 }
 
+/// The single-instance lock next to the socket: `daemon.sock.lock`.
+fn lock_path(socket: &std::path::Path) -> PathBuf {
+    let mut name = socket.as_os_str().to_owned();
+    name.push(".lock");
+    PathBuf::from(name)
+}
+
+/// Why `daemon start` must not take over: a daemon already holds the
+/// lock, or (an older daemon without the lock) answers or is busy.
+#[derive(Debug)]
+enum Taken {
+    /// The lock is held; the pid it records, when readable.
+    Locked(Option<u32>),
+    /// A daemon answered a ping, or timed out on it because it is mid-run.
+    Answering,
+}
+
+/// Take the daemon's single-instance lock for the process's whole life
+/// (an advisory `flock`, released by the kernel when the daemon exits, so a
+/// crashed daemon never leaves a stale lock). The pid in the file is for
+/// the error message only, never trusted for exclusion.
+fn take_daemon_lock(socket: &std::path::Path) -> anyhow::Result<Result<std::fs::File, Taken>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    if let Some(dir) = socket.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let path = lock_path(socket);
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        // Never through a symlink at the lock's name (audit 2026-11 FS-3).
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)?;
+    if !file.metadata()?.file_type().is_file() {
+        anyhow::bail!("{} is not a plain lock file; remove it", path.display());
+    }
+    match file.try_lock() {
+        Ok(()) => {
+            file.set_len(0)?;
+            writeln!(file, "{}", std::process::id())?;
+            Ok(Ok(file))
+        }
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let pid = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|t| t.trim().parse().ok());
+            Ok(Err(Taken::Locked(pid)))
+        }
+        Err(std::fs::TryLockError::Error(e)) => Err(anyhow::anyhow!(
+            "can't lock {}: {e} (set VELOCITY_DAEMON_SOCKET to a path on a local disk)",
+            path.display()
+        )),
+    }
+}
+
+/// Whether a daemon without the lock (an older version) is on the socket.
+/// A ping that times out is a daemon busy with a run, not an absent one.
+fn legacy_daemon_present() -> bool {
+    match send(&Request::Ping) {
+        Ok(_) => true,
+        Err(e) => e.to_string().contains("busy"),
+    }
+}
+
+fn already_running(path: &std::path::Path, taken: &Taken) -> anyhow::Error {
+    let who = match taken {
+        Taken::Locked(Some(pid)) => format!(" (pid {pid})"),
+        _ => String::new(),
+    };
+    anyhow::anyhow!(
+        "a daemon is already running at {}{who}. \
+         Use it with `velocity run --daemon`, check it with `velocity daemon status`, \
+         or stop it with `velocity daemon stop` first",
+        path.display()
+    )
+}
+
 async fn serve() -> anyhow::Result<i32> {
     use std::os::unix::fs::PermissionsExt;
     let path = socket_path();
-    if send(&Request::Ping).is_ok() {
-        anyhow::bail!("a daemon is already running at {}", path.display());
+    // Held until the daemon exits: a second `daemon start` fails here
+    // instead of unlinking the socket of a daemon busy with a run.
+    let _instance = match take_daemon_lock(&path)? {
+        Ok(lock) => lock,
+        Err(taken) => return Err(already_running(&path, &taken)),
+    };
+    if legacy_daemon_present() {
+        return Err(already_running(&path, &Taken::Answering));
     }
     let _ = std::fs::remove_file(&path);
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
     let listener = tokio::net::UnixListener::bind(&path)?;
     // Runs carry the client's environment (API keys): owner only.
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
@@ -345,6 +631,7 @@ async fn serve() -> anyhow::Result<i32> {
     for d in drivers {
         velocity_common::PlatformDriver::cleanup(&*d).await;
     }
+    super::agent::cleanup_daemon_drivers().await;
     let _ = std::fs::remove_file(&path);
     Ok(0)
 }
@@ -359,7 +646,11 @@ enum Served {
 /// every later `status`, `stop` and run, forever (VEL-029). A line that
 /// isn't a request (not JSON, not UTF-8) is answered and dropped.
 async fn serve_one(stream: tokio::net::UnixStream) -> anyhow::Result<Served> {
+    use std::os::fd::AsRawFd;
     use tokio::io::AsyncBufReadExt;
+    if !peer_is_us(stream.as_raw_fd()) {
+        anyhow::bail!("refused a connection from another user");
+    }
     let mut reader = tokio::io::BufReader::new(stream);
     let mut line = Vec::new();
     match tokio::time::timeout(REQUEST_TIMEOUT, reader.read_until(b'\n', &mut line)).await {
@@ -390,7 +681,19 @@ async fn serve_one(stream: tokio::net::UnixStream) -> anyhow::Result<Served> {
             env,
             color,
         }) => {
-            let code = run_for_client(&stream, &cwd, &argv, &env, color).await;
+            let _ = stream.write_all(format!("{START_MARKER}\n").as_bytes());
+            let code = run_for_client(&stream, &cwd, Job::Run(&argv), &env, color).await;
+            let _ = stream.write_all(format!("{EXIT_MARKER}{code}\n").as_bytes());
+        }
+        Ok(Request::Agent {
+            cwd,
+            argv,
+            env,
+            color,
+            stdin,
+        }) => {
+            let _ = stream.write_all(format!("{START_MARKER}\n").as_bytes());
+            let code = run_for_client(&stream, &cwd, Job::Agent(&argv, stdin), &env, color).await;
             let _ = stream.write_all(format!("{EXIT_MARKER}{code}\n").as_bytes());
         }
         Err(e) => {
@@ -428,12 +731,20 @@ fn peer_alive(stream: &std::os::unix::net::UnixStream) -> bool {
     )
 }
 
-/// Run one client's `velocity run`, with this process's stdout/stderr,
-/// working directory and Velocity environment pointed at the client.
+/// What a client asked the daemon to do.
+enum Job<'a> {
+    Run(&'a [String]),
+    /// An agent command, with the client's stdin for `type --stdin`.
+    Agent(&'a [String], Option<String>),
+}
+
+/// Run one client's `velocity run` (or agent command), with this process's
+/// stdout/stderr, working directory and Velocity environment pointed at
+/// the client.
 async fn run_for_client(
     stream: &std::os::unix::net::UnixStream,
     cwd: &str,
-    argv: &[String],
+    job: Job<'_>,
     env: &[(String, String)],
     color: bool,
 ) -> i32 {
@@ -453,6 +764,24 @@ async fn run_for_client(
     // SAFETY: plain fd duplication; the saved fds are restored below and
     // closed exactly once.
     let (out, err) = unsafe { (libc::dup(1), libc::dup(2)) };
+    if out < 0 || err < 0 {
+        // Out of descriptors: redirecting now would leave 1 and 2 on the
+        // pipe for good, and the pump waiting for an EOF that never comes
+        // (audit 2026-11). Close what we have; the pump sees EOF and ends.
+        // SAFETY: each fd closed here is one this function opened, once.
+        unsafe {
+            if out >= 0 {
+                libc::close(out);
+            }
+            if err >= 0 {
+                libc::close(err);
+            }
+            libc::close(pipe_write);
+        }
+        drop(pump);
+        eprintln!("=> daemon: out of file descriptors; refused a client run");
+        return 5;
+    }
     // SAFETY: `pipe_write` is the pipe's write end, ours until closed here;
     // 1 and 2 stay open throughout (now copies of it).
     unsafe {
@@ -469,27 +798,61 @@ async fn run_for_client(
             velocity_common::env::install(env.iter().cloned().collect());
             colored::control::set_override(color);
             velocity_common::color::set(color);
-            match RunOnly::try_parse_from(argv) {
-                // Its own task: a panic in the run ends the run (exit 5),
-                // not the daemon.
-                Ok(parsed) => match tokio::spawn(super::run::execute(parsed.args)).await {
-                    Ok(Ok(code)) => code,
-                    Ok(Err(e)) => {
-                        println!("error: {}", crate::redacted(&e));
-                        super::exit_code_for(&e)
+            match job {
+                // Its own task: a panic ends the command, not the daemon.
+                Job::Agent(argv, stdin) => {
+                    let argv = argv.to_vec();
+                    match tokio::spawn(async move {
+                        super::agent::execute_in_daemon(&argv, stdin).await
+                    })
+                    .await
+                    {
+                        Ok(code) => code,
+                        Err(e) => {
+                            println!("error: internal error: the command stopped: {e}");
+                            5
+                        }
                     }
-                    Err(e) => {
-                        println!("error: internal error: the run stopped: {e}");
-                        5
-                    }
-                },
-                Err(e) => {
-                    println!("{e}");
-                    2
                 }
+                Job::Run(argv) => run_parsed(argv).await,
             }
         }
     };
+    finish_client_io(out, err, pump, saved_cwd, daemon_color).await;
+    code
+}
+
+/// Parse and run one `velocity run`.
+async fn run_parsed(argv: &[String]) -> i32 {
+    match RunOnly::try_parse_from(argv) {
+        // Its own task: a panic in the run ends the run (exit 5),
+        // not the daemon.
+        Ok(parsed) => match tokio::spawn(super::run::execute(parsed.args)).await {
+            Ok(Ok(code)) => code,
+            Ok(Err(e)) => {
+                println!("error: {}", crate::redacted(&e));
+                super::exit_code_for(&e)
+            }
+            Err(e) => {
+                println!("error: internal error: the run stopped: {e}");
+                5
+            }
+        },
+        Err(e) => {
+            println!("{e}");
+            2
+        }
+    }
+}
+
+/// Undo [`run_for_client`]'s redirection and environment.
+async fn finish_client_io(
+    out: libc::c_int,
+    err: libc::c_int,
+    pump: std::thread::JoinHandle<()>,
+    saved_cwd: Option<PathBuf>,
+    daemon_color: bool,
+) {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     // SAFETY: `out` and `err` are the fds saved above, restored onto 1 and 2
@@ -511,7 +874,6 @@ async fn run_for_client(
     if let Some(c) = saved_cwd {
         let _ = std::env::set_current_dir(c);
     }
-    code
 }
 
 /// How long one write to the client may block before the client counts
@@ -598,6 +960,62 @@ fn pump_to(
 mod tests {
     use super::*;
     use velocity_common::{DriverMode, Framework};
+
+    /// Audit 2026-11 FS-3: both ends check who is on the other side.
+    #[test]
+    fn the_peer_of_a_socket_pair_is_this_user() {
+        use std::os::fd::AsRawFd;
+        let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert!(peer_is_us(a.as_raw_fd()));
+        assert_eq!(peer_uid(-1), None);
+    }
+
+    /// Audit 2026-11 FS-3: a symlink at the lock's name is refused, and
+    /// its target left alone.
+    #[test]
+    fn a_symlinked_daemon_lock_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, "keep").unwrap();
+        let socket = dir.path().join("daemon.sock");
+        std::os::unix::fs::symlink(&victim, lock_path(&socket)).unwrap();
+        assert!(take_daemon_lock(&socket).is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+    }
+
+    // A second `daemon start` must fail on the lock, whatever the first
+    // daemon is doing (a ping to a daemon mid-run times out).
+    #[test]
+    fn a_second_daemon_cannot_take_the_lock_while_the_first_holds_it() {
+        let dir = std::env::temp_dir().join(format!("velocity-daemon-lock-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let socket = dir.join("daemon.sock");
+        let first = take_daemon_lock(&socket)
+            .unwrap()
+            .expect("first daemon locks");
+        match take_daemon_lock(&socket).unwrap() {
+            Err(Taken::Locked(pid)) => assert_eq!(pid, Some(std::process::id())),
+            other => panic!("second daemon got {other:?}"),
+        }
+        let msg = already_running(&socket, &Taken::Locked(Some(42))).to_string();
+        assert!(
+            msg.contains("pid 42") && msg.contains("velocity daemon stop"),
+            "{msg}"
+        );
+        drop(first);
+        // Another test spawning a child at this moment can hold a forked
+        // copy of the descriptor (and so the flock) until its exec closes
+        // it: give that window a moment rather than fail on it.
+        let released = (0..50).any(|_| {
+            let ok = take_daemon_lock(&socket).unwrap().is_ok();
+            if !ok {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            ok
+        });
+        assert!(released, "released on exit");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     // VEL-002: a device-mode run must not get the headless driver an
     // earlier run left in the pool (nor one built from another config).
@@ -723,5 +1141,42 @@ mod tests {
                 &cfg
             )
         );
+    }
+
+    #[test]
+    fn an_agent_request_round_trips_and_old_lines_have_no_stdin() {
+        let req = Request::Agent {
+            cwd: "/w".into(),
+            argv: vec!["tap".into(), "@e3".into(), "-p".into(), "web".into()],
+            env: vec![("VELOCITY_SESSION".into(), "a".into())],
+            color: false,
+            stdin: Some("typed text\n".into()),
+        };
+        let line = serde_json::to_string(&req).unwrap();
+        assert!(line.contains(r#""kind":"agent""#), "{line}");
+        match serde_json::from_str::<Request>(&line).unwrap() {
+            Request::Agent {
+                cwd,
+                argv,
+                env,
+                color,
+                stdin,
+            } => {
+                assert_eq!(cwd, "/w");
+                assert_eq!(argv, ["tap", "@e3", "-p", "web"]);
+                assert_eq!(env, [("VELOCITY_SESSION".to_string(), "a".to_string())]);
+                assert!(!color);
+                assert_eq!(stdin.as_deref(), Some("typed text\n"));
+            }
+            _ => panic!("not an agent request: {line}"),
+        }
+        let old = r#"{"kind":"agent","cwd":"/w","argv":["snapshot"],"env":[],"color":true}"#;
+        match serde_json::from_str::<Request>(old).unwrap() {
+            Request::Agent { stdin, argv, .. } => {
+                assert_eq!(stdin, None);
+                assert_eq!(argv, ["snapshot"]);
+            }
+            _ => panic!("not an agent request"),
+        }
     }
 }

@@ -29,10 +29,14 @@ pub struct ResourceBaseline {
     pub avg_cpu_percent: f32,
 }
 
+/// The old name of [`HistoryOutcome`] (review 06 #10: four types were
+/// called `Outcome`).
+pub type Outcome = HistoryOutcome;
+
 /// How one run of a test ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Outcome {
+pub enum HistoryOutcome {
     Pass,
     Fail,
     /// Failed, then passed on retry.
@@ -164,7 +168,7 @@ pub struct TestHistory {
     pub resource_baselines: HashMap<String, ResourceBaseline>,
     /// Recent outcomes per test, oldest first.
     #[serde(default)]
-    pub outcomes: HashMap<String, Vec<Outcome>>,
+    pub outcomes: HashMap<String, Vec<HistoryOutcome>>,
     /// When each test last ran (unix seconds).
     #[serde(default)]
     pub last_run: HashMap<String, u64>,
@@ -176,7 +180,7 @@ pub struct TestHistory {
         rename = "byDevice",
         skip_serializing_if = "HashMap::is_empty"
     )]
-    pub by_device: HashMap<String, HashMap<String, Vec<Outcome>>>,
+    pub by_device: HashMap<String, HashMap<String, Vec<HistoryOutcome>>>,
     /// When each test last ran on each device profile (unix seconds),
     /// keyed like [`by_device`](Self::by_device). Merging shared history
     /// ranks a profile's outcomes by this, not by the test-wide
@@ -262,27 +266,27 @@ pub async fn device_profiles(driver: &dyn PlatformDriver) -> HashMap<String, Dev
 
 /// Share of runs that flipped (pass↔fail) or passed only on retry; `None`
 /// under two runs.
-fn flakiness_of(runs: &[Outcome]) -> Option<f64> {
+fn flakiness_of(runs: &[HistoryOutcome]) -> Option<f64> {
     if runs.len() < 2 {
         return None;
     }
-    let flaky = runs.iter().filter(|o| **o == Outcome::Flaky).count();
+    let flaky = runs.iter().filter(|o| **o == HistoryOutcome::Flaky).count();
     let flips = runs
         .windows(2)
-        .filter(|w| (w[0] == Outcome::Fail) != (w[1] == Outcome::Fail))
+        .filter(|w| (w[0] == HistoryOutcome::Fail) != (w[1] == HistoryOutcome::Fail))
         .count();
     Some((flaky + flips) as f64 / (runs.len() + runs.len() - 1) as f64)
 }
 
 /// The kind of each run in `runs` (`None` for a pass), given `kinds` for
 /// the newest failed or flaky ones; older ones are `Unknown`.
-fn kinds_per_run(runs: &[Outcome], kinds: &[FailureKind]) -> Vec<Option<FailureKind>> {
-    let failing = runs.iter().filter(|o| **o != Outcome::Pass).count();
+fn kinds_per_run(runs: &[HistoryOutcome], kinds: &[FailureKind]) -> Vec<Option<FailureKind>> {
+    let failing = runs.iter().filter(|o| **o != HistoryOutcome::Pass).count();
     let mut known = kinds[kinds.len().saturating_sub(failing)..].iter();
     let mut unknown = failing.saturating_sub(kinds.len());
     runs.iter()
         .map(|o| {
-            if *o == Outcome::Pass {
+            if *o == HistoryOutcome::Pass {
                 None
             } else if unknown > 0 {
                 unknown -= 1;
@@ -298,7 +302,7 @@ fn kinds_per_run(runs: &[Outcome], kinds: &[FailureKind]) -> Vec<Option<FailureK
 /// first attempt's kind, a flip for the kind of the failed run in it (a
 /// flip has exactly one). The shares add up to the overall score. Worst
 /// first; kinds that never flaked are left out.
-fn flakiness_by_kind_of(runs: &[Outcome], kinds: &[FailureKind]) -> Vec<(FailureKind, f64)> {
+fn flakiness_by_kind_of(runs: &[HistoryOutcome], kinds: &[FailureKind]) -> Vec<(FailureKind, f64)> {
     if runs.len() < 2 {
         return Vec::new();
     }
@@ -306,12 +310,15 @@ fn flakiness_by_kind_of(runs: &[Outcome], kinds: &[FailureKind]) -> Vec<(Failure
     let kind = |i: usize| per_run[i].unwrap_or(FailureKind::Unknown);
     let mut counts: std::collections::BTreeMap<FailureKind, usize> = Default::default();
     for (i, o) in runs.iter().enumerate() {
-        if *o == Outcome::Flaky {
+        if *o == HistoryOutcome::Flaky {
             *counts.entry(kind(i)).or_default() += 1;
         }
     }
     for i in 1..runs.len() {
-        let (before, after) = (runs[i - 1] == Outcome::Fail, runs[i] == Outcome::Fail);
+        let (before, after) = (
+            runs[i - 1] == HistoryOutcome::Fail,
+            runs[i] == HistoryOutcome::Fail,
+        );
         if before != after {
             *counts
                 .entry(kind(if before { i - 1 } else { i }))
@@ -328,14 +335,14 @@ fn flakiness_by_kind_of(runs: &[Outcome], kinds: &[FailureKind]) -> Vec<(Failure
 }
 
 /// The flag rule (see [`TestHistory::flagged_flaky`]) on one run list.
-fn flagged(runs: &[Outcome]) -> bool {
+fn flagged(runs: &[HistoryOutcome]) -> bool {
     if runs.len() < FLAG_MIN_RUNS {
         return false;
     }
     let cleared = runs.len() >= CLEAR_AFTER
         && runs[runs.len() - CLEAR_AFTER..]
             .iter()
-            .all(|o| *o == Outcome::Pass);
+            .all(|o| *o == HistoryOutcome::Pass);
     !cleared && flakiness_of(runs).is_some_and(|f| f >= FLAG_THRESHOLD)
 }
 
@@ -428,7 +435,7 @@ impl TestHistory {
         if runs.len() < FLAG_MIN_RUNS {
             return None;
         }
-        let failing = runs.iter().filter(|o| **o != Outcome::Pass).count();
+        let failing = runs.iter().filter(|o| **o != HistoryOutcome::Pass).count();
         Some(failing as f64 / runs.len() as f64)
     }
 
@@ -462,7 +469,7 @@ impl TestHistory {
         self.outcomes
             .get(test)
             .and_then(|r| r.last())
-            .is_some_and(|o| *o == Outcome::Fail)
+            .is_some_and(|o| *o == HistoryOutcome::Fail)
     }
 }
 
@@ -741,7 +748,7 @@ pub fn update_saved(path: &str, change: impl FnOnce(&mut TestHistory)) -> Result
         change(&mut history);
         save(path, &history).map(|()| history)
     })
-    .map_err(|e| VelocityError::Config(format!("failed to lock {}: {e}", file.display())))?
+    .map_err(|e| VelocityError::io(format!("failed to lock {}", file.display()), e))?
 }
 
 /// Bring a history read from an older file up to [`HISTORY_VERSION`].
@@ -804,24 +811,24 @@ fn forget_stale_at(
 pub fn save(path: &str, history: &TestHistory) -> Result<()> {
     let dir = std::path::Path::new(path);
     std::fs::create_dir_all(dir).map_err(|e| {
-        VelocityError::Config(format!(
-            "failed to create history directory {}: {e}",
-            dir.display()
-        ))
+        VelocityError::io(
+            format!("failed to create history directory {}", dir.display()),
+            e,
+        )
     })?;
 
     let file_path = dir.join(HISTORY_FILENAME);
     let mut history = history.clone();
     history.version = history.version.max(HISTORY_VERSION);
     let json = serde_json::to_string_pretty(&history)
-        .map_err(|e| VelocityError::Config(format!("failed to serialize history: {e}")))?;
+        .map_err(|e| VelocityError::io("failed to serialize history", e))?;
 
     // Atomic: a torn file would fail to parse and cost the whole history.
     velocity_common::fsutil::write_private(&file_path, json.as_bytes()).map_err(|e| {
-        VelocityError::Config(format!(
-            "failed to write history file {}: {e}",
-            file_path.display()
-        ))
+        VelocityError::io(
+            format!("failed to write history file {}", file_path.display()),
+            e,
+        )
     })?;
 
     Ok(())
@@ -880,9 +887,9 @@ pub fn update_with_devices(
             continue;
         }
         let outcome = match result.status {
-            TestStatus::Passed => Outcome::Pass,
-            TestStatus::Failed => Outcome::Fail,
-            TestStatus::Retried => Outcome::Flaky,
+            TestStatus::Passed => HistoryOutcome::Pass,
+            TestStatus::Failed => HistoryOutcome::Fail,
+            TestStatus::Retried => HistoryOutcome::Flaky,
             TestStatus::Skipped => continue,
         };
         let now = now_secs();
@@ -911,8 +918,8 @@ pub fn update_with_devices(
         if runs.len() > OUTCOME_WINDOW {
             runs.drain(..runs.len() - OUTCOME_WINDOW);
         }
-        let failing = runs.iter().filter(|o| **o != Outcome::Pass).count();
-        if outcome != Outcome::Pass {
+        let failing = runs.iter().filter(|o| **o != HistoryOutcome::Pass).count();
+        if outcome != HistoryOutcome::Pass {
             history
                 .failure_kinds
                 .entry(result.test_name.clone())
@@ -948,7 +955,7 @@ pub fn update_with_devices(
         // and a retried run counts every attempt, so either would skew it.
         let duration_ms = result.duration.as_millis() as u64;
         let estimate = match history.durations.get(&result.test_name) {
-            Some(&old) if outcome != Outcome::Pass => old,
+            Some(&old) if outcome != HistoryOutcome::Pass => old,
             Some(&old) => {
                 (DURATION_ALPHA * duration_ms as f64 + (1.0 - DURATION_ALPHA) * old as f64) as u64
             }
@@ -956,8 +963,10 @@ pub fn update_with_devices(
         };
         history.durations.insert(result.test_name.clone(), estimate);
 
-        // Update resource baselines if profiling data is present
-        if let Some(ref peak) = result.resource_peak {
+        // Only a clean pass becomes the memory baseline. A run that failed
+        // (a memory breach included) or passed on retry would otherwise
+        // be the next run's baseline, and the breach would pass then.
+        if let (Some(peak), HistoryOutcome::Pass) = (&result.resource_peak, outcome) {
             history.resource_baselines.insert(
                 result.test_name.clone(),
                 ResourceBaseline {
@@ -1051,8 +1060,33 @@ pub(crate) fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Check if current metrics exceed historical baseline by the given threshold.
-/// Returns a warning message if regression detected, None otherwise.
+/// The memory check (`config.performance`): a test whose peak total PSS
+/// rose more than `threshold_pct` above its saved baseline fails. Runs on
+/// the result before it is cached, reported or recorded, in both runners.
+/// Returns whether the test was failed for it.
+pub fn apply_memory_check(
+    result: &mut TestResult,
+    baseline: Option<&ResourceBaseline>,
+    threshold_pct: u32,
+) -> bool {
+    if !matches!(result.status, TestStatus::Passed | TestStatus::Retried) {
+        return false;
+    }
+    let (Some(peak), Some(baseline)) = (&result.resource_peak, baseline) else {
+        return false;
+    };
+    let Some(why) = check_regression(baseline, peak, threshold_pct) else {
+        return false;
+    };
+    result.status = TestStatus::Failed;
+    result.error_message = Some(format!(
+        "memory regression: {why}, over the {threshold_pct}% allowed (config.performance.pssGrowthThresholdPct)"
+    ));
+    true
+}
+
+/// Whether the peak total PSS exceeds the baseline by more than
+/// `threshold_pct`; the reason when it does.
 pub fn check_regression(
     baseline: &ResourceBaseline,
     current_peak: &ResourceSnapshot,
@@ -1104,6 +1138,71 @@ mod tests {
         }
     }
 
+    fn with_pss(name: &str, pss_kb: u64) -> TestResult {
+        let mut r = make_result(name, 100);
+        r.resource_peak = Some(ResourceSnapshot {
+            java_heap_kb: 0,
+            native_heap_kb: 0,
+            total_pss_kb: pss_kb,
+            cpu_percent: 0.0,
+            timestamp_ms: 0,
+        });
+        r
+    }
+
+    // NEW-021: a breach fails the test, and the run after it still fails
+    // (the breached run never becomes the baseline).
+    #[test]
+    fn a_memory_breach_fails_and_keeps_failing_until_memory_comes_down() {
+        let mut history = TestHistory::default();
+        let first = with_pss("t", 100_000);
+        update(&mut history, std::slice::from_ref(&first));
+        assert_eq!(history.resource_baselines["t"].peak_pss_kb, 100_000);
+
+        for _ in 0..2 {
+            let mut r = with_pss("t", 130_000);
+            let base = history.resource_baselines.get("t");
+            assert!(apply_memory_check(&mut r, base, 15));
+            assert_eq!(r.status, TestStatus::Failed);
+            let msg = r.error_message.as_deref().unwrap();
+            assert!(
+                msg.starts_with("memory regression: PSS grew 30.0%"),
+                "{msg}"
+            );
+            update(&mut history, std::slice::from_ref(&r));
+            assert_eq!(history.resource_baselines["t"].peak_pss_kb, 100_000);
+        }
+
+        let mut ok = with_pss("t", 110_000);
+        assert!(!apply_memory_check(
+            &mut ok,
+            history.resource_baselines.get("t"),
+            15
+        ));
+        assert_eq!(ok.status, TestStatus::Passed);
+        update(&mut history, std::slice::from_ref(&ok));
+        assert_eq!(history.resource_baselines["t"].peak_pss_kb, 110_000);
+    }
+
+    #[test]
+    fn the_memory_check_leaves_failures_and_unprofiled_runs_alone() {
+        let base = ResourceBaseline {
+            peak_pss_kb: 100,
+            peak_java_heap_kb: 0,
+            avg_cpu_percent: 0.0,
+        };
+        let mut failed = with_pss("t", 500);
+        failed.status = TestStatus::Failed;
+        failed.error_message = Some("element not found".into());
+        assert!(!apply_memory_check(&mut failed, Some(&base), 15));
+        assert_eq!(failed.error_message.as_deref(), Some("element not found"));
+        let mut no_peak = make_result("t", 100);
+        assert!(!apply_memory_check(&mut no_peak, Some(&base), 15));
+        let mut no_base = with_pss("t", 500);
+        assert!(!apply_memory_check(&mut no_base, None, 15));
+        assert_eq!(no_base.status, TestStatus::Passed);
+    }
+
     // VEL-189: tests not run for 90 days leave the history.
     #[test]
     fn tests_not_run_for_months_are_forgotten() {
@@ -1113,7 +1212,7 @@ mod tests {
         history.durations.insert("deleted".into(), 100);
         history
             .outcomes
-            .insert("deleted".into(), vec![Outcome::Pass]);
+            .insert("deleted".into(), vec![HistoryOutcome::Pass]);
         history.durations.insert("no-date".into(), 100);
         update(&mut history, &[make_result("ran", 1500)]);
         let suite: std::collections::HashSet<String> = ["ran".to_string()].into();
@@ -1414,15 +1513,20 @@ mod tests {
     #[test]
     fn flaky_flag_needs_enough_runs_and_clears_after_a_clean_streak() {
         let mut h = TestHistory::default();
-        let flip = [Outcome::Pass, Outcome::Fail, Outcome::Pass, Outcome::Flaky];
+        let flip = [
+            HistoryOutcome::Pass,
+            HistoryOutcome::Fail,
+            HistoryOutcome::Pass,
+            HistoryOutcome::Flaky,
+        ];
         h.outcomes.insert("t".into(), flip.to_vec());
         assert!(!h.flagged_flaky("t"), "4 runs is too few");
-        h.outcomes.get_mut("t").unwrap().push(Outcome::Fail);
+        h.outcomes.get_mut("t").unwrap().push(HistoryOutcome::Fail);
         assert!(h.flagged_flaky("t"));
         h.outcomes
             .get_mut("t")
             .unwrap()
-            .extend(std::iter::repeat_n(Outcome::Pass, 10));
+            .extend(std::iter::repeat_n(HistoryOutcome::Pass, 10));
         assert!(!h.flagged_flaky("t"), "ten straight passes clear it");
         let report = flaky_report(&h, &[with("t", TestStatus::Passed)]);
         assert!(report.is_empty());
@@ -1605,7 +1709,7 @@ mod tests {
         assert_eq!(again.outcomes["a"].len(), 6);
         assert_eq!(
             again.by_device["a"]["iPhone SE / iOS 17"],
-            vec![Outcome::Pass]
+            vec![HistoryOutcome::Pass]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1616,15 +1720,15 @@ mod tests {
         h.outcomes.insert(
             "t".into(),
             vec![
-                Outcome::Pass,
-                Outcome::Fail,
-                Outcome::Pass,
-                Outcome::Flaky,
-                Outcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Fail,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Flaky,
+                HistoryOutcome::Pass,
             ],
         );
         assert_eq!(h.fail_rate("t"), Some(0.4));
-        h.outcomes.insert("new".into(), vec![Outcome::Fail]);
+        h.outcomes.insert("new".into(), vec![HistoryOutcome::Fail]);
         assert_eq!(h.fail_rate("new"), None, "too few runs to estimate");
     }
 
@@ -1854,6 +1958,7 @@ mod tests {
             ),
             (
                 VelocityError::WdaLost {
+                    device_id: String::new(),
                     url: "http://localhost:8100".into(),
                     detail: "reset".into(),
                 }

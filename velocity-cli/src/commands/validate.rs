@@ -59,7 +59,11 @@ fn validate_one(config: &str) -> anyhow::Result<i32> {
         Ok(s) => s,
         Err(e) => {
             println!();
-            println!("  {} Parse error: {e}", "✗".red().bold());
+            println!(
+                "  {} Parse error: {}",
+                "✗".red().bold(),
+                super::load_error(config, &e)
+            );
             return Ok(2);
         }
     };

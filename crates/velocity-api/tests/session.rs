@@ -132,6 +132,10 @@ fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
             }
         }
         ("GET", "/redirect") => (302, vec![("location", "/me".into())], String::new()),
+        ("GET", "/hop") => {
+            let to = req.target.split_once("to=").map_or("/", |(_, t)| t);
+            (307, vec![("location", to.to_string())], String::new())
+        }
         ("GET", "/slow") => {
             std::thread::sleep(Duration::from_millis(400));
             json_reply(200, json!({}))
@@ -358,6 +362,50 @@ async fn redirects_are_followed_unless_the_step_checks_them() {
         .unwrap();
     s.run(
         &step("url: /redirect\nfollowRedirects: false\nexpect: { status: 302, headers: { location: /me } }"),
+        T,
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_redirect_to_another_origin_does_not_carry_the_suites_headers() {
+    // Audit 2026-11 API-1: reqwest keeps custom headers (X-Api-Key) across
+    // hosts, so a request with headers of its own stops at a cross-origin
+    // hop and the step sees the 3xx.
+    let a = serve();
+    let b = serve();
+    let s = session(&a);
+    s.run(
+        &step(&format!(
+            "url: /hop?to={b}/echo
+expect: {{ status: 307 }}"
+        )),
+        T,
+    )
+    .await
+    .unwrap();
+    // The same origin is followed, headers and all.
+    s.run(
+        &step(&format!(
+            "url: /hop?to={a}/echo
+expect: {{ status: 200, json: {{ client: velocity }} }}"
+        )),
+        T,
+    )
+    .await
+    .unwrap();
+    // No headers of its own: followed anywhere.
+    let bare = HttpSession::new(&HttpConfig {
+        base_url: Some(a.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    bare.run(
+        &step(&format!(
+            "url: /hop?to={b}/echo
+expect: {{ status: 200 }}"
+        )),
         T,
     )
     .await

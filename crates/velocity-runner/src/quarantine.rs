@@ -7,7 +7,7 @@
 //!   - test: "checkout with saved card"
 //!     signature: "Element not found: text=\"Pay now\""
 //!     reason: "PAY-142: button renamed on staging"
-//!     expires: 2026-12-31     # optional: after this date it warns and stops forgiving
+//!     expires: 2026-12-31     # optional: after this date (UTC) it warns and stops forgiving
 //!   - test: "search*"
 //!     signature: "timed out"
 //!     flaky-only: true        # forgives only a flaky pass, never a failure
@@ -96,7 +96,7 @@ impl Quarantine {
 
     /// The entry forgiving `t` today, if any.
     pub fn entry_for(&self, t: &TestResult) -> Option<&Entry> {
-        self.entry_on(t, chrono::Local::now().date_naive())
+        self.entry_on(t, chrono::Utc::now().date_naive())
     }
 
     fn entry_on(&self, t: &TestResult, today: chrono::NaiveDate) -> Option<&Entry> {
@@ -126,7 +126,7 @@ impl Quarantine {
 
     /// Mark forgiven failures with a warning and count the rest.
     pub fn apply(&self, result: &mut SuiteResult) -> Verdict {
-        self.apply_on(result, chrono::Local::now().date_naive())
+        self.apply_on(result, chrono::Utc::now().date_naive())
     }
 
     /// [`apply`](Self::apply) as of `today`.

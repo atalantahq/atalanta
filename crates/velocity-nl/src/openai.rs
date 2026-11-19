@@ -11,9 +11,18 @@
 //! ignores both and answers in prose still gets the tolerant parse and the
 //! resolver's one re-ask.
 //!
-//! Screenshots (checks only; planning is text) go as `image_url` data URIs.
-//! A model that rejects images degrades to text-only once, with a warning,
-//! or never gets them with `images: false` / `VELOCITY_NL_IMAGES=0`.
+//! Screenshots go as `image_url` data URIs (`detail: "low"` for goal turns:
+//! the screen list carries the detail). A model that rejects images
+//! degrades to text-only once, with a warning, or never gets them with
+//! `images: false` / `VELOCITY_NL_IMAGES=0`.
+//!
+//! Each request also asks for a bounded, cheap, repeatable answer:
+//! `max_completion_tokens`, `reasoning_effort: "low"`, `temperature: 0` and
+//! a fixed `seed`. Endpoints differ in which of these they take (a
+//! non-reasoning model refuses `reasoning_effort`, a reasoning model a
+//! temperature other than 1, an older server wants `max_tokens`), so a
+//! parameter the endpoint rejects by name is dropped for the rest of the
+//! run, as an output mode is (review 14 F8).
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
@@ -36,6 +45,35 @@ use crate::planner::{
 
 /// Attempts for retryable failures (408, 409, 429, 5xx, network).
 const MAX_ATTEMPTS: u32 = 3;
+/// The reply's token cap: a goal step is ~100 tokens of JSON; this leaves
+/// room for a low-effort reasoning model's thinking and bounds a runaway.
+const MAX_COMPLETION_TOKENS: u64 = 2048;
+/// The sampling seed sent with `temperature: 0`.
+const SEED: u64 = 7;
+
+/// Optional request parameters, as bits: which ones the endpoint still
+/// takes. Cleared one by one as the endpoint rejects them.
+mod param {
+    pub const DETAIL: u8 = 1;
+    pub const MAX_COMPLETION_TOKENS: u8 = 2;
+    /// `max_tokens`, after `max_completion_tokens` was rejected.
+    pub const MAX_TOKENS: u8 = 4;
+    pub const REASONING_EFFORT: u8 = 8;
+    pub const TEMPERATURE: u8 = 16;
+    pub const SEED: u8 = 32;
+    pub const START: u8 = DETAIL | MAX_COMPLETION_TOKENS | REASONING_EFFORT | TEMPERATURE | SEED;
+    /// Each parameter's name as an error message would quote it, most
+    /// specific first.
+    pub const NAMES: [(u8, &str); 6] = [
+        (MAX_COMPLETION_TOKENS, "max_completion_tokens"),
+        (MAX_TOKENS, "max_tokens"),
+        (REASONING_EFFORT, "reasoning_effort"),
+        (TEMPERATURE, "temperature"),
+        (SEED, "seed"),
+        (DETAIL, "detail"),
+    ];
+}
+
 /// One request's limit and the planning call's deadline. Wider than the
 /// Anthropic low-effort ones: a local model on a laptop CPU is slow.
 const LIMITS: (Duration, Duration) = (Duration::from_secs(60), Duration::from_secs(150));
@@ -117,6 +155,8 @@ pub struct OpenAiPlanner {
     tools_ok: bool,
     /// Send screenshots to checks (off once the model rejected one).
     images: AtomicBool,
+    /// The optional parameters ([`param`]) the endpoint still takes.
+    params: AtomicU8,
     usage: UsageMeter,
 }
 
@@ -129,7 +169,17 @@ impl OpenAiPlanner {
                 o.service, o.endpoint
             )));
         }
+        if cleartext_to_remote(&o.endpoint) && !matches!(o.auth, Auth::None) {
+            tracing::warn!(
+                endpoint = %o.endpoint,
+                "velocity-nl: the {} key goes over plain http to a host that isn't this machine; use https",
+                o.service
+            );
+        }
         let client = reqwest::Client::builder()
+            // A provider never redirects; following one would carry the key
+            // (`x-api-key`, `api-key`) to another host (audit 2026-11).
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(LIMITS.0)
             .build()
             .map_err(|e| VelocityError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
@@ -148,6 +198,7 @@ impl OpenAiPlanner {
             mode: AtomicU8::new(mode.code()),
             tools_ok: o.tools,
             images: AtomicBool::new(o.images),
+            params: AtomicU8::new(param::START),
             usage: UsageMeter::default(),
         })
     }
@@ -292,8 +343,13 @@ impl OpenAiPlanner {
         ]
     }
 
+    /// The stable part first (an endpoint's automatic prefix cache can
+    /// reuse it), then the screen, the screenshot and the turn's own part.
     fn goal_content(req: &crate::goal::GoalRequest<'_>, images: bool) -> Vec<Value> {
-        let mut content = vec![json!({ "type": "text", "text": Self::screen_block(req.screen) })];
+        let mut content = vec![
+            json!({ "type": "text", "text": crate::goal::goal_prompt_stable(req) }),
+            json!({ "type": "text", "text": Self::screen_block(req.screen) }),
+        ];
         if let (true, Some(img)) = (images, req.screenshot) {
             use base64::Engine as _;
             let data = base64::engine::general_purpose::STANDARD.encode(img);
@@ -302,7 +358,7 @@ impl OpenAiPlanner {
                 "image_url": { "url": format!("data:{};base64,{data}", image_media_type(img)) }
             }));
         }
-        content.push(json!({ "type": "text", "text": crate::goal::goal_prompt(req) }));
+        content.push(json!({ "type": "text", "text": crate::goal::goal_prompt_turn(req) }));
         content
     }
 
@@ -331,15 +387,20 @@ impl OpenAiPlanner {
         schema: Value,
         what: &str,
     ) -> Result<String> {
-        // At most one fallback of each kind.
-        for _ in 0..4 {
+        // At most one fallback of each kind: images, two output modes, and
+        // each optional parameter.
+        for _ in 0..12 {
             let mode = self.output_mode();
             let images = self.images.load(Ordering::Relaxed);
-            let body = self.body(mode, system, content(images), name, schema.clone());
+            let mut body = self.body(mode, system, content(images), name, schema.clone());
+            self.tune(&mut body, name == "ui_goal_step");
             match self.send(&body).await {
                 Ok(parsed) => return self.answer_text(&parsed, what),
                 Err(Rejected { status, text }) => {
                     let lower = text.to_ascii_lowercase();
+                    if self.rejected_param(status, &lower, &body).is_some() {
+                        continue;
+                    }
                     let has_image = body.to_string().contains("\"image_url\"");
                     if has_image && lower.contains("image") {
                         tracing::warn!(
@@ -380,13 +441,75 @@ impl OpenAiPlanner {
         )))
     }
 
+    /// Add the optional parameters the endpoint still takes: the token cap,
+    /// low reasoning effort, greedy sampling with a seed, and for a goal
+    /// turn's screenshot `detail: "low"`.
+    fn tune(&self, body: &mut Value, goal_turn: bool) {
+        let p = self.params.load(Ordering::Relaxed);
+        let on = |bit: u8| p & bit != 0;
+        if on(param::MAX_COMPLETION_TOKENS) {
+            body["max_completion_tokens"] = json!(MAX_COMPLETION_TOKENS);
+        } else if on(param::MAX_TOKENS) {
+            body["max_tokens"] = json!(MAX_COMPLETION_TOKENS);
+        }
+        if on(param::REASONING_EFFORT) {
+            body["reasoning_effort"] = json!("low");
+        }
+        if on(param::TEMPERATURE) {
+            body["temperature"] = json!(0);
+        }
+        if on(param::SEED) {
+            body["seed"] = json!(SEED);
+        }
+        if goal_turn && on(param::DETAIL) {
+            if let Some(parts) = body["messages"][1]["content"].as_array_mut() {
+                for part in parts.iter_mut().filter(|p| p["type"] == "image_url") {
+                    part["image_url"]["detail"] = json!("low");
+                }
+            }
+        }
+    }
+
+    /// When a 400/422 names an optional parameter this request sent, stop
+    /// sending it (a rejected `max_completion_tokens` becomes `max_tokens`)
+    /// and say which; `None` when the rejection is about something else.
+    fn rejected_param(&self, status: u16, lower: &str, body: &Value) -> Option<u8> {
+        if status != 400 && status != 422 {
+            return None;
+        }
+        let sent = |name: &str| {
+            if name == "detail" {
+                body.to_string().contains("\"detail\"")
+            } else {
+                body.get(name).is_some()
+            }
+        };
+        let (bit, name) = param::NAMES
+            .iter()
+            .find(|(_, name)| sent(name) && lower.contains(name))?;
+        let mut p = self.params.load(Ordering::Relaxed) & !bit;
+        if *bit == param::MAX_COMPLETION_TOKENS {
+            p |= param::MAX_TOKENS;
+        }
+        self.params.store(p, Ordering::Relaxed);
+        tracing::warn!(
+            model = %self.model,
+            "velocity-nl: the endpoint rejected {name}; not sending it from now on"
+        );
+        Some(*bit)
+    }
+
     /// The answer's JSON text from a completion, after counting tokens and
     /// turning a refusal or a cut-off into the planner's errors.
     fn answer_text(&self, parsed: &Value, what: &str) -> Result<String> {
         let usage = &parsed["usage"];
-        self.usage.record(
+        self.usage.record_cached(
             usage["prompt_tokens"].as_u64().unwrap_or(0),
             usage["completion_tokens"].as_u64().unwrap_or(0),
+            usage["prompt_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0),
+            0,
         );
         let choice = &parsed["choices"][0];
         let message = &choice["message"];
@@ -526,6 +649,31 @@ pub fn chat_endpoint(base_url: &str) -> String {
     format!("{base}/chat/completions")
 }
 
+/// Whether `endpoint` is plain http to a host other than this machine: a
+/// key sent there crosses the network in clear (review 05 #7).
+fn cleartext_to_remote(endpoint: &str) -> bool {
+    let Some(rest) = endpoint.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = if let Some(v6) = host.strip_prefix('[') {
+        v6.split(']').next().unwrap_or("")
+    } else {
+        host.split(':').next().unwrap_or("")
+    };
+    let host = host.to_ascii_lowercase();
+    // An IP is loopback by value: `127.attacker.example` is a name, not
+    // 127.0.0.0/8 (audit 2026-11).
+    let loopback_ip = host
+        .parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified());
+    !(host == "localhost"
+        || host.ends_with(".localhost")
+        || loopback_ip
+        || host == "host.docker.internal")
+}
+
 /// An error body, cut to a readable length.
 fn clip(text: &str) -> String {
     const MAX: usize = 500;
@@ -554,7 +702,7 @@ impl NaturalPlanner for OpenAiPlanner {
     async fn plan_goal(&self, req: &crate::goal::GoalRequest<'_>) -> Result<crate::goal::GoalStep> {
         let reply = self
             .ask(
-                crate::goal::GOAL_SYSTEM_PROMPT,
+                crate::goal::goal_system_prompt(req.benchmark),
                 |images| Self::goal_content(req, images),
                 "ui_goal_step",
                 crate::goal::goal_schema(),
@@ -725,6 +873,64 @@ pub(crate) mod tests {
         assert_eq!(body["_auth"], true);
         let u = NaturalPlanner::usage(&p);
         assert_eq!((u.calls, u.input_tokens, u.output_tokens), (1, 120, 9));
+    }
+
+    #[tokio::test]
+    async fn requests_are_bounded_cheap_and_repeatable_and_rejected_params_are_dropped() {
+        let (base, seen) = mock(vec![
+            (
+                400,
+                "",
+                r#"{"error":{"message":"Unrecognized request argument supplied: reasoning_effort"}}"#.into(),
+            ),
+            (
+                400,
+                "",
+                r#"{"error":{"message":"Unsupported parameter: 'max_completion_tokens'. Use 'max_tokens'."}}"#.into(),
+            ),
+            (200, "", content_reply(TAP0)),
+            (200, "", content_reply(TAP0)),
+        ])
+        .await;
+        let p = backend(&base, None);
+        assert_eq!(p.plan(&req()).await.unwrap().op, Op::Tap);
+        assert_eq!(p.plan(&req()).await.unwrap().op, Op::Tap);
+        let bodies = seen.lock().unwrap().clone();
+        assert_eq!(bodies.len(), 4);
+        let first = &bodies[0];
+        assert_eq!(first["max_completion_tokens"], MAX_COMPLETION_TOKENS);
+        assert_eq!(first["reasoning_effort"], "low");
+        assert_eq!(first["temperature"], 0);
+        assert_eq!(first["seed"], SEED);
+        // Each rejected parameter is dropped once, for good; the output
+        // mode is untouched.
+        assert!(bodies[1].get("reasoning_effort").is_none());
+        assert!(bodies[2].get("max_completion_tokens").is_none());
+        assert_eq!(bodies[2]["max_tokens"], MAX_COMPLETION_TOKENS);
+        assert!(bodies[3].get("reasoning_effort").is_none());
+        assert_eq!(bodies[3]["max_tokens"], MAX_COMPLETION_TOKENS);
+        assert_eq!(bodies[3]["temperature"], 0);
+        assert_eq!(p.output_mode(), OutputMode::JsonSchema);
+    }
+
+    #[test]
+    fn plain_http_is_flagged_only_off_this_machine() {
+        for local in [
+            "http://localhost:11434/v1/chat/completions",
+            "http://127.0.0.1:8080/v1/chat/completions",
+            "http://[::1]:1234/v1",
+            "https://api.openai.com/v1/chat/completions",
+        ] {
+            assert!(!cleartext_to_remote(local), "{local}");
+        }
+        for remote in [
+            "http://proxy/v1",
+            "http://10.0.0.5:8000/v1",
+            "http://user@llm.lan/v1",
+            "http://127.attacker.example/v1",
+        ] {
+            assert!(cleartext_to_remote(remote), "{remote}");
+        }
     }
 
     #[tokio::test]

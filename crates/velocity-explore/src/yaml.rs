@@ -50,8 +50,22 @@ pub struct Generated {
     pub assertions: usize,
 }
 
+/// A string the generated suite holds as written. Screen text, selectors
+/// and goal literals can contain `${NAME}`; the replay interpolates the
+/// suite, so each `$` before a `{` is doubled (`env::escape`) or a page
+/// showing `${AWS_SECRET_ACCESS_KEY}` would make the replay read that
+/// variable (security audit 2026-11, MCP-2).
 fn s(v: &str) -> Value {
-    Value::String(v.to_string())
+    Value::String(velocity_core::env::escape(v))
+}
+
+/// A value slot's placeholder (`${NAME}`), which the replay must fill in.
+/// Only [`ValueSlot::yaml_text`] of a data or secret slot goes here.
+fn placeholder(slot: &ValueSlot) -> Value {
+    match slot.kind {
+        crate::session::ValueKind::Literal => s(&slot.value),
+        _ => Value::String(slot.yaml_text()),
+    }
 }
 
 fn map(pairs: Vec<(&str, Value)>) -> Value {
@@ -119,21 +133,7 @@ fn fill(sel: &Selector, m: &mut Mapping) {
 }
 
 fn key_name(k: &Key) -> &'static str {
-    match k {
-        Key::Back => "back",
-        Key::Home => "home",
-        Key::Enter => "enter",
-        Key::VolumeUp => "volumeUp",
-        Key::VolumeDown => "volumeDown",
-        Key::Backspace => "backspace",
-        Key::Tab => "tab",
-        Key::Escape => "escape",
-        Key::Delete => "delete",
-        Key::ArrowUp => "arrowUp",
-        Key::ArrowDown => "arrowDown",
-        Key::ArrowLeft => "arrowLeft",
-        Key::ArrowRight => "arrowRight",
-    }
+    k.name()
 }
 
 /// An action as a YAML step. `typed` replaces an inputText's real value
@@ -163,7 +163,7 @@ pub fn action_value(action: &Action, typed: Option<&ValueSlot>) -> Result<Value>
         }
         Action::InputText { selector, .. } => {
             let text = match typed {
-                Some(slot) => slot.yaml_text(),
+                Some(slot) => placeholder(slot),
                 // A recorded input always has its slot; never fall back to
                 // a raw value that could be a secret.
                 None => {
@@ -174,32 +174,66 @@ pub fn action_value(action: &Action, typed: Option<&ValueSlot>) -> Result<Value>
             };
             step(
                 "inputText",
-                map(vec![
-                    ("selector", selector_value(selector)),
-                    ("text", s(&text)),
-                ]),
+                map(vec![("selector", selector_value(selector)), ("text", text)]),
             )
         }
         Action::ClearText { selector } => step("clearText", selector_value(selector)),
         Action::AssertVisible { selector } => step("assertVisible", selector_value(selector)),
         Action::AssertNotVisible { selector } => step("assertNotVisible", selector_value(selector)),
+        // Everything the explored swipe had: a scroll inside a picker or a
+        // lane stroke replayed as a whole-screen swipe tested a different
+        // action (review 08 F4).
         Action::Swipe {
-            direction: Some(d), ..
-        } => step("swipe", map(vec![("direction", dir(*d))])),
+            direction,
+            from,
+            to,
+            within,
+        } if direction.is_some() || (from.is_some() && to.is_some()) => {
+            let point = |(x, y): (i32, i32)| {
+                map(vec![
+                    ("x", Value::Number(x.into())),
+                    ("y", Value::Number(y.into())),
+                ])
+            };
+            let mut pairs = Vec::new();
+            if let Some(d) = direction {
+                pairs.push(("direction", dir(*d)));
+            }
+            if let (Some(a), Some(b)) = (from, to) {
+                pairs.push(("from", point(*a)));
+                pairs.push(("to", point(*b)));
+            }
+            if let Some(w) = within {
+                pairs.push(("within", selector_value(w)));
+            }
+            step("swipe", map(pairs))
+        }
         Action::ScrollUntilVisible {
             selector,
             direction,
-            ..
-        } => step(
-            "scrollUntilVisible",
-            map(vec![
+            max_scrolls,
+            within,
+        } => {
+            let mut pairs = vec![
                 ("selector", selector_value(selector)),
                 ("direction", dir(*direction)),
-            ]),
-        ),
+                ("maxScrolls", Value::Number((*max_scrolls).into())),
+            ];
+            if let Some(w) = within {
+                pairs.push(("within", selector_value(w)));
+            }
+            step("scrollUntilVisible", map(pairs))
+        }
         Action::PressKey { key } => step("pressKey", map(vec![("key", s(key_name(key)))])),
         Action::Wait { ms } => step("wait", map(vec![("ms", Value::Number((*ms).into()))])),
         Action::GoBack => step("goBack", Value::Mapping(Mapping::new())),
+        Action::Drag { from, to, .. } => step(
+            "drag",
+            map(vec![
+                ("from", selector_value(from)),
+                ("to", selector_value(to)),
+            ]),
+        ),
         other => return Err(internal(format!("explore can't write {other:?} as a step"))),
     })
 }
@@ -242,6 +276,7 @@ pub fn action_label_named(action: &Action, typed: Option<&ValueSlot>) -> String 
         }
         Action::Wait { ms } => format!("wait {ms} ms"),
         Action::GoBack => "goBack".into(),
+        Action::Drag { from, to, .. } => format!("drag {{ {} }} to {{ {} }}", sel(from), sel(to)),
         other => format!("{other:?}"),
     }
 }
@@ -327,8 +362,16 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
             continue;
         }
         if !scrolls.is_empty() {
+            // The scrolls merge only when they were all in one container
+            // (or all of the whole screen), which the merged step keeps.
+            let within = |i: &usize| match &report.steps[*i].action {
+                Action::Swipe { within, .. } => within.clone(),
+                _ => None,
+            };
+            let first_within = within(&scrolls[0]);
+            let one_place = scrolls.iter().all(|i| within(i) == first_within);
             match (
-                action_selector(&rec.action),
+                action_selector(&rec.action).filter(|_| one_place),
                 report.steps[scrolls[0]].scroll,
             ) {
                 (Some(sel), Some(direction)) => {
@@ -337,7 +380,7 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
                             selector: sel.clone(),
                             direction,
                             max_scrolls: 10,
-                            within: None,
+                            within: first_within,
                         },
                         None,
                     )?);
@@ -509,7 +552,8 @@ pub fn generate_nl(report: &ExploreReport, opts: &GenOptions) -> Result<String> 
         };
         let mut pairs = vec![(key, s(&text))];
         if let Some(d) = data {
-            pairs.push(("data", s(&d)));
+            // `data` is only ever a data/secret slot's `${NAME}`.
+            pairs.push(("data", Value::String(d)));
         }
         steps.push(map(pairs));
     }
@@ -532,4 +576,100 @@ pub fn generate_nl(report: &ExploreReport, opts: &GenOptions) -> Result<String> 
     let yaml = serde_yaml::to_string(&doc).map_err(|e| internal(format!("writing YAML: {e}")))?;
     check(&yaml, report)?;
     Ok(yaml)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `action` written as a step, parsed back by the suite parser.
+    fn round_trip(action: &Action) -> (String, Action) {
+        let step = action_value(action, None).unwrap();
+        let doc = map(vec![
+            ("appId", s("a")),
+            (
+                "tests",
+                Value::Sequence(vec![map(vec![
+                    ("name", s("t")),
+                    ("steps", Value::Sequence(vec![step])),
+                ])]),
+            ),
+        ]);
+        let yaml = serde_yaml::to_string(&doc).unwrap();
+        let suite = velocity_core::parse_suite_from_str(&yaml).unwrap();
+        (yaml, suite.tests[0].steps[0].action.clone())
+    }
+
+    #[test]
+    fn a_swipe_keeps_its_container_and_its_stroke() {
+        let within = Action::Swipe {
+            direction: Some(Direction::Up),
+            from: None,
+            to: None,
+            within: Some(Selector::Id("hour_picker".into())),
+        };
+        let (yaml, back) = round_trip(&within);
+        assert_eq!(back, within, "{yaml}");
+        let lane = Action::Swipe {
+            direction: Some(Direction::Right),
+            from: Some((100, 400)),
+            to: Some((900, 400)),
+            within: None,
+        };
+        let (yaml, back) = round_trip(&lane);
+        assert_eq!(back, lane, "{yaml}");
+        let scroll = Action::ScrollUntilVisible {
+            selector: Selector::Text("Display".into()),
+            direction: Direction::Down,
+            max_scrolls: 10,
+            within: Some(Selector::Id("list".into())),
+        };
+        let (yaml, back) = round_trip(&scroll);
+        assert_eq!(back, scroll, "{yaml}");
+    }
+
+    #[test]
+    fn a_literal_or_selector_with_a_placeholder_is_written_escaped() {
+        use crate::session::ValueKind;
+        // A page showing `${AWS_SECRET_ACCESS_KEY}` (or a goal quoting it)
+        // must not make the replay read the variable (audit 2026-11 MCP-2).
+        let tap = Action::Tap {
+            selector: Selector::Text("${VEL_AUDIT_SECRET_X}".into()),
+        };
+        let (yaml, back) = round_trip(&tap);
+        let Action::Tap {
+            selector: Selector::Text(t),
+        } = back
+        else {
+            panic!("{yaml}")
+        };
+        let none = std::collections::HashMap::new();
+        assert_eq!(
+            velocity_core::env::interpolate(&t, &none).unwrap(),
+            "${VEL_AUDIT_SECRET_X}",
+            "{yaml}"
+        );
+        let input = Action::InputText {
+            selector: Selector::Id("q".into()),
+            text: String::new(),
+        };
+        let literal = ValueSlot {
+            name: "TEXT1".into(),
+            kind: ValueKind::Literal,
+            value: "${keychain:LOGIN_PW}".into(),
+        };
+        let v = action_value(&input, Some(&literal)).unwrap();
+        let text = v["inputText"]["text"].as_str().unwrap().to_string();
+        assert_eq!(
+            velocity_core::env::interpolate(&text, &none).unwrap(),
+            "${keychain:LOGIN_PW}"
+        );
+        let secret = ValueSlot {
+            name: "PASSWORD".into(),
+            kind: ValueKind::Secret,
+            value: "hunter2".into(),
+        };
+        let v = action_value(&input, Some(&secret)).unwrap();
+        assert_eq!(v["inputText"]["text"].as_str(), Some("${PASSWORD}"));
+    }
 }

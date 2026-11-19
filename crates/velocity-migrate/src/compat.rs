@@ -76,3 +76,142 @@ pub fn generate_report_json(report: &MigrationReport) -> String {
     serde_json::to_string_pretty(report)
         .unwrap_or_else(|e| format!("{{\"error\": \"Failed to serialize report: {e}\"}}"))
 }
+
+/// One Maestro command that didn't convert cleanly, across a folder.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommandGap {
+    /// The Maestro command (or header key).
+    pub command: String,
+    /// Flows that use it in a way that didn't convert cleanly.
+    pub files: usize,
+    /// Times it occurs.
+    pub occurrences: usize,
+    /// Whether any occurrence stops a flow from converting at all.
+    pub blocks: bool,
+    /// The first message, as an example.
+    pub example: String,
+}
+
+/// `migrate maestro --dry-run`: what a folder's migration would hit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DryRunSummary {
+    pub files_total: usize,
+    /// Flows that would convert with no warning.
+    pub files_clean: usize,
+    /// Flows that would convert, with steps skipped or changed.
+    pub files_lossy: usize,
+    /// Flows that would not convert.
+    pub files_failed: usize,
+    /// Commands by how many flows they affect, most first.
+    pub gaps: Vec<CommandGap>,
+}
+
+/// Rank the warnings and errors in `report` by command.
+pub fn summarize_dry_run(report: &MigrationReport) -> DryRunSummary {
+    use std::collections::BTreeMap;
+    let mut by: BTreeMap<String, CommandGap> = BTreeMap::new();
+    let (mut clean, mut lossy) = (0, 0);
+    for r in &report.results {
+        let mut seen = std::collections::HashSet::new();
+        let mut warned = false;
+        for i in r.issues.iter().filter(|i| i.severity != Severity::Info) {
+            warned = true;
+            let g = by
+                .entry(i.maestro_construct.clone())
+                .or_insert_with(|| CommandGap {
+                    command: i.maestro_construct.clone(),
+                    files: 0,
+                    occurrences: 0,
+                    blocks: false,
+                    example: i.message.clone(),
+                });
+            g.occurrences += 1;
+            g.blocks |= i.severity == Severity::Error;
+            if seen.insert(i.maestro_construct.clone()) {
+                g.files += 1;
+            }
+        }
+        match (r.success, warned) {
+            (true, false) => clean += 1,
+            (true, true) => lossy += 1,
+            _ => {}
+        }
+    }
+    let mut gaps: Vec<CommandGap> = by.into_values().collect();
+    gaps.sort_by(|a, b| {
+        (b.files, b.blocks, b.occurrences, &a.command).cmp(&(
+            a.files,
+            a.blocks,
+            a.occurrences,
+            &b.command,
+        ))
+    });
+    DryRunSummary {
+        files_total: report.files_total,
+        files_clean: clean,
+        files_lossy: lossy,
+        files_failed: report.files_failed,
+        gaps,
+    }
+}
+
+#[cfg(test)]
+mod dry_run_tests {
+    use super::*;
+
+    fn file(ok: bool, issues: &[(&str, Severity)]) -> FileMigrationResult {
+        FileMigrationResult {
+            source_file: "f.yaml".into(),
+            output_file: None,
+            success: ok,
+            issues: issues
+                .iter()
+                .map(|(c, s)| MigrationIssue {
+                    line: 1,
+                    severity: *s,
+                    message: format!("{c} skipped"),
+                    maestro_construct: c.to_string(),
+                })
+                .collect(),
+            steps_migrated: 1,
+            steps_skipped: 0,
+        }
+    }
+
+    #[test]
+    fn gaps_are_ranked_by_the_flows_they_affect() {
+        let mut r = MigrationReport::new();
+        r.add_result(file(true, &[]));
+        r.add_result(file(true, &[("hideKeyboard", Severity::Info)]));
+        r.add_result(file(
+            true,
+            &[
+                ("runScript", Severity::Warning),
+                ("runScript", Severity::Warning),
+            ],
+        ));
+        r.add_result(file(
+            true,
+            &[
+                ("runScript", Severity::Warning),
+                ("setLocation", Severity::Warning),
+            ],
+        ));
+        r.add_result(file(false, &[("output", Severity::Error)]));
+        let s = summarize_dry_run(&r);
+        assert_eq!(
+            (s.files_total, s.files_clean, s.files_lossy, s.files_failed),
+            (5, 2, 2, 1)
+        );
+        let order: Vec<(&str, usize, usize)> = s
+            .gaps
+            .iter()
+            .map(|g| (g.command.as_str(), g.files, g.occurrences))
+            .collect();
+        assert_eq!(
+            order,
+            [("runScript", 2, 3), ("output", 1, 1), ("setLocation", 1, 1)]
+        );
+        assert!(s.gaps[1].blocks && !s.gaps[0].blocks);
+    }
+}

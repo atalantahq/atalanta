@@ -112,6 +112,9 @@ pub struct ScriptCheck {
     /// Raw numbers cited as well (tests that cite elements not listed).
     #[serde(default)]
     pub evidence_ids: Vec<i64>,
+    /// Log turns cited (an end state shown only by the run log).
+    #[serde(default)]
+    pub evidence_turns: Vec<i64>,
     #[serde(default)]
     pub reason: String,
 }
@@ -148,6 +151,8 @@ pub struct ScriptedPlanner {
     pub seen_values: Mutex<Vec<String>>,
     /// Every goal request's demonstrations, for tests.
     pub seen_demos: Mutex<Vec<String>>,
+    /// Whether each goal request asked for the benchmark instructions.
+    pub seen_benchmark: Mutex<Vec<bool>>,
 }
 
 impl ScriptedPlanner {
@@ -162,6 +167,7 @@ impl ScriptedPlanner {
             seen_memos: Mutex::new(vec![]),
             seen_values: Mutex::new(vec![]),
             seen_demos: Mutex::new(vec![]),
+            seen_benchmark: Mutex::new(vec![]),
         }
     }
 }
@@ -202,6 +208,10 @@ impl NaturalPlanner for ScriptedPlanner {
             .lock()
             .unwrap()
             .push(req.screenshot.is_some());
+        self.seen_benchmark
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(req.benchmark);
         self.seen_memos
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -317,6 +327,7 @@ impl ScreenChecker for ScriptedChecker {
         Ok(CheckAnswer {
             holds: self.check.holds,
             evidence_element_ids: ids,
+            evidence_turns: self.check.evidence_turns.clone(),
             reason: self.check.reason.clone(),
         })
     }

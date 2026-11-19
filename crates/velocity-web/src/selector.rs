@@ -12,7 +12,7 @@ pub fn invalid_selector(v: &Value) -> Option<String> {
 
 /// A selector as the in-page library's `matchAll` reads it (see
 /// `injected.js`), passed as a JSON argument:
-/// `{css}`, `{xpath}`, `{text, exact}`, `{and: [...]}`, `{nth, i, dom}`.
+/// `{css}`, `{xpath}`, `{text, exact}`, `{and: [...]}`, `{nth, i}`.
 ///
 /// Every part resolves in the page, with one meaning per field: `className`
 /// is a CSS class and `id` includes `data-testid` also when a text part
@@ -31,9 +31,10 @@ pub fn selector_json(selector: &Selector) -> Option<Value> {
         Selector::AccessibilityId(name) => json!({ "name": name }),
         Selector::Index { selector, index } => json!({
             "nth": selector_json(selector)?,
+            // Every list counts its on-screen matches in reading order,
+            // as explore counted them when it wrote the index; a CSS list
+            // counted every match in document order (review 10 #1).
             "i": index,
-            // A CSS list keeps counting in document order, as it always did.
-            "dom": selector_to_css(selector).is_some(),
         }),
         Selector::Compound(parts) => json!({
             "and": parts.iter().map(selector_json).collect::<Option<Vec<_>>>()?,
@@ -49,6 +50,13 @@ pub fn selector_json(selector: &Selector) -> Option<Value> {
         _ => return None,
     })
 }
+
+/// Tags `className` also matches as a tag (see `selector_to_css`).
+const HTML_TAGS: &[&str] = &[
+    "a", "button", "canvas", "div", "form", "h1", "h2", "h3", "h4", "h5", "h6", "img", "input",
+    "label", "li", "ol", "option", "p", "select", "span", "svg", "table", "td", "textarea", "th",
+    "tr", "ul",
+];
 
 /// Convert a `Selector` to a CSS query string for `querySelector`/`querySelectorAll`.
 ///
@@ -74,11 +82,23 @@ pub fn selector_to_css(selector: &Selector) -> Option<String> {
         Selector::AccessibilityId(_) => None,
         // A class name, not CSS: `md:block` (Tailwind) is one class, and
         // `btn primary` means both classes, as in a `class` attribute.
-        Selector::ClassName(cls) => Some(
-            cls.split_whitespace()
+        // An HTML tag name also matches the tag: Velocity's own tree
+        // matching reads `className` as the element type, which is the tag
+        // on the web, and the selector builder falls back to it for an
+        // element with no id, text or label (a bare checkbox). The page
+        // read it as a class only, so `className: input` found nothing
+        // (MiniWoB rerun, 2026-11-08).
+        Selector::ClassName(cls) => {
+            let class = cls
+                .split_whitespace()
                 .map(|c| format!(".{}", css_ident(c)))
-                .collect::<String>(),
-        ),
+                .collect::<String>();
+            Some(if HTML_TAGS.contains(&cls.trim()) {
+                format!(":is({class}, {})", cls.trim())
+            } else {
+                class
+            })
+        }
         Selector::Compound(parts) => {
             // Compound = AND: the element must satisfy *every* part. Each part is
             // wrapped in `:is(...)` and concatenated, which is a same-element
@@ -189,6 +209,9 @@ mod tests {
     fn test_class_name() {
         let css = selector_to_css(&Selector::ClassName("Button".to_string())).unwrap();
         assert_eq!(css, ".Button");
+        // A tag name matches the tag too, as tree matching does.
+        let css = selector_to_css(&Selector::ClassName("input".to_string())).unwrap();
+        assert_eq!(css, ":is(.input, input)");
     }
 
     #[test]
@@ -258,16 +281,13 @@ mod tests {
             index: 2,
         })
         .unwrap();
-        assert_eq!(
-            v,
-            json!({"nth": {"text": "Sa", "exact": false}, "i": 2, "dom": false})
-        );
+        assert_eq!(v, json!({"nth": {"text": "Sa", "exact": false}, "i": 2}));
         let v = selector_json(&Selector::Index {
             selector: Box::new(Selector::Css(".row".into())),
             index: 0,
         })
         .unwrap();
-        assert_eq!(v["dom"], true);
+        assert_eq!(v, json!({"nth": {"css": ".row"}, "i": 0}));
     }
 
     #[test]

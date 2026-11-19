@@ -38,16 +38,14 @@ impl ApkLoader {
             })
             .collect();
 
+        let mut budget = MAX_APK_TOTAL_BYTES;
         for name in &file_names {
             // Extract resources.arsc
             if name == "resources.arsc" {
                 let mut entry = archive
                     .by_name(name)
                     .map_err(|e| ApkError::ZipError(e.to_string()))?;
-                let mut data = Vec::new();
-                entry
-                    .read_to_end(&mut data)
-                    .map_err(|e| ApkError::IoError(e.to_string()))?;
+                let data = read_capped(&mut entry, &mut budget)?;
                 resources = ResourceTable::parse(&data).unwrap_or_else(|_| ResourceTable::empty());
             }
 
@@ -56,10 +54,7 @@ impl ApkLoader {
                 let mut entry = archive
                     .by_name(name)
                     .map_err(|e| ApkError::ZipError(e.to_string()))?;
-                let mut data = Vec::new();
-                entry
-                    .read_to_end(&mut data)
-                    .map_err(|e| ApkError::IoError(e.to_string()))?;
+                let data = read_capped(&mut entry, &mut budget)?;
 
                 // Extract layout name from path: res/layout/activity_main.xml -> activity_main
                 let layout_name = Path::new(name)
@@ -76,10 +71,7 @@ impl ApkLoader {
                 let mut entry = archive
                     .by_name(name)
                     .map_err(|e| ApkError::ZipError(e.to_string()))?;
-                let mut data = Vec::new();
-                entry
-                    .read_to_end(&mut data)
-                    .map_err(|e| ApkError::IoError(e.to_string()))?;
+                let data = read_capped(&mut entry, &mut budget)?;
 
                 if let Ok(xml) = AxmlParser::parse(&data) {
                     package_name = xml.get_attribute("manifest", "package");
@@ -115,4 +107,46 @@ pub enum ApkError {
     ZipError(String),
     #[error("Layout not found: {0}")]
     LayoutNotFound(String),
+}
+
+/// Largest one APK entry read (`resources.arsc`, a layout, the manifest).
+const MAX_APK_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+/// Most bytes read from one APK in all. A zip entry can claim, and inflate
+/// to, gigabytes from a few kilobytes (audit 2026-11 HEADLESS-1).
+const MAX_APK_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+
+/// `entry`'s bytes, refusing one over [`MAX_APK_ENTRY_BYTES`] or past what
+/// is left of `budget`.
+fn read_capped(entry: &mut impl Read, budget: &mut u64) -> Result<Vec<u8>, ApkError> {
+    let limit = MAX_APK_ENTRY_BYTES.min(*budget);
+    let mut data = Vec::new();
+    entry
+        .take(limit + 1)
+        .read_to_end(&mut data)
+        .map_err(|e| ApkError::IoError(e.to_string()))?;
+    if data.len() as u64 > limit {
+        return Err(ApkError::IoError(format!(
+            "an APK entry inflates past {limit} bytes; refusing it (zip bomb?)"
+        )));
+    }
+    *budget -= data.len() as u64;
+    Ok(data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_entry_that_inflates_past_the_cap_is_refused() {
+        let mut budget = MAX_APK_TOTAL_BYTES;
+        let mut bomb = std::io::repeat(0).take(MAX_APK_ENTRY_BYTES + 1);
+        assert!(read_capped(&mut bomb, &mut budget).is_err());
+        let mut small = std::io::repeat(7).take(10);
+        assert_eq!(read_capped(&mut small, &mut budget).unwrap().len(), 10);
+        assert_eq!(budget, MAX_APK_TOTAL_BYTES - 10);
+        let mut tight = 5;
+        let mut over = std::io::repeat(0).take(6);
+        assert!(read_capped(&mut over, &mut tight).is_err());
+    }
 }

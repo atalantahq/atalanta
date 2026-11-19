@@ -285,7 +285,8 @@ pub async fn input(
         Input::Swipe { from, to } => d.swipe_coords(id, from, to).await,
         Input::Scroll { x, y, dx, dy } => {
             // The finger moves against the content.
-            d.scroll_coords(id, (x, y), (x - dx, y - dy)).await
+            d.scroll_coords(id, (x, y), (x.saturating_sub(dx), y.saturating_sub(dy)))
+                .await
         }
         Input::Key { key } => d.press_key(id, key).await,
         Input::Text { text } => {

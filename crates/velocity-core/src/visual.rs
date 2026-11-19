@@ -219,11 +219,10 @@ impl VisualEngine {
                 debug!(baseline = baseline_name, "baseline unchanged");
                 return Ok(unchanged);
             }
-            std::fs::create_dir_all(&self.config.baselines_dir).map_err(|e| {
-                VelocityError::Config(format!("Failed to create baselines dir: {e}"))
-            })?;
+            std::fs::create_dir_all(&self.config.baselines_dir)
+                .map_err(|e| VelocityError::io("Failed to create baselines dir", e))?;
             write_atomic(&baseline_path, screenshot_png).map_err(|e| {
-                VelocityError::Config(format!("Failed to write baseline {baseline_name}: {e}"))
+                VelocityError::io(format!("Failed to write baseline {baseline_name}"), e)
             })?;
             info!(baseline = baseline_name, "baseline updated");
             return Ok(VisualComparisonResult {
@@ -241,7 +240,7 @@ impl VisualEngine {
         }
 
         let baseline_bytes = std::fs::read(&baseline_path).map_err(|e| {
-            VelocityError::Config(format!("Failed to read baseline {baseline_name}: {e}"))
+            VelocityError::io(format!("Failed to read baseline {baseline_name}"), e)
         })?;
 
         // Compare the raw PNG bytes
@@ -298,13 +297,12 @@ impl VisualEngine {
         diff: Option<&[u8]>,
     ) -> Result<Option<PathBuf>> {
         std::fs::create_dir_all(&self.config.diffs_dir)
-            .map_err(|e| VelocityError::Config(format!("Failed to create diffs dir: {e}")))?;
+            .map_err(|e| VelocityError::io("Failed to create diffs dir", e))?;
         let stem = baseline_name.strip_suffix(".png").unwrap_or(baseline_name);
         let write = |kind: &str, data: &[u8]| -> Result<PathBuf> {
             let path = self.config.diffs_dir.join(format!("{stem}-{kind}.png"));
-            std::fs::write(&path, data).map_err(|e| {
-                VelocityError::Config(format!("Failed to write {}: {e}", path.display()))
-            })?;
+            std::fs::write(&path, data)
+                .map_err(|e| VelocityError::io(format!("Failed to write {}", path.display()), e))?;
             Ok(path)
         };
         for (kind, data) in frames {
@@ -325,7 +323,7 @@ impl VisualEngine {
         }
 
         let entries = std::fs::read_dir(&self.config.baselines_dir)
-            .map_err(|e| VelocityError::Config(format!("Failed to read baselines dir: {e}")))?;
+            .map_err(|e| VelocityError::io("Failed to read baselines dir", e))?;
 
         let mut baselines = Vec::new();
         for entry in entries.flatten() {
@@ -340,6 +338,10 @@ impl VisualEngine {
         Ok(baselines)
     }
 }
+
+/// The most pixels a PNG Velocity decodes may have (64 Mpx; an 8K screen
+/// is 33 Mpx).
+pub const MAX_PNG_PIXELS: u64 = 64 * 1024 * 1024;
 
 /// A decoded image as 8-bit RGBA.
 struct Rgba {
@@ -356,6 +358,15 @@ fn decode(png_bytes: &[u8]) -> Result<Rgba> {
     );
     let bad = |e: png::DecodingError| VelocityError::Config(format!("invalid PNG: {e}"));
     let mut reader = decoder.read_info().map_err(bad)?;
+    // The header names the size; a 100-byte baseline claiming 2^30 x 2^28
+    // pixels made the buffer allocation abort the run (audit 2026-11
+    // CORE-2: baselines come with pull requests).
+    let (w, h) = (reader.info().width, reader.info().height);
+    if u64::from(w) * u64::from(h) > MAX_PNG_PIXELS {
+        return Err(VelocityError::Config(format!(
+            "invalid PNG: {w}x{h} is larger than any screen ({MAX_PNG_PIXELS} pixels at most)"
+        )));
+    }
     let mut buf = vec![0; reader.output_buffer_size().unwrap_or(0)];
     let info = reader.next_frame(&mut buf).map_err(bad)?;
     buf.truncate(info.buffer_size());
@@ -794,6 +805,44 @@ pub(crate) fn painted(w: u32, h: u32, rects: &[(u32, u32, u32, u32)]) -> Vec<u8>
 
 #[cfg(test)]
 mod tests {
+
+    /// Audit 2026-11 CORE-2: a tiny PNG whose header claims a huge size is
+    /// refused before anything is allocated.
+    #[test]
+    fn a_png_claiming_a_huge_size_is_refused_not_an_abort() {
+        fn crc32(bytes: &[u8]) -> u32 {
+            let mut c = 0xffff_ffffu32;
+            for &b in bytes {
+                c ^= u32::from(b);
+                for _ in 0..8 {
+                    c = if c & 1 != 0 {
+                        0xedb8_8320 ^ (c >> 1)
+                    } else {
+                        c >> 1
+                    };
+                }
+            }
+            !c
+        }
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        let mut ihdr = b"IHDR".to_vec();
+        // One pixel wide (png's own limits watch its row buffers, not the
+        // caller's frame buffer), two billion high: 8 GB to allocate.
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&0x7fff_ffffu32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(&ihdr);
+        png.extend_from_slice(&crc32(&ihdr).to_be_bytes());
+        // A few bytes of image data, so the header is read through.
+        let mut idat = b"IDAT".to_vec();
+        idat.extend_from_slice(&[0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]);
+        png.extend_from_slice(&8u32.to_be_bytes());
+        png.extend_from_slice(&idat);
+        png.extend_from_slice(&crc32(&idat).to_be_bytes());
+        let e = super::decode(&png).err().expect("refused");
+        assert!(e.to_string().contains("larger than any screen"), "{e}");
+    }
     use super::*;
 
     /// A `w`×`h` PNG filled with `color`, with `changed` pixels (top-left

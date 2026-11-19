@@ -18,14 +18,33 @@ export interface Element {
   nodeKey?: string;
 }
 
-export type Selector =
-  | { Id: string }
-  | { Text: string }
-  | { TextContains: string }
-  | { AccessibilityId: string }
-  | { ClassName: string }
-  | { Index: { selector: Selector; index: number } }
-  | { Compound: Selector[] };
+/** A selector in the DSL's flat form, as a suite writes it:
+ * `{ text: "Pay" }`, `{ role: "button", name: "Pay", index: 1 }`,
+ * `{ text: "Edit", below: { id: "title" } }`. */
+export type Selector = {
+  id?: string;
+  text?: string;
+  textContains?: string;
+  textMatches?: string;
+  idMatches?: string;
+  accessibilityId?: string;
+  className?: string;
+  role?: string;
+  name?: string;
+  css?: string;
+  xpath?: string;
+  checked?: boolean;
+  focused?: boolean;
+  selected?: boolean;
+  enabled?: boolean;
+  index?: number;
+  below?: Selector;
+  above?: Selector;
+  leftOf?: Selector;
+  rightOf?: Selector;
+  childOf?: Selector;
+  containsChild?: Selector;
+};
 
 export type Direction = "up" | "down" | "left" | "right";
 

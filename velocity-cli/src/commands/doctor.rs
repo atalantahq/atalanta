@@ -38,9 +38,10 @@ pub struct DoctorArgs {
     #[arg(short, long, value_delimiter = ',', value_name = "ios|android|web")]
     platform: Vec<String>,
 
-    /// Deadline for each external command, in ms
-    #[arg(long, default_value_t = 3000, value_name = "MS")]
-    timeout: u64,
+    /// Deadline for each external command. Takes a unit (3s, 500ms); a
+    /// bare number is milliseconds
+    #[arg(long, default_value = "3000", value_name = "DURATION", value_parser = super::duration_arg::bare_millis)]
+    timeout: Duration,
 }
 
 pub async fn execute(args: DoctorArgs) -> anyhow::Result<i32> {
@@ -65,7 +66,7 @@ pub async fn execute(args: DoctorArgs) -> anyhow::Result<i32> {
         deep: args.deep,
         platforms,
         project: args.path.clone(),
-        timeout: Duration::from_millis(args.timeout.max(100)),
+        timeout: args.timeout.max(Duration::from_millis(100)),
         ..Options::default()
     };
     let color = velocity_common::color::enabled();

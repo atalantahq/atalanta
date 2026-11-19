@@ -75,6 +75,9 @@ impl BedrockPlanner {
             ));
         }
         let client = reqwest::Client::builder()
+            // A provider never redirects; following one would carry the key
+            // (`x-api-key`, `api-key`) to another host (audit 2026-11).
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(LIMITS.0)
             .build()
             .map_err(|e| VelocityError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
@@ -170,7 +173,10 @@ impl BedrockPlanner {
     }
 
     fn goal_content(req: &crate::goal::GoalRequest<'_>, images: bool) -> Vec<Value> {
-        let mut content = vec![json!({ "text": Self::screen_block(req.screen) })];
+        let mut content = vec![
+            json!({ "text": crate::goal::goal_prompt_stable(req) }),
+            json!({ "text": Self::screen_block(req.screen) }),
+        ];
         if let (true, Some(img)) = (images, req.screenshot) {
             let format = if image_media_type(img) == "image/jpeg" {
                 "jpeg"
@@ -182,7 +188,7 @@ impl BedrockPlanner {
                 "source": { "bytes": base64::engine::general_purpose::STANDARD.encode(img) }
             } }));
         }
-        content.push(json!({ "text": crate::goal::goal_prompt(req) }));
+        content.push(json!({ "text": crate::goal::goal_prompt_turn(req) }));
         content
     }
 
@@ -402,7 +408,7 @@ impl NaturalPlanner for BedrockPlanner {
     async fn plan_goal(&self, req: &crate::goal::GoalRequest<'_>) -> Result<crate::goal::GoalStep> {
         let reply = self
             .ask(
-                crate::goal::GOAL_SYSTEM_PROMPT,
+                crate::goal::goal_system_prompt(req.benchmark),
                 |images| Self::goal_content(req, images),
                 "ui_goal_step",
                 crate::goal::goal_schema(),

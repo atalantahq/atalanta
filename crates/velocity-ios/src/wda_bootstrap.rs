@@ -355,7 +355,9 @@ impl WdaBootstrap {
     /// A probe request to the runner, carrying the token and `Host` every
     /// request needs (wifi-runner, review BLOCKER 1; R-1).
     fn probe_get(&self, url: &str) -> reqwest::RequestBuilder {
-        reqwest::Client::new()
+        crate::wda::runner_client()
+            .build()
+            .unwrap_or_default()
             .get(url)
             .headers(crate::wda::runner_headers(&self.auth()))
             .timeout(Duration::from_secs(3))
@@ -386,7 +388,9 @@ impl WdaBootstrap {
             return Ok(());
         }
         wifi_policy(udid, usb, allow, self.token().as_deref(), velocity_runner)?;
-        let bare = reqwest::Client::new()
+        let bare = crate::wda::runner_client()
+            .build()
+            .unwrap_or_default()
             .get(format!("{}/status", self.base_url()))
             .headers(crate::wda::runner_headers(&crate::wda::RunnerAuth {
                 token: None,
@@ -593,6 +597,17 @@ impl WdaBootstrap {
             velocity_common::env::var("VELOCITY_WDA_REF")
                 .unwrap_or_else(|_| pick_wda_ref(&xcode.developer_dir).to_string())
         };
+        if !velocity_runner() && pinned_commit(&wda_ref).is_none() {
+            // `ios.wdaRef` can come from a suite's `config.settings`: say
+            // that what gets built is not a commit Velocity checked
+            // (security review #12).
+            warn!(
+                wda_ref,
+                "WebDriverAgent {wda_ref} is not one of Velocity's pinned tags: its commit is \
+                 not checked before it is built and run (unset ios.wdaRef / VELOCITY_WDA_REF \
+                 to use the pinned one)"
+            );
+        }
         let lock = cache_lock(&self.cache_dir, &wda_ref).await?;
         let src = if velocity_runner() {
             info!(runner = %wda_ref, xcode = %xcode.build, "Velocity runner not running — bootstrapping");
@@ -1746,9 +1761,7 @@ fn config(msg: String) -> VelocityError {
 }
 
 fn dirs_home() -> PathBuf {
-    velocity_common::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+    velocity_common::host::home_dir()
 }
 
 #[cfg(test)]

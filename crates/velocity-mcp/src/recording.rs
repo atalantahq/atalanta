@@ -16,6 +16,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml::{Mapping, Value as Yaml};
 use velocity_common::selector_build::robust_selector;
@@ -48,6 +49,61 @@ pub struct Recorded {
     before: Option<Arc<Element>>,
     /// Its after-screen was seen (and the assertion decided).
     observed: bool,
+}
+
+/// A [`Recorder`] as saved between `velocity` agent commands.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct RecorderState {
+    steps: Vec<RecordedState>,
+    platform: Option<Platform>,
+    last_tree: Option<Element>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RecordedState {
+    tool: String,
+    args: Value,
+    assertion: Option<Selector>,
+    before: Option<Element>,
+    observed: bool,
+}
+
+impl Recorder {
+    pub fn to_state(&self) -> RecorderState {
+        RecorderState {
+            steps: self
+                .steps
+                .iter()
+                .map(|r| RecordedState {
+                    tool: r.tool.clone(),
+                    args: r.args.clone(),
+                    assertion: r.assertion.clone(),
+                    before: r.before.as_deref().cloned(),
+                    observed: r.observed,
+                })
+                .collect(),
+            platform: self.platform,
+            last_tree: self.last_tree.as_deref().cloned(),
+        }
+    }
+
+    pub fn from_state(state: RecorderState) -> Self {
+        Self {
+            steps: state
+                .steps
+                .into_iter()
+                .map(|r| Recorded {
+                    tool: r.tool,
+                    args: r.args,
+                    assertion: r.assertion,
+                    before: r.before.map(Arc::new),
+                    observed: r.observed,
+                })
+                .collect(),
+            platform: state.platform,
+            last_tree: state.last_tree.map(Arc::new),
+        }
+    }
 }
 
 /// The session's recording.
@@ -192,39 +248,52 @@ pub fn suite(app_id: &str, name: &str, tags: &[&str], steps: Vec<Yaml>) -> Strin
 }
 
 /// A selector as a suite writes it (`{id: ok}`, `{text: Buy, index: 1}`).
+/// Its strings are escaped for interpolation: a suite fills `${NAME}` in
+/// every string when it loads, so an app label `Pay ${amount}` is written
+/// `Pay $${amount}`, still matches that label, and reads no variable.
 pub fn selector_yaml(s: &Selector) -> Mapping {
     let mut m = Mapping::new();
-    fill(&mut m, s);
+    fill(&mut m, s, true);
     m
 }
 
-fn fill(m: &mut Mapping, s: &Selector) {
+/// How a string value is written: escaped in a suite, as is in a tool's
+/// arguments (which nothing interpolates).
+fn value(v: &str, escape: bool) -> Yaml {
+    if escape {
+        velocity_core::env::escape(v).into()
+    } else {
+        v.into()
+    }
+}
+
+fn fill(m: &mut Mapping, s: &Selector, esc: bool) {
     let mut put = |k: &str, v: Yaml| {
         m.insert(Yaml::String(k.to_string()), v);
     };
     match s {
-        Selector::Id(v) => put("id", v.as_str().into()),
-        Selector::Text(v) => put("text", v.as_str().into()),
-        Selector::TextContains(v) => put("textContains", v.as_str().into()),
-        Selector::TextMatches(v) => put("textMatches", v.as_str().into()),
-        Selector::IdMatches(v) => put("idMatches", v.as_str().into()),
-        Selector::AccessibilityId(v) => put("accessibilityId", v.as_str().into()),
-        Selector::ClassName(v) => put("className", v.as_str().into()),
-        Selector::Css(v) => put("css", v.as_str().into()),
-        Selector::XPath(v) => put("xpath", v.as_str().into()),
-        Selector::Role(v) => put("role", v.as_str().into()),
-        Selector::Name(v) => put("name", v.as_str().into()),
+        Selector::Id(v) => put("id", value(v, esc)),
+        Selector::Text(v) => put("text", value(v, esc)),
+        Selector::TextContains(v) => put("textContains", value(v, esc)),
+        Selector::TextMatches(v) => put("textMatches", value(v, esc)),
+        Selector::IdMatches(v) => put("idMatches", value(v, esc)),
+        Selector::AccessibilityId(v) => put("accessibilityId", value(v, esc)),
+        Selector::ClassName(v) => put("className", value(v, esc)),
+        Selector::Css(v) => put("css", value(v, esc)),
+        Selector::XPath(v) => put("xpath", value(v, esc)),
+        Selector::Role(v) => put("role", value(v, esc)),
+        Selector::Name(v) => put("name", value(v, esc)),
         Selector::Checked(b) => put("checked", (*b).into()),
         Selector::Focused(b) => put("focused", (*b).into()),
         Selector::Selected(b) => put("selected", (*b).into()),
         Selector::Enabled(b) => put("enabled", (*b).into()),
         Selector::Index { selector, index } => {
-            fill(m, selector);
+            fill(m, selector, esc);
             m.insert("index".into(), Yaml::from(*index as u64));
         }
         Selector::Compound(parts) => {
             for p in parts {
-                fill(m, p);
+                fill(m, p, esc);
             }
         }
         Selector::Relative {
@@ -232,10 +301,14 @@ fn fill(m: &mut Mapping, s: &Selector) {
             relation,
             anchor,
         } => {
-            fill(m, target);
+            fill(m, target, esc);
             m.insert(
                 Yaml::String(relation.to_string()),
-                Yaml::Mapping(selector_yaml(anchor)),
+                Yaml::Mapping({
+                    let mut a = Mapping::new();
+                    fill(&mut a, anchor, esc);
+                    a
+                }),
             );
         }
     }
@@ -243,10 +316,16 @@ fn fill(m: &mut Mapping, s: &Selector) {
 
 /// The tool call's selector, parsed.
 fn selector_of(args: &Value, key: &str) -> Option<Selector> {
-    let v = args.get(key)?;
-    serde_json::from_value::<Selector>(v.clone())
-        .ok()
-        .or_else(|| velocity_core::parser::selector_from_value(v.clone()).ok())
+    velocity_core::parser::selector_from_value(args.get(key)?.clone()).ok()
+}
+
+/// A selector in the flat form tools take, as is: what a ref resolves to,
+/// and what a tool call parses back to the same selector. Suites get
+/// [`selector_yaml`], which escapes `${`.
+pub fn selector_json(s: &Selector) -> Value {
+    let mut m = Mapping::new();
+    fill(&mut m, s, false);
+    serde_json::to_value(Yaml::Mapping(m)).unwrap_or(Value::Null)
 }
 
 /// A recorded tool call as a step, or `None` when it can't be one.
@@ -262,7 +341,9 @@ pub fn step_yaml(tool: &str, args: &Value) -> Option<Yaml> {
             // environment when it runs, and the value is never written.
             let text = match s("secret") {
                 Some(name) => format!("${{{name}}}"),
-                None => s("text")?.to_string(),
+                // Typed as written: a literal `${HOME}` must not read the
+                // environment when the flow runs.
+                None => velocity_core::env::escape(s("text")?),
             };
             let mut m = Mapping::new();
             m.insert("selector".into(), sel()?);
@@ -340,6 +421,24 @@ fn generic_id(id: &str) -> bool {
     id.starts_with("android:id/")
         || id.contains("systemui")
         || id.starts_with("com.android.launcher")
+        // UIKit's navigation bar back button: every pushed screen has one.
+        || id == "BackButton"
+}
+
+/// Whether `text` on `e` is its children's text joined (a web `<body>`, an
+/// iOS cell): a replay matches that element by its own text, not by what
+/// its descendants say, so it makes a brittle assertion.
+fn aggregates(e: &Element, text: &str) -> bool {
+    fn any_inside(e: &Element, text: &str) -> bool {
+        e.children.iter().any(|c| {
+            [c.text.as_deref(), c.label.as_deref()]
+                .into_iter()
+                .flatten()
+                .any(|t| !t.trim().is_empty() && t.trim() != text.trim() && text.contains(t.trim()))
+                || any_inside(c, text)
+        })
+    }
+    any_inside(e, text)
 }
 
 /// The `assertVisible` for `after`: an element `before` didn't have, by a
@@ -386,8 +485,8 @@ pub fn pick_assertion(
         let selector = robust_selector(e, after, screen, platform);
         let rank = match &selector {
             Selector::Id(id) if !generic_id(&e.platform_id) && !generic_id(id) => 0,
-            Selector::AccessibilityId(l) if usable_text(l) => 1,
-            Selector::Text(t) if usable_text(t) => 2,
+            Selector::AccessibilityId(l) if usable_text(l) && !aggregates(e, l) => 1,
+            Selector::Text(t) if usable_text(t) && !aggregates(e, t) => 2,
             _ => continue,
         };
         if best.as_ref().is_some_and(|(r, _)| *r <= rank) {
@@ -439,6 +538,15 @@ mod tests {
             visible: true,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_container_whose_text_joins_its_children_is_not_asserted() {
+        let mut body = el("", "Sign in Email Continue", 0);
+        body.children = vec![el("", "Sign in", 10), el("", "Continue", 60)];
+        let after = tree(vec![body]);
+        let picked = pick_assertion(None, &after, None, Platform::Web, &[]);
+        assert_eq!(picked, Some(Selector::Text("Sign in".into())), "{picked:?}");
     }
 
     #[test]
@@ -501,6 +609,47 @@ mod tests {
                 &["qa@velocity.dev".into()]
             ),
             None
+        );
+    }
+
+    #[test]
+    fn literal_typed_text_is_exported_so_it_reads_no_variable() {
+        let y = step_yaml(
+            "type_text",
+            &serde_json::json!({ "selector": { "id": "q" }, "text": "${AWS_SECRET_ACCESS_KEY}" }),
+        )
+        .unwrap();
+        let text = y["inputText"]["text"].as_str().unwrap().to_string();
+        assert_eq!(text, "$${AWS_SECRET_ACCESS_KEY}");
+        assert_eq!(
+            velocity_core::env::interpolate(&text, &Default::default()).unwrap(),
+            "${AWS_SECRET_ACCESS_KEY}"
+        );
+    }
+
+    /// A recorded selector holding `${` is escaped in the suite (which
+    /// interpolates every selector string when it loads), so the loaded
+    /// selector is the recorded one and reads no variable; a ref's selector
+    /// (`selector_json`) stays as is, so a tool call parses it back
+    /// unchanged.
+    #[test]
+    fn a_recorded_selector_with_a_placeholder_is_exported_literally() {
+        let raw = "Pay ${AWS_SECRET_ACCESS_KEY}";
+        let sel = Selector::Text(raw.into());
+        let y = step_yaml("tap", &serde_json::json!({ "selector": { "text": raw } })).unwrap();
+        let written = y["tap"]["text"].as_str().unwrap().to_string();
+        assert_eq!(written, "Pay $${AWS_SECRET_ACCESS_KEY}");
+        let yaml = suite("app", "t", &[], vec![y]);
+        let mut parsed = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        velocity_core::env::interpolate_suite(&mut parsed, &Default::default()).unwrap();
+        let back = format!("{:?}", parsed.tests[0].steps[0]);
+        assert!(back.contains(&format!("{raw:?}")), "{back}");
+        // The ref form round-trips through a tool call untouched.
+        let json = selector_json(&sel);
+        assert_eq!(json["text"], raw);
+        assert_eq!(
+            velocity_core::parser::selector_from_value(json).unwrap(),
+            sel
         );
     }
 

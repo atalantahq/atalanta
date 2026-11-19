@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use velocity_common::{Platform, SuiteResult};
 
-use super::{Failure, Outcome, Progress, Summary, TaskBody, TaskContext, TaskKind, TaskState};
+use super::{Failure, Progress, Summary, TaskBody, TaskContext, TaskKind, TaskOutcome, TaskState};
 
 /// How long a stopped run may take to write its reports.
 const STOP_GRACE: Duration = Duration::from_secs(30);
@@ -100,6 +100,9 @@ pub struct ExploreRequest {
     pub replay: Option<usize>,
     /// Where the test is written.
     pub out: PathBuf,
+    /// `--after`: a suite whose first test (a login) is replayed with no
+    /// model before exploring.
+    pub after: Option<PathBuf>,
 }
 
 impl ExploreRequest {
@@ -107,7 +110,6 @@ impl ExploreRequest {
     pub fn args(&self, inject: &Path) -> Vec<String> {
         let mut a = vec![
             "explore".to_string(),
-            self.goal.clone(),
             "--app-id".into(),
             self.app_id.clone(),
             "--json".into(),
@@ -143,6 +145,12 @@ impl ExploreRequest {
         if let Some(n) = self.replay {
             a.extend(["--replay".into(), n.to_string()]);
         }
+        if let Some(p) = &self.after {
+            a.extend(["--after".into(), p.to_string_lossy().into_owned()]);
+        }
+        // The goal is model text: last, after `--`, so `--values-from-model`
+        // in it is never read as a flag (audit 2026-11; console I-2).
+        a.extend(["--".into(), self.goal.clone()]);
         a
     }
 }
@@ -156,6 +164,10 @@ pub struct Child {
     pub cwd: Option<PathBuf>,
     /// Its stderr, and its stdout unless `stdout` is set.
     pub log: PathBuf,
+    /// Its whole environment, when it may not inherit this process's (a
+    /// suite an agent wrote: `crate::authored::child_env`); `None`
+    /// inherits it.
+    pub env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>>,
 }
 
 /// How a child ended.
@@ -182,6 +194,9 @@ impl Child {
         }
         .map_err(|e| format!("log {}: {e}", self.log.display()))?;
         let mut cmd = tokio::process::Command::new(&self.program);
+        if let Some(vars) = &self.env {
+            cmd.env_clear().envs(vars.iter().map(|(k, v)| (k, v)));
+        }
         cmd.args(&self.args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(out))
@@ -198,11 +213,12 @@ impl Child {
         let mut stop_deadline: Option<tokio::time::Instant> = None;
         let mut tick = tokio::time::interval(POLL);
         let mut instructions = ctx.instructions.take();
+        let mut tail = ProgressTail::default();
         let status = loop {
             tokio::select! {
                 s = child.wait() => break s,
                 _ = tick.tick() => {
-                    ctx.set_progress(read_progress(events, progress_now(ctx)));
+                    ctx.set_progress(tail.read(events, progress_now(ctx)));
                     if stop_deadline.is_some_and(|d| tokio::time::Instant::now() >= d) {
                         let _ = child.start_kill();
                     }
@@ -226,7 +242,7 @@ impl Child {
                 }
             }
         };
-        ctx.set_progress(read_progress(events, progress_now(ctx)));
+        ctx.set_progress(tail.read(events, progress_now(ctx)));
         Ok(Exit {
             code: status.ok().and_then(|s| s.code()),
             stopped,
@@ -255,8 +271,8 @@ fn append_line(path: &Path, text: &str) {
     }
 }
 
-fn error_outcome(e: String) -> Outcome {
-    Outcome {
+fn error_outcome(e: String) -> TaskOutcome {
+    TaskOutcome {
         state: TaskState::Error,
         summary: None,
         error: Some(e),
@@ -276,7 +292,7 @@ impl TaskBody for SuiteRun {
         TaskKind::Run
     }
 
-    async fn run(self: Box<Self>, mut ctx: TaskContext) -> Outcome {
+    async fn run(self: Box<Self>, mut ctx: TaskContext) -> TaskOutcome {
         let events = ctx.dir.join("events.jsonl");
         let exit = match self.child.supervise(&mut ctx, &events, None, None).await {
             Ok(e) => e,
@@ -295,7 +311,7 @@ impl TaskBody for SuiteRun {
         };
         let error =
             (state == TaskState::Error).then(|| self.child.failure("velocity run", exit.code));
-        Outcome {
+        TaskOutcome {
             state,
             summary,
             error,
@@ -319,7 +335,7 @@ impl TaskBody for ExploreRun {
         TaskKind::Explore
     }
 
-    async fn run(self: Box<Self>, mut ctx: TaskContext) -> Outcome {
+    async fn run(self: Box<Self>, mut ctx: TaskContext) -> TaskOutcome {
         let events = ctx.dir.join("events.jsonl");
         let result_file = ctx.dir.join("result.json");
         // Created empty first: the child reads only lines appended later.
@@ -357,7 +373,60 @@ impl TaskBody for ExploreRun {
                 .map(String::from),
             _ => None,
         };
-        Outcome {
+        TaskOutcome {
+            state,
+            summary,
+            error,
+            exit_code: exit.code,
+        }
+    }
+}
+
+/// A `velocity verify-change` child (row 1.4). Its verdict and evidence
+/// are in `<bundle>/manifest.json`.
+pub struct VerifyRun {
+    pub child: Child,
+    pub bundle: PathBuf,
+}
+
+#[async_trait::async_trait]
+impl TaskBody for VerifyRun {
+    fn kind(&self) -> TaskKind {
+        TaskKind::Verify
+    }
+
+    async fn run(self: Box<Self>, mut ctx: TaskContext) -> TaskOutcome {
+        let events = ctx.dir.join("events.jsonl");
+        let exit = match self.child.supervise(&mut ctx, &events, None, None).await {
+            Ok(e) => e,
+            Err(e) => return error_outcome(e),
+        };
+        let manifest = std::fs::read(self.bundle.join("manifest.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+        let passed = manifest.as_ref().is_some_and(|m| m["verdict"] == "passed");
+        let summary = manifest.as_ref().map(|m| Summary {
+            total: 1,
+            passed: usize::from(passed),
+            failed: usize::from(!passed),
+            explore: Some(m.clone()),
+            ..Default::default()
+        });
+        let state = if exit.stopped {
+            TaskState::Stopped
+        } else {
+            match exit.code {
+                Some(0) => TaskState::Passed,
+                Some(1) if manifest.is_some() => TaskState::Failed,
+                _ => TaskState::Error,
+            }
+        };
+        let error = match state {
+            TaskState::Error => Some(self.child.failure("velocity verify-change", exit.code)),
+            TaskState::Failed => std::fs::read_to_string(self.bundle.join("failures.md")).ok(),
+            _ => None,
+        };
+        TaskOutcome {
             state,
             summary,
             error,
@@ -448,59 +517,111 @@ fn interrupt(pid: Option<u32>) {
 /// last operation and phase (`exploring`, `explored` once the session has
 /// ended, `replaying` from its first replay's test, `repairing`).
 pub fn read_progress(file: &Path, base: Progress) -> Progress {
-    let Ok(text) = std::fs::read_to_string(file) else {
-        return base;
-    };
-    let mut p = Progress {
-        tests_total: base.tests_total,
-        ..Default::default()
-    };
-    for line in text.lines() {
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            continue;
+    ProgressTail::default().read(file, base)
+}
+
+/// [`read_progress`] that reads only what was appended since its last
+/// read: the supervisor polls every 400 ms on the server's runtime, and a
+/// long exploration's events file grows to megabytes (review 01 #7).
+#[derive(Default)]
+struct ProgressTail {
+    /// Bytes folded in so far.
+    offset: u64,
+    /// The start of a line not yet complete.
+    partial: Vec<u8>,
+    /// Progress from the lines folded in so far; `None` before any read.
+    progress: Option<Progress>,
+}
+
+impl ProgressTail {
+    fn read(&mut self, file: &Path, base: Progress) -> Progress {
+        use std::io::{Read, Seek, SeekFrom};
+        let Ok(mut f) = std::fs::File::open(file) else {
+            return self.progress.clone().unwrap_or(base);
         };
-        let s = |k: &str| v[k].as_str().map(String::from);
-        let n = |k: &str| v[k].as_u64().map(|n| n as usize);
-        match v["event"].as_str() {
-            Some("testStarted") => {
-                // An exploration's tests are its replays.
-                if p.phase.is_some() {
-                    p.phase = Some("replaying".into());
-                }
-                p.test = s("test");
-                p.steps = n("steps");
-                p.step = None;
-                p.label = None;
-            }
-            Some("stepStarted") => {
-                p.test = s("test");
-                p.step = n("index").map(|i| i + 1);
-                p.steps = n("total");
-                p.label = s("step");
-            }
-            Some("testFinished") => {
-                p.tests_finished += 1;
-                if !matches!(v["status"].as_str(), Some("passed" | "retried" | "skipped")) {
-                    p.tests_failed += 1;
-                }
-            }
-            Some("observed") => {
-                p.phase = Some("exploring".into());
-                p.turn = n("turn");
-            }
-            Some("planned") => {
-                p.turn = n("turn");
-                p.op = s("op");
-                p.target = s("target");
-            }
-            Some("acted") => p.label = s("action"),
-            Some("replayRun") => p.phase = Some("replaying".into()),
-            Some("repair") => p.phase = Some("repairing".into()),
-            Some("finished") => p.phase = Some("explored".into()),
-            _ => {}
+        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+        if len < self.offset {
+            // Replaced or truncated: start over.
+            *self = Self::default();
         }
+        let p = self.progress.get_or_insert_with(|| Progress {
+            tests_total: base.tests_total,
+            ..Default::default()
+        });
+        let mut new = Vec::new();
+        if f.seek(SeekFrom::Start(self.offset)).is_ok() && f.read_to_end(&mut new).is_ok() {
+            self.offset += new.len() as u64;
+            self.partial.extend_from_slice(&new);
+            if let Some(end) = self.partial.iter().rposition(|&b| b == b'\n') {
+                let done: Vec<u8> = self.partial.drain(..=end).collect();
+                for line in String::from_utf8_lossy(&done).lines() {
+                    apply_event(p, line);
+                }
+            }
+        }
+        let mut out = p.clone();
+        // The last line may be complete without its newline yet; read it
+        // as the whole-file read did, without consuming it.
+        if !self.partial.is_empty() {
+            apply_event(&mut out, &String::from_utf8_lossy(&self.partial));
+        }
+        out
     }
-    p
+}
+
+/// Fold one events line into `p`.
+fn apply_event(p: &mut Progress, line: &str) {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+        return;
+    };
+    let s = |k: &str| v[k].as_str().map(String::from);
+    let n = |k: &str| v[k].as_u64().map(|n| n as usize);
+    match v["event"].as_str() {
+        Some("testStarted") => {
+            // An exploration's tests are its replays.
+            if p.phase.is_some() {
+                p.phase = Some("replaying".into());
+            }
+            p.test = s("test");
+            p.steps = n("steps");
+            p.step = None;
+            p.label = None;
+        }
+        Some("stepStarted") => {
+            p.test = s("test");
+            p.step = n("index").map(|i| i + 1);
+            p.steps = n("total");
+            p.label = s("step");
+        }
+        Some("testFinished") => {
+            p.tests_finished += 1;
+            // The writer's own type decides what a failure is (review 02
+            // M4): a status this reader doesn't know counts as failed.
+            let failed = match velocity_common::live_events::LiveEvent::parse(line) {
+                Some(velocity_common::live_events::LiveEvent::TestFinished { status, .. }) => {
+                    status.is_failure()
+                }
+                _ => true,
+            };
+            if failed {
+                p.tests_failed += 1;
+            }
+        }
+        Some("observed") => {
+            p.phase = Some("exploring".into());
+            p.turn = n("turn");
+        }
+        Some("planned") => {
+            p.turn = n("turn");
+            p.op = s("op");
+            p.target = s("target");
+        }
+        Some("acted") => p.label = s("action"),
+        Some("replayRun") => p.phase = Some("replaying".into()),
+        Some("repair") => p.phase = Some("repairing".into()),
+        Some("finished") => p.phase = Some("explored".into()),
+        _ => {}
+    }
 }
 
 fn read_results(path: &Path) -> Option<SuiteResult> {
@@ -577,6 +698,7 @@ finish "$FAKE_EXIT"
                 args,
                 cwd: None,
                 log: dir.join("run.log"),
+                env: None,
             },
             artifacts: artifacts.clone(),
         };
@@ -589,6 +711,79 @@ finish "$FAKE_EXIT"
             tests_total: Some(2),
         };
         m.spawn(id, meta, Box::new(body))
+    }
+
+    // Review 01 #7: progress reads only the appended bytes, and a line
+    // written in two pieces counts once.
+    #[test]
+    fn progress_is_read_from_where_the_last_read_stopped() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("events.jsonl");
+        let mut f = std::fs::File::create(&file).unwrap();
+        let mut tail = ProgressTail::default();
+        let base = Progress {
+            tests_total: Some(2),
+            ..Default::default()
+        };
+        assert_eq!(tail.read(&file, base.clone()).tests_finished, 0);
+        writeln!(
+            f,
+            r#"{{"event":"testFinished","test":"a","status":"passed"}}"#
+        )
+        .unwrap();
+        write!(f, r#"{{"event":"testFinished","test":"b","#).unwrap();
+        f.flush().unwrap();
+        let p = tail.read(&file, base.clone());
+        assert_eq!((p.tests_finished, p.tests_total), (1, Some(2)));
+        writeln!(f, r#""status":"failed"}}"#).unwrap();
+        f.flush().unwrap();
+        let p = tail.read(&file, base.clone());
+        assert_eq!((p.tests_finished, p.tests_failed), (2, 1));
+        assert_eq!(
+            tail.read(&file, base.clone()).tests_finished,
+            2,
+            "no double count"
+        );
+        assert_eq!(read_progress(&file, base).tests_finished, 2);
+    }
+
+    // Review 05 #1: a child given an environment sees only that.
+    #[tokio::test]
+    async fn a_child_with_its_own_environment_inherits_nothing_else() {
+        // A variable every parent has, read rather than set: `set_var` in
+        // the library's test binary races other tests (review 07 M7).
+        let (parent_only, _) = std::env::vars()
+            .find(|(k, v)| (k == "HOME" || k == "PATH") && !v.is_empty())
+            .expect("HOME or PATH is set");
+        let tmp = tempfile::tempdir().unwrap();
+        let m = TaskManager::new(tmp.path().join("tasks"), vec![]);
+        let (id, dir) = m.new_task_dir().unwrap();
+        let artifacts = dir.join("artifacts");
+        let body = SuiteRun {
+            child: Child {
+                program: PathBuf::from("/usr/bin/env"),
+                args: vec![],
+                cwd: None,
+                log: dir.join("run.log"),
+                env: Some(vec![("VEL_MCP_KEPT".into(), "kept".into())]),
+            },
+            artifacts: artifacts.clone(),
+        };
+        let meta = TaskMeta {
+            target: "suite.yaml".into(),
+            device: None,
+            log: dir.join("run.log"),
+            artifacts,
+            dir,
+            tests_total: None,
+        };
+        let info = m.spawn(id, meta, Box::new(body));
+        let done = m.wait(&info.id, Duration::from_secs(30)).await.unwrap();
+        let log = std::fs::read_to_string(&done.log).unwrap();
+        assert!(log.contains("VEL_MCP_KEPT=kept"), "{log}");
+        assert!(log.contains("VELOCITY_EVENTS_FILE="), "{log}");
+        assert!(!log.contains(&format!("{parent_only}=")), "{log}");
     }
 
     #[test]
@@ -673,6 +868,7 @@ finish "$FAKE_EXIT"
                 args: vec![],
                 cwd: None,
                 log: dir.join("run.log"),
+                env: None,
             },
             artifacts: dir.join("artifacts"),
         };
@@ -735,6 +931,7 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
             data: vec![("EMAIL".into(), "a@b.c".into())],
             verify: Some("final".into()),
             out: dir.join("explore.yaml"),
+            after: None,
             ..Default::default()
         };
         let mut args = vec![
@@ -748,6 +945,7 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
                 args,
                 cwd: None,
                 log: dir.join("run.log"),
+                env: None,
             },
             inject,
         };
@@ -782,10 +980,13 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
             max_steps: Some(12),
             replay: Some(3),
             out: "t.yaml".into(),
+            after: None,
             ..Default::default()
         };
         let a = req.args(Path::new("/tmp/i.txt"));
-        assert_eq!(a[..2], ["explore", "open Wi-Fi; rm -rf /"]);
+        assert_eq!(a[0], "explore");
+        // The goal is last, after `--`: never a flag.
+        assert_eq!(a[a.len() - 2..], ["--", "open Wi-Fi; rm -rf /"]);
         for pair in [
             ["--json", "--out"],
             ["--inject-file", "/tmp/i.txt"],

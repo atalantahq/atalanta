@@ -5,9 +5,14 @@
 //! SHA-256 when Velocity installed it from `app:`, otherwise version and
 //! install time on Android and the bundle's modification time on an iOS
 //! simulator), the test's steps after flows are inlined and `${VAR}`s
-//! substituted, the suite config, and the device model and OS. No
-//! fingerprint, no caching. Tests marked `sideEffects: true`, and tests in a
-//! `dependsOn` chain, always run.
+//! substituted, the suite config, the device model, OS and screen size,
+//! and in CI the branch (`VELOCITY_CACHE_SCOPE` overrides it). No
+//! fingerprint, no caching. Tests marked `sideEffects: true`, tests in a
+//! `dependsOn` chain, and tests whose outcome hangs on something outside
+//! the key (an `exec`, `http` or natural-language step, a screenshot
+//! comparison) always run. The cache is for hermetic UI tests: a backend
+//! or feature flag that changes under the same build is not in the key.
+//! Passes expire after 30 days, or `VELOCITY_CACHE_MAX_AGE` (`6h`, `2d`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -75,8 +80,9 @@ impl ResultCache {
     /// Drop passes older than [`MAX_AGE_SECS`], then all but the newest
     /// [`MAX_ENTRIES`].
     fn prune(&mut self, now: u64) {
+        let max_age = max_age_secs().max(MAX_AGE_SECS);
         self.entries
-            .retain(|_, (_, at)| now.saturating_sub(*at) <= MAX_AGE_SECS);
+            .retain(|_, (_, at)| now.saturating_sub(*at) <= max_age);
         if self.entries.len() > MAX_ENTRIES {
             let mut times: Vec<u64> = self.entries.values().map(|(_, at)| *at).collect();
             times.sort_unstable_by(|a, b| b.cmp(a));
@@ -85,9 +91,13 @@ impl ResultCache {
         }
     }
 
-    /// A passing result to report instead of running, if `key` passed before.
+    /// A passing result to report instead of running, if `key` passed
+    /// before, within the maximum age.
     pub fn hit(&self, key: &str, test: &TestCase) -> Option<TestResult> {
         let (_, at) = self.entries.get(key)?;
+        if now().saturating_sub(*at) > max_age_secs() {
+            return None;
+        }
         let mut r = TestResult::failed(&test.name, String::new(), std::time::Duration::ZERO);
         r.status = TestStatus::Passed;
         r.error_message = None;
@@ -123,9 +133,15 @@ pub fn cacheable(test: &TestCase, all: &[TestCase]) -> bool {
         .iter()
         .any(|t| t == velocity_core::parser::SIDE_EFFECTS_TAG)
         && !test.steps.iter().any(|s| {
+            // An `exec` runs a host program, an `http` step talks to a
+            // backend, and a natural-language step asks a model: none of
+            // what they depend on is in the key (review 12 #8).
             matches!(
                 s.action,
-                velocity_common::Action::AssertScreenshot { .. } | velocity_common::Action::Http(_)
+                velocity_common::Action::AssertScreenshot { .. }
+                    | velocity_common::Action::Http(_)
+                    | velocity_common::Action::Exec(_)
+                    | velocity_common::Action::Natural { .. }
             )
         })
         && test.depends_on.is_empty()
@@ -160,11 +176,63 @@ pub async fn key(
     config.app = None;
     config.reset.app_path = None;
     let config = serde_json::to_string(&config).ok()?;
+    let scope = cache_scope(|k| velocity_common::env::var(k).ok());
     Some(key_of(
-        &[app_id, &app, &device, &test.name, &steps, &config],
+        &[app_id, &app, &device, &test.name, &steps, &config, &scope],
         env!("CARGO_PKG_VERSION"),
         &machine_salt(),
     ))
+}
+
+/// Which passes may answer for this run: `VELOCITY_CACHE_SCOPE` when set,
+/// else the CI branch, else nothing (a developer's machine). Without it, a
+/// cache artifact restored on branch B answered with branch A's passes for
+/// the same app build, though B may run against another backend or flags.
+fn cache_scope(var: impl Fn(&str) -> Option<String>) -> String {
+    const BRANCH_VARS: [&str; 7] = [
+        "VELOCITY_CACHE_SCOPE",
+        // A pull request's head branch, then the pushed ref.
+        "GITHUB_HEAD_REF",
+        "GITHUB_REF_NAME",
+        "CI_COMMIT_REF_NAME",
+        "BUILDKITE_BRANCH",
+        "CIRCLE_BRANCH",
+        "BITBUCKET_BRANCH",
+    ];
+    BRANCH_VARS
+        .iter()
+        .find_map(|k| {
+            var(k)
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+        })
+        .unwrap_or_default()
+}
+
+/// How old a cached pass may be: `VELOCITY_CACHE_MAX_AGE` (`90m`, `6h`,
+/// `2d`, or bare seconds), else 30 days.
+fn max_age_secs() -> u64 {
+    velocity_common::env::var("VELOCITY_CACHE_MAX_AGE")
+        .ok()
+        .and_then(|v| parse_age(&v))
+        .unwrap_or(MAX_AGE_SECS)
+}
+
+fn parse_age(text: &str) -> Option<u64> {
+    let t = text.trim();
+    let (num, unit) = match t.find(|c: char| !c.is_ascii_digit()) {
+        Some(i) => t.split_at(i),
+        None => (t, "s"),
+    };
+    let n: u64 = num.parse().ok()?;
+    let mult = match unit.trim() {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        _ => return None,
+    };
+    n.checked_mul(mult)
 }
 
 /// The key over `parts`. With the Velocity version: a new release may run a
@@ -324,6 +392,12 @@ async fn device_profile(driver: &dyn PlatformDriver, device_id: &str) -> Option<
         .into_iter()
         .find(|d| d.id == device_id)
         .map(|d| format!("{}|{}", d.name, d.os_version.unwrap_or_default()))?;
+    // Two emulators of one name can differ in screen size (another skin,
+    // `wm size`), which changes what is on screen.
+    let profile = match driver.screen_size(device_id).await {
+        Ok((w, h)) => format!("{profile}|{w}x{h}"),
+        Err(_) => profile,
+    };
     PROFILES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -513,6 +587,55 @@ mod tests {
         .unwrap();
         assert!(!cacheable(&suite.tests[0], &suite.tests));
         assert!(cacheable(&suite.tests[1], &suite.tests));
+    }
+
+    /// Review 12 #8: what the key can't see keeps a test out of the cache.
+    #[test]
+    fn exec_and_natural_language_tests_always_run() {
+        let suite = velocity_core::parser::parse_suite_from_str(
+            "appId: a\nconfig:\n  exec:\n    allow: [echo]\ntests:\n  - name: seeded\n    steps:\n      - exec: { run: echo hi }\n  - name: nl\n    steps:\n      - do: open the cart\n",
+        )
+        .unwrap();
+        assert!(!cacheable(&suite.tests[0], &suite.tests));
+        assert!(!cacheable(&suite.tests[1], &suite.tests));
+    }
+
+    #[test]
+    fn the_cache_scope_is_the_override_then_the_ci_branch() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert_eq!(cache_scope(env(&[])), "");
+        assert_eq!(cache_scope(env(&[("GITHUB_REF_NAME", "main")])), "main");
+        assert_eq!(
+            cache_scope(env(&[
+                ("GITHUB_REF_NAME", "main"),
+                ("GITHUB_HEAD_REF", "pr-1")
+            ])),
+            "pr-1"
+        );
+        assert_eq!(
+            cache_scope(env(&[
+                ("VELOCITY_CACHE_SCOPE", "nightly"),
+                ("CI_COMMIT_REF_NAME", "x")
+            ])),
+            "nightly"
+        );
+    }
+
+    #[test]
+    fn max_age_takes_units() {
+        assert_eq!(parse_age("90m"), Some(5_400));
+        assert_eq!(parse_age("6h"), Some(21_600));
+        assert_eq!(parse_age("2d"), Some(172_800));
+        assert_eq!(parse_age("30"), Some(30));
+        assert_eq!(parse_age("soon"), None);
+        assert_eq!(parse_age("5w"), None);
     }
 
     // Two runs sharing the artifacts folder: the second to save kept only

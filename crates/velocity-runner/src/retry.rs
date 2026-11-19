@@ -43,6 +43,53 @@ pub(crate) async fn run_test_with_retries(
     device_id: &str,
     app_id: &str,
     max_retries: u32,
+    test_timeout: Option<std::time::Duration>,
+) -> TestResult {
+    run_test_with_retries_from(
+        executor,
+        test,
+        device_id,
+        app_id,
+        max_retries,
+        0,
+        test_timeout,
+    )
+    .await
+}
+
+/// The failure of an attempt cut off by `--test-timeout`.
+pub(crate) fn test_timeout_message(limit: std::time::Duration) -> String {
+    format!(
+        "test timed out after {} (--test-timeout): this attempt was stopped; the rest of the run goes on",
+        short(limit)
+    )
+}
+
+/// `90s`, `1.5s`, `250ms`.
+fn short(d: std::time::Duration) -> String {
+    let ms = d.as_millis();
+    if ms < 1000 {
+        format!("{ms}ms")
+    } else if ms.is_multiple_of(1000) {
+        format!("{}s", ms / 1000)
+    } else {
+        format!("{:.1}s", d.as_secs_f64())
+    }
+}
+
+/// [`run_test_with_retries`], the first attempt here being attempt
+/// `base_attempt` of the test: a retry the parallel runner moved to another
+/// device is not a first attempt, so the executor never skips its launch
+/// for batching (it would start on whatever the device's previous test
+/// left on screen).
+pub(crate) async fn run_test_with_retries_from(
+    executor: &mut TestExecutor<'_>,
+    test: &TestCase,
+    device_id: &str,
+    app_id: &str,
+    max_retries: u32,
+    base_attempt: u32,
+    test_timeout: Option<std::time::Duration>,
 ) -> TestResult {
     // `--retries 1000000` ran a failing test a million times (VEL-176).
     let max_retries = max_retries.min(MAX_TEST_RETRIES);
@@ -60,16 +107,29 @@ pub(crate) async fn run_test_with_retries(
     let mut panicked: Option<String> = None;
 
     let mut result = loop {
-        executor.set_retry_attempt(attempts);
+        executor.set_retry_attempt(base_attempt.saturating_add(attempts));
         // A panic inside a test (a driver or layout bug) fails that test
         // instead of killing the run: in `--parallel` it killed the actor
         // and the run waited for it forever.
+        let attempt_start = Instant::now();
         let run = std::panic::AssertUnwindSafe(executor.execute_test(test, device_id, app_id));
-        let mut result = match futures::FutureExt::catch_unwind(run).await {
-            Ok(Ok(r)) => r,
-            Ok(Err(e)) => TestResult::failed(&test.name, e.to_string(), test_start.elapsed()),
+        let run = futures::FutureExt::catch_unwind(run);
+        let outcome = match test_timeout {
+            // One test that waits on every step must not hold its device
+            // until the suite timeout ends the whole run (review 12 #9).
+            Some(limit) => tokio::time::timeout(limit, run).await.ok(),
+            None => Some(run.await),
+        };
+        let mut result = match outcome {
+            None => TestResult::failed(
+                &test.name,
+                test_timeout_message(test_timeout.unwrap_or_default()),
+                attempt_start.elapsed(),
+            ),
+            Some(Ok(Ok(r))) => r,
+            Some(Ok(Err(e))) => TestResult::failed(&test.name, e.to_string(), test_start.elapsed()),
             // A bug in Velocity, not the app: exit 5 (D-19).
-            Err(panic) => TestResult {
+            Some(Err(panic)) => TestResult {
                 internal_error: true,
                 ..TestResult::failed(
                     &test.name,

@@ -580,23 +580,12 @@ impl Adb {
             reason: format!("Failed to take screenshot: {e}"),
         })?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(VelocityError::AdbConnectionLost {
-                device_id: device_id.to_string(),
-                reason: format!("Screenshot failed: {stderr}"),
-            });
-        }
-
-        // Never rewrite the bytes: the PNG signature itself contains "\r\n".
-        let png = output.stdout;
-        if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
-            return Err(VelocityError::AdbConnectionLost {
-                device_id: device_id.to_string(),
-                reason: "screencap did not return a PNG".to_string(),
-            });
-        }
-        Ok(png)
+        screencap_result(
+            device_id,
+            output.status.success(),
+            output.stdout,
+            &output.stderr,
+        )
     }
 
     pub async fn screen_size(&self, device_id: &str) -> Result<(i32, i32)> {
@@ -668,8 +657,10 @@ fn rotation(output: &str) -> Option<u8> {
 /// root node` and still exits 0, and writes nothing then: reading a fixed
 /// path after `&&` parsed an earlier step's screen as the live one
 /// (VEL-334). `VELOCITY_DUMP_DIR` is only set by tests.
+/// `umask 077` keeps the screen's text from other apps while the file
+/// exists (the shell's umask is 0 on many builds; audit 2026-11 AND-5).
 pub(crate) const DUMP_SCRIPT: &str =
-    "f=${VELOCITY_DUMP_DIR:-/data/local/tmp}/velocity-dump-$$.xml; \
+    "umask 077; f=${VELOCITY_DUMP_DIR:-/data/local/tmp}/velocity-dump-$$.xml; \
      rm -f $f; uiautomator dump $f 2>&1; echo VELOCITY-DUMP; cat $f 2>/dev/null; rm -f $f";
 
 /// uiautomator's success line ("hierchary" is AOSP's spelling).
@@ -792,6 +783,50 @@ pub(crate) fn on_device(e: VelocityError, device_id: &str) -> VelocityError {
 /// toward the circuit breaker as a dead device. A serial adb doesn't know
 /// is `DeviceNotFound`, and an unauthorized device (the RSA prompt was
 /// never accepted) a config error: no retry fixes it (VEL-055).
+/// `adb exec-out screencap -p`'s outcome. Only an adb-level failure
+/// (offline, closed, no device) is a lost connection; `screencap` failing
+/// on a healthy device ("Unable to take screenshot", a secure window, the
+/// display off) or writing something that isn't a PNG is a capture
+/// failure. All three used to be `AdbConnectionLost`: retried with session
+/// restarts and counted toward the circuit breaker, so a device whose
+/// screen can't be captured ended the suite as "unresponsive" (review 03
+/// M1).
+pub(crate) fn screencap_result(
+    device_id: &str,
+    success: bool,
+    stdout: Vec<u8>,
+    stderr: &[u8],
+) -> Result<Vec<u8>> {
+    if !success {
+        let stderr = String::from_utf8_lossy(stderr);
+        return Err(
+            match classify_failure(device_id, &["exec-out", "screencap", "-p"], &stderr) {
+                VelocityError::CommandFailed { detail, .. } => VelocityError::ScreenCaptureFailed {
+                    device_id: device_id.to_string(),
+                    detail: if detail.is_empty() {
+                        "screencap exited with an error".to_string()
+                    } else {
+                        format!("screencap: {detail}")
+                    },
+                },
+                other => other,
+            },
+        );
+    }
+    // Never rewrite the bytes: the PNG signature itself contains "\r\n".
+    if !stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err(VelocityError::ScreenCaptureFailed {
+            device_id: device_id.to_string(),
+            detail: if stdout.is_empty() {
+                "screencap returned nothing (a secure window, or the display is off)".to_string()
+            } else {
+                format!("screencap did not return a PNG ({} bytes)", stdout.len())
+            },
+        });
+    }
+    Ok(stdout)
+}
+
 pub(crate) fn classify_failure(device_id: &str, args: &[&str], stderr: &str) -> VelocityError {
     const CONNECTION: [&str; 6] = [
         "device offline",
@@ -940,6 +975,55 @@ mod tests {
 mod fake_adb_tests {
     use super::*;
     use crate::test_support::FakeAdb;
+
+    /// Review 03 M1: only adb's own failures are a lost connection; a
+    /// capture that fails on a healthy device is a capture failure.
+    #[test]
+    fn screencap_failures_are_classified() {
+        let png = b"\x89PNG\r\n\x1a\nrest".to_vec();
+        assert!(screencap_result("d", true, png.clone(), b"").is_ok());
+        let kind = |r: Result<Vec<u8>>| match r.unwrap_err() {
+            VelocityError::ScreenCaptureFailed { .. } => "capture",
+            VelocityError::AdbConnectionLost { .. } => "lost",
+            VelocityError::DeviceNotFound { .. } => "missing",
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            kind(screencap_result("d", true, Vec::new(), b"")),
+            "capture"
+        );
+        assert_eq!(
+            kind(screencap_result("d", true, b"junk".to_vec(), b"")),
+            "capture"
+        );
+        assert_eq!(
+            kind(screencap_result(
+                "d",
+                false,
+                Vec::new(),
+                b"Unable to take screenshot"
+            )),
+            "capture"
+        );
+        assert_eq!(
+            kind(screencap_result(
+                "d",
+                false,
+                Vec::new(),
+                b"error: device offline"
+            )),
+            "lost"
+        );
+        assert_eq!(
+            kind(screencap_result(
+                "d",
+                false,
+                Vec::new(),
+                b"error: device 'd' not found"
+            )),
+            "missing"
+        );
+    }
 
     /// VEL-317: a folder of split APKs went to `adb install` (which fails),
     /// and a bundle got adb's generic error.

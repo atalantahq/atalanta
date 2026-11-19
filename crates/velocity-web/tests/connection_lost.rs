@@ -1,7 +1,6 @@
 //! VEL-020: when Chrome dies mid-run, every driver call fails at once as a
 //! lost connection, and cleanup returns. Calls hung until the step watchdog
-//! and cleanup hung forever. Its own test binary: it kills this process's
-//! Chrome by its profile dir, which would hit the other tests' browsers.
+//! and cleanup hung forever. Its own test binary: it kills a Chrome.
 
 mod common;
 
@@ -13,15 +12,6 @@ use velocity_common::{HealthStatus, PlatformDriver, VelocityError};
 #[tokio::test]
 async fn chrome_killed_calls_return_within_deadline() {
     require_chrome!();
-    // Minimal containers often lack procps.
-    if std::process::Command::new("pkill")
-        .arg("-V")
-        .output()
-        .is_err()
-    {
-        eprintln!("skipped: no pkill");
-        return;
-    }
     let base = serve(&[("/p.html", "<html><body><div id=a>a</div></body></html>")]);
     let d = driver(vec![]).await;
     d.launch_app("web", &format!("{base}/p.html"), false)
@@ -29,13 +19,15 @@ async fn chrome_killed_calls_return_within_deadline() {
         .unwrap();
     d.find_element("web", &css("#a")).await.unwrap();
 
-    // Only Chrome processes started with this process's profile dirs.
-    let mine = format!("velocity-chrome-{}-", std::process::id());
-    let killed = std::process::Command::new("pkill")
-        .args(["-9", "-f", &mine])
+    // The browser process itself, by its pid: no `pkill` needed, which
+    // minimal containers lack and whose absence skipped the test (review
+    // 07 M6).
+    let pid = d.debug_browser_pid("web").await.expect("Chrome's pid");
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
         .status()
         .unwrap();
-    assert!(killed.success(), "Chrome was running with {mine}");
+    assert!(killed.success(), "Chrome {pid} was running");
 
     let start = Instant::now();
     let err = loop {

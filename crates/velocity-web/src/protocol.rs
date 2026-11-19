@@ -71,6 +71,17 @@ pub trait BrowserProtocol: Send + Sync {
     async fn long_press(&self, x: f64, y: f64, ms: u64) -> Result<()>;
     /// A pointer drag with the button held.
     async fn drag(&self, from: (i32, i32), to: (i32, i32)) -> Result<()>;
+    /// `drag` (row 3.1): press, hold, a slow move, a rest, release.
+    async fn drag_held(
+        &self,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        let _ = (hold_ms, move_ms);
+        self.drag(from, to).await
+    }
     /// A finger stroke (touch profiles).
     async fn touch_drag(&self, from: (f64, f64), to: (f64, f64)) -> Result<()>;
     /// The mouse wheel at a point.
@@ -79,6 +90,12 @@ pub trait BrowserProtocol: Send + Sync {
     async fn press_key(&self, key: &str) -> Result<()>;
     /// Text into whatever has the focus, in one go.
     async fn insert_text(&self, text: &str) -> Result<()>;
+    /// Text into whatever has the focus as a user types it: a key press
+    /// per character where the protocol has one, so `keydown`/`keyup`
+    /// listeners see it. [`BrowserProtocol::insert_text`] by default.
+    async fn type_text(&self, text: &str) -> Result<()> {
+        self.insert_text(text).await
+    }
     /// Select all in the focused field and delete it.
     async fn select_all_and_delete(&self) -> Result<()>;
     /// Move the caret to the end of the focused field.
@@ -90,6 +107,15 @@ pub trait BrowserProtocol: Send + Sync {
     /// focus is in the page's own documents or can't be told.
     async fn opaque_focus(&self) -> Option<String> {
         None
+    }
+    /// Give the `<input type=file>` the element `id` stands for (it, or
+    /// its `<label>`) the files at `paths` (review 10 #11).
+    async fn set_files(&self, id: &str, paths: Vec<String>) -> Result<()> {
+        let _ = (id, paths);
+        Err(velocity_common::VelocityError::Internal(anyhow::anyhow!(
+            "setting a file input's files is not supported over {}",
+            self.protocol()
+        )))
     }
 }
 
@@ -134,6 +160,10 @@ impl BrowserProtocol for Tab {
         crate::driver::opaque_focus(self).await
     }
 
+    async fn set_files(&self, id: &str, paths: Vec<String>) -> Result<()> {
+        Tab::set_files(self, id, paths).await
+    }
+
     async fn click(&self, x: f64, y: f64) -> Result<()> {
         cdp::click(self, x, y).await
     }
@@ -148,6 +178,16 @@ impl BrowserProtocol for Tab {
 
     async fn drag(&self, from: (i32, i32), to: (i32, i32)) -> Result<()> {
         cdp::drag(self, from, to).await
+    }
+
+    async fn drag_held(
+        &self,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        cdp::drag_held(self, from, to, hold_ms, move_ms).await
     }
 
     async fn touch_drag(&self, from: (f64, f64), to: (f64, f64)) -> Result<()> {
@@ -166,6 +206,10 @@ impl BrowserProtocol for Tab {
         use chromiumoxide::cdp::browser_protocol::input::InsertTextParams;
         self.exec(InsertTextParams::new(text)).await?;
         Ok(())
+    }
+
+    async fn type_text(&self, text: &str) -> Result<()> {
+        cdp::type_text(self, text).await
     }
 
     async fn select_all_and_delete(&self) -> Result<()> {

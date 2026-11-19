@@ -71,6 +71,7 @@ pub fn waits_for_its_target(action: &Action) -> bool {
         Action::Tap { .. }
             | Action::DoubleTap { .. }
             | Action::LongPress { .. }
+            | Action::Drag { .. }
             | Action::InputText { .. }
             | Action::ClearText { .. }
             | Action::AssertVisible { .. }
@@ -128,6 +129,7 @@ fn extract_selector(action: &Action) -> Option<&Selector> {
         Action::Tap { selector } => Some(selector),
         Action::DoubleTap { selector } => Some(selector),
         Action::LongPress { selector, .. } => Some(selector),
+        Action::Drag { from, .. } => Some(from),
         Action::InputText { selector, .. } => Some(selector),
         Action::ClearText { selector } => Some(selector),
         Action::AssertVisible { selector } => Some(selector),

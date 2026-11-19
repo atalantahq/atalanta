@@ -1,0 +1,83 @@
+# Fuzz targets for the parsers that read untrusted or hand-written input
+# (cargo-fuzz, libFuzzer). Not a member of the main workspace: `cargo build`,
+# clippy, the tests and the MSRV job never see it, and it keeps its own
+# lockfile. Needs a nightly toolchain and cargo-fuzz:
+#
+#   cargo +nightly fuzz list
+#   cargo +nightly fuzz run yaml_suite -- -max_total_time=60
+#
+# `cargo +nightly fuzz` passes `--cfg fuzzing`, which exposes the private
+# line parsers the tree_server_lines target calls (velocity-android
+# `tree_server::fuzzing`). On stable, `RUSTFLAGS="--cfg fuzzing" cargo check
+# --manifest-path fuzz/Cargo.toml` type-checks every target.
+# .github/workflows/security.yml runs each target for a minute weekly.
+[package]
+name = "velocity-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+serde_yaml = "0.9"
+tempfile = "3"
+velocity-common = { path = "../crates/velocity-common" }
+velocity-core = { path = "../crates/velocity-core" }
+velocity-android = { path = "../crates/velocity-android" }
+velocity-ios = { path = "../crates/velocity-ios" }
+velocity-api = { path = "../crates/velocity-api" }
+velocity-migrate = { path = "../crates/velocity-migrate" }
+
+# Its own workspace, so the root one (which excludes `fuzz`) never builds it.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "yaml_suite"
+path = "fuzz_targets/yaml_suite.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "android_tree"
+path = "fuzz_targets/android_tree.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ios_page_source"
+path = "fuzz_targets/ios_page_source.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tree_server_lines"
+path = "fuzz_targets/tree_server_lines.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_expect"
+path = "fuzz_targets/http_expect.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "maestro_migrate"
+path = "fuzz_targets/maestro_migrate.rs"
+test = false
+doc = false
+bench = false

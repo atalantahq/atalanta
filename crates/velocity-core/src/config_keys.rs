@@ -48,6 +48,7 @@ pub fn section_fields(section: &str) -> Option<&'static [&'static str]> {
         "web" => fields::<t::WebConfig>(),
         "nl" => fields::<t::NlConfig>(),
         "ai" => fields::<t::AiConfig>(),
+        "exec" => fields::<velocity_common::exec::ExecConfig>(),
         _ => return None,
     })
 }
@@ -101,6 +102,49 @@ pub(crate) fn closest<'a>(key: &str, known: &[&'a str]) -> Option<&'a str> {
 pub fn unknown_keys(yaml: &str) -> Vec<String> {
     let mut out = unknown_suite_keys(yaml);
     out.extend(unknown_config_keys(yaml));
+    out.extend(renamed_config_keys(yaml));
+    out
+}
+
+/// `config.<section>` keys that were renamed: (section, old names, new
+/// name, why). The old names are still read (serde aliases), but an alias
+/// cannot warn, so [`renamed_config_keys`] does.
+pub const RENAMED: &[(&str, &[&str], &str, &str)] = &[(
+    "performance",
+    &["heapGrowthThresholdPct", "heap_growth_threshold_pct"],
+    "pssGrowthThresholdPct",
+    "it compares the test's peak total PSS with its saved baseline, not heap growth",
+)];
+
+/// Whether `key` in `config.<section>` is an old name from [`RENAMED`].
+pub fn is_renamed(section: &str, key: &str) -> bool {
+    RENAMED
+        .iter()
+        .any(|(s, old, _, _)| *s == section && old.contains(&key))
+}
+
+/// A warning for each old key name from [`RENAMED`] in the suite's
+/// `config:`; it still works.
+pub fn renamed_config_keys(yaml: &str) -> Vec<String> {
+    let Ok(root) = serde_yaml::from_str::<serde_yaml::Value>(yaml) else {
+        return Vec::new();
+    };
+    let Some(config) = root.get("config").and_then(|c| c.as_mapping()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (section, old, new, why) in RENAMED {
+        let Some(map) = config.get(*section).and_then(|v| v.as_mapping()) else {
+            continue;
+        };
+        for key in map.keys().filter_map(|k| k.as_str()) {
+            if old.contains(&key) {
+                out.push(format!(
+                    "config.{section}.{key}: renamed to `{new}` ({why}); the old name still works for now"
+                ));
+            }
+        }
+    }
     out
 }
 
@@ -214,6 +258,23 @@ pub(crate) fn distance(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_old_memory_threshold_key_warns_and_the_new_one_does_not() {
+        let old = "config:\n  performance:\n    heapGrowthThresholdPct: 20\ntests: []\n";
+        let w = unknown_keys(old);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("renamed to `pssGrowthThresholdPct`"), "{w:?}");
+        let new = "config:\n  performance:\n    pssGrowthThresholdPct: 20\ntests: []\n";
+        assert!(unknown_keys(new).is_empty());
+        // Both names still set the threshold.
+        for yaml in [old, new] {
+            let c: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+            let p: t::PerformanceConfig =
+                serde_yaml::from_value(c["config"]["performance"].clone()).unwrap();
+            assert_eq!(p.pss_growth_threshold_pct, 20);
+        }
+    }
 
     #[test]
     fn misspelt_and_unknown_settings_are_named() {

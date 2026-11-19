@@ -3,6 +3,7 @@
 //! connection, request mocking and network-idle sync, and evidence capture.
 //! Internal to the `velocity` CLI (`platform: web`); its API has no
 //! stability promise.
+#![forbid(unsafe_code)]
 
 pub mod cdp;
 pub mod dom;
