@@ -499,6 +499,7 @@ pub const ACTION_KEYS: &[&str] = &[
     "tap",
     "doubleTap",
     "longPress",
+    "drag",
     "inputText",
     "clearText",
     "assertVisible",
@@ -520,6 +521,7 @@ pub const ACTION_KEYS: &[&str] = &[
     "goBack",
     "refresh",
     "http",
+    "exec",
     "do",
     "act",
     "assert",
@@ -814,6 +816,10 @@ where
             let req: velocity_common::HttpRequest = map.next_value()?;
             Ok(Action::Http(Box::new(req)))
         }
+        "exec" => {
+            let e: velocity_common::exec::ExecStep = map.next_value()?;
+            Ok(Action::Exec(Box::new(e)))
+        }
         "assertSystemState" => {
             let v: SystemStateDsl = map.next_value()?;
             Ok(Action::AssertSystemState {
@@ -832,6 +838,15 @@ where
             let v: SelectorDsl = map.next_value()?;
             Ok(Action::DoubleTap {
                 selector: v.into_selector().map_err(de::Error::custom)?,
+            })
+        }
+        "drag" => {
+            let v: DragDsl = map.next_value()?;
+            Ok(Action::Drag {
+                from: v.from.into_selector().map_err(de::Error::custom)?,
+                to: v.to.into_selector().map_err(de::Error::custom)?,
+                hold_ms: v.hold_ms,
+                move_ms: v.move_ms,
             })
         }
         "longPress" => {
@@ -1275,6 +1290,15 @@ struct StopAppDsl {
 /// fields inline: `longPress: { text: Edit, below: {…}, durationMs }`.
 /// Inline took only six fields, so `below:` or `css:` was "unknown field"
 /// there and nowhere else (VEL-221).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DragDsl {
+    from: SelectorDsl,
+    to: SelectorDsl,
+    hold_ms: Option<u64>,
+    move_ms: Option<u64>,
+}
+
 struct LongPressDsl {
     selector: std::result::Result<SelectorDsl, String>,
     duration_ms: Option<u64>,

@@ -17,6 +17,9 @@ use crate::ws;
 pub const REVIEW_PATH: &str = "/review";
 
 pub fn build_router(state: Arc<AppState>) -> Router {
+    if state.review_only {
+        return review_router(state);
+    }
     let api = Router::new()
         .route("/devices", get(devices::list))
         .route("/devices/select", post(devices::select))
@@ -67,6 +70,28 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(REVIEW_PATH, get(baselines::page))
         .fallback(get(embedded::static_handler))
         // No CORS layer: only the inspector's own page may call the API.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security::guard,
+        ))
+        .with_state(state)
+}
+
+/// The review server's routes (`velocity baselines review --serve`): the
+/// page and the baseline API, nothing else. Audit 2026-11 INSP-1: a shared
+/// review URL granted the whole console, including `POST /api/tasks/run`
+/// (a `velocity run` child, with the project's `exec` allow-list).
+fn review_router(state: Arc<AppState>) -> Router {
+    let api = Router::new()
+        .route("/baselines", get(baselines::list))
+        .route("/baselines/image", get(baselines::image))
+        .route("/baselines/accept", post(baselines::accept))
+        .route("/baselines/reject", post(baselines::reject))
+        .fallback(|| async { (axum::http::StatusCode::NOT_FOUND, "Unknown API route") });
+    Router::new()
+        .nest("/api", api)
+        .route(REVIEW_PATH, get(baselines::page))
+        .fallback(|| async { (axum::http::StatusCode::NOT_FOUND, "Not found") })
         .layer(middleware::from_fn_with_state(
             state.clone(),
             security::guard,

@@ -14,7 +14,6 @@ description = "Core engine for Velocity: YAML parser, validator, sync engine, ex
 
 [dependencies]
 velocity-common = { workspace = true }
-velocity-nl = { workspace = true }
 velocity-api = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }

@@ -89,6 +89,12 @@ impl Refs {
         self.expired_by = None;
     }
 
+    /// The tool that last retired the refs, if they are retired.
+    #[cfg(test)]
+    pub fn expired_by(&self) -> Option<&str> {
+        self.expired_by.as_deref()
+    }
+
     /// `tool` changed the screen: every ref is retired until the next
     /// listing.
     pub fn expire(&mut self, tool: &str) {
@@ -135,26 +141,25 @@ impl Refs {
             return Ok(());
         };
         let selector = self.resolve(&r, tree, screen)?;
-        args["selector"] = serde_json::to_value(selector)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("{e}")))?;
+        args["selector"] = crate::recording::selector_json(&selector);
         Ok(())
     }
 
     fn resolve(&self, r: &str, tree: &Element, screen: Option<&Rect>) -> Result<Selector> {
         let Some((selector, seen)) = self.current.get(r) else {
             if let Some(tool) = &self.expired_by {
-                return Err(VelocityError::Config(format!(
+                return Err(VelocityError::StaleRef(format!(
                     "ref {r} is stale: `{tool}` changed the screen since list_elements; \
                      call list_elements again"
                 )));
             }
-            return Err(VelocityError::Config(format!(
+            return Err(VelocityError::StaleRef(format!(
                 "ref {r} is not in the latest list_elements; call list_elements again"
             )));
         };
         let now = pick(tree, selector, screen);
         if now.map(|e| Fingerprint::of(e, self.platform)).as_ref() != Some(seen) {
-            return Err(VelocityError::Config(format!(
+            return Err(VelocityError::StaleRef(format!(
                 "ref {r} is stale: the screen changed since list_elements; call it again"
             )));
         }
@@ -268,7 +273,8 @@ mod tests {
 
         let mut args = serde_json::json!({ "selector": { "ref": second_buy } });
         refs.resolve_args(&mut args, &t, None).unwrap();
-        let s: Selector = serde_json::from_value(args["selector"].clone()).unwrap();
+        let s: Selector =
+            velocity_core::parser::selector_from_value(args["selector"].clone()).unwrap();
         assert_eq!(
             s,
             Selector::Index {
@@ -355,7 +361,7 @@ mod tests {
     fn resolved(refs: &Refs, r: &str, t: &Element) -> Selector {
         let mut args = serde_json::json!({ "selector": { "ref": r } });
         refs.resolve_args(&mut args, t, None).unwrap();
-        serde_json::from_value(args["selector"].clone()).unwrap()
+        velocity_core::parser::selector_from_value(args["selector"].clone()).unwrap()
     }
 
     // NB-2: a web node id is per page load; a ref must never record it.

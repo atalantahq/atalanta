@@ -27,6 +27,7 @@
 //! # Ok(())
 //! # }
 //! ```
+#![forbid(unsafe_code)]
 
 pub mod anthropic;
 pub mod bedrock;
@@ -51,10 +52,11 @@ pub use checker::{verify_claim, CheckAnswer, CheckRequest, ScreenChecker};
 pub use goal::{Expectation, GoalOp, GoalOutcome, GoalRequest, GoalStep};
 pub use openai::{Auth, OpenAiOptions, OpenAiPlanner, OutputMode};
 pub use planner::{
-    summarize_screen, NaturalPlanner, Op, PlanRequest, PlannedStep, ScreenIndex, Usage,
+    summarize_screen, NaturalPlanner, Op, PlanRequest, PlannedStep, Price, ScreenIndex, Usage,
 };
 pub use provider::{find_preset, AiSettings, Caps, Preset, Wire, PRESETS};
 pub use resolver::{
     plan_step, plan_step_on_screen, plan_step_outcome, step_shape, CacheMode, NaturalResolver,
-    NaturalStep, PendingPlan, PlanFailure,
+    NaturalStep, PendingPlan, PlanFailure, StepKeys,
 };
+pub use velocity_common::natural::{CachedHit, NaturalStepResolver};

@@ -57,8 +57,47 @@
       for (var i = 0; i < n.selectedOptions.length; i++) o.push(n.selectedOptions[i].label);
       return norm(o.join(', '));
     }
+    if (holdsAriaHidden(n)) return norm(shownText(n));
     var t = n.innerText;
     return norm(typeof t === 'string' ? t : n.textContent);
+  }
+  // `aria-hidden="true"` content is decoration a screen reader skips (an
+  // icon-font ligature: `<i aria-hidden>delete</i> Delete`), and so does
+  // the accessible name; innerText kept it, so the button read
+  // "delete Delete" (review 10 #3). The elements holding such content are
+  // found once per evaluation, so a text search stays linear.
+  function holdsAriaHidden(n) {
+    var st = state();
+    if (!st.ariaHolders) {
+      var set = new Set(), hidden = qall('[aria-hidden="true"]');
+      for (var i = 0; i < hidden.length; i++) {
+        for (var p = parentOf(hidden[i]); p && !set.has(p); p = parentOf(p)) set.add(p);
+      }
+      st.ariaHolders = set;
+    }
+    return st.ariaHolders.has(n);
+  }
+  // innerText without the aria-hidden subtrees: a block child's text is
+  // set apart by a space (innerText's line break, which `norm` makes a
+  // space), an inline one's runs on.
+  function shownText(n) {
+    var out = '';
+    for (var c = n.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { out += c.data; continue; }
+      if (c.nodeType !== 1 || c.getAttribute('aria-hidden') === 'true') continue;
+      var tag = c.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE' || tag === 'NOSCRIPT') continue;
+      if (tag === 'BR') { out += ' '; continue; }
+      var cs = styleOf(c);
+      if (cs.display === 'none') continue;
+      var inner;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') inner = '';
+      else if (holdsAriaHidden(c)) inner = shownText(c);
+      else if (cs.visibility === 'hidden') inner = '';
+      else inner = typeof c.innerText === 'string' ? c.innerText : c.textContent;
+      out += /^inline/.test(cs.display) || cs.display === 'contents' ? inner : ' ' + inner + ' ';
+    }
+    return out;
   }
   // The other reading of a non-field element's text: its source text
   // (textContent), normalised the same way, or null for a field. innerText
@@ -205,6 +244,98 @@
     return [Math.round(x1 + ox), Math.round(y1 + oy), Math.round(Math.max(x2 - x1, 0)), Math.round(Math.max(y2 - y1, 0))];
   }
 
+  // A name for a clickable element with no text, label or id of its own
+  // (an icon: `<span class="trash">` drawn by CSS, `<i class="fa-star">`,
+  // `<button class="p-2 rounded"><svg><title>Delete</title></svg></button>`),
+  // so the agent can see and name it: its title or alt, else a name one
+  // level down (an svg <title>, an <img alt>, a child's aria-label, an
+  // svg `<use href="#icon-trash">`, an icon-font child's class), else its
+  // class words that aren't utility classes, else its image's file name.
+  // Velocity's `hint` carries it (the placeholder role on devices: what an
+  // unlabelled control is for). Tailwind and CSS-module class names read
+  // as "p 2 rounded hover:bg gray 100" and "Button root x3F9a" (review 10 #8).
+  var ICON_NOISE = /^(fa|fas|far|fab|fal|fad|bi|glyphicon|material-icons|material-symbols-outlined|material-symbols-rounded|icon|icons|ico|btn|button|svg|mdi|ion|la|lucide|feather|octicon|heroicon)$/;
+  var STATE_WORD = /^(active|clicked|selected|hover|disabled|on|off|open|closed|show|hide|is|has)$/;
+  var UTILITY = new RegExp('^-?(p|px|py|pt|pb|pl|pr|ps|pe|m|mx|my|mt|mb|ml|mr|ms|me|w|h|size|min-w|min-h|max-w|max-h|' +
+    'gap|gap-x|gap-y|space-x|space-y|text|bg|border|border-[trblxy]|rounded|rounded-[a-z]+|shadow|font|leading|tracking|' +
+    'z|top|left|right|bottom|inset|inset-x|inset-y|opacity|ring|ring-offset|outline|flex|grid|grid-cols|grid-rows|col|' +
+    'col-span|row|row-span|items|justify|content|self|place|order|overflow|overflow-x|overflow-y|cursor|transition|' +
+    'duration|delay|ease|transform|translate-x|translate-y|scale|rotate|fill|stroke|sr|select|pointer-events|align|' +
+    'whitespace|break|truncate|block|inline|inline-block|inline-flex|hidden|relative|absolute|fixed|sticky|static|' +
+    'visible|invisible|container|aspect|object|underline|no-underline|uppercase|lowercase|capitalize|italic|' +
+    'antialiased|shrink|grow|basis|divide|from|to|via|animate|decoration|backdrop|blur|filter|drop-shadow|line-clamp|' +
+    'appearance|resize|list|float|clear|isolate|mix-blend|will-change|accent|caret|scroll|snap|touch|d|col-auto|' +
+    'sm|md|lg|xl|xxl|xs)(-|$)');
+  function classWords(cls) {
+    var words = [];
+    (cls || '').split(/\s+/).forEach(function (w) {
+      if (!w) return;
+      // Utilities with a variant or arbitrary value (`hover:bg-x`,
+      // `w-[3px]`, `md/2`), CSS-module and CSS-in-JS hashes
+      // (`Button_root__x3F9a`, `css-1x2y3z`, `sc-bdfBwQ`).
+      if (/[:\[\]\/!@]/.test(w) || /__/.test(w) || /^(css|sc|jsx|svelte|emotion|tw)-/.test(w)) return;
+      if (UTILITY.test(w)) return;
+      w = w.replace(/^(fa|fas|far|fab|bi|icon|icons|glyphicon|mdi|ion|lucide|feather|octicon|ti|ri|bx|gg)-/, '');
+      if (!w || ICON_NOISE.test(w) || STATE_WORD.test(w)) return;
+      // A hash-like token: letters and digits mixed with no separator
+      // (`x3F9a`, `a1b2c3`); `trash-2` and `h1` style names stay.
+      if (/^[A-Za-z0-9]{5,}$/.test(w) && /\d/.test(w) && /[A-Za-z]/.test(w) && !/^[a-z]+\d$/.test(w)) return;
+      words.push(w);
+    });
+    return words.join(' ').replace(/[-_]+/g, ' ').trim();
+  }
+  // A name one level down: what an icon button's child says it is.
+  function childName(n) {
+    var tries = n.querySelectorAll('[aria-label]:not([aria-hidden="true"]), svg title, img[alt], use');
+    for (var i = 0; i < tries.length; i++) {
+      var c = tries[i], v = '';
+      if (c.tagName.toLowerCase() === 'title') v = c.textContent;
+      else if (c.tagName === 'IMG') v = c.getAttribute('alt');
+      else if (c.tagName.toLowerCase() === 'use') {
+        var href = c.getAttribute('href') || c.getAttribute('xlink:href') || '';
+        var frag = href.split('#')[1] || '';
+        v = frag.replace(/^(icon|icons|i|ico|svg|sprite|glyph)[-_]/, '');
+      } else v = c.getAttribute('aria-label');
+      v = norm(v).replace(/[-_]+/g, ' ');
+      if (v) return v;
+    }
+    // An icon-font child (`<i class="fa fa-trash">`, `<span class="bi-x">`,
+    // a Material ligature is text and was caught before).
+    var kids = n.querySelectorAll('i[class], span[class], svg[class]');
+    for (var j = 0; j < kids.length && j < 4; j++) {
+      var kc = kids[j].getAttribute('class') || '';
+      if (!/(^|\s)(fa|fas|far|fab|bi|icon|glyphicon|mdi|ion|lucide|feather|octicon|ti|ri|bx)[-\s]|(^|\s)(fa|bi|icon)-/.test(kc)) continue;
+      var w = classWords(kc);
+      if (w) return w;
+    }
+    return '';
+  }
+  function iconName(n, text) {
+    if (text || n.id || n.getAttribute('aria-label') || n.getAttribute('aria-labelledby')) return null;
+    var r = n.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4 || r.width > 160 || r.height > 160) return null;
+    var cs = window.getComputedStyle(n);
+    var t = (n.type || '').toLowerCase();
+    var control = n.tagName === 'BUTTON' || n.tagName === 'SUMMARY' || (n.tagName === 'A' && n.hasAttribute('href')) ||
+      (n.tagName === 'INPUT' && /^(button|submit|reset|image)$/.test(t));
+    var clickable = control || cs.cursor === 'pointer' || n.hasAttribute('onclick') ||
+      /^(button|link|menuitem|tab|checkbox|switch)$/.test(n.getAttribute('role') || '');
+    // A small element drawn only by a CSS image is an icon even when its
+    // pointer cursor appears on hover only (`.controls span:hover`).
+    var drawn = !n.children.length && (/url\(/.test(cs.content || '') || /url\(/.test(cs.backgroundImage || ''));
+    if (!clickable && !drawn) return null;
+    var named = n.getAttribute('title') || n.getAttribute('alt');
+    if (named && named.trim()) return named.trim();
+    var down = childName(n);
+    if (down) return down;
+    var cls = (typeof n.className === 'string' ? n.className : (n.getAttribute('class') || ''));
+    var words = classWords(cls);
+    if (words) return words;
+    var img = (cs.content && cs.content.indexOf('url(') >= 0 ? cs.content : cs.backgroundImage) || '';
+    var m = img.match(/\/([^\/?#"')]+?)\.(png|svg|jpe?g|gif|webp)/i);
+    return m ? m[1].replace(/[-_]+/g, ' ') : null;
+  }
+
   // The capture object `dom::json_to_element` reads. `lim` caps the text.
   function cap(n, lim, ox, oy) {
     if (!n) return null;
@@ -216,9 +347,10 @@
       velId: vid(n),
       tag: n.tagName.toLowerCase(),
       domId: n.id || null,
+      testId: n.getAttribute('data-testid') || n.getAttribute('flt-semantics-identifier') || null,
       text: text || null,
       ariaLabel: n.getAttribute('aria-label'),
-      hint: n.getAttribute('placeholder') || null,
+      hint: n.getAttribute('placeholder') || iconName(n, text) || null,
       role: roleOf(n) || null,
       className: typeof n.className === 'string' ? (n.className || null) : (n.getAttribute('class') || null),
       x: Math.round(r.x + ox), y: Math.round(r.y + oy),
@@ -407,7 +539,7 @@
     if (tag === 'INPUT' && t === 'image') return norm(n.getAttribute('alt'));
     if ((tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') && n.labels && n.labels.length) {
       var l = [];
-      for (var i = 0; i < n.labels.length; i++) l.push(n.labels[i].innerText || n.labels[i].textContent);
+      for (var i = 0; i < n.labels.length; i++) l.push(textOf(n.labels[i]) || n.labels[i].textContent);
       return norm(l.join(' '));
     }
     if (tag === 'IMG' || tag === 'AREA') return norm(n.getAttribute('alt'));
@@ -417,9 +549,23 @@
     if (tag === 'TABLE') return first('caption');
     return '';
   }
+  // Name from content that innerText can't see: an <svg>'s <title>, an
+  // <img alt> or a child's aria-label, outside aria-hidden subtrees (an
+  // icon button `<button><svg><title>Delete</title>…</svg></button>` is
+  // "Delete" to a screen reader; review 10 #3 and #8).
+  function contentName(n) {
+    var c = n.querySelectorAll('svg title, img[alt], [aria-label]');
+    for (var i = 0; i < c.length; i++) {
+      if (c[i].closest('[aria-hidden="true"]')) continue;
+      var tag = c[i].tagName.toLowerCase();
+      var v = norm(tag === 'title' ? c[i].textContent : tag === 'img' ? c[i].getAttribute('alt') : c[i].getAttribute('aria-label'));
+      if (v) return v;
+    }
+    return '';
+  }
   function accName(n) {
     var name = labelledBy(n) || norm(n.getAttribute('aria-label')) || hostName(n);
-    if (!name && NAMED_BY_CONTENT[roleOf(n)]) name = textOf(n);
+    if (!name && NAMED_BY_CONTENT[roleOf(n)]) name = textOf(n) || contentName(n);
     if (!name) name = norm(n.getAttribute('title'));
     if (!name && (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA')) name = norm(n.getAttribute('placeholder'));
     return name;
@@ -506,6 +652,16 @@
     });
     return out;
   }
+  // A match `index:` counts: rendered, a non-empty box, and that box (in
+  // top-page px, rounded as `cap` reports it) meets the top viewport, which
+  // is the rect explore matches the tree against.
+  function countable(n) {
+    if (!isVisible(n) || !hasBox(n)) return false;
+    var r = n.getBoundingClientRect(), o = frameOffset(n);
+    var x = Math.round(r.x + o[0]), y = Math.round(r.y + o[1]);
+    var w = Math.round(r.width), h = Math.round(r.height);
+    return w > 0 && h > 0 && x < window.innerWidth && x + w > 0 && y < window.innerHeight && y + h > 0;
+  }
   // Every element a selector (built by `selector::selector_json`) matches,
   // in deep-query order.
   //   {css}  {xpath}  {text, exact}  {name}  {and: [...]}  {nth: sel, i, dom}
@@ -525,10 +681,13 @@
     if (sel.nth) {
       // The index takes its tier from its own selector: two exact "Add"
       // rows and `index: 2` find nothing rather than a folded "ADD".
-      var c = matchTiered(sel.nth);
-      // A CSS list counts in document order, every match (as before);
-      // anything else like the devices: on-screen matches, reading order.
-      if (!sel.dom) c = readingOrder(c.filter(function (n) { return isVisible(n) && hasBox(n); }));
+      // Counted the way explore counts it when it writes the index
+      // (`selector_build::robust_selector` over the walked tree) and as the
+      // devices count it: rendered matches with a box that meets the
+      // viewport, in reading order. A CSS list counted every match in
+      // document order, hidden ones too, and text page-wide, so a recorded
+      // `index: 1` tapped another element on replay (review 10 #1).
+      var c = readingOrder(matchTiered(sel.nth).filter(countable));
       return c[sel.i] ? [c[sel.i]] : [];
     }
     if (sel.and) {
@@ -608,6 +767,40 @@
         } catch (x) { /* cross-origin: not reachable from here */ }
       }
       for (i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+      if (c.text && n.children.length && wrapper(n)) c.bare = true;
+    }
+    return quietWrappers(out);
+  }
+  // A wrapper: an element whose text is all its children's (no text node
+  // of its own), and that nothing marks as a control or a named item.
+  function wrapper(n) {
+    if (CONTROL[n.tagName] || n.isContentEditable || NAMED_BY_CONTENT[roleOf(n)]) return false;
+    if (n.hasAttribute('onclick') || n.hasAttribute('tabindex')) return false;
+    for (var c = n.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3 && /\S/.test(c.data)) return false;
+    }
+    return styleOf(n).cursor !== 'pointer';
+  }
+  // On a device a container has no text; here every <body>, <main> and
+  // wrapper <div> carried its whole subtree's, so the agent's element
+  // list repeated the page once per level and a wrapper whose 200
+  // characters held the goal's words outranked the button inside it
+  // (review 10 #4). A wrapper's text goes when it only repeats its one
+  // child's, or joins several children's into more than a short phrase;
+  // a price split in spans (`$` `42`) or a heading in a <div> keeps its
+  // own. The page's `text:` matching is unchanged (the innermost match
+  // wins there anyway).
+  var WRAPPER_TEXT_MAX = 40;
+  function quietWrappers(out) {
+    var texts = out.map(function (c) { return c.text; }), kids = out.map(function () { return []; });
+    for (var i = 1; i < out.length; i++) if (out[i].p >= 0) kids[out[i].p].push(i);
+    for (i = 0; i < out.length; i++) {
+      var c = out[i];
+      if (!c.bare) continue;
+      delete c.bare;
+      var withText = kids[i].filter(function (k) { return texts[k]; });
+      if ((withText.length === 1 && texts[withText[0]] === c.text) ||
+        (withText.length > 1 && c.text.length > WRAPPER_TEXT_MAX)) c.text = null;
     }
     return out;
   }
@@ -719,8 +912,30 @@
         if (strict) return { ok: false, reason: 'obscured by its ancestor ' + tagOf(top) + ' (an overlay takes the click)' };
         warn.push('the click lands on its ancestor ' + tagOf(top));
       }
+      // In a same-origin frame the hit test above is the frame's own: a
+      // cookie banner on the page over the <iframe> took the click while
+      // the step passed (review 10 #2). Each document up the chain must
+      // put the point on the <iframe> that holds the target.
+      var over = coverOverFrame(t, x, y);
+      if (over) return { ok: false, reason: over === 'outside' ? 'outside viewport' : 'obscured by ' + tagOf(over) + ' (on the page, over its frame)' };
       return { ok: true, x: x, y: y, warn: warn };
     });
+  }
+
+  // What takes a click at (`x`, `y`, top-page px) instead of the frame
+  // that holds `t`, in the documents above it: the element on top, or
+  // 'outside' when the point is outside one of them; null when every
+  // <iframe> up the chain is hit (or `t` is in the top document).
+  function coverOverFrame(t, x, y) {
+    var w = t.ownerDocument.defaultView;
+    while (w && w.frameElement) {
+      var fe = w.frameElement, o = frameOffset(fe);
+      var h = fe.getRootNode().elementFromPoint(x - o[0], y - o[1]);
+      if (!h) return 'outside';
+      if (h !== fe) return h;
+      w = fe.ownerDocument.defaultView;
+    }
+    return null;
   }
 
   // ── Hit target at dispatch time ──────────────────────────────────────
@@ -731,7 +946,15 @@
   // pointer, blocks it and every later event of the click (Playwright's
   // hit-target interceptor). An ancestor hit was already accepted by `act`.
   var armed = null;
-  var POINTER_EVENTS = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu'];
+  // Touch events too: on a touch profile the tap is a touch, and an
+  // intruder's `touchstart`/`touchend` handlers (FastClick, Swiper) ran
+  // while its pointer and mouse events were blocked (review 10 #10).
+  // Cancelling `touchstart` also stops the mouse events derived from it.
+  var POINTER_EVENTS = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick', 'auxclick', 'contextmenu',
+    'touchstart', 'touchmove', 'touchend'];
+  // Not passive: Chrome makes window touch listeners passive by default,
+  // and a passive listener can't cancel the touch.
+  var LISTEN = { capture: true, passive: false };
   function arm(id) {
     disarm();
     var n = byVid(id);
@@ -741,7 +964,13 @@
     // to this window: whether it arrived can't be seen from here
     // (review-fi2 F3).
     var into = /^i?frame$/i.test(t.tagName || '') || /^i?frame$/i.test(n.tagName || '');
-    var st = { win: win, verdict: null, intruder: null, seen: false, into: into };
+    // `nested`: the target's window is a frame's. A click that something
+    // on a page above took never arrives in it, so nothing is blocked
+    // here: not seeing it is the miss (review 10 #2, as review-i2 M1 for
+    // cross-origin frames).
+    var nested = false;
+    try { nested = win !== win.top; } catch (x) { nested = true; }
+    var st = { win: win, verdict: null, intruder: null, seen: false, into: into, nested: nested };
     st.listener = function (e) {
       if (!e.isTrusted) return;
       st.seen = true;
@@ -754,7 +983,7 @@
       }
       if (st.verdict === 'blocked') { e.preventDefault(); e.stopImmediatePropagation(); }
     };
-    POINTER_EVENTS.forEach(function (k) { win.addEventListener(k, st.listener, true); });
+    POINTER_EVENTS.forEach(function (k) { win.addEventListener(k, st.listener, LISTEN); });
     armed = st;
     return true;
   }
@@ -770,9 +999,9 @@
     function finish() {
       if (armed === st) armed = null;
       POINTER_EVENTS.forEach(function (k) { try { st.win.removeEventListener(k, st.listener, true); } catch (x) { /* gone */ } });
-      return { blocked: st.verdict === 'blocked' ? st.intruder : null, seen: st.into && !st.seen ? null : st.seen };
+      return { blocked: st.verdict === 'blocked' ? st.intruder : null, seen: st.into && !st.seen ? null : st.seen, nested: st.nested };
     }
-    if (st.seen || st.into || !(waitMs > 0)) return finish();
+    if (st.seen || st.into || !st.nested || !(waitMs > 0)) return finish();
     var end = Date.now() + waitMs;
     return new Promise(function (resolve) {
       (function poll() {
@@ -941,6 +1170,43 @@
     s.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     s.dispatchEvent(new Event('change', { bubbles: true }));
     return { ok: true, value: s.value };
+  }
+
+  // A tap on an <option> of a closed drop-down <select> (it has no box
+  // until the native popup opens, which a page can't click into): choose
+  // it, as `selectOption` does. null when `id` is not such an option
+  // (review 10 #11).
+  function tapOption(id) {
+    var o = byVid(id);
+    if (!o || o.tagName !== 'OPTION') return null;
+    var s = o.closest ? o.closest('select') : null;
+    if (!s) return null;
+    var r = o.getBoundingClientRect();
+    if (s.multiple || (s.size > 1 && r.width > 0 && r.height > 0)) return null;
+    var group = o.parentNode && o.parentNode.tagName === 'OPTGROUP' ? o.parentNode : null;
+    if (s.disabled) return { disabled: 'the <select> is disabled' };
+    if (o.disabled || (group && group.disabled)) return { disabled: 'option ' + JSON.stringify(norm(o.label)) + ' is disabled' };
+    o.selected = true;
+    try { s.focus({ preventScroll: true }); } catch (x) { /* not focusable */ }
+    s.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+    return { ok: true, value: s.value };
+  }
+
+  // `inputText` on an <input type=file> (or its <label>): the input, so
+  // the driver can set its files (DOM.setFileInputFiles); typing never
+  // reached it (review 10 #11).
+  function fileInputOf(n) {
+    if (!n) return null;
+    var f = n;
+    if (n.tagName === 'LABEL') f = n.control;
+    else if (n.tagName !== 'INPUT' && n.closest) { var l = n.closest('label'); f = l ? l.control : null; }
+    return f && f.tagName === 'INPUT' && (f.type || '').toLowerCase() === 'file' ? f : null;
+  }
+  function fileInput(id) {
+    var f = fileInputOf(byVid(id));
+    if (!f) return null;
+    return { multiple: !!f.multiple, disabled: !!f.disabled, accept: f.getAttribute('accept') || null };
   }
 
   // ── Settle ────────────────────────────────────────────────────────────
@@ -1215,6 +1481,9 @@
     caretToEnd: caretToEnd,
     focusWithin: focusWithin,
     isSelect: function (id) { return !!selectOf(byVid(id)); },
+    tapOption: tapOption,
+    fileInput: fileInput,
+    fileInputElement: function (id) { return fileInputOf(byVid(id)); },
     selectOption: selectOption,
     settle: settle,
     scrollsAlong: scrollsAlong,

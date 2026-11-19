@@ -18,6 +18,25 @@ pub fn interpolate(input: &str, overrides: &HashMap<String, String>) -> Result<S
     interpolate_except(input, overrides, &BTreeSet::new())
 }
 
+/// `text` written so that [`interpolate`] gives it back as is: every run of
+/// `$` before a `{` is doubled (D-13), so `${HOME}` stays `${HOME}`.
+pub fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut run = 0usize;
+    for c in text.chars() {
+        if c == '$' {
+            run += 1;
+            continue;
+        }
+        let dollars = if c == '{' { run * 2 } else { run };
+        out.extend(std::iter::repeat_n('$', dollars));
+        run = 0;
+        out.push(c);
+    }
+    out.extend(std::iter::repeat_n('$', run));
+    out
+}
+
 /// [`interpolate`], leaving the placeholders of `deferred` names exactly as
 /// written (escapes and defaults included) for [`bind_captured`].
 fn interpolate_except(
@@ -30,6 +49,7 @@ fn interpolate_except(
     if !input.contains("${") {
         return Ok(input.to_string());
     }
+    too_deep(input)?;
     let mut missing_vars = Vec::new();
     let lookup = |name: &str| lookup_var(name, overrides);
     let pass = Pass {
@@ -55,8 +75,14 @@ pub fn bind_captured(
     if !input.contains("${") {
         return Ok(input.to_string());
     }
+    too_deep(input)?;
     let mut unset = Vec::new();
-    let lookup = |name: &str| captured.get(name).cloned();
+    let lookup = |name: &str| {
+        captured
+            .get(name)
+            .cloned()
+            .or_else(|| name.starts_with(TOTP).then(|| totp_value(name)).flatten())
+    };
     let pass = Pass {
         fills: &|name| names.contains(name),
         lookup: &lookup,
@@ -71,6 +97,48 @@ pub fn bind_captured(
         )));
     }
     Ok(result)
+}
+
+/// Deepest nesting of placeholders in defaults (`${A:-${B:-…}}`) a string
+/// may have. Expansion recurses once per level, so a megabyte of nested
+/// defaults overflowed the stack (a SIGSEGV, not an error; audit 2026-11
+/// CORE-1), in `velocity run` and in the MCP server's check of a suite an
+/// agent wrote.
+pub const MAX_PLACEHOLDER_NESTING: usize = 32;
+
+/// How deeply `${` placeholders nest in `input` (braces counted the way
+/// [`closing_brace`] pairs them, approximately: a stray `}` is ignored).
+fn placeholder_nesting(input: &str) -> usize {
+    let bytes = input.as_bytes();
+    let mut stack: Vec<bool> = Vec::new();
+    let mut open = 0usize;
+    let mut max = 0usize;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'{' => {
+                let placeholder = i > 0 && bytes[i - 1] == b'$';
+                stack.push(placeholder);
+                if placeholder {
+                    open += 1;
+                    max = max.max(open);
+                }
+            }
+            b'}' if stack.pop() == Some(true) => open -= 1,
+            _ => {}
+        }
+    }
+    max
+}
+
+fn too_deep(input: &str) -> Result<()> {
+    let depth = placeholder_nesting(input);
+    if depth > MAX_PLACEHOLDER_NESTING {
+        return Err(VelocityError::Config(format!(
+            "a value nests `${{…}}` placeholders {depth} deep; at most \
+             {MAX_PLACEHOLDER_NESTING} levels are allowed"
+        )));
+    }
+    Ok(())
 }
 
 /// One interpolation pass: which names it fills in, and where their values
@@ -213,7 +281,53 @@ fn resolve_var_expr(expr: &str, pass: &Pass, errors: &mut Vec<String>) -> String
     format!("${{{expr}}}")
 }
 
+const KEYCHAIN: &str = "keychain:";
+const TOTP: &str = "totp:";
+
+/// The base32 secret behind each `${totp:NAME}`, read when the suite loads
+/// (from `--env`, the environment or the keychain), so the code can be
+/// worked out when its step runs.
+static TOTP_SECRETS: std::sync::RwLock<Option<HashMap<String, String>>> =
+    std::sync::RwLock::new(None);
+
+/// The `totp:…` names in `s`.
+fn totp_names(s: &str) -> Vec<String> {
+    s.match_indices("${totp:")
+        .filter_map(|(at, _)| {
+            let body = &s[at + 2..];
+            body.find('}').map(|end| body[..end].to_string())
+        })
+        .collect()
+}
+
+/// The current code for a `totp:NAME` placeholder, from its stored secret.
+fn totp_value(name: &str) -> Option<String> {
+    let secret = TOTP_SECRETS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()?
+        .get(name)?
+        .clone();
+    match velocity_common::secrets::totp_now(&secret) {
+        Ok(code) => Some(code),
+        Err(e) => {
+            tracing::warn!("{name}: {e}");
+            None
+        }
+    }
+}
+
 fn lookup_var(name: &str, overrides: &HashMap<String, String>) -> Option<String> {
+    // `${keychain:NAME}` (row 1.5): the OS keychain, always a secret.
+    if let Some(account) = name.strip_prefix(KEYCHAIN) {
+        return match velocity_common::secrets::keychain(account) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                tracing::warn!("{e}");
+                None
+            }
+        };
+    }
     let value = overrides
         .get(name)
         .cloned()
@@ -237,11 +351,11 @@ pub fn captured_names(suite: &TestSuite) -> BTreeSet<String> {
         .iter()
         .flat_map(|f| &f.steps)
         .chain(suite.tests.iter().flat_map(|t| &t.steps))
-        .filter_map(|s| match &s.action {
-            Action::Http(req) => Some(req.capture.iter().map(|(name, _)| name.clone())),
-            _ => None,
+        .flat_map(|s| match &s.action {
+            Action::Http(req) => req.capture.iter().map(|(name, _)| name.clone()).collect(),
+            Action::Exec(e) => e.capture.iter().cloned().collect(),
+            _ => Vec::new(),
         })
-        .flatten()
         .collect()
 }
 
@@ -250,8 +364,30 @@ pub fn captured_names(suite: &TestSuite) -> BTreeSet<String> {
 /// to fill in as the test runs ([`bind_step`]), and recorded in
 /// `config.captured_vars`.
 pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, String>) -> Result<()> {
-    let deferred = captured_names(suite);
-    let mut fill = |s: &str| interpolate_except(s, overrides, &deferred);
+    let mut deferred = captured_names(suite);
+    // `${totp:NAME}` is filled when its step runs (a code lasts 30 s); its
+    // secret is read now, while `--env` and the keychain are at hand.
+    let totp = std::cell::RefCell::new(BTreeSet::new());
+    let mut missing = Vec::new();
+    let mut fill = |s: &str| {
+        for name in totp_names(s) {
+            if totp.borrow_mut().insert(name.clone()) {
+                match lookup_var(&name[TOTP.len()..], overrides) {
+                    Some(secret) => {
+                        velocity_common::redact::register_secret(&secret);
+                        TOTP_SECRETS
+                            .write()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .get_or_insert_with(HashMap::new)
+                            .insert(name.clone(), secret);
+                    }
+                    None => missing.push(name[TOTP.len()..].to_string()),
+                }
+            }
+        }
+        let skip: BTreeSet<String> = deferred.union(&totp.borrow()).cloned().collect();
+        interpolate_except(s, overrides, &skip)
+    };
     suite.app_id = fill(&suite.app_id)?;
     if let Some(http) = suite.config.http.as_mut() {
         if let Some(base) = http.base_url.as_mut() {
@@ -274,8 +410,117 @@ pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, Stri
         }
     }
 
+    if let Some(name) = missing.first() {
+        return Err(VelocityError::Config(format!(
+            "`${{totp:{name}}}`: {name} has no value; set it to the base32 TOTP secret \
+             (or use totp:keychain:{name})"
+        )));
+    }
+    deferred.extend(totp.into_inner());
     suite.config.captured_vars = deferred;
     Ok(())
+}
+
+/// One `${…}` placeholder a suite reads, and whether its value is only
+/// typed into the device (`inputText`, `inputRaw`, a natural step's
+/// `data`) rather than sent anywhere else (a URL, a header, a selector, a
+/// prompt).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Placeholder {
+    /// The name as written: `LOGIN_PW`, `keychain:LOGIN_PW`,
+    /// `totp:keychain:OTP`. A default's own placeholders count too
+    /// (`${A:-${B}}` reads A and B); an escaped `$${A}` reads nothing.
+    pub name: String,
+    pub typed: bool,
+}
+
+/// Every placeholder [`interpolate_suite`] and [`bind_step`] would fill in,
+/// in the same strings they visit, without reading any value. A caller
+/// that runs a suite someone else wrote (the MCP server, with a suite an
+/// agent wrote) checks these against what it allows before the suite can
+/// read the environment or the keychain.
+pub fn placeholders(suite: &TestSuite) -> Vec<Placeholder> {
+    fn push(s: &str, typed: bool, out: &mut Vec<Placeholder>) {
+        if placeholder_nesting(s) > MAX_PLACEHOLDER_NESTING {
+            // Not walked (it would overflow the stack); a name no allow-list
+            // holds, so a check built on this list refuses the string.
+            out.push(Placeholder {
+                name: "<placeholders nested too deep>".into(),
+                typed,
+            });
+            return;
+        }
+        let mut names = Vec::new();
+        placeholder_names(s, &mut names);
+        out.extend(names.into_iter().map(|name| Placeholder { name, typed }));
+    }
+    let mut out = Vec::new();
+    push(&suite.app_id, false, &mut out);
+    if let Some(http) = suite.config.http.as_ref() {
+        if let Some(base) = &http.base_url {
+            push(base, false, &mut out);
+        }
+        for (_, v) in &http.headers {
+            push(v, false, &mut out);
+        }
+    }
+    let steps = suite
+        .flows
+        .iter()
+        .flat_map(|f| &f.steps)
+        .chain(suite.tests.iter().flat_map(|t| &t.steps));
+    // `velocity run` fills tags too (VEL-175; audit 2026-11 MCP-6).
+    for tag in suite.tests.iter().flat_map(|t| &t.tags) {
+        push(tag, false, &mut out);
+    }
+    for step in steps {
+        let mut action = step.action.clone();
+        // The typed value of a typing step is taken out; the rest of the
+        // step is visited as interpolation visits it.
+        let typed: Option<String> = match &mut action {
+            Action::InputText { text, .. } | Action::InputRaw { text } => {
+                Some(std::mem::take(text))
+            }
+            Action::Natural { data, .. } => data.take(),
+            _ => None,
+        };
+        if let Some(t) = typed {
+            push(&t, true, &mut out);
+        }
+        let _ = interpolate_action(&mut action, &mut |s: &str| {
+            push(s, false, &mut out);
+            Ok(s.to_string())
+        });
+    }
+    out
+}
+
+/// The names of the placeholders in `input`, read the way [`expand`]
+/// reads them (escapes, nesting, defaults).
+fn placeholder_names(input: &str, out: &mut Vec<String>) {
+    let mut rest = input;
+    while let Some(at) = rest.find("${") {
+        let pre = &rest[..at];
+        let k = pre.len() - pre.trim_end_matches('$').len();
+        let body = &rest[at + 2..];
+        if (k + 1).is_multiple_of(2) {
+            // `$${` is a literal `${`.
+            rest = body;
+            continue;
+        }
+        match closing_brace(body) {
+            Some(end) if end > 0 => {
+                let expr = &body[..end];
+                out.push(var_name(expr).to_string());
+                if let Some((i, b'-')) = operator(expr) {
+                    placeholder_names(&expr[i + 2..], out);
+                }
+                rest = &body[end + 1..];
+            }
+            Some(end) => rest = &body[end + 1..],
+            None => return,
+        }
+    }
 }
 
 /// `step` with the captured `${NAME}`s (`names`) filled in from `captured`,
@@ -323,6 +568,18 @@ fn interpolate_action(
         }
         Action::ClearMocks => {}
         Action::Http(req) => req.map_strings(f)?,
+        Action::Exec(e) => {
+            e.run.split_before_filling();
+            for part in e.run.strings_mut() {
+                *part = f(part)?;
+            }
+            if let Some(c) = e.cwd.as_mut() {
+                *c = f(c)?;
+            }
+            if let Some(c) = e.expect.contains.as_mut() {
+                *c = f(c)?;
+            }
+        }
         Action::SetConfig { values } => {
             for v in values.values_mut() {
                 *v = f(v)?;
@@ -342,6 +599,10 @@ fn interpolate_action(
         }
         Action::LongPress { selector, .. } => {
             interpolate_selector(selector, f)?;
+        }
+        Action::Drag { from, to, .. } => {
+            interpolate_selector(from, f)?;
+            interpolate_selector(to, f)?;
         }
         Action::InputText { selector, text } => {
             interpolate_selector(selector, f)?;
@@ -814,6 +1075,58 @@ tests:
         );
     }
 
+    // Row 1.5: `${totp:NAME}` stays a placeholder at load and becomes the
+    // current code when its step runs; the secret and the code are masked.
+    #[test]
+    fn a_totp_code_is_worked_out_when_its_step_runs() {
+        let mut suite = crate::parser::parse_suite_from_str(
+            r#"
+appId: com.app
+tests:
+  - name: t
+    steps:
+      - inputText: { selector: { id: otp }, text: "${totp:VEL15_TOTP_SECRET}" }
+"#,
+        )
+        .unwrap();
+        let ovr = overrides(&[("VEL15_TOTP_SECRET", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")]);
+        interpolate_suite(&mut suite, &ovr).unwrap();
+        assert!(suite
+            .config
+            .captured_vars
+            .contains("totp:VEL15_TOTP_SECRET"));
+        let Action::InputText { text, .. } = &suite.tests[0].steps[0].action else {
+            panic!()
+        };
+        assert_eq!(text, "${totp:VEL15_TOTP_SECRET}", "not filled at load");
+        let bound = bind_step(
+            &suite.tests[0].steps[0],
+            &HashMap::new(),
+            &suite.config.captured_vars,
+        )
+        .unwrap()
+        .unwrap();
+        let Action::InputText { text, .. } = &bound.action else {
+            panic!()
+        };
+        assert!(
+            text.len() == 6 && text.chars().all(|c| c.is_ascii_digit()),
+            "{text}"
+        );
+        let masked = velocity_common::redact::redact(&format!("code {text}")).into_owned();
+        assert!(!masked.contains(text.as_str()), "{masked}");
+        assert!(velocity_common::redact::registered_secrets()
+            .contains(&"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".to_string()));
+
+        // A missing secret is a config error naming it.
+        let mut bad = crate::parser::parse_suite_from_str(
+            "appId: a\ntests:\n  - name: t\n    steps:\n      - inputText: { selector: { id: o }, text: \"${totp:VEL15_NOPE}\" }\n",
+        )
+        .unwrap();
+        let e = interpolate_suite(&mut bad, &HashMap::new()).unwrap_err();
+        assert!(e.to_string().contains("VEL15_NOPE has no value"), "{e}");
+    }
+
     #[test]
     fn within_selectors_are_interpolated() {
         // VEL-196: `within: { id: ${LIST} }` was looked up literally.
@@ -838,5 +1151,96 @@ tests:
             Action::Swipe { within, .. } => assert_eq!(within, &feed),
             other => panic!("{other:?}"),
         }
+    }
+
+    // Review 05 #1: what a suite reads is listed without reading it, and
+    // a typed value is told apart from one sent anywhere else.
+    #[test]
+    fn placeholders_lists_every_name_and_where_it_goes() {
+        let suite = crate::parse_suite_from_str(
+            r#"
+appId: "${APP:-com.app}"
+config:
+  http:
+    baseUrl: "https://${HOST}"
+    headers: { Authorization: "Bearer ${TOKEN}" }
+tests:
+  - name: t
+    steps:
+      - inputText: { selector: { id: "${FIELD}" }, text: "${keychain:LOGIN_PW}" }
+      - http: { url: "https://x.dev/c", method: POST, body: "${AWS_SECRET_ACCESS_KEY} $${LITERAL} ${A:-${B}}" }
+      - assertVisible: { text: "${totp:OTP}" }
+"#,
+        )
+        .unwrap();
+        let got: Vec<(String, bool)> = placeholders(&suite)
+            .into_iter()
+            .map(|p| (p.name, p.typed))
+            .collect();
+        let want: Vec<(String, bool)> = [
+            ("APP", false),
+            ("HOST", false),
+            ("TOKEN", false),
+            ("keychain:LOGIN_PW", true),
+            ("FIELD", false),
+            ("AWS_SECRET_ACCESS_KEY", false),
+            ("A", false),
+            ("B", false),
+            ("totp:OTP", false),
+        ]
+        .iter()
+        .map(|(n, t)| (n.to_string(), *t))
+        .collect();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn escaped_text_interpolates_back_to_itself() {
+        for s in [
+            "${HOME}",
+            "$${X}",
+            "$$${X} and $5",
+            "plain",
+            "a$",
+            "{x}",
+            "${A:-${B}}",
+        ] {
+            let e = escape(s);
+            assert_eq!(interpolate(&e, &HashMap::new()).unwrap(), s, "{e}");
+            assert!(placeholder_names_of(&e).is_empty(), "{e}");
+        }
+    }
+
+    fn placeholder_names_of(s: &str) -> Vec<String> {
+        let mut v = Vec::new();
+        placeholder_names(s, &mut v);
+        v
+    }
+
+    #[test]
+    fn placeholder_names_follow_the_escape_rules() {
+        let names = |s: &str| {
+            let mut v = Vec::new();
+            placeholder_names(s, &mut v);
+            v
+        };
+        assert!(names("$${X}").is_empty());
+        assert_eq!(names("$$${X}"), vec!["X"]);
+        assert_eq!(names("${X:?need X} ${}"), vec!["X"]);
+        assert_eq!(names("${unclosed"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn deeply_nested_defaults_are_an_error_not_a_stack_overflow() {
+        let n = 200_000;
+        let deep = format!("{}x{}", "${A_UNSET_AUDIT:-".repeat(n), "}".repeat(n));
+        let e = interpolate(&deep, &HashMap::new()).unwrap_err();
+        assert!(e.to_string().contains("nests"), "{e}");
+        // A few levels still work.
+        let ok = "${A_UNSET_AUDIT:-${B_UNSET_AUDIT:-fallback}}";
+        assert_eq!(interpolate(ok, &HashMap::new()).unwrap(), "fallback");
+        // JSON braces are not placeholders.
+        let json = format!("{}{}", "{\"a\":".repeat(100), "1}".repeat(100));
+        assert_eq!(placeholder_nesting(&json), 0);
     }
 }

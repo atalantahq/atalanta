@@ -127,8 +127,9 @@ fn lease_dir() -> PathBuf {
 
 #[cfg(not(test))]
 fn default_lease_dir() -> PathBuf {
-    let home = velocity_common::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".velocity").join("leases")
+    velocity_common::host::home_dir()
+        .join(".velocity")
+        .join("leases")
 }
 
 /// This crate's unit tests (the runner and farm tests lease devices like
@@ -209,6 +210,26 @@ impl std::fmt::Display for LeaseError {
     }
 }
 
+/// [`try_lock`], waiting up to `VELOCITY_LEASE_WAIT_MS` (default 10 000;
+/// 0 doesn't wait) for another process to let go. Agent commands hold a
+/// device for about a second each, so a run that gave up at once failed
+/// whenever one was mid-command (soak test, 2026-11-07).
+pub async fn lock_waiting(device_id: &str) -> Result<DeviceLock, LeaseError> {
+    let wait = velocity_common::env::var("VELOCITY_LEASE_WAIT_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(10_000);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(wait);
+    loop {
+        match try_lock(device_id) {
+            Err(LeaseError::Held(_)) if std::time::Instant::now() < deadline => {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
 /// Take the lease on `device_id` without waiting. `Held` names the
 /// current holder (pid and command) when another process has it.
 pub fn try_lock(device_id: &str) -> Result<DeviceLock, LeaseError> {
@@ -227,18 +248,91 @@ pub fn try_lock(device_id: &str) -> Result<DeviceLock, LeaseError> {
     try_lock_at(&path)
 }
 
+/// Open a lease file without following a symlink at its name, and only if
+/// it is a plain file with one link. A lease dir can be shared (1777,
+/// 2770) and the HOME-less fallback was `/tmp/.velocity/leases`: a symlink
+/// or hard link planted there made the lease truncate, chmod and overwrite
+/// another file of the user's (`~/.bashrc`), and a FIFO or `/dev/zero`
+/// hung or filled memory (audit 2026-11 FS-2).
+fn open_lease_file(open: &mut OpenOptions, path: &std::path::Path) -> std::io::Result<File> {
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(open, libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    let file = open.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let m = file.metadata()?;
+        if !m.file_type().is_file() || m.nlink() != 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "{} is not a plain lock file (a link or a special file); remove it",
+                    path.display()
+                ),
+            ));
+        }
+    }
+    Ok(file)
+}
+
+/// Whether this process's user owns `file`.
+#[cfg(unix)]
+fn owned_by_us(file: &File) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions and can't fail.
+    let me = unsafe { libc::geteuid() };
+    file.metadata().is_ok_and(|m| m.uid() == me)
+}
+
+/// A lease file's holder line, read with a cap (it is one short line).
+fn read_holder(file: &mut File) -> String {
+    let mut text = String::new();
+    let _ = Read::by_ref(file).take(4096).read_to_string(&mut text);
+    text
+}
+
 fn try_lock_at(path: &std::path::Path) -> Result<DeviceLock, LeaseError> {
     if let Some(dir) = path.parent() {
         velocity_common::fsutil::create_private_dir(dir)
             .map_err(|e| LeaseError::Io(format!("lease dir {}: {e}; {HINT}", dir.display())))?;
     }
+    let mode = file_mode(path.parent());
     let mut open = OpenOptions::new();
     open.create(true).truncate(false).read(true).write(true);
     #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-    let mut file = open
-        .open(path)
-        .map_err(|e| LeaseError::Io(format!("lease file {}: {e}; {HINT}", path.display())))?;
+    std::os::unix::fs::OpenOptionsExt::mode(&mut open, mode);
+    let mut file = match open_lease_file(&mut open, path) {
+        Ok(f) => f,
+        // A shared lease dir where another user made the file and it is
+        // readable but not writable to us: a read-only descriptor locks
+        // just as well (`flock` needs no write access); only the holder
+        // line goes unwritten.
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            open_lease_file(OpenOptions::new().read(true), path).map_err(|_| {
+                LeaseError::Io(format!(
+                    "lease file {}: {e}; another user owns it. For a lease dir shared \
+                     between users, make the dir group-writable (chmod 2770, or 1777 like \
+                     /tmp) and remove the old lock files once, so new ones are made \
+                     group-readable; or {HINT}",
+                    path.display()
+                ))
+            })?
+        }
+        Err(e) => {
+            return Err(LeaseError::Io(format!(
+                "lease file {}: {e}; {HINT}",
+                path.display()
+            )))
+        }
+    };
+    #[cfg(unix)]
+    if mode != 0o600 && owned_by_us(&file) {
+        // The umask may have narrowed the create mode; widen it to what
+        // the shared dir grants. Only on our own file: never on one another
+        // user made (or linked in).
+        use std::os::unix::fs::PermissionsExt;
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
+    }
     match file.try_lock() {
         Ok(()) => {
             // The subcommand only: the full command line can carry
@@ -250,8 +344,7 @@ fn try_lock_at(path: &std::path::Path) -> Result<DeviceLock, LeaseError> {
             Ok(DeviceLock { _file: Some(file) })
         }
         Err(std::fs::TryLockError::WouldBlock) => {
-            let mut holder = String::new();
-            let _ = file.read_to_string(&mut holder);
+            let holder = read_holder(&mut file);
             Err(LeaseError::Held(if holder.trim().is_empty() {
                 "another Velocity process".to_string()
             } else {
@@ -271,6 +364,38 @@ fn try_lock_at(path: &std::path::Path) -> Result<DeviceLock, LeaseError> {
                 path.display()
             ))),
         },
+    }
+}
+
+/// The mode lock files get in `dir`: owner-only (0600) in a private dir,
+/// as `~/.velocity/leases` is. In a dir others can write to (a
+/// `VELOCITY_LEASE_DIR` shared by the users of one farm node: mode 2770
+/// for a group, 1777 for everyone), group- or world-readable and writable
+/// as the dir is, so a second user contends for the same lock instead of
+/// failing to open it. Lock files carry only a pid and a subcommand name.
+fn file_mode(dir: Option<&std::path::Path>) -> u32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Some(bits) = dir
+            .and_then(|d| std::fs::metadata(d).ok())
+            .map(|m| m.permissions().mode())
+        else {
+            return 0o600;
+        };
+        let mut mode = 0o600;
+        if bits & 0o020 != 0 {
+            mode |= 0o060;
+        }
+        if bits & 0o002 != 0 {
+            mode |= 0o006;
+        }
+        mode
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        0o600
     }
 }
 
@@ -347,11 +472,10 @@ pub fn scan(dir: &std::path::Path) -> std::io::Result<Vec<LeaseFile>> {
         else {
             continue;
         };
-        let Ok(mut file) = OpenOptions::new().read(true).write(true).open(&path) else {
+        let Ok(mut file) = open_lease_file(OpenOptions::new().read(true).write(true), &path) else {
             continue;
         };
-        let mut text = String::new();
-        let _ = file.read_to_string(&mut text);
+        let text = read_holder(&mut file);
         let holder = Some(text.trim().to_string()).filter(|t| !t.is_empty());
         let held = matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock));
         let pid = holder.as_deref().and_then(holder_pid);
@@ -378,14 +502,13 @@ pub fn scan(dir: &std::path::Path) -> std::io::Result<Vec<LeaseFile>> {
 /// different files for one device. Returns whether it was cleared; a lease
 /// taken meanwhile, or one whose owner is alive or unknown, is left alone.
 pub fn clear_stale(path: &std::path::Path) -> std::io::Result<bool> {
-    let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+    let mut file = open_lease_file(OpenOptions::new().read(true).write(true), path)?;
     match file.try_lock() {
         Ok(()) => {}
         Err(std::fs::TryLockError::WouldBlock) => return Ok(false),
         Err(std::fs::TryLockError::Error(e)) => return Err(e),
     }
-    let mut text = String::new();
-    let _ = file.read_to_string(&mut text);
+    let text = read_holder(&mut file);
     if holder_pid(&text).is_none_or(pid_alive) {
         return Ok(false);
     }
@@ -446,6 +569,63 @@ mod tests {
         assert!(found[1].path.exists(), "cleared, never removed");
         drop(held);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 12 #5: a lease dir shared between users makes lock files
+    /// they can all open; the default private dir keeps them owner-only.
+    #[cfg(unix)]
+    #[test]
+    fn lock_files_in_a_shared_dir_are_group_writable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vel-lease-shared-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mode_of =
+            |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        drop(try_lock_at(&dir.join("private.lock")).unwrap());
+        assert_eq!(mode_of(&dir.join("private.lock")), 0o600);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o2770)).unwrap();
+        drop(try_lock_at(&dir.join("group.lock")).unwrap());
+        assert_eq!(mode_of(&dir.join("group.lock")), 0o660);
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        drop(try_lock_at(&dir.join("all.lock")).unwrap());
+        assert_eq!(mode_of(&dir.join("all.lock")), 0o666);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Audit 2026-11 FS-2: a symlink or hard link planted in a shared
+    /// lease dir must not make the lease truncate, chmod or overwrite the
+    /// file it points at, and a FIFO must not hang the scan.
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_link_in_the_lease_dir_is_refused_and_its_target_untouched() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = tempfile::tempdir().unwrap();
+        let dir = base.path().join("leases");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        let victim = base.path().join("bashrc");
+        std::fs::write(&victim, "keep").unwrap();
+        std::fs::set_permissions(&victim, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let sym = dir.join("emulator-5554.lock");
+        std::os::unix::fs::symlink(&victim, &sym).unwrap();
+        assert!(try_lock_at(&sym).is_err());
+        assert!(clear_stale(&sym).is_err());
+        let hard = dir.join("emulator-5556.lock");
+        std::fs::hard_link(&victim, &hard).unwrap();
+        assert!(try_lock_at(&hard).is_err());
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
+        assert_eq!(
+            std::fs::metadata(&victim).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        let fifo = dir.join("emulator-5558.lock");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let found = scan(&dir).unwrap();
+        assert!(found.is_empty(), "{found:?}");
     }
 
     #[test]

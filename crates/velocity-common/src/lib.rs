@@ -5,20 +5,24 @@ pub mod config;
 pub mod env;
 pub mod error;
 pub mod evidence;
+pub mod exec;
 pub mod fsutil;
 pub mod host;
 pub mod http;
 pub mod install;
 pub mod jsonline;
 pub mod live_events;
+pub mod natural;
 pub mod process;
 pub mod redact;
 pub mod resilience;
 pub mod result;
 pub mod role;
+pub mod secrets;
 pub mod selector_build;
 pub mod selector_match;
 pub mod settings;
+pub mod tap_guard;
 pub mod test_types;
 pub mod traits;
 pub mod types;
@@ -68,11 +72,7 @@ pub fn state_dir(device_id: &str, app_id: &str, name: &str) -> std::path::PathBu
     };
     let root = crate::env::var("VELOCITY_STATE_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::path::PathBuf::from(crate::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
-                .join(".velocity")
-                .join("state")
-        });
+        .unwrap_or_else(|_| crate::host::home_dir().join(".velocity").join("state"));
     root.join(clean(device_id))
         .join(clean(app_id))
         .join(clean(name))

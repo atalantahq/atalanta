@@ -22,6 +22,7 @@ pub fn action_doc(action: &str) -> &'static str {
         "tap" => "Tap the element, after it is visible, enabled, still and not covered (`force: true` skips the checks).",
         "doubleTap" => "Double-tap the element.",
         "longPress" => "Press and hold the element (`durationMs`, default 1000).",
+        "drag" => "Reorder: press the `from` element, hold it (`holdMs`, default 700, past the long-press time), move onto the `to` element over `moveMs` (default 900), rest so it drops in place, and lift.",
         "inputText" => "Type `text` into the element (focusing it first).",
         "clearText" => "Clear the element's text.",
         "assertVisible" => "Pass once the element is on screen; fail at the step timeout.",
@@ -42,6 +43,7 @@ pub fn action_doc(action: &str) -> &'static str {
         "openLink" => "Same as `goto` (Maestro's name).",
         "goBack" => "Web only: the browser's back button (on a device use `pressKey: back`).",
         "refresh" => "Web only: reload the page.",
+        "exec" => "Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `VELOCITY_DEVICE_ID` is set for it.",
         "http" => "Send an HTTP request; check `expect` (status, headers, JSONPath values, body, `maxMs`) and `capture` values as `${NAME}` for later steps. Needs no device.",
         "do" | "act" => "Natural-language action: a model picks one action and one element from the screen; the selector is built and checked in code.",
         "assert" | "expect" => "Natural-language assertion, checked against the element tree.",
@@ -143,7 +145,11 @@ pub fn dsl_reference() -> String {
         // Keys the parser reads that the schema leaves undescribed.
         let extra: Vec<&&str> = parsed
             .iter()
-            .filter(|k| !k.contains('_') && !listed.iter().any(|l| l == *k))
+            .filter(|k| {
+                !k.contains('_')
+                    && !listed.iter().any(|l| l == *k)
+                    && !crate::config_keys::is_renamed(section, k)
+            })
             .collect();
         if !extra.is_empty() {
             let keys: Vec<String> = extra.iter().map(|k| format!("`{k}`")).collect();

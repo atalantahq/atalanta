@@ -61,7 +61,10 @@ impl InspectorServer {
     /// An inspector with no device, serving only the screenshot review
     /// page for `results_dir` (`velocity baselines review --serve`).
     pub fn review_only(results_dir: impl Into<PathBuf>) -> Self {
-        Self::new(Arc::new(no_device::NoDevice), None, None).with_results_dir(results_dir)
+        let mut s =
+            Self::new(Arc::new(no_device::NoDevice), None, None).with_results_dir(results_dir);
+        s.state.review_only = true;
+        s
     }
 
     /// The screenshot review page's URL (with the token, like [`Self::url`]).

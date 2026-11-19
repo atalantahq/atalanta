@@ -1,5 +1,8 @@
 use velocity_common::{Element, Rect};
 
+/// Deepest element nesting kept from a page.
+pub const MAX_DEPTH: usize = 512;
+
 /// The element tree from the in-page `walk` (see `injected.js`): a flat
 /// pre-order list where each node names its parent's index (`p`, -1 for the
 /// root). Flat, so the JSON nesting limit can't cut a deep page short;
@@ -7,11 +10,25 @@ use velocity_common::{Element, Rect};
 ///
 /// Each node's Velocity id (kept outside the DOM, stable for the page's
 /// life) becomes the `platform_id` of `velocity_common::Element`.
+///
+/// A node deeper than [`MAX_DEPTH`] hangs from its ancestor at that depth
+/// instead: the page decides the nesting, and drop, clone, serialize and
+/// the selector walk recurse over `Element`, so a page of 20,000 nested
+/// `<div>`s overflowed the stack and aborted the run (audit 2026-11 WEB-4;
+/// the device parsers cap depth the same way).
 pub fn tree_from_list(list: &[serde_json::Value]) -> Option<Element> {
     let mut kids: Vec<Vec<usize>> = vec![Vec::new(); list.len()];
+    let mut depth: Vec<usize> = vec![0; list.len()];
+    let mut attach: Vec<usize> = vec![0; list.len()];
     for (i, node) in list.iter().enumerate() {
         match node["p"].as_i64() {
-            Some(p) if p >= 0 && (p as usize) < i => kids[p as usize].push(i),
+            Some(p) if p >= 0 && (p as usize) < i => {
+                let p = p as usize;
+                let to = if depth[p] < MAX_DEPTH { p } else { attach[p] };
+                attach[i] = to;
+                depth[i] = depth[to] + 1;
+                kids[to].push(i);
+            }
             _ if i == 0 => {}
             _ => return None,
         }
@@ -33,10 +50,19 @@ pub fn json_to_element(node: &serde_json::Value) -> Option<Element> {
     let tag = node["tag"].as_str().unwrap_or("div").to_string();
     let text = node["text"].as_str().map(str::to_string);
 
-    // Prefer ariaLabel for the `label` field, then fall back to the DOM `id`.
+    // `label` is the accessibility label only; the DOM `id` has a field of
+    // its own (an id is not text a page shows or a screen reader reads).
     let label = node["ariaLabel"]
         .as_str()
-        .or_else(|| node["domId"].as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let dom_id = node["domId"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let test_id = node["testId"]
+        .as_str()
+        .filter(|s| !s.is_empty())
         .map(str::to_string);
 
     let x = node["x"].as_i64().unwrap_or(0) as i32;
@@ -72,6 +98,13 @@ pub fn json_to_element(node: &serde_json::Value) -> Option<Element> {
     Some(Element {
         hint: node["hint"].as_str().map(str::to_string),
         platform_id: vel_id,
+        dom_id,
+        test_id,
+        css_class: node["className"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         label,
         text,
         element_type: tag,
@@ -87,13 +120,47 @@ pub fn json_to_element(node: &serde_json::Value) -> Option<Element> {
         // S1/S2: the computed role and `aria-selected` / an option's state.
         selected: Some(node["selected"].as_bool().unwrap_or(false)),
         role: node["role"].as_str().map(str::to_string),
+        indeterminate: false,
     })
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_page_nested_deeper_than_the_cap_is_flattened_not_a_stack_overflow() {
+        let n = 100_000;
+        let list: Vec<serde_json::Value> = (0..n)
+            .map(|i| serde_json::json!({"velId": format!("v{i}"), "tag": "div", "p": i as i64 - 1}))
+            .collect();
+        let root = super::tree_from_list(&list).unwrap();
+        fn deepest(e: &velocity_common::Element) -> usize {
+            1 + e.children.iter().map(deepest).max().unwrap_or(0)
+        }
+        assert!(deepest(&root) <= super::MAX_DEPTH + 1);
+        fn count(e: &velocity_common::Element) -> usize {
+            1 + e.children.iter().map(count).sum::<usize>()
+        }
+        assert_eq!(count(&root), n, "nothing dropped");
+        let _ = serde_json::to_string(&root).unwrap();
+    }
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_data_testid_is_kept_for_id_selectors() {
+        let node = json!({
+            "velId": "n1", "tag": "button", "testId": "pay",
+            "x": 0, "y": 0, "w": 10, "h": 10, "children": []
+        });
+        let el = json_to_element(&node).unwrap();
+        assert_eq!(el.test_id.as_deref(), Some("pay"));
+        assert!(velocity_common::selector_match::matches_selector(
+            &el,
+            &velocity_common::Selector::Id("pay".into()),
+            None
+        ));
+    }
 
     #[test]
     fn test_basic_node() {
@@ -111,7 +178,9 @@ mod tests {
         assert_eq!(el.platform_id, "abc123");
         assert_eq!(el.element_type, "button");
         assert_eq!(el.text.as_deref(), Some("Click me"));
-        assert_eq!(el.label.as_deref(), Some("submit")); // falls back to domId
+        assert_eq!(el.label, None, "an id is not a label");
+        assert_eq!(el.dom_id.as_deref(), Some("submit"));
+        assert_eq!(el.test_id, None);
         assert_eq!(el.bounds.x, 10);
         assert_eq!(el.bounds.y, 20);
         assert_eq!(el.bounds.width, 100);

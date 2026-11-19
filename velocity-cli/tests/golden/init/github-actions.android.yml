@@ -1,7 +1,9 @@
 # Example GitHub Actions workflow written by `velocity init`.
-# Copy it to .github/workflows/velocity.yml and adjust. It runs the suites in
-# shards (`--shard M/N`) and uploads JUnit reports; `--report github` adds
-# annotations on the PR.
+# Copy it to .github/workflows/velocity.yml (or run `velocity init --ci
+# github`). Two shards run through the Velocity Action (docs/CI.md); the
+# results job fails the run when a shard reported nothing.
+# Pinned to v0.2.0, the Velocity that wrote this file. Check the release
+# exists (gh release view v0.2.0 -R omkar-dev/velocity) before relying on it.
 
 name: velocity
 
@@ -13,27 +15,34 @@ on:
 jobs:
   ui-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
-      - name: Install Velocity
-        run: curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | bash
-      - name: Enable KVM
+      # Build or download your app here and pass it with `args: --app <path>`.
+      - uses: omkar-dev/velocity@v0.2.0
+        with:
+          version: 0.2.0
+          platform: android
+          suite: velocity
+          shard: ${{ matrix.shard }}/2
+
+  results:
+    needs: ui-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: shards
+          pattern: velocity-results-*
+      - name: Every shard reported
+        # The same pinned release's installer, which checks the download.
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-      - name: Run Velocity on an emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          script: velocity run velocity --shard ${{ matrix.shard }}/2 --report junit,github --artifacts-dir velocity-results
-      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: velocity-results-${{ matrix.shard }}
-          path: velocity-results/
+          curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/v0.2.0/install.sh \
+            | sh -s -- --version 0.2.0 --dir "$RUNNER_TEMP/bin" --no-modify-path
+          "$RUNNER_TEMP/bin/velocity" results check --expect-shards 2 shards

@@ -832,6 +832,24 @@ impl PlatformDriver for ResilientDriver {
         .await
     }
 
+    async fn drag(
+        &self,
+        device_id: &str,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        // A gesture half done can't be replayed: once, like swipe_coords.
+        let did = device_id.to_string();
+        self.with_once(device_id, || {
+            let did = did.clone();
+            let inner = self.inner.clone();
+            async move { inner.drag(&did, from, to, hold_ms, move_ms).await }
+        })
+        .await
+    }
+
     async fn network_busy(&self, device_id: &str) -> bool {
         self.inner.network_busy(device_id).await
     }

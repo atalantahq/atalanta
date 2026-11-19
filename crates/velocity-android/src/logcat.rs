@@ -53,6 +53,9 @@ pub fn since_arg(at: SystemTime, offset_ms: i64) -> String {
 
 const SLACK_MS: i64 = 100;
 
+/// Most crash/ANR notes one test keeps.
+const MAX_NOTES: usize = 20;
+
 /// One `-v threadtime` line: `MM-DD HH:MM:SS.mmm  PID  TID L TAG: msg`.
 #[derive(Debug, PartialEq)]
 pub struct Parsed<'a> {
@@ -200,7 +203,10 @@ impl Watch {
 
     fn note(&mut self, mut s: String) {
         cut_note(&mut s);
-        if !self.notes.contains(&s) {
+        // Capped: any app can log lines that look like the app's crashes
+        // (logcat tags are not authenticated), and each distinct one was
+        // kept (audit 2026-11 AND-3).
+        if self.notes.len() < MAX_NOTES && !self.notes.contains(&s) {
             self.notes.push(s);
         }
     }

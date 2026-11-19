@@ -17,7 +17,7 @@ pub struct InspectArgs {
     platform: Option<String>,
 
     /// Port to serve the inspector UI
-    #[arg(long, default_value = "9876")]
+    #[arg(long, default_value_t = 9876)]
     port: u16,
 
     /// Address to listen on. Defaults to loopback; anything else (e.g.
@@ -30,8 +30,14 @@ pub struct InspectArgs {
     #[arg(long)]
     open: bool,
 
-    /// Directory recorded flows are saved in (new files only)
-    #[arg(long, default_value = "flows")]
+    /// Directory recorded tests are saved in (new files only).
+    /// `--flows-dir` is the old name
+    #[arg(
+        long = "tests-dir",
+        alias = "flows-dir",
+        default_value = "flows",
+        value_name = "DIR"
+    )]
     flows_dir: std::path::PathBuf,
 
     /// Artifacts folder the screenshot review page (`/review`) reads; console

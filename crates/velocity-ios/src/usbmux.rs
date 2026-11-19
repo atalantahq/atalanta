@@ -53,7 +53,11 @@ pub struct Forward {
     task: JoinHandle<()>,
     pub local_port: u16,
     socket: PathBuf,
-    device_id: u64,
+    /// usbmuxd's number for the device. A replugged phone gets a new one,
+    /// so it is looked up again by UDID when a connection is refused as a
+    /// bad device (mobile-agent's S9 spike hit 60 s of "bad device").
+    device_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    udid: String,
     device_port: u16,
 }
 
@@ -81,7 +85,16 @@ impl Forward {
     /// checked once more a second later ("maybe stuck by another request").
     pub async fn probe(&self) -> Liveness {
         for attempt in 0..2 {
-            match probe_once(&self.socket, self.device_id, self.device_port).await {
+            let id = self.device_id.load(std::sync::atomic::Ordering::Relaxed);
+            let mut answer = probe_once(&self.socket, id, self.device_port).await;
+            if matches!(answer, Ok(false)) {
+                // A replugged phone has a new number: try it at once.
+                let new = rekey(&self.socket, &self.udid, &self.device_id, id).await;
+                if new != id {
+                    answer = probe_once(&self.socket, new, self.device_port).await;
+                }
+            }
+            match answer {
                 Ok(true) => return Liveness::Alive,
                 Err(Refused) => return Liveness::Dead,
                 Ok(false) if attempt == 0 => tokio::time::sleep(Duration::from_secs(1)).await,
@@ -133,7 +146,8 @@ async fn forward_via(
     local_port: u16,
     device_port: u16,
 ) -> Result<Forward> {
-    let device_id = device_id_for(socket, udid).await?;
+    let first_id = device_id_for(socket, udid).await?;
+    let device_id = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(first_id));
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .await
         .map_err(|e| VelocityError::Config(format!("port {local_port}: {e}")))?;
@@ -142,6 +156,8 @@ async fn forward_via(
         .map(|a| a.port())
         .unwrap_or(local_port);
     let sock_path = socket.to_path_buf();
+    let ids = device_id.clone();
+    let task_udid = udid.to_string();
     let task = tokio::spawn(async move {
         let mut relays = JoinSet::new();
         let mut backoff = Duration::ZERO;
@@ -169,9 +185,26 @@ async fn forward_via(
             // Reap finished relays so the set doesn't grow for the run.
             while relays.try_join_next().is_some() {}
             let sock_path = sock_path.clone();
+            let ids = ids.clone();
+            let udid = task_udid.clone();
             relays.spawn(async move {
                 let mut local = local;
-                match connect(&sock_path, device_id, device_port).await {
+                let id = ids.load(std::sync::atomic::Ordering::Relaxed);
+                let first = connect(&sock_path, id, device_port).await;
+                // A bad-device reply after a replug: the same UDID under
+                // its new number, once.
+                let attempt = match first {
+                    Err(ConnectError::Other(_)) => {
+                        let new = rekey(&sock_path, &udid, &ids, id).await;
+                        if new != id {
+                            connect(&sock_path, new, device_port).await
+                        } else {
+                            first
+                        }
+                    }
+                    other => other,
+                };
+                match attempt {
                     Ok(mut remote) => {
                         let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
                     }
@@ -193,8 +226,25 @@ async fn forward_via(
         local_port,
         socket: socket.to_path_buf(),
         device_id,
+        udid: udid.to_string(),
         device_port,
     })
+}
+
+/// usbmuxd's current number for `udid`, stored in `ids` when it changed
+/// from `old` (a replug); `old` when the lookup fails.
+async fn rekey(socket: &Path, udid: &str, ids: &std::sync::atomic::AtomicU64, old: u64) -> u64 {
+    match device_id_for(socket, udid).await {
+        Ok(new) if new != old => {
+            debug!(
+                udid,
+                old, new, "usbmux device id changed (replugged); re-keyed"
+            );
+            ids.store(new, std::sync::atomic::Ordering::Relaxed);
+            new
+        }
+        _ => old,
+    }
 }
 
 /// usbmuxd's numeric id for the device with this UDID.
@@ -218,6 +268,7 @@ async fn device_id_for(socket: &Path, udid: &str) -> Result<u64> {
 
 fn unreachable(udid: &str, detail: String) -> VelocityError {
     VelocityError::WdaUnreachable {
+        device_id: udid.to_string(),
         url: format!("usbmux://{udid}"),
         detail,
     }
@@ -484,7 +535,14 @@ mod tests {
         Http,
         /// Connects; the device port reads and never answers.
         Mute,
+        /// Lists the phone under [`CURRENT_ID`] and connects only to that
+        /// number (BadDevice otherwise), the port answering HTTP: a test
+        /// "replugs" by changing it.
+        Replugged,
     }
+
+    /// The fake's number for the phone in [`Device::Replugged`].
+    static CURRENT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(3);
 
     /// A fake usbmuxd on a Unix socket in a fresh temp dir. Each accepted
     /// pipe is reported on the channel, so a test can see it close.
@@ -512,14 +570,25 @@ mod tests {
                     let Ok(msg) = receive(&mut s).await else {
                         return;
                     };
+                    let current = CURRENT_ID.load(std::sync::atomic::Ordering::SeqCst);
                     if msg.contains("ListDevices") {
-                        let _ = send(&mut s, 1, LIST).await;
+                        let list = if matches!(device, Device::Replugged) {
+                            LIST.replace(
+                                "<integer>3</integer>",
+                                &format!("<integer>{current}</integer>"),
+                            )
+                        } else {
+                            LIST.to_string()
+                        };
+                        let _ = send(&mut s, 1, &list).await;
                         return;
                     }
-                    let number = if matches!(device, Device::Refused) {
-                        3
-                    } else {
-                        0
+                    let asked = integer_after(&msg, "DeviceID");
+                    let number = match device {
+                        Device::Refused => 3,
+                        // usbmuxd's BadDevice.
+                        Device::Replugged if asked != Some(current) => 2,
+                        _ => 0,
                     };
                     let reply = format!(
                         "<plist><dict><key>Number</key><integer>{number}</integer></dict></plist>"
@@ -533,7 +602,7 @@ mod tests {
                         loop {
                             match s.read(&mut buf).await {
                                 Ok(0) | Err(_) => return,
-                                Ok(_) if matches!(device, Device::Http) => {
+                                Ok(_) if matches!(device, Device::Http | Device::Replugged) => {
                                     let _ = s
                                         .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nI-AM-ALIVE")
                                         .await;
@@ -590,6 +659,31 @@ mod tests {
         c.set_session_id("s".into());
         let e = c.get_source().await.unwrap_err();
         assert!(matches!(e, VelocityError::WdaUnreachable { .. }), "{e:?}");
+    }
+
+    // Row 1.6: usbmuxd numbers a replugged phone anew; the forward looks
+    // the UDID up again instead of failing every connection.
+    #[tokio::test]
+    async fn a_replugged_phone_is_found_under_its_new_number() {
+        short_deadlines();
+        CURRENT_ID.store(3, std::sync::atomic::Ordering::SeqCst);
+        let (sock, _) = fake_usbmuxd(Device::Replugged);
+        let f = forward_via(&sock, UDID, 0, 8100).await.unwrap();
+        assert_eq!(f.probe().await, Liveness::Alive);
+        CURRENT_ID.store(11, std::sync::atomic::Ordering::SeqCst);
+        // Through the local port, as WDA requests go.
+        let mut c = tokio::net::TcpStream::connect(("127.0.0.1", f.local_port))
+            .await
+            .unwrap();
+        c.write_all(b"GET /status HTTP/1.1\r\n\r\n").await.unwrap();
+        let mut buf = [0u8; 64];
+        let n = tokio::time::timeout(Duration::from_secs(2), c.read(&mut buf))
+            .await
+            .expect("the relay answered")
+            .unwrap();
+        assert!(String::from_utf8_lossy(&buf[..n]).contains("200 OK"));
+        assert_eq!(f.device_id.load(std::sync::atomic::Ordering::Relaxed), 11);
+        assert_eq!(f.probe().await, Liveness::Alive);
     }
 
     #[tokio::test]

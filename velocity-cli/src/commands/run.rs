@@ -91,7 +91,7 @@ pub struct RunArgs {
     #[arg(value_name = "PATH")]
     path: Option<String>,
 
-    /// Path to the test suite YAML config
+    /// The suite file to run (same as the PATH argument)
     #[arg(short, long, default_value = "velocity.yaml")]
     config: String,
 
@@ -100,8 +100,8 @@ pub struct RunArgs {
     #[arg(skip)]
     folder_member: bool,
 
-    /// Target platform (ios or android). Auto-detected if omitted.
-    #[arg(short, long)]
+    /// Target platform: ios, android or web. Auto-detected if omitted.
+    #[arg(short, long, value_parser = ["ios", "android", "web"])]
     platform: Option<String>,
 
     /// Target device ID. Uses first available if omitted. With --parallel: an
@@ -146,19 +146,20 @@ pub struct RunArgs {
     #[arg(long, value_name = "PATH|GLOB")]
     history_from: Vec<String>,
 
-    /// Number of retries for failed tests
+    /// Retries for a failed test (at most 10). With --parallel a retry runs
+    /// on another device, from a cold app launch
     #[arg(long)]
     retries: Option<u32>,
 
     /// Report formats, comma-separated: junit, json, html, github, allure.
     /// `github` (annotations + job summary) is added automatically in GitHub Actions.
-    #[arg(long, default_value = "junit")]
+    #[arg(long, default_value = "junit", value_parser = check_reports)]
     report: String,
 
     /// JUnit `classname` of every test: `test` (default) keeps today's
     /// constant `velocity`; `suite` uses the suite file's stem
     /// (`checkout` for `checkout.yaml`), so CI groups tests by suite. Changing it resets
-    /// CI test history once; `suite` becomes the default at 1.0 (A-10)
+    /// CI test history once; `suite` becomes the default at 1.0
     #[arg(long, value_name = "MODE", default_value = "test")]
     junit_classname: JunitClassname,
 
@@ -205,9 +206,17 @@ pub struct RunArgs {
     #[arg(long, default_value = "./velocity-results")]
     artifacts_dir: String,
 
-    /// Suite-level timeout in milliseconds
-    #[arg(long)]
-    timeout: Option<u64>,
+    /// Suite timeout; exceeding it exits 4. Takes a unit (30s, 10m, 500ms);
+    /// a bare number is milliseconds
+    #[arg(long, value_name = "DURATION", value_parser = super::duration_arg::bare_millis)]
+    timeout: Option<std::time::Duration>,
+
+    /// Per-test timeout: an attempt that runs longer fails (and may be
+    /// retried) while the rest of the run goes on, unlike --timeout, which
+    /// ends the whole run. Takes a unit (90s, 5m); a bare number is
+    /// milliseconds
+    #[arg(long, value_name = "DURATION", value_parser = super::duration_arg::bare_millis)]
+    test_timeout: Option<std::time::Duration>,
 
     /// Stop on first failure
     #[arg(long)]
@@ -330,11 +339,15 @@ pub struct RunArgs {
     set: Vec<String>,
 
     /// Driver mode: device or headless
-    #[arg(long)]
+    #[arg(long, value_parser = ["device", "headless"])]
     driver: Option<String>,
 
     /// App framework: native, react_native, or flutter. Auto-detected if omitted.
-    #[arg(long)]
+    #[arg(long, value_parser = clap::builder::PossibleValuesParser::new([
+        clap::builder::PossibleValue::new("native"),
+        clap::builder::PossibleValue::new("react_native").aliases(["reactnative", "rn"]),
+        clap::builder::PossibleValue::new("flutter"),
+    ]))]
     framework: Option<String>,
 
     /// Write assertScreenshot baselines: bare (or =changed, =all) writes
@@ -368,7 +381,7 @@ fn parse_verify(value: &str) -> Result<velocity_common::VerifyLevel, String> {
 /// `--junit-classname`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum JunitClassname {
-    /// `velocity` for every test (the behaviour before A-10).
+    /// `velocity` for every test (the default).
     Test,
     /// The suite file's stem.
     Suite,
@@ -904,7 +917,10 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
         println!("{} {e}; skipping this suite", "=>".cyan().bold());
         return Ok(NOTHING_SELECTED);
     }
-    print_shard_plan(&suite.tests, &runtime_config);
+    let shard_plan = print_shard_plan(&suite.tests, &runtime_config);
+    if let Some(why) = velocity_runner::scheduler::empty_shard(&suite.tests, &runtime_config) {
+        usage_bail!("{why}");
+    }
 
     let target = resolve_target(&mut args, &mut suite, &mut runtime_config, cli_driver_mode)?;
     print_baseline_mode(runtime_config.update_baselines);
@@ -914,6 +930,12 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
 
     // Create artifacts dir
     let _ = std::fs::create_dir_all(&artifacts_dir);
+    let run_began = std::time::SystemTime::now();
+    if let Some(w) =
+        velocity_runner::artifacts::low_disk_warning(std::path::Path::new(&artifacts_dir))
+    {
+        eprintln!("{} {w}", "warning:".yellow().bold());
+    }
     prepare_devices(&args, target, &suite, &*driver, &mut runtime_config).await?;
 
     if args.flaky_confidence.is_some() && args.parallel.is_none_or(|n| n <= 1) {
@@ -969,6 +991,7 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
         termination,
         partial,
         hunt,
+        shard_plan,
         junit: velocity_runner::reporter::junit::JunitOptions {
             properties,
             classname: junit_classname(args.junit_classname, &args.config),
@@ -980,6 +1003,7 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
     );
     let exit = apply_quarantine(&args, &mut result, exit, completed, fail_on_flaky)?;
     let exit = write_reports(&reports, &args, &result, &artifacts_dir, &report_ctx, exit);
+    prune_old_evidence(&artifacts_dir, run_began);
 
     // Cleanup platform services (the daemon keeps them for the next run).
     // A signal from here on exits at once: the run is over.
@@ -1063,7 +1087,8 @@ fn run_setup(args: &RunArgs) -> anyhow::Result<RunSetup> {
         retry_count: args.retries,
         report_format,
         artifacts_dir: args.artifacts_dir.clone(),
-        suite_timeout_ms: args.timeout,
+        suite_timeout_ms: args.timeout.map(super::duration_arg::as_millis_u64),
+        test_timeout_ms: args.test_timeout.map(super::duration_arg::as_millis_u64),
         fail_fast: args.fail_fast,
         failed_first: args.failed_first,
         shuffle_seed: (args.shuffle || args.hunt.is_some()).then(|| {
@@ -1114,6 +1139,19 @@ fn parse_platform(value: Option<&str>) -> anyhow::Result<Option<Platform>> {
         Some(other) => usage_bail!("Unknown platform '{other}'. Use 'ios', 'android', or 'web'."),
         None => None,
     })
+}
+
+/// `--report` checked when the command line is parsed, so a typo fails
+/// before any device work and `--help` names the formats.
+fn check_reports(value: &str) -> Result<String, String> {
+    for r in value.split(',').map(|r| r.trim().to_lowercase()) {
+        if !matches!(r.as_str(), "junit" | "json" | "html" | "github" | "allure") {
+            return Err(format!(
+                "unknown report format '{r}': use junit, json, html, github or allure (comma-separated)"
+            ));
+        }
+    }
+    Ok(value.to_string())
 }
 
 /// `--report`: each format once, in the order given, plus `github` in
@@ -1256,10 +1294,15 @@ async fn select_from_history(
 }
 
 /// Every shard prints the same `plan=` when they agree on the partition
-/// (the same tests, filters and timings): CI can compare them (D-23).
-fn print_shard_plan(tests: &[velocity_common::TestCase], runtime_config: &RuntimeConfig) {
+/// (the same tests, filters and timings): CI can compare them (D-23). The
+/// same plan goes into `results.json` (`shard_plan`), where
+/// `velocity results check` compares every shard's.
+fn print_shard_plan(
+    tests: &[velocity_common::TestCase],
+    runtime_config: &RuntimeConfig,
+) -> Option<velocity_runner::reporter::json::ShardPlanRecord> {
     let (Some(i), Some(n)) = (runtime_config.shard_index, runtime_config.shard_total) else {
-        return;
+        return None;
     };
     let plan = velocity_runner::scheduler::shard_plan(tests, runtime_config);
     let mine = velocity_runner::scheduler::plan_tests(
@@ -1280,6 +1323,11 @@ fn print_shard_plan(tests: &[velocity_common::TestCase], runtime_config: &Runtim
             "balanced by test count"
         }
     );
+    Some(velocity_runner::reporter::json::ShardPlanRecord {
+        fingerprint: plan.fingerprint.clone(),
+        tests: plan.shards.get(i).cloned().unwrap_or_default(),
+        planned_total: planned,
+    })
 }
 
 /// What a run drives: resolved once the suite is loaded and selected.
@@ -1656,7 +1704,7 @@ async fn prepare_under_lease(
     boot_device_id: &str,
     target: Target,
 ) -> anyhow::Result<()> {
-    let prepare_lease = match velocity_runner::lease::try_lock(boot_device_id) {
+    let prepare_lease = match velocity_runner::lease::lock_waiting(boot_device_id).await {
         Ok(lock) => lock,
         Err(velocity_runner::lease::LeaseError::Held(holder)) => {
             return Err(velocity_common::VelocityError::ServiceUnavailable {
@@ -1895,6 +1943,27 @@ fn apply_quarantine(
 /// Write every report in `reports`: one that can't be written no longer
 /// skips the others and the device cleanup (VEL-034). `exit` combined with
 /// 5 for each that failed.
+/// `VELOCITY_ARTIFACTS_MAX_BYTES`: drop the oldest evidence of earlier
+/// runs (traces, screenshots) once the artifacts dir is over the cap.
+fn prune_old_evidence(artifacts_dir: &str, run_began: std::time::SystemTime) {
+    let Some(max) = velocity_runner::artifacts::max_evidence_bytes() else {
+        return;
+    };
+    let pruned = velocity_runner::artifacts::prune_evidence(
+        std::path::Path::new(artifacts_dir),
+        max,
+        run_began,
+    );
+    if pruned.removed > 0 {
+        println!(
+            "{} Removed {} old evidence item(s) ({:.1} MB) to keep {artifacts_dir} under VELOCITY_ARTIFACTS_MAX_BYTES",
+            "=>".cyan().bold(),
+            pruned.removed,
+            pruned.freed as f64 / (1u64 << 20) as f64
+        );
+    }
+}
+
 fn write_reports(
     reports: &[String],
     args: &RunArgs,
@@ -1927,6 +1996,23 @@ fn write_reports(
             }
         }
     }
+    // Row 2.2: failures.md on every run, whatever --report says: each
+    // failure with its step, error, log tail and the files that show it.
+    match velocity_runner::reporter::failures::write(result, artifacts_dir) {
+        Ok(path)
+            if result
+                .tests
+                .iter()
+                .any(|t| t.status == velocity_common::TestStatus::Failed) =>
+        {
+            println!("{} Failures: {}", "=>".cyan().bold(), path.underline())
+        }
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("{} failures.md: {e}", "error:".red().bold());
+            report_codes.push(5);
+        }
+    }
     combined_exit(&report_codes)
 }
 
@@ -1950,6 +2036,8 @@ struct ReportContext {
     partial: bool,
     /// A hunt's verdicts: the JSON report's `hunt` field.
     hunt: Option<serde_json::Value>,
+    /// A sharded run's partition: the JSON report's `shard_plan` field.
+    shard_plan: Option<velocity_runner::reporter::json::ShardPlanRecord>,
     junit: velocity_runner::reporter::junit::JunitOptions,
 }
 
@@ -1985,12 +2073,23 @@ fn write_report(
         }
         "json" => {
             let path = format!("{artifacts_dir}/results.json");
-            velocity_runner::reporter::json::write_json_full(
+            velocity_runner::reporter::json::write_json_report(
                 result,
                 &path,
-                Some(&ctx.termination),
-                ctx.hunt.as_ref(),
+                &velocity_runner::reporter::json::JsonExtras {
+                    termination: Some(&ctx.termination),
+                    hunt: ctx.hunt.as_ref(),
+                    shard_plan: ctx.shard_plan.as_ref(),
+                },
             )?;
+            // The farm view beside it (per-device busy time, retries).
+            // Best effort: the results above are what CI depends on.
+            let metrics = format!("{artifacts_dir}/run-metrics.json");
+            if let Err(e) =
+                velocity_runner::reporter::metrics::write(result, result.duration, &metrics)
+            {
+                tracing::warn!("{e}");
+            }
             path
         }
         "html" => {

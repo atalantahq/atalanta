@@ -33,6 +33,16 @@ pub struct McpArgs {
     #[arg(long)]
     read_only: bool,
 
+    /// Which tools to serve: core (default: observe, act, run, artifacts,
+    /// each standing for several of the full tools) or full (all of them).
+    /// Every tool definition costs the agent context on every turn
+    #[arg(long, default_value = "core", value_name = "core|full", ignore_case = true,
+          value_parser = clap::builder::PossibleValuesParser::new([
+              clap::builder::PossibleValue::new("core").alias("default"),
+              clap::builder::PossibleValue::new("full").alias("all"),
+          ]))]
+    profile: String,
+
     /// Tell someone when a background task (run_task) ends (repeatable):
     /// webhook=<url>, script=<path>, jsonl=<path> or desktop
     #[arg(long, value_name = "KIND[=TARGET]")]
@@ -157,6 +167,10 @@ pub async fn execute(args: McpArgs) -> anyhow::Result<i32> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| usage_err!("{e}"))?;
     let platform = platform_of(args.platform.as_deref(), args.device.as_deref())?;
+    let profile: velocity_mcp::profile::Profile = args
+        .profile
+        .parse()
+        .map_err(|e: String| usage_err!("{e}"))?;
 
     eprintln!(
         "{} Starting MCP server (platform={}, transport=stdio)",
@@ -207,6 +221,7 @@ pub async fn execute(args: McpArgs) -> anyhow::Result<i32> {
         .unwrap_or_else(TaskManager::default_root);
     let mut server = McpServer::new(driver_arc, device_id, args.config)
         .read_only(args.read_only)
+        .profile(profile)
         .with_platform(platform)
         .with_leases(true)
         .with_tasks(TaskManager::new(tasks_root, notifiers));

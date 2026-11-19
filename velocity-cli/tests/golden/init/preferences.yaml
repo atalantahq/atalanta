@@ -1,7 +1,7 @@
 # yaml-language-server: $schema=./velocity.schema.json
 # Starter suite written by `velocity init`. Run it: velocity run velocity/preferences.yaml
 # The assertions were read from com.apple.Preferences's first screen; `velocity inspect` shows
-# the live tree to pick more. Reference: `velocity schema --markdown`.
+# the live tree to pick more. Reference: docs/DSL.md (the steps and selectors).
 
 appId: com.apple.Preferences
 config:

@@ -273,6 +273,33 @@ pub fn plan_tests(
 /// The tests the shards partition: tag and name filters, then the
 /// pre-shard (git-derived) `only_tests` unless a post-shard filter is set
 /// (then the shards own the whole filtered suite), with dependencies.
+/// NEW-001: a shard whose partition owns no test, while the suite has
+/// tests to share, would pass with nothing run (more shards than tests,
+/// or groups that can't be split). The reason, or `None` when the shard
+/// has work (or there is no sharding, or nothing to share at all; an empty
+/// selection is reported elsewhere). Selection made after the partition
+/// (`--last-failed`, `--changed-since`) may still leave a shard empty on
+/// purpose, so only the partition counts.
+pub fn empty_shard(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> Option<String> {
+    let (Some(idx), Some(total)) = (config.shard_index, config.shard_total) else {
+        return None;
+    };
+    let universe = shard_universe(all, config);
+    let shared = universe.len();
+    if shared == 0 {
+        return None;
+    }
+    let timings = shard_timings(config);
+    if !shard_one(universe, idx, total, timings.as_ref()).is_empty() {
+        return None;
+    }
+    Some(format!(
+        "shard {}/{total} has no tests: {shared} test(s) (in dependency groups that are never split) \
+         were shared out over {total} shards. Run fewer shards, so a shard never passes having run nothing",
+        idx + 1
+    ))
+}
+
 fn shard_universe(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> Vec<TestCase> {
     let mut tests = filter_by_tags(all, &config.tags);
     if let Some(ref pattern) = config.test_filter {
@@ -970,6 +997,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let slow_alone = [&s0, &s1].iter().any(|s| names(s) == ["slow"]);
         assert!(slow_alone, "{:?} / {:?}", names(&s0), names(&s1));
+    }
+
+    // NEW-001: more shards than tests leaves a shard that would pass empty.
+    #[test]
+    fn a_shard_that_owns_no_test_is_named() {
+        let all: Vec<TestCase> = ["a", "b"]
+            .iter()
+            .map(|n| TestCase {
+                name: n.to_string(),
+                tags: vec![],
+                isolated: false,
+                depends_on: vec![],
+                steps: vec![],
+                description: None,
+                verify: None,
+            })
+            .collect();
+        let cfg = |i, t| velocity_common::RuntimeConfig {
+            shard_index: Some(i),
+            shard_total: Some(t),
+            ..Default::default()
+        };
+        assert!(empty_shard(&all, &cfg(0, 2)).is_none());
+        assert!(empty_shard(&all, &cfg(1, 2)).is_none());
+        let empty: Vec<_> = (0..3)
+            .filter_map(|i| empty_shard(&all, &cfg(i, 3)))
+            .collect();
+        assert_eq!(empty.len(), 1, "{empty:?}");
+        assert!(
+            empty[0].contains("has no tests") && empty[0].contains("over 3 shards"),
+            "{empty:?}"
+        );
+        assert!(empty_shard(&all, &velocity_common::RuntimeConfig::default()).is_none());
+        assert!(empty_shard(&[], &cfg(2, 3)).is_none());
     }
 
     // VEL-003: out-of-range or partial shard settings are errors, not an

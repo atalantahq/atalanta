@@ -93,7 +93,58 @@ pub fn free_disk(_: &Path) -> Option<u64> {
 }
 
 fn home() -> PathBuf {
-    PathBuf::from(crate::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+    home_dir()
+}
+
+/// The user's home directory: `HOME`, or, when it is unset (some CI
+/// containers and service managers), a directory of this user's own under
+/// the temp dir. Every `~/.velocity` path used to fall back to a shared
+/// `/tmp/.velocity`, which another local user could create first and own:
+/// its lease files, daemon socket and state then followed their symlinks
+/// (audit 2026-11 FS-1). The fallback is `velocity-home-<uid>`, made `0700`;
+/// one that exists but isn't ours alone is not used, and a fresh, unique
+/// directory is made instead.
+pub fn home_dir() -> PathBuf {
+    match crate::env::var("HOME") {
+        Ok(h) if !h.trim().is_empty() => PathBuf::from(h),
+        _ => private_tmp_home(),
+    }
+}
+
+#[cfg(unix)]
+fn private_tmp_home() -> PathBuf {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    // SAFETY: geteuid has no preconditions and can't fail.
+    let uid = unsafe { libc::geteuid() };
+    let tmp = std::env::temp_dir();
+    let ours = |p: &Path| {
+        std::fs::symlink_metadata(p)
+            .is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
+    };
+    let fixed = tmp.join(format!("velocity-home-{uid}"));
+    let _ = std::fs::DirBuilder::new().mode(0o700).create(&fixed);
+    if ours(&fixed) {
+        return fixed;
+    }
+    tracing::warn!(
+        "HOME is unset and {} is not this user's own; using a fresh directory",
+        fixed.display()
+    );
+    for n in 0u32.. {
+        let p = tmp.join(format!("velocity-home-{uid}-{}-{n}", std::process::id()));
+        if std::fs::DirBuilder::new().mode(0o700).create(&p).is_ok() && ours(&p) {
+            return p;
+        }
+        if n > 1000 {
+            break;
+        }
+    }
+    fixed
+}
+
+#[cfg(not(unix))]
+fn private_tmp_home() -> PathBuf {
+    std::env::temp_dir()
 }
 
 pub fn gb(bytes: u64) -> String {
@@ -128,4 +179,19 @@ pub fn check_room(room: Room, pending: u64, limits: (f64, u64, u64)) -> Result<(
         ));
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod home_tests {
+    #[test]
+    fn without_home_the_fallback_is_this_users_own_directory() {
+        use std::os::unix::fs::MetadataExt;
+        let p = super::private_tmp_home();
+        let m = std::fs::symlink_metadata(&p).unwrap();
+        assert!(m.is_dir());
+        // SAFETY: geteuid has no preconditions.
+        assert_eq!(m.uid(), unsafe { libc::geteuid() });
+        assert_eq!(m.mode() & 0o077, 0, "{:o}", m.mode());
+        assert!(!p.starts_with("/tmp/.velocity"));
+    }
 }

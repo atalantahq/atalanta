@@ -26,6 +26,18 @@ pub enum ExpectOutcome {
     NotCheckable,
 }
 
+impl From<ExpectOutcome> for velocity_common::VerifyOutcome {
+    /// The same three-valued "did it hold" as an AI check's verdict:
+    /// met holds, not met fails, not checkable is unknown (review 06 #10).
+    fn from(o: ExpectOutcome) -> Self {
+        match o {
+            ExpectOutcome::Met => Self::Holds,
+            ExpectOutcome::NotMet => Self::Fails,
+            ExpectOutcome::NotCheckable => Self::Unknown,
+        }
+    }
+}
+
 /// An assertion a met expectation adds after its step.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -215,6 +227,11 @@ fn appears(text: &str, before: &Observation, after: &Observation, uv: &[String])
         let Some(el) = after.index.get(n) else {
             continue;
         };
+        // Not a container whose text is its children's joined (a web
+        // <body> "shows" every text on the page; pilot, 2026-11-07).
+        if crate::screen::joins_children(el) {
+            continue;
+        }
         for t in [&el.label, &el.text].into_iter().flatten() {
             let have = fold(t);
             let rank = if have == want {

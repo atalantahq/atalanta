@@ -24,7 +24,7 @@ async fn text_falls_back_to_ignoring_case_like_the_devices() {
     d.launch_app("web", &format!("{base}/c.html"), false)
         .await
         .unwrap();
-    let id_of = |e: velocity_common::Element| e.label.unwrap_or_default();
+    let id_of = |e: velocity_common::Element| e.dom_id.unwrap_or_default();
     let del = d
         .find_element("web", &Selector::Text("Delete".into()))
         .await
@@ -109,7 +109,7 @@ async fn text_contains_ignores_case() {
         .find_element("web", &Selector::TextContains("delete ALL".into()))
         .await
         .unwrap();
-    assert_eq!(found.label.as_deref(), Some("all"));
+    assert_eq!(found.dom_id.as_deref(), Some("all"));
     d.cleanup().await;
 }
 
@@ -173,9 +173,7 @@ async fn accessibility_id_is_the_accessible_name() {
             .find_element("web", &Selector::AccessibilityId(name.into()))
             .await
             .unwrap_or_else(|e| panic!("{name}: {e}"));
-        // The capture's label is the aria-label, else the DOM id.
-        let want = if id == "close" { name } else { id };
-        assert_eq!(el.label.as_deref(), Some(want), "{name}");
+        assert_eq!(el.dom_id.as_deref(), Some(id), "{name}");
     }
     // A plain <div> isn't named by its content.
     let all = d
@@ -234,7 +232,7 @@ async fn a_hidden_aria_label_match_never_hides_a_visible_named_one() {
         .unwrap();
     let close = Selector::AccessibilityId("Close".into());
     let el = d.find_element("web", &close).await.unwrap();
-    assert_eq!(el.label.as_deref(), Some("shown"), "{el:?}");
+    assert_eq!(el.dom_id.as_deref(), Some("shown"), "{el:?}");
     assert!(el.visible && !el.bounds.is_empty(), "{el:?}");
     // Once the dialog opens, its aria-label button wins again.
     d.debug_eval_main("document.getElementById('dialog').style.display='block'")

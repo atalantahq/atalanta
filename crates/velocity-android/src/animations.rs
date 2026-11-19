@@ -221,7 +221,7 @@ mod tests {
     /// Needs a device: `VELOCITY_TEST_ANDROID=<serial>`.
     #[tokio::test]
     async fn animations_come_back_after_the_run() {
-        let Ok(device) = std::env::var("VELOCITY_TEST_ANDROID") else {
+        let Some(device) = crate::test_support::device_under_test() else {
             return;
         };
         let get = |key: &'static str| {

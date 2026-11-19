@@ -639,18 +639,23 @@ pub struct PerformanceConfig {
     /// Sampling interval in milliseconds during long-running actions (default: 500).
     #[serde(alias = "interval_ms", default = "default_perf_interval")]
     pub interval_ms: u64,
-    /// Percentage threshold for heap growth to flag as regression (default: 15).
+    /// How far (percent) a test's peak total PSS may rise above its saved
+    /// baseline before the test fails (default: 15). Android only: the other
+    /// drivers report no memory. `heapGrowthThresholdPct`, the old name, is
+    /// still read; the validator warns about it (it never measured heap).
     #[serde(
+        alias = "pss_growth_threshold_pct",
+        alias = "heapGrowthThresholdPct",
         alias = "heap_growth_threshold_pct",
-        default = "default_heap_growth_threshold"
+        default = "default_pss_growth_threshold"
     )]
-    pub heap_growth_threshold_pct: u32,
+    pub pss_growth_threshold_pct: u32,
 }
 
 fn default_perf_interval() -> u64 {
     500
 }
-fn default_heap_growth_threshold() -> u32 {
+fn default_pss_growth_threshold() -> u32 {
     15
 }
 
@@ -659,7 +664,7 @@ impl Default for PerformanceConfig {
         Self {
             enabled: false,
             interval_ms: default_perf_interval(),
-            heap_growth_threshold_pct: default_heap_growth_threshold(),
+            pss_growth_threshold_pct: default_pss_growth_threshold(),
         }
     }
 }
@@ -910,6 +915,9 @@ pub struct SuiteConfig {
     /// `timeoutMs`, `insecure`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub http: Option<crate::http::HttpConfig>,
+    /// The programs `exec` steps may run (`allow`); none without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec: Option<crate::exec::ExecConfig>,
     /// Driver and runtime settings by name (`velocity settings` lists them),
     /// e.g. `android: { scroll: semantic }`. `--set` overrides them.
     #[serde(default, skip_serializing_if = "Option::is_none")]

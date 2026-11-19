@@ -131,11 +131,7 @@ pub fn short(hash: &str) -> &str {
 pub fn installs_dir() -> PathBuf {
     crate::env::var("VELOCITY_INSTALLS_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(crate::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
-                .join(".velocity")
-                .join("installs")
-        })
+        .unwrap_or_else(|_| crate::host::home_dir().join(".velocity").join("installs"))
 }
 
 /// The host-side marker for `app_id` on `device_id`:

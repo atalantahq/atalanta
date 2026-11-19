@@ -254,9 +254,16 @@ async fn ios_layout_search_skips_non_utf8_names() {
         let name = [0xff, b'a' + (i % 26), b'0' + i / 26];
         let odd = std::ffi::OsStr::from_bytes(&name);
         if std::fs::write(dir.path().join(odd), b"x").is_err() {
-            // APFS refuses non-UTF-8 names (EILSEQ); only Linux filesystems hit this.
-            eprintln!("skipped: this filesystem rejects non-UTF-8 names");
-            return;
+            // APFS refuses non-UTF-8 names (EILSEQ); only Linux filesystems
+            // hit this, so there the skip would make the test vacuous
+            // (review 07 M6).
+            #[cfg(target_os = "linux")]
+            panic!("a Linux filesystem refused a non-UTF-8 name");
+            #[cfg(not(target_os = "linux"))]
+            {
+                eprintln!("skipped: this filesystem rejects non-UTF-8 names");
+                return;
+            }
         }
     }
     std::fs::write(

@@ -833,8 +833,10 @@ impl AndroidDriver {
         })
     }
 
-    fn key_to_keycode(key: Key) -> u32 {
-        match key {
+    /// The key's Android keycode; `None` for a key this driver doesn't
+    /// know (`Key` is `#[non_exhaustive]`).
+    fn key_to_keycode(key: Key) -> Option<u32> {
+        Some(match key {
             Key::Back => 4,
             Key::Home => 3,
             Key::Enter => 66,
@@ -849,7 +851,8 @@ impl AndroidDriver {
             Key::ArrowDown => 20,
             Key::ArrowLeft => 21,
             Key::ArrowRight => 22,
-        }
+            _ => return None,
+        })
     }
 
     /// A tree-server command result as a driver result; `None` means the
@@ -958,8 +961,12 @@ impl AndroidDriver {
 
 /// A point inside `bounds` no front window covers, preferring the center;
 /// otherwise the window covering the center. Windows are front first; only
-/// those in front of the first app window over the point count, and app
-/// windows themselves don't (the target's dialog is one).
+/// those in front of the target's app window over the point count, and the
+/// app's own windows don't (the target's dialog is one). Another app's
+/// window in front (a freeform or desktop-mode window, protocol 19 names
+/// the active one) does: the tap would go to that app (review 09 #12).
+/// The points tried are the shared tap guard's
+/// ([`velocity_common::tap_guard`]).
 fn uncovered_point(
     windows: &[crate::tree_server::Window],
     bounds: &Rect,
@@ -967,28 +974,28 @@ fn uncovered_point(
     let contains = |r: &Rect, (x, y): (i32, i32)| {
         x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
     };
+    let active = windows
+        .iter()
+        .find(|w| w.active == Some(true))
+        .map(|w| w.package.as_str())
+        .filter(|p| !p.is_empty() && *p != "-");
+    // An app window of another package than the active one's; the
+    // framework's own popups ("android") are drawn for the app.
+    let foreign = |w: &crate::tree_server::Window| {
+        w.kind == 1
+            && active.is_some_and(|a| w.package != a && w.package != "-" && w.package != "android")
+    };
     let cover = |p: (i32, i32)| {
         windows
             .iter()
-            .take_while(|w| !(w.kind == 1 && contains(&w.bounds, p)))
-            .find(|w| w.kind != 1 && contains(&w.bounds, p))
+            .take_while(|w| !(w.kind == 1 && !foreign(w) && contains(&w.bounds, p)))
+            .find(|w| (w.kind != 1 || foreign(w)) && w.takes_touches() && contains(&w.bounds, p))
     };
     let center = bounds.center();
     let Some(blocker) = cover(center) else {
         return Ok(center);
     };
-    let mut points: Vec<(i32, i32)> = Vec::new();
-    for fy in [50, 25, 75, 10, 90] {
-        for fx in [50, 25, 75, 10, 90] {
-            points.push((
-                bounds.x + bounds.width * fx / 100,
-                bounds.y + bounds.height * fy / 100,
-            ));
-        }
-    }
-    points
-        .into_iter()
-        .find(|p| cover(*p).is_none())
+    velocity_common::tap_guard::free_point(bounds, &[], |p| cover(p).is_some())
         .ok_or_else(|| blocker.clone())
 }
 
@@ -1697,10 +1704,7 @@ impl PlatformDriver for AndroidDriver {
                         return Err(VelocityError::CommandFailed {
                             device_id: device_id.to_string(),
                             command: "tree server set text".into(),
-                            detail: format!(
-                                "the field took the text but now reads {read_back:?}; \
-                                 not typed again"
-                            ),
+                            detail: differs_detail(element, text, &read_back),
                         });
                     }
                     true
@@ -1790,6 +1794,34 @@ impl PlatformDriver for AndroidDriver {
         self.swipe_points(device_id, from, to, 300).await
     }
 
+    async fn drag(
+        &self,
+        device_id: &str,
+        from: (i32, i32),
+        to: (i32, i32),
+        hold_ms: u64,
+        move_ms: u64,
+    ) -> Result<()> {
+        self.invalidate_cache(device_id).await;
+        // `input motionevent` (Android 10+): one finger held down across the
+        // commands, so the press, the hold, the slow move and the rest at
+        // the end are ours. Older systems: `input draganddrop`.
+        let script = drag_script(from, to, hold_ms, move_ms);
+        let out = self.adb.batch_shell(device_id, &[script.as_str()]).await?;
+        if out.contains("Error") || out.contains("Unknown") || out.contains("usage") {
+            let cmd = format!(
+                "input draganddrop {} {} {} {} {}",
+                from.0,
+                from.1,
+                to.0,
+                to.1,
+                hold_ms + move_ms
+            );
+            self.adb.batch_shell(device_id, &[cmd.as_str()]).await?;
+        }
+        Ok(())
+    }
+
     async fn press_key(&self, device_id: &str, key: Key) -> Result<()> {
         self.invalidate_cache(device_id).await;
         // Enter in a text field: the keyboard's own action (Search/Go/Send),
@@ -1802,7 +1834,13 @@ impl PlatformDriver for AndroidDriver {
                 return Ok(());
             }
         }
-        self.key_code(device_id, Self::key_to_keycode(key)).await
+        let Some(code) = Self::key_to_keycode(key.clone()) else {
+            return Err(VelocityError::Config(format!(
+                "pressKey: {} is not supported on Android",
+                key.name()
+            )));
+        };
+        self.key_code(device_id, code).await
     }
 
     /// Media sessions and call state in one adb round-trip.
@@ -2430,6 +2468,24 @@ impl TextMode {
     }
 }
 
+/// Why a SETTEXT read back different, for the step's error. A secret cut
+/// by `maxLength` or reformatted reads back as a prefix or variant of
+/// itself, which redaction (exact values) misses, so for a password field
+/// or a registered secret only the lengths are told (audit 2026-11 AND-4).
+fn differs_detail(element: &Element, text: &str, read_back: &str) -> String {
+    let secret = element.obscured || velocity_common::redact::redact(text) != text;
+    if secret {
+        format!(
+            "the field took the text ({} characters) but now reads {} characters; not typed \
+             again",
+            text.chars().count(),
+            read_back.chars().count()
+        )
+    } else {
+        format!("the field took the text but now reads {read_back:?}; not typed again")
+    }
+}
+
 /// D-51 (VEL-S35): the `adb shell input text` fallback (no tree server)
 /// takes ASCII only, and never a secret: the text becomes a device shell
 /// command line, which any process on the device can read while it runs
@@ -2601,7 +2657,50 @@ mod launch_tests {
                 height: h,
             },
             package: "pkg".into(),
+            touchable: None,
+            title: String::new(),
+            active: None,
         }
+    }
+
+    /// Review 09 #12: in freeform / desktop windowing another app's window
+    /// can float over the app under test. With protocol 19's active flag it
+    /// covers like any window; the app's own popups don't.
+    #[test]
+    fn another_apps_window_in_front_covers_the_target() {
+        let mut other = win(5, 1, 1000, 600);
+        other.package = "com.other".into();
+        other.active = Some(false);
+        let mut app = win(1, 1, 0, 2400);
+        app.package = "com.app".into();
+        app.active = Some(true);
+        let under = velocity_common::Rect {
+            x: 100,
+            y: 1100,
+            width: 400,
+            height: 200,
+        };
+        let cover = super::uncovered_point(&[other.clone(), app.clone()], &under).unwrap_err();
+        assert_eq!(cover.package, "com.other");
+        assert_eq!(cover.kind_name(), "app window");
+        // Partly under it: tapped on the free part.
+        let half = velocity_common::Rect {
+            x: 100,
+            y: 900,
+            width: 400,
+            height: 200,
+        };
+        let (_, y) = super::uncovered_point(&[other.clone(), app.clone()], &half).unwrap();
+        assert!(y < 1000, "{y}");
+        // The app's own popup window in front is part of the app.
+        let mut popup = other.clone();
+        popup.package = "com.app".into();
+        assert!(super::uncovered_point(&[popup, app.clone()], &under).is_ok());
+        // An older server names no active window: as before, app windows
+        // never cover.
+        other.active = None;
+        app.active = None;
+        assert!(super::uncovered_point(&[other, app], &under).is_ok());
     }
 
     #[test]
@@ -2631,6 +2730,23 @@ mod launch_tests {
             height: 200,
         };
         assert_eq!(super::uncovered_point(&windows, &free).unwrap(), (300, 300));
+        // Review 09 #5: SystemUI's rounded-corner strip over the bottom
+        // takes no touches, so a button under it is tapped at its centre.
+        let mut decor = win(40, 3, 2280, 120);
+        decor.title = "ScreenDecorOverlayBottom".into();
+        let mut untouchable = win(41, 3, 2280, 120);
+        untouchable.touchable = Some(false);
+        let bottom = velocity_common::Rect {
+            x: 100,
+            y: 2290,
+            width: 400,
+            height: 100,
+        };
+        let app = win(1, 1, 0, 2400);
+        assert_eq!(
+            super::uncovered_point(&[decor, untouchable, app], &bottom).unwrap(),
+            (300, 2340)
+        );
     }
 
     #[test]
@@ -3642,6 +3758,44 @@ mod set_text_tests {
     }
 }
 
+/// The shell line for a held drag: DOWN, a hold, steps of MOVE, a rest at
+/// the end (a pointer still for 40 ms or more stops the list's velocity),
+/// UP.
+fn drag_script(from: (i32, i32), to: (i32, i32), hold_ms: u64, move_ms: u64) -> String {
+    let steps = (move_ms / 120).clamp(3, 20) as i32;
+    let secs = |ms: u64| format!("{}.{:03}", ms / 1000, ms % 1000);
+    let mut parts = vec![
+        format!("input motionevent DOWN {} {}", from.0, from.1),
+        format!("sleep {}", secs(hold_ms)),
+    ];
+    for i in 1..=steps {
+        let x = from.0 + (to.0 - from.0) * i / steps;
+        let y = from.1 + (to.1 - from.1) * i / steps;
+        parts.push(format!("input motionevent MOVE {x} {y}"));
+    }
+    parts.push("sleep 0.250".into());
+    parts.push(format!("input motionevent UP {} {}", to.0, to.1));
+    parts.join("; ")
+}
+
+#[cfg(test)]
+mod drag_tests {
+    // Row 3.1: one finger down across the commands, held, moved in steps,
+    // rested, lifted.
+    #[test]
+    fn a_drag_holds_moves_rests_and_lifts() {
+        let s = super::drag_script((100, 200), (100, 500), 700, 900);
+        let parts: Vec<&str> = s.split("; ").collect();
+        assert_eq!(parts[0], "input motionevent DOWN 100 200");
+        assert_eq!(parts[1], "sleep 0.700");
+        assert_eq!(parts[parts.len() - 2], "sleep 0.250");
+        assert_eq!(parts[parts.len() - 1], "input motionevent UP 100 500");
+        let moves: Vec<&&str> = parts.iter().filter(|p| p.contains("MOVE")).collect();
+        assert_eq!(moves.len(), 7, "{s}");
+        assert_eq!(*moves[moves.len() - 1], "input motionevent MOVE 100 500");
+    }
+}
+
 #[cfg(test)]
 mod key_tests {
     use super::AndroidDriver;
@@ -3662,9 +3816,33 @@ mod key_tests {
             Key::ArrowRight,
         ]
         .into_iter()
-        .map(AndroidDriver::key_to_keycode)
+        .filter_map(AndroidDriver::key_to_keycode)
         .collect();
         assert_eq!(codes, [67, 61, 111, 112, 19, 20, 21, 22]);
-        assert_eq!(AndroidDriver::key_to_keycode(Key::Back), 4);
+        assert_eq!(AndroidDriver::key_to_keycode(Key::Back), Some(4));
+    }
+}
+
+#[cfg(test)]
+mod differs_tests {
+    use velocity_common::Element;
+
+    /// Audit 2026-11 AND-4: a secret cut by maxLength reads back as its own
+    /// prefix, which exact-value redaction misses: only lengths are told.
+    #[test]
+    fn a_secret_that_reads_back_different_is_not_quoted() {
+        let field = Element {
+            obscured: true,
+            ..Default::default()
+        };
+        let d = super::differs_detail(&field, "hunter2-long-api-key", "hunter2-long");
+        assert!(!d.contains("hunter2"), "{d}");
+        assert!(
+            d.contains("20 characters") && d.contains("12 characters"),
+            "{d}"
+        );
+        let plain = Element::default();
+        let d = super::differs_detail(&plain, "(555) 123", "555-123");
+        assert!(d.contains("555-123"), "{d}");
     }
 }

@@ -9,14 +9,18 @@ use velocity_common::types::{Direction, Key, Selector};
 use crate::state::AppState;
 use crate::yaml_gen;
 
+// Selectors travel in the DSL's flat form (`{"text": "Pay"}`), the form
+// `selector/generate` answers with (review 02 M5).
 #[derive(Deserialize)]
 pub struct TapRequest {
+    #[serde(default, with = "velocity_core::selector_wire::option")]
     pub selector: Option<Selector>,
     pub coordinates: Option<(i32, i32)>,
 }
 
 #[derive(Deserialize)]
 pub struct TypeTextRequest {
+    #[serde(with = "velocity_core::selector_wire")]
     pub selector: Selector,
     pub text: String,
 }

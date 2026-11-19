@@ -94,7 +94,7 @@ fn newest_steps(dir: &Path) -> Option<PathBuf> {
 
 /// An index of the run in `results.json`, written next to it.
 fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
-    let suite: velocity_common::SuiteResult = serde_json::from_slice(&std::fs::read(results)?)
+    let suite = velocity_runner::reporter::json::parse_results(&std::fs::read_to_string(results)?)
         .map_err(|e| usage_err!("{}: not a results.json: {e}", results.display()))?;
     let dir = results.parent().unwrap_or(Path::new("."));
     let out = dir.join("trace-index.html");
@@ -106,8 +106,15 @@ fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
             .find(|a| a.kind == velocity_common::AttachmentKind::Trace)
             .map(|a| a.path.clone())
             .or_else(|| {
+                // `results.json` names the trace; write a page only for one
+                // inside this artifacts folder (audit 2026-11 TRACE-1).
                 let steps = t.trace.as_ref()?;
-                trace_html::write_for_steps(steps).ok()
+                let root = std::fs::canonicalize(dir).ok()?;
+                let real = [steps.to_path_buf(), dir.join(steps)]
+                    .into_iter()
+                    .filter_map(|p| std::fs::canonicalize(p).ok())
+                    .find(|p| p.starts_with(&root))?;
+                trace_html::write_for_steps(&real).ok()
             });
         let Some(html) = html else { continue };
         entries.push(IndexEntry {
@@ -129,7 +136,10 @@ fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
     if entries.is_empty() {
         usage_bail!("{} lists no test with a kept trace", results.display());
     }
-    std::fs::write(&out, trace_html::render_index("Velocity traces", &entries))?;
+    velocity_common::fsutil::write_atomic(
+        &out,
+        trace_html::render_index("Velocity traces", &entries).as_bytes(),
+    )?;
     Ok(out)
 }
 
@@ -167,7 +177,10 @@ fn index_from_folders(traces: &Path, out: &Path) -> anyhow::Result<PathBuf> {
     if entries.is_empty() {
         usage_bail!("no trace in {}", traces.display());
     }
-    std::fs::write(out, trace_html::render_index("Velocity traces", &entries))?;
+    velocity_common::fsutil::write_atomic(
+        out,
+        trace_html::render_index("Velocity traces", &entries).as_bytes(),
+    )?;
     Ok(out.to_path_buf())
 }
 

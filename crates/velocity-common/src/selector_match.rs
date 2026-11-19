@@ -258,7 +258,12 @@ fn matches_in(
     }
 
     match (selector, want) {
-        (Selector::Id(id), _) => id_matches(element, id) || element.label.as_deref() == Some(id),
+        (Selector::Id(id), _) => {
+            id_matches(element, id)
+                || element.dom_id.as_deref() == Some(id)
+                || element.test_id.as_deref() == Some(id)
+                || element.label.as_deref() == Some(id)
+        }
         (Selector::Text(_), Want::Text(text)) if text.norm.is_empty() => false,
         (Selector::Text(_), Want::Text(text)) if case == Tier::Loose => {
             loose_eq(&element.text, text) || loose_eq(&element.label, text)
@@ -288,7 +293,14 @@ fn matches_in(
                         .rsplit_once(":id/")
                         .is_some_and(|(_, short)| pattern_matches_with(pattern, compiled, short)))
         }
-        (Selector::ClassName(cls), _) => class_matches(&element.element_type, cls),
+        (Selector::ClassName(cls), _) => {
+            class_matches(&element.element_type, cls)
+                || element.css_class.as_deref().is_some_and(|have| {
+                    let have: Vec<&str> = have.split_whitespace().collect();
+                    let want: Vec<&str> = cls.split_whitespace().collect();
+                    !want.is_empty() && want.iter().all(|w| have.contains(w))
+                })
+        }
         (Selector::Index { .. }, _) => false, // Handled at find level
         (Selector::Compound(selectors), Want::Compound(wants)) => selectors
             .iter()

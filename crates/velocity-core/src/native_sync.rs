@@ -209,6 +209,12 @@ pub struct NativeSyncClient {
     port: u16,
     connect_timeout: Duration,
     stream: Option<BufReader<TcpStream>>,
+    /// A request was written and its reply not yet read. Still set when a
+    /// call starts means the last one was dropped mid-exchange (a step
+    /// watchdog, the crash-watch `select!`): its reply may still be in the
+    /// socket, and the next request would read it as its own (review 01
+    /// #1). The stream is then dropped and the probe reconnected.
+    in_flight: bool,
 }
 
 impl NativeSyncClient {
@@ -218,6 +224,7 @@ impl NativeSyncClient {
             port,
             connect_timeout: Duration::from_millis(connect_timeout_ms),
             stream: None,
+            in_flight: false,
         }
     }
 
@@ -230,6 +237,7 @@ impl NativeSyncClient {
             Ok(Ok(stream)) => {
                 debug!("native sync probe connected");
                 self.stream = Some(BufReader::new(stream));
+                self.in_flight = false;
                 true
             }
             Ok(Err(e)) => {
@@ -275,7 +283,7 @@ impl NativeSyncClient {
             info: ProbeHello,
         }
         let reply: Reply = serde_json::from_str(&line)
-            .map_err(|e| VelocityError::Config(format!("Failed to parse probe hello: {e}")))?;
+            .map_err(|e| self.lost(format!("unreadable hello reply: {e}")))?;
         match reply.error {
             Some(e) if e.contains("unknown command") => Ok(Handshake::Legacy),
             Some(e) => Err(VelocityError::Config(format!("Probe error: {e}"))),
@@ -331,9 +339,8 @@ impl NativeSyncClient {
             #[serde(flatten)]
             reply: ProbeConfigReply,
         }
-        let reply: Reply = serde_json::from_str(&line).map_err(|e| {
-            VelocityError::Config(format!("Failed to parse probe config reply: {e}"))
-        })?;
+        let reply: Reply = serde_json::from_str(&line)
+            .map_err(|e| self.lost(format!("unreadable config reply: {e}")))?;
         match reply.error {
             Some(e) => Err(VelocityError::Config(format!("Probe error: {e}"))),
             None => Ok(reply.reply),
@@ -341,13 +348,25 @@ impl NativeSyncClient {
     }
 
     /// Check if currently connected.
+    /// A connection whose last exchange was abandoned half-way counts as
+    /// not connected: its next reply can't be trusted to be ours.
     pub fn is_connected(&self) -> bool {
-        self.stream.is_some()
+        self.stream.is_some() && !self.in_flight
     }
 
     /// Disconnect from the probe.
     pub fn disconnect(&mut self) {
         self.stream = None;
+        self.in_flight = false;
+    }
+
+    /// The probe's socket broke or went quiet: transient, not a config
+    /// error (review 03 M2).
+    fn lost(&self, detail: impl Into<String>) -> VelocityError {
+        VelocityError::SyncProbeLost {
+            port: self.port,
+            detail: detail.into(),
+        }
     }
 
     /// Send a status query to the probe.
@@ -388,8 +407,8 @@ impl NativeSyncClient {
             Duration::from_millis(request.timeout_ms.unwrap_or(0).saturating_add(5_000));
         let line = self.round_trip(request, io_timeout).await?;
 
-        let response: ProbeResponse = serde_json::from_str(&line)
-            .map_err(|e| VelocityError::Config(format!("Failed to parse probe response: {e}")))?;
+        let response: ProbeResponse =
+            serde_json::from_str(&line).map_err(|e| self.lost(format!("unreadable reply: {e}")))?;
 
         if let Some(error) = response.error {
             return Err(VelocityError::Config(format!("Probe error: {error}")));
@@ -404,47 +423,54 @@ impl NativeSyncClient {
         match response {
             Ok(result) => result,
             Err(_) => {
-                self.stream = None;
-                Err(VelocityError::Config(format!(
-                    "Native sync probe did not reply within {}ms",
-                    io_timeout.as_millis()
-                )))
+                self.disconnect();
+                Err(self.lost(format!("did not reply within {}ms", io_timeout.as_millis())))
             }
         }
     }
 
     async fn round_trip_inner(&mut self, request: ProbeRequest) -> Result<String> {
-        let stream = self
-            .stream
-            .as_mut()
-            .ok_or_else(|| VelocityError::Config("Native sync probe not connected".to_string()))?;
-
+        if self.in_flight {
+            // The previous exchange was cancelled before its reply was
+            // read: that reply would be taken for this one's.
+            debug!("native sync probe: last request was abandoned; reconnecting");
+            self.disconnect();
+            if !self.connect().await {
+                return Err(self.lost("not connected"));
+            }
+        }
         // Serialize request as JSON + newline
-        let mut json = serde_json::to_string(&request).map_err(|e| {
-            VelocityError::Config(format!("Failed to serialize probe request: {e}"))
-        })?;
+        let mut json = serde_json::to_string(&request)
+            .map_err(|e| VelocityError::io("Failed to serialize probe request", e))?;
         json.push('\n');
 
+        let port = self.port;
+        let lost = |detail: String| VelocityError::SyncProbeLost { port, detail };
+        let Some(stream) = self.stream.as_mut() else {
+            return Err(lost("not connected".into()));
+        };
+        self.in_flight = true;
+
         // Write request
-        stream
-            .get_mut()
-            .write_all(json.as_bytes())
-            .await
-            .map_err(|e| VelocityError::Config(format!("Failed to write to probe: {e}")))?;
+        let written = stream.get_mut().write_all(json.as_bytes()).await;
+        if let Err(e) = written {
+            self.disconnect();
+            return Err(lost(format!("write failed: {e}")));
+        }
 
         // Read response (one line)
         let mut line = String::new();
-        stream
-            .read_line(&mut line)
-            .await
-            .map_err(|e| VelocityError::Config(format!("Failed to read from probe: {e}")))?;
+        let read = stream.read_line(&mut line).await;
+        if let Err(e) = read {
+            self.disconnect();
+            return Err(lost(format!("read failed: {e}")));
+        }
 
         if line.is_empty() {
-            self.stream = None;
-            return Err(VelocityError::Config(
-                "Native sync probe disconnected".to_string(),
-            ));
+            self.disconnect();
+            return Err(lost("disconnected".into()));
         }
+        self.in_flight = false;
 
         Ok(line)
     }
@@ -583,15 +609,20 @@ impl SyncManager {
         }
 
         let defaults = velocity_common::SyncConfig::default();
-        let (native_port, default_port) = match platform {
-            velocity_common::Platform::Ios => (config.native_port_ios, defaults.native_port_ios),
-            velocity_common::Platform::Android => {
-                (config.native_port_android, defaults.native_port_android)
+        let ports = match platform {
+            velocity_common::Platform::Ios => {
+                Some((config.native_port_ios, defaults.native_port_ios))
             }
-            velocity_common::Platform::Web => unreachable!(),
+            velocity_common::Platform::Android => {
+                Some((config.native_port_android, defaults.native_port_android))
+            }
+            // Returned above.
+            velocity_common::Platform::Web => None,
         };
+        let (native_port, default_port) = ports.unwrap_or((0, 0));
 
         let native_client = match config.mode {
+            _ if ports.is_none() => None,
             velocity_common::SyncMode::Polling | velocity_common::SyncMode::None => None,
             _ => Some(NativeSyncClient::new(
                 native_port,
@@ -958,6 +989,7 @@ impl SyncManager {
                     port,
                     connect_timeout: timeout,
                     stream: None,
+                    in_flight: false,
                 };
                 self.handshake_done = false;
             }
@@ -990,6 +1022,7 @@ impl SyncManager {
                         port: device,
                         connect_timeout: client.connect_timeout,
                         stream: None,
+                        in_flight: false,
                     };
                     if own.connect().await {
                         debug!(
@@ -1054,6 +1087,7 @@ impl SyncManager {
                         port: suite,
                         connect_timeout: client.connect_timeout,
                         stream: None,
+                        in_flight: false,
                     };
                     if !fallback.connect().await {
                         return Err(VelocityError::Config(
@@ -1448,6 +1482,72 @@ mod tests {
             !client.is_connected(),
             "stream must be dropped after timeout"
         );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_wait_never_hands_its_reply_to_the_next_request() {
+        // Review 01 #1: a `wait_idle` dropped from outside (step watchdog,
+        // crash watch) left its reply in the socket; the next request read
+        // it as its own. The probe answers each connection's first request
+        // late with `idle:false` and every later one at once with
+        // `idle:true` plus `waited_ms` naming the connection.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let mut conn = 0u64;
+            loop {
+                let Ok((socket, _)) = listener.accept().await else {
+                    return;
+                };
+                conn += 1;
+                let n = conn;
+                tokio::spawn(async move {
+                    let mut lines = BufReader::new(socket);
+                    let mut first = true;
+                    loop {
+                        let mut line = String::new();
+                        if lines.read_line(&mut line).await.unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let reply = if first && n == 1 {
+                            tokio::time::sleep(Duration::from_millis(300)).await;
+                            "{\"idle\":false,\"waited_ms\":1}\n".to_string()
+                        } else {
+                            format!("{{\"idle\":true,\"waited_ms\":{}}}\n", 100 + n)
+                        };
+                        first = false;
+                        if lines.get_mut().write_all(reply.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+
+        let mut client = NativeSyncClient::new(port, 1_000);
+        assert!(client.connect().await);
+        // Dropped before the late reply arrives.
+        let cut =
+            tokio::time::timeout(Duration::from_millis(50), client.wait_for_idle(1_000)).await;
+        assert!(cut.is_err(), "the wait must still be running when cut");
+        assert!(
+            !client.is_connected(),
+            "an abandoned exchange leaves the connection untrusted"
+        );
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let next = client.wait_for_idle(1_000).await.unwrap();
+        assert!(next.idle, "read the abandoned request's reply: {next:?}");
+        assert_eq!(next.waited_ms, Some(102), "answered on a new connection");
+    }
+
+    #[tokio::test]
+    async fn a_lost_probe_is_transient_not_a_config_error() {
+        let port = spawn_probe("").await;
+        let mut client = NativeSyncClient::new(port, 1_000);
+        assert!(client.connect().await);
+        let e = client.wait_for_idle(100).await.unwrap_err();
+        assert!(matches!(e, VelocityError::SyncProbeLost { .. }), "{e:?}");
+        assert!(e.is_transient(), "{e}");
     }
 
     #[tokio::test]

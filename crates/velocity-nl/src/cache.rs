@@ -65,16 +65,9 @@ struct CacheEntry {
     bound: Option<String>,
 }
 
-/// A cached resolution and what was observed when it was planned.
-#[derive(Debug, Clone)]
-pub struct Hit {
-    pub action: Action,
-    pub twins: Option<usize>,
-    pub effect: Option<bool>,
-    /// See [`NlCache::put_bound`]: the fingerprint of the only value this
-    /// entry fits, if it fits only one.
-    pub bound: Option<String>,
-}
+/// A cached resolution and what was observed when it was planned (see
+/// [`NlCache::put_bound`] for `bound`).
+pub use velocity_common::natural::CachedHit as Hit;
 
 impl NlCache {
     /// Load a cache from disk, or return an empty one if the file is missing,

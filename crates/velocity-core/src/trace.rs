@@ -75,7 +75,13 @@ pub struct StepTrace {
     /// clock the video and log times use).
     #[serde(default)]
     pub start_ms: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// In the DSL's flat form (`{"text": "Pay"}`), not the enum's derived
+    /// one (review 02 M5); a selector a later version can't read is `None`.
+    #[serde(
+        default,
+        with = "crate::selector_wire::option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub selector: Option<Selector>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<SourcePos>,
@@ -612,7 +618,13 @@ pub fn load_trace(steps_file: &Path) -> std::io::Result<(TestTrace, HashMap<Stri
     let tree_dir = steps_file.parent().unwrap_or(Path::new(".")).join("trees");
     let mut trees = HashMap::new();
     for hash in trace.steps.iter().flat_map(|s| &s.trees) {
-        if trees.contains_key(hash) {
+        // A tree is named by its hash: anything else (`../x`) is not read.
+        if trees.contains_key(hash)
+            || hash.is_empty()
+            || !hash
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
             continue;
         }
         if let Ok(bytes) = std::fs::read(tree_dir.join(format!("{hash}.json"))) {

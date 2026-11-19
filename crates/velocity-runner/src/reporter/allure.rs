@@ -135,7 +135,7 @@ fn test_doc(
     let mut attachments = Vec::new();
     for (n, shot) in t.screenshots.iter().enumerate() {
         let source = format!("{uuid}-shot{n}.png");
-        if std::fs::copy(shot, dir.join(&source)).is_ok() {
+        if link_or_copy(shot, &dir.join(&source)) {
             attachments.push(
                 json!({ "name": "failure screenshot", "source": source, "type": "image/png" }),
             );
@@ -150,7 +150,7 @@ fn test_doc(
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_else(|| "txt".into());
         let source = format!("{uuid}-evidence{n}.{ext}");
-        if std::fs::copy(&a.path, dir.join(&source)).is_ok() {
+        if link_or_copy(&a.path, &dir.join(&source)) {
             attachments.push(json!({ "name": a.title(), "source": source, "type": a.mime() }));
         }
     }
@@ -221,6 +221,14 @@ fn fnv(s: &str) -> u64 {
     s.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
     })
+}
+
+/// Put `src` at `dst` as a hard link when both are on one filesystem (a
+/// video is not duplicated per report), else a copy. Allure never writes
+/// to its attachments, so sharing the inode is safe.
+fn link_or_copy(src: &std::path::Path, dst: &std::path::Path) -> bool {
+    let _ = std::fs::remove_file(dst);
+    std::fs::hard_link(src, dst).is_ok() || std::fs::copy(src, dst).is_ok()
 }
 
 #[cfg(test)]

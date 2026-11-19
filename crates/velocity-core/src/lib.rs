@@ -17,6 +17,7 @@ pub mod resolver;
 pub mod schema;
 pub mod selector;
 pub mod selector_lint;
+pub mod selector_wire;
 pub mod source_map;
 pub mod streaming;
 pub mod sync;

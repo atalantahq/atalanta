@@ -40,8 +40,7 @@ fn name(n: &str) -> Selector {
 
 async fn dom_id(d: &velocity_web::WebDriver, s: &Selector) -> Option<String> {
     let el = d.find_element("web", s).await.ok()?;
-    // The capture's label is the aria-label, else the DOM id.
-    el.label
+    el.dom_id
 }
 
 #[tokio::test]
@@ -77,7 +76,7 @@ async fn role_and_name_find_what_playwright_would() {
         id(and(vec![role("button"), name("Close dialog")]))
             .await
             .as_deref(),
-        Some("Close dialog")
+        Some("custom")
     );
     // Implicit roles of inputs; a field is named by its <label>.
     assert_eq!(

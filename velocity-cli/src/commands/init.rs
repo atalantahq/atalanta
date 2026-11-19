@@ -68,6 +68,12 @@ pub struct InitArgs {
     /// Also write a `velocity-impact.yaml` stub (for `run --changed-since`)
     #[arg(long)]
     impact: bool,
+
+    /// Write the CI workflow itself instead of an example: `github` writes
+    /// .github/workflows/velocity.yml (the Velocity Action, two shards and a
+    /// results check)
+    #[arg(long, value_name = "github", value_parser = ["github"])]
+    ci: Option<String>,
 }
 
 pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
@@ -194,14 +200,16 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     };
     let slug = app_slug(&app_id, platform);
     let suite_path = dir.join(format!("{slug}.yaml"));
-    let ci_path = dir.join("ci").join("github-actions.example.yml");
+    let real_ci = args.ci.is_some();
+    let ci_path = if real_ci {
+        cwd.join(".github").join("workflows").join("velocity.yml")
+    } else {
+        dir.join("ci").join("github-actions.example.yml")
+    };
     let impact_path = dir.join("velocity-impact.yaml");
-    let want_impact = args.impact
-        || (interactive
-            && prompt.confirm(
-                "Add a velocity-impact.yaml stub (run only affected tests with --changed-since)?",
-                false,
-            )?);
+    // Not asked: before the first test exists the question means nothing.
+    // The next steps mention it instead.
+    let want_impact = args.impact;
     let mut targets = vec![suite_path.clone(), ci_path.clone()];
     if want_impact {
         targets.push(impact_path.clone());
@@ -222,6 +230,12 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     // 4. Read the first screen.
     let picks = match &device {
         Some(device) => {
+            if platform == Platform::Ios && !ios_runner_cached() {
+                println!(
+                    "{} First iOS run on this machine: building WebDriverAgent first (about a minute, once per Xcode version)",
+                    "=>".cyan().bold()
+                );
+            }
             println!(
                 "{} Launching {} on {} to read its first screen…",
                 "=>".cyan().bold(),
@@ -275,7 +289,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     let dir_rel = shown(&dir, &cwd);
     write_file(
         &ci_path,
-        &ci_example(platform, &dir_rel),
+        &ci_workflow(platform, &dir_rel, real_ci),
         &cwd,
         &mut created,
     )?;
@@ -332,7 +346,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
             );
         } else {
             println!(
-                "{} The first run failed (exit {code}); the report is in velocity-results/. `velocity doctor` checks this machine.",
+                "{} The first run failed (exit {code}). velocity-results/failures.md says which step and why; `velocity trace view velocity-results` replays it; `velocity doctor` checks this machine.",
                 "✗".red().bold()
             );
         }
@@ -362,6 +376,18 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
         "run every suite in the folder",
     ));
     steps.push(("velocity doctor".into(), "check this machine and project"));
+    if !want_impact {
+        steps.push((
+            format!("{dir_rel}/velocity-impact.yaml"),
+            "map tests to source paths, then `run --changed-since main` runs only what a change affects",
+        ));
+    }
+    if platform != Platform::Web {
+        steps.push((
+            format!("velocity explore \"<goal>\" --app-id {app_id}"),
+            "let an AI agent write the next test from a goal",
+        ));
+    }
     steps.push((
         "velocity mcp install".into(),
         "let an AI agent drive your devices (MCP)",
@@ -378,6 +404,15 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
 }
 
 // ── Devices and apps ────────────────────────────────────────────────────
+
+/// Whether an iOS runner (WebDriverAgent or VelocityRunner) was ever
+/// built here: `~/.velocity/wda` has something in it. Only for the
+/// "first time" note, so a cheap look is enough.
+fn ios_runner_cached() -> bool {
+    let home = velocity_common::env::var("HOME").unwrap_or_default();
+    std::fs::read_dir(std::path::Path::new(&home).join(".velocity").join("wda"))
+        .is_ok_and(|mut d| d.next().is_some())
+}
 
 /// Booted devices of `platforms` (simulators only for iOS: listing real
 /// iPhones can take 30 s; pass `--device` for one).
@@ -947,7 +982,7 @@ pub fn suite_yaml(
     let header = format!(
         "Starter suite written by `velocity init`. Run it: velocity run {file}\n\
          The assertions were read from {}'s first screen; `velocity inspect` shows\n\
-         the live tree to pick more. Reference: `velocity schema --markdown`.\n",
+         the live tree to pick more. Reference: docs/DSL.md (the steps and selectors).\n",
         app_id
     );
     format!(
@@ -1014,45 +1049,41 @@ pub fn impact_yaml(test: &str) -> String {
 }
 
 /// A GitHub Actions workflow to copy, for the platform.
-pub fn ci_example(platform: Platform, dir: &str) -> String {
-    let header = "\
+/// The GitHub repository the Velocity Action is published from.
+const ACTION_REPO: &str = "omkar-dev/velocity";
+
+/// The GitHub Actions workflow `init` writes: the suite in two shards
+/// through the Velocity Action (a pinned release, the device brought up
+/// and retried, a device that never came up exit 3), then
+/// `velocity results check` over every shard's results, so a shard that
+/// died or uploaded nothing fails the run (NEW-001). `real` is
+/// `--ci github` (the workflow itself) rather than the example.
+pub fn ci_workflow(platform: Platform, dir: &str, real: bool) -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let intro = if real {
+        "\
+# Velocity UI tests, written by `velocity init --ci github`.
+# Two shards run through the Velocity Action (docs/CI.md); the results job
+# fails the run when a shard reported nothing.
+"
+    } else {
+        "\
 # Example GitHub Actions workflow written by `velocity init`.
-# Copy it to .github/workflows/velocity.yml and adjust. It runs the suites in
-# shards (`--shard M/N`) and uploads JUnit reports; `--report github` adds
-# annotations on the PR.
-";
-    let (runs_on, setup, run) = match platform {
-        Platform::Android => (
-            "ubuntu-latest",
-            "      - name: Enable KVM
-        run: |
-          echo 'KERNEL==\"kvm\", GROUP=\"kvm\", MODE=\"0666\", OPTIONS+=\"static_node=kvm\"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
-",
-            "      - name: Run Velocity on an emulator
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 34
-          arch: x86_64
-          script: velocity run DIR --shard ${{ matrix.shard }}/2 --report junit,github --artifacts-dir velocity-results
-",
-        ),
-        Platform::Ios => (
-            "macos-15",
-            "      - name: Boot a simulator
-        run: velocity devices up --ios 1
-",
-            "      - name: Run Velocity
-        run: velocity run DIR --shard ${{ matrix.shard }}/2 --report junit,github --artifacts-dir velocity-results
-",
-        ),
-        Platform::Web => (
-            "ubuntu-latest",
-            "",
-            "      - name: Run Velocity (headless Chrome)
-        run: velocity run DIR --shard ${{ matrix.shard }}/2 --report junit,github --artifacts-dir velocity-results
-",
-        ),
+# Copy it to .github/workflows/velocity.yml (or run `velocity init --ci
+# github`). Two shards run through the Velocity Action (docs/CI.md); the
+# results job fails the run when a shard reported nothing.
+"
+    };
+    // The tag is this binary's version: a build from source can be ahead of
+    // the newest release, and then the tag does not exist yet.
+    let header = format!(
+        "{intro}# Pinned to v{version}, the Velocity that wrote this file. Check the release\n\
+         # exists (gh release view v{version} -R {ACTION_REPO}) before relying on it.\n"
+    );
+    let (runs_on, name) = match platform {
+        Platform::Android => ("ubuntu-latest", "android"),
+        Platform::Ios => ("macos-15", "ios"),
+        Platform::Web => ("ubuntu-latest", "web"),
     };
     // The folder is the only value from outside; it is quoted for YAML.
     let dir_q = serde_yaml::to_string(&Value::from(dir)).unwrap_or_default();
@@ -1069,22 +1100,38 @@ on:
 jobs:
   ui-tests:
     runs-on: {runs_on}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
-      - name: Install Velocity
-        run: curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | bash
-{setup}{run}      - name: Upload reports
-        if: always()
-        uses: actions/upload-artifact@v4
+      # Build or download your app here and pass it with `args: --app <path>`.
+      - uses: {ACTION_REPO}@v{version}
         with:
-          name: velocity-results-${{{{ matrix.shard }}}}
-          path: velocity-results/
-",
-        run = run.replace("DIR", dir_q),
+          version: {version}
+          platform: {name}
+          suite: {dir_q}
+          shard: ${{{{ matrix.shard }}}}/2
+
+  results:
+    needs: ui-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: shards
+          pattern: velocity-results-*
+      - name: Every shard reported
+        # The same pinned release's installer, which checks the download.
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/{ACTION_REPO}/v{version}/install.sh \\
+            | sh -s -- --version {version} --dir \"$RUNNER_TEMP/bin\" --no-modify-path
+          \"$RUNNER_TEMP/bin/velocity\" results check --expect-shards 2 shards
+"
     )
 }
 
@@ -1340,6 +1387,9 @@ mod tests {
             visible_bounds: None,
             selected: None,
             role: None,
+            dom_id: None,
+            css_class: None,
+            ..Default::default()
         }
     }
 
@@ -1545,13 +1595,20 @@ mod tests {
         assert!(impact.contains("#   settings opens on its first screen:"));
         golden("velocity-impact.yaml", &impact);
 
-        let ci = ci_example(Platform::Android, "velocity");
+        let ci = ci_workflow(Platform::Android, "velocity", false);
         let _: Value = serde_yaml::from_str(&ci).expect("the CI example is YAML");
-        assert!(ci
-            .contains("velocity run velocity --shard ${{ matrix.shard }}/2 --report junit,github"));
+        assert!(ci.contains("shard: ${{ matrix.shard }}/2"), "{ci}");
+        assert!(ci.contains(&format!("version: {}", env!("CARGO_PKG_VERSION"))));
+        assert!(
+            ci.contains("results check --expect-shards 2 shards"),
+            "{ci}"
+        );
+        let real = ci_workflow(Platform::Web, "velocity", true);
+        let _: Value = serde_yaml::from_str(&real).expect("the workflow is YAML");
+        assert!(real.contains("velocity init --ci github") && real.contains("platform: web"));
         golden("github-actions.android.yml", &ci);
         for p in [Platform::Ios, Platform::Web] {
-            let _: Value = serde_yaml::from_str(&ci_example(p, "my tests")).unwrap();
+            let _: Value = serde_yaml::from_str(&ci_workflow(p, "my tests", false)).unwrap();
         }
     }
 

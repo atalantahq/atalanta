@@ -686,13 +686,31 @@ impl AiSettings {
             base_url: url,
             ..Default::default()
         };
+        // The environment's endpoint is for its own provider, so it is
+        // hidden from another one. It still applies when the environment
+        // names this provider, or when this provider has no endpoint of its
+        // own (`openai-compatible`): hidden there, `--model
+        // openai-compatible:m` could never work, and the error told the user
+        // to set the very variable it ignored (AndroidWorld rerun,
+        // 2026-11-07).
+        let env_provider = env("VELOCITY_NL_PROVIDER")
+            .and_then(|p| find_preset(&p))
+            .is_some_and(|p| std::ptr::eq(p, preset));
+        // An inline `@url` always wins.
+        let keep_url = cfg.base_url.is_none() && (preset.base_url.is_empty() || env_provider);
         let hide = [
             "VELOCITY_NL_PROVIDER",
             "VELOCITY_NL_MODEL",
             "VELOCITY_NL_EXPLORE_MODEL",
             "VELOCITY_NL_API_URL",
         ];
-        let filtered = |k: &str| if hide.contains(&k) { None } else { env(k) };
+        let filtered = |k: &str| {
+            if hide.contains(&k) && !(keep_url && k == "VELOCITY_NL_API_URL") {
+                None
+            } else {
+                env(k)
+            }
+        };
         Self::resolve_with(Some(&cfg), &filtered)?.ok_or_else(|| {
             VelocityError::Config(format!(
                 "--model {spec}: the {} provider needs ${}",
@@ -995,6 +1013,16 @@ mod tests {
     use super::*;
     use crate::planner::{Op, PlanRequest};
     use crate::testutil::serve;
+
+    /// The schema and validator read the preset names from
+    /// `velocity-common` (core does not depend on this crate).
+    #[test]
+    fn the_shared_preset_list_matches_the_presets() {
+        assert_eq!(
+            velocity_common::natural::AI_PROVIDER_PRESETS,
+            preset_names().as_slice()
+        );
+    }
     use std::collections::HashMap;
     use velocity_common::{NaturalKind, Platform};
 
@@ -1554,6 +1582,34 @@ mod tests {
         assert!(AiSettings::for_spec_with("gpt-5", &env).is_err());
         let e = AiSettings::for_spec_with("mistral:large", &env).unwrap_err();
         assert!(e.to_string().contains("MISTRAL_API_KEY"), "{e}");
+    }
+
+    #[test]
+    fn a_provider_without_an_endpoint_takes_the_environments() {
+        let env = env_of(&[
+            ("VELOCITY_NL_API_KEY", "k"),
+            ("VELOCITY_NL_API_URL", "http://127.0.0.1:8788/v1"),
+        ]);
+        let s = AiSettings::for_spec_with("openai-compatible:claude-sonnet-5-5", &env).unwrap();
+        assert_eq!(s.base_url.as_deref(), Some("http://127.0.0.1:8788/v1"));
+        // An inline URL wins over it.
+        let s = AiSettings::for_spec_with("openai-compatible:m@http://other/v1", &env).unwrap();
+        assert_eq!(s.base_url.as_deref(), Some("http://other/v1"));
+        // A provider with its own endpoint still ignores it, unless the
+        // environment names that provider.
+        let env = env_of(&[
+            ("GROQ_API_KEY", "g"),
+            ("VELOCITY_NL_API_URL", "http://proxy/v1"),
+        ]);
+        let s = AiSettings::for_spec_with("groq:llama", &env).unwrap();
+        assert_eq!(s.base_url, None);
+        let env = env_of(&[
+            ("GROQ_API_KEY", "g"),
+            ("VELOCITY_NL_PROVIDER", "groq"),
+            ("VELOCITY_NL_API_URL", "http://proxy/v1"),
+        ]);
+        let s = AiSettings::for_spec_with("groq:llama", &env).unwrap();
+        assert_eq!(s.base_url.as_deref(), Some("http://proxy/v1"));
     }
 
     #[test]

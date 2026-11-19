@@ -20,7 +20,9 @@
 //!
 //! The page sends `{"type":"key"}` (its decoder needs a key frame),
 //! `{"type":"pause"}` (tab hidden: nothing is sent) and `{"type":"resume"}`
-//! (a key frame is asked for). `?mode=frames` skips H.264 (no WebCodecs).
+//! (a key frame is asked for); in H.264 mode the server acknowledges the
+//! last two with `{"type":"paused"}` / `{"type":"resumed"}`, so a client
+//! (or a test) knows which frames came after the switch. `?mode=frames` skips H.264 (no WebCodecs).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -141,8 +143,20 @@ pub async fn run_h264(socket: &mut WebSocket, stream: &VideoStream) -> End {
                     match msg {
                         Some(Ok(Message::Text(t))) => match control(&t).as_deref() {
                             Some("key") => { need_key = true; stream.request_key_frame(); }
-                            Some("pause") => paused = true,
-                            Some("resume") => { paused = false; need_key = true; stream.request_key_frame(); }
+                            Some("pause") => {
+                                paused = true;
+                                if !text(socket, json!({"type": "paused"})).await {
+                                    return End::ClientGone;
+                                }
+                            }
+                            Some("resume") => {
+                                paused = false;
+                                need_key = true;
+                                stream.request_key_frame();
+                                if !text(socket, json!({"type": "resumed"})).await {
+                                    return End::ClientGone;
+                                }
+                            }
                             _ => {}
                         },
                         Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return End::ClientGone,

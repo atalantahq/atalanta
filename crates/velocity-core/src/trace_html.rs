@@ -163,7 +163,8 @@ pub fn data(
     let screencast = ev
         .screencast
         .as_ref()
-        .and_then(|f| std::fs::read(dir.join(f)).ok())
+        .and_then(|f| evidence_file(dir, f))
+        .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
     let mut files: Vec<Value> = Vec::new();
     if let Some(v) = &ev.video {
@@ -225,6 +226,21 @@ fn fill(page: &str, title: &str, data: &str) -> String {
     out
 }
 
+/// `dir/name` when `name` is a plain file name in the trace folder. A
+/// trace's `steps.json` names its evidence files, and a downloaded artifact
+/// is not to be trusted: `"screencast": "../../.docker/config.json"`
+/// embedded any JSON file the user could read into the page they share
+/// (audit 2026-11 TRACE-1).
+pub fn evidence_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    let mut parts = Path::new(name).components();
+    match (parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(_)), None) if !name.contains('\\') => {
+            Some(dir.join(name))
+        }
+        _ => None,
+    }
+}
+
 /// (Re)write the `trace*.html` for a `steps*.json` from its files: the
 /// steps, their trees and the timed log lines. Returns the page's path.
 pub fn write_for_steps(steps_file: &Path) -> std::io::Result<PathBuf> {
@@ -234,7 +250,8 @@ pub fn write_for_steps(steps_file: &Path) -> std::io::Result<PathBuf> {
         .evidence
         .as_ref()
         .and_then(|e| e.log_lines.as_ref())
-        .and_then(|f| std::fs::read(dir.join(f)).ok())
+        .and_then(|f| evidence_file(dir, f))
+        .and_then(|p| std::fs::read(p).ok())
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
     let stem = steps_file
@@ -533,6 +550,25 @@ static PAGE_FULL: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn an_evidence_file_outside_the_trace_folder_is_not_read() {
+        let d = Path::new("/r/traces/t");
+        assert_eq!(
+            evidence_file(d, "screencast.json"),
+            Some(d.join("screencast.json"))
+        );
+        for bad in [
+            "../../.docker/config.json",
+            "/etc/passwd",
+            "a/b.json",
+            "..",
+            "",
+            "a\\b",
+        ] {
+            assert_eq!(evidence_file(d, bad), None, "{bad}");
+        }
+    }
     use super::*;
     use crate::trace::{StepTrace, TraceEvidence, TRACE_VERSION};
     use velocity_common::{Rect, StepStatus, TestStatus};

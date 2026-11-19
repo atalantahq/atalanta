@@ -144,7 +144,7 @@ impl SuiteRunner {
         // Determine the device and take its cross-process lease, so another
         // Velocity run (or an MCP agent) can't drive it at the same time.
         let (device_id, _device_lock) = match &config.device_id {
-            Some(id) => match crate::lease::try_lock(id) {
+            Some(id) => match crate::lease::lock_waiting(id).await {
                 Ok(lock) => (id.clone(), lock),
                 Err(crate::lease::LeaseError::Held(holder)) => {
                     return Err(device_unavailable(
@@ -198,6 +198,7 @@ impl SuiteRunner {
         let mut hist = history::load(&config.artifacts_dir).unwrap_or_default();
         let tests = scheduler::plan_tests(&suite.tests, &config, &hist);
         crate::live::plan(tests.iter().map(|t| t.name.as_str()));
+        let planned: Vec<String> = tests.iter().map(|t| t.name.clone()).collect();
         // Every test in the suite, selected or not: history keeps them (m-6).
         let suite_tests: std::collections::HashSet<String> =
             suite.tests.iter().map(|t| t.name.clone()).collect();
@@ -207,6 +208,7 @@ impl SuiteRunner {
         };
 
         let total_tests = tests.len();
+        let test_timeout = config.test_timeout_ms.map(std::time::Duration::from_millis);
         let retry_count =
             crate::retry::capped_retries(config.retry_count.unwrap_or(suite.config.retry.count));
         let app_id = suite.app_id.clone();
@@ -307,7 +309,7 @@ impl SuiteRunner {
 
             let started = Instant::now();
             let mut result = tokio::select! {
-                r = run_test_with_retries(&mut executor, test, &device_id, &app_id, retry_count) => r,
+                r = run_test_with_retries(&mut executor, test, &device_id, &app_id, retry_count, test_timeout) => r,
                 c = Cut::first(&config.stop, deadline) => {
                     let r = c.cut_test(&test.name, timeout_ms, started.elapsed());
                     print_result(&r, None);
@@ -323,7 +325,7 @@ impl SuiteRunner {
                 for _ in 0..runs {
                     // Cut short: the test passed; the extra runs just stop.
                     let again = tokio::select! {
-                        r = run_test_with_retries(&mut executor, test, &device_id, &app_id, 0) => r,
+                        r = run_test_with_retries(&mut executor, test, &device_id, &app_id, 0, test_timeout) => r,
                         c = Cut::first(&config.stop, deadline) => {
                             cut = Some(c);
                             break;
@@ -360,6 +362,13 @@ impl SuiteRunner {
                 }
             }
 
+            // A memory breach fails the test before it is cached or shown.
+            history::apply_memory_check(
+                &mut result,
+                hist.resource_baselines.get(&test.name),
+                suite.config.performance.pss_growth_threshold_pct,
+            );
+
             // After the early-flake runs: a new test that turned out flaky
             // (or broken) was cached as a pass first and skipped from then
             // on (VEL-S10).
@@ -368,19 +377,6 @@ impl SuiteRunner {
             }
 
             print_result(&result, None);
-
-            // Check for resource regression if profiling is enabled
-            if let Some(ref peak) = result.resource_peak {
-                if let Some(baseline) = hist.resource_baselines.get(&test.name) {
-                    if let Some(warning) = history::check_regression(
-                        baseline,
-                        peak,
-                        suite.config.performance.heap_growth_threshold_pct,
-                    ) {
-                        cprintln!("    \x1b[33m⚠ {warning}\x1b[0m");
-                    }
-                }
-            }
 
             let failed = result.status == TestStatus::Failed;
             results.push(result);
@@ -424,6 +420,9 @@ impl SuiteRunner {
                 println!("  Pruned {pruned} unused natural-language cache entries");
             }
         }
+
+        // NEW-001: every planned test has a result, or a failed one.
+        crate::completeness::account_for_every_test(&planned, &mut results);
 
         let suite_duration = suite_start.elapsed();
         let passed = results
@@ -593,7 +592,8 @@ mod tests {
     fn only_independent_new_tests_and_never_a_mostly_new_suite() {
         let mut hist = history::TestHistory::default();
         for n in ["a", "b", "c", "d", "e", "f", "g"] {
-            hist.outcomes.insert(n.into(), vec![history::Outcome::Pass]);
+            hist.outcomes
+                .insert(n.into(), vec![history::HistoryOutcome::Pass]);
         }
         let config = RuntimeConfig {
             detect_new_flakes: true,
@@ -755,6 +755,50 @@ mod tests {
         async fn is_element_visible(&self, _: &str, _: &Element) -> Result<bool> {
             Ok(self.visible())
         }
+        async fn collect_resource_metrics(&self, _: &str, _: &str) -> Result<(u64, u64, u64, f32)> {
+            Ok((
+                0,
+                0,
+                FLIP_PSS_KB.load(std::sync::atomic::Ordering::SeqCst),
+                0.0,
+            ))
+        }
+    }
+
+    /// The total PSS [`FlipDriver`] reports (read only by suites with
+    /// `performance.enabled`).
+    static FLIP_PSS_KB: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    // NEW-021: a memory breach fails the test in the sequential runner, and
+    // the next run still fails: the breached run never became the baseline.
+    #[tokio::test]
+    async fn a_memory_breach_fails_the_run_and_the_next_one() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (dir, config) = scratch("membreach");
+        let suite = || {
+            let mut s = flip_suite(&["mem"]);
+            s.config.performance.enabled = true;
+            s
+        };
+        let mut statuses = Vec::new();
+        for pss in [100_000, 130_000, 130_000, 105_000] {
+            FLIP_PSS_KB.store(pss, SeqCst);
+            let driver = FlipDriver::new(config.device_id.as_deref().unwrap(), |_, _| true);
+            let r = SuiteRunner::run(suite(), config.clone(), &driver)
+                .await
+                .unwrap();
+            statuses.push((r.tests[0].status, r.tests[0].error_message.clone()));
+        }
+        assert_eq!(statuses[0].0, TestStatus::Passed, "{statuses:?}");
+        for (status, msg) in &statuses[1..3] {
+            assert_eq!(*status, TestStatus::Failed, "{statuses:?}");
+            assert!(
+                msg.as_deref().unwrap().contains("memory regression"),
+                "{msg:?}"
+            );
+        }
+        assert_eq!(statuses[3].0, TestStatus::Passed, "{statuses:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// One test per app, each launching `com.<name>` and checking the button.
@@ -865,7 +909,8 @@ mod tests {
         let (dir, config) = scratch("efd");
         let mut hist = history::TestHistory::default();
         for n in ["a", "b", "c"] {
-            hist.outcomes.insert(n.into(), vec![history::Outcome::Pass]);
+            hist.outcomes
+                .insert(n.into(), vec![history::HistoryOutcome::Pass]);
         }
         history::save(&config.artifacts_dir, &hist).unwrap();
         let driver = FlipDriver::new(config.device_id.as_deref().unwrap(), |app, n| {
@@ -891,7 +936,8 @@ mod tests {
         let (dir, config) = scratch("efdcache");
         let mut hist = history::TestHistory::default();
         for n in ["a", "b", "c"] {
-            hist.outcomes.insert(n.into(), vec![history::Outcome::Pass]);
+            hist.outcomes
+                .insert(n.into(), vec![history::HistoryOutcome::Pass]);
         }
         history::save(&config.artifacts_dir, &hist).unwrap();
         let driver = FlipDriver::new(config.device_id.as_deref().unwrap(), |app, n| {
@@ -1021,6 +1067,44 @@ mod tests {
         let hist = history::load(&dir.to_string_lossy()).unwrap();
         assert!(hist.outcomes.contains_key("a") && !hist.outcomes.contains_key("slow1"));
         // `run` keeps its old contract: a timeout is an error.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Review 12 #9: `--test-timeout` fails the one slow test and the run
+    /// goes on to the next, where `--timeout` ends the whole run.
+    #[tokio::test]
+    async fn a_test_past_its_test_timeout_fails_and_the_run_goes_on() {
+        let (dir, config) = scratch("testtimeout");
+        let driver = FlipDriver::new(&config.device_id.clone().unwrap(), |_, _| true);
+        let config = RuntimeConfig {
+            test_timeout_ms: Some(300),
+            ..config
+        };
+        let out = SuiteRunner::run_outcome(slow_suite(), config, &driver)
+            .await
+            .unwrap();
+        assert!(
+            matches!(out.termination, Termination::Completed),
+            "{:?}",
+            out.termination
+        );
+        let get = |n: &str| {
+            out.result
+                .tests
+                .iter()
+                .find(|t| t.test_name == n)
+                .unwrap_or_else(|| panic!("{n} missing"))
+                .clone()
+        };
+        assert_eq!(get("a").status, TestStatus::Passed);
+        for slow in ["slow1", "slow2"] {
+            let t = get(slow);
+            assert_eq!(t.status, TestStatus::Failed, "{slow}");
+            assert!(
+                t.error_message.unwrap().contains("--test-timeout"),
+                "{slow}"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

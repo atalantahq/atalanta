@@ -4,13 +4,21 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// Resource metrics captured at a point in time.
+///
+/// `results.json` format 2 writes these keys in snake_case like the rest of
+/// the document; the aliases read both.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceSnapshot {
+    #[serde(alias = "java_heap_kb")]
     pub java_heap_kb: u64,
+    #[serde(alias = "native_heap_kb")]
     pub native_heap_kb: u64,
+    #[serde(alias = "total_pss_kb")]
     pub total_pss_kb: u64,
+    #[serde(alias = "cpu_percent")]
     pub cpu_percent: f32,
+    #[serde(alias = "timestamp_ms")]
     pub timestamp_ms: u64,
 }
 
@@ -20,6 +28,7 @@ pub struct ResourceSnapshot {
 pub struct ResourceDelta {
     pub before: ResourceSnapshot,
     pub after: ResourceSnapshot,
+    #[serde(alias = "heap_growth_kb")]
     pub heap_growth_kb: i64,
 }
 

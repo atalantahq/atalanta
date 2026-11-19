@@ -10,17 +10,13 @@ pub(crate) fn parse_selector(args: &Value) -> Result<Selector> {
         .get("selector")
         .ok_or_else(|| VelocityError::Config("Missing 'selector' argument".to_string()))?;
 
-    // The tagged form (`{"text": "Pay"}`, `{"compound": [...]}`), else the
-    // DSL's flat map (`{"role": "button", "name": "Pay", "enabled": true}`),
-    // as a suite writes it (S1/S2).
-    let selector: Selector = match serde_json::from_value(selector_val.clone()) {
-        Ok(s) => s,
-        Err(tagged) => {
-            velocity_core::parser::selector_from_value(selector_val.clone()).map_err(|flat| {
-                VelocityError::Config(format!("Invalid selector: {flat} (tagged form: {tagged})"))
-            })?
-        }
-    };
+    // The DSL's flat map (`{"role": "button", "name": "Pay", "enabled":
+    // true}`), as a suite writes it (S1/S2), and only that: serde's tagged
+    // form of `Selector` skipped the DSL's checks, so `{"enabled": true}`
+    // tapped the first enabled element (review 02 H2). A ref resolves to
+    // the flat form too (`refs::resolve_args`).
+    let selector: Selector = velocity_core::parser::selector_from_value(selector_val.clone())
+        .map_err(|flat| VelocityError::Config(format!("Invalid selector: {flat}")))?;
     velocity_common::selector_match::check_patterns(&selector)
         .map_err(|e| VelocityError::Config(format!("Invalid selector: {e}")))?;
     if let Some(why) = role_problem(&selector) {
@@ -325,6 +321,27 @@ mod regex_selector_tests {
             "a bad pattern is an error"
         );
     }
+
+    // Review 02 H2: serde's tagged form was tried first and let a lone
+    // state filter (or `compound`/`relative` maps no suite can write)
+    // through; the DSL's own rules decide now.
+    #[test]
+    fn a_lone_state_filter_and_the_tagged_form_are_refused() {
+        for sel in [
+            serde_json::json!({ "checked": true }),
+            serde_json::json!({ "enabled": true }),
+            serde_json::json!({ "compound": [{ "text": "Pay" }, { "enabled": true }] }),
+        ] {
+            let err = parse_selector(&serde_json::json!({ "selector": sel }));
+            let msg = err.expect_err(&sel.to_string()).to_string();
+            assert!(!msg.contains("tagged form"), "{msg}");
+        }
+        assert_eq!(
+            parse_selector(&serde_json::json!({ "selector": { "text": "Pay", "enabled": true } }))
+                .unwrap(),
+            Selector::Compound(vec![Selector::Text("Pay".into()), Selector::Enabled(true)])
+        );
+    }
 }
 
 #[cfg(test)]
@@ -347,7 +364,7 @@ mod role_selector_tests {
                 Selector::Enabled(true),
             ])
         );
-        // The tagged form still works.
+        // A lone field is still a selector in the flat form.
         let s = parse_selector(&serde_json::json!({ "selector": { "role": "link" } })).unwrap();
         assert_eq!(s, Selector::Role("link".into()));
         let bad = parse_selector(&serde_json::json!({ "selector": { "role": "buton" } }));

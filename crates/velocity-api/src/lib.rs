@@ -13,9 +13,11 @@
 //! suite has nothing else ([`NoDeviceDriver`]). [`openapi`] writes a suite
 //! from an OpenAPI 3 document (`velocity api scaffold`). Design notes and
 //! the tools compared: `docs/research/landscape-api-testing.md`.
+#![forbid(unsafe_code)]
 
 pub mod check;
 pub mod client;
+pub mod guard;
 pub mod no_device;
 pub mod openapi;
 pub mod path;

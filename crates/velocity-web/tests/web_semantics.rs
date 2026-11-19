@@ -182,7 +182,7 @@ async fn selector_parts_mean_the_same_on_every_path() {
         )
         .await
         .unwrap();
-    assert_eq!(el.label.as_deref(), Some("s"));
+    assert_eq!(el.dom_id.as_deref(), Some("s"));
     // A relation: the primary button inside #panel, not the one in #other.
     let el = d
         .find_element(
@@ -195,7 +195,7 @@ async fn selector_parts_mean_the_same_on_every_path() {
         )
         .await
         .unwrap();
-    assert_eq!(el.label.as_deref(), Some("p"));
+    assert_eq!(el.dom_id.as_deref(), Some("p"));
     d.cleanup().await;
 }
 

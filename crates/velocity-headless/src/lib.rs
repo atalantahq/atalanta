@@ -17,6 +17,7 @@
 //!
 //! let driver = HeadlessDriver::new(Platform::Android, HeadlessConfig::default());
 //! ```
+#![forbid(unsafe_code)]
 
 // Core rendering layer
 pub mod element_map;

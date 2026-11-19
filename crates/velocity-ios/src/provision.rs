@@ -147,8 +147,15 @@ pub struct Plan {
     pub create: Vec<u32>,
 }
 
-pub fn plan(sims: &[Sim], type_name: &str, n: usize) -> Plan {
-    let all = clones(sims, type_name);
+/// `foreign`: UDIDs another owner started (`devices up --owner`, a CI job
+/// id). Such a clone that is booted or in transition is that owner's:
+/// counting it as up, or booting it, would let the other job's `devices
+/// down` pull it from under this one. A shut-down one is free to reuse.
+pub fn plan(sims: &[Sim], type_name: &str, n: usize, foreign: &[String]) -> Plan {
+    let all: Vec<&Sim> = clones(sims, type_name)
+        .into_iter()
+        .filter(|s| s.shutdown() || !foreign.contains(&s.udid))
+        .collect();
     let already: Vec<String> = all
         .iter()
         .filter(|s| s.booted())
@@ -266,16 +273,16 @@ mod tests {
                 Some("2026-10-06T08:00:00Z"),
             ),
         ];
-        let p = plan(&sims, t, 3);
+        let p = plan(&sims, t, 3, &[]);
         assert_eq!(p.already, vec!["up"]);
         assert_eq!(p.reuse, vec!["recent", "old"]);
         assert!(p.create.is_empty());
 
-        let p = plan(&sims, t, 6);
+        let p = plan(&sims, t, 6, &[]);
         assert_eq!(p.reuse, vec!["recent", "old", "never"]);
         assert_eq!(p.create, vec![4, 6], "fills the gaps in the numbering");
 
-        let p = plan(&sims, t, 1);
+        let p = plan(&sims, t, 1, &[]);
         assert_eq!(
             p,
             Plan {
@@ -295,9 +302,29 @@ mod tests {
             sim("leaving", "velocity-iPhone-17-Pro-2", "Shutting Down", None),
             sim("coming", "velocity-iPhone-17-Pro-3", "Booting", None),
         ];
-        let p = plan(&sims, t, 3);
+        let p = plan(&sims, t, 3, &[]);
         assert_eq!(p.reuse, vec!["coming", "down", "leaving"]);
         assert!(p.create.is_empty(), "{p:?}");
-        assert_eq!(plan(&sims, t, 1).reuse, vec!["coming"]);
+        assert_eq!(plan(&sims, t, 1, &[]).reuse, vec!["coming"]);
+    }
+
+    #[test]
+    fn another_owners_booted_clones_are_neither_counted_nor_booted() {
+        let t = "iPhone 17 Pro";
+        let sims = vec![
+            sim("theirs", "velocity-iPhone-17-Pro-1", "Booted", None),
+            sim("theirs-coming", "velocity-iPhone-17-Pro-2", "Booting", None),
+            sim("theirs-down", "velocity-iPhone-17-Pro-3", "Shutdown", None),
+            sim("mine", "velocity-iPhone-17-Pro-4", "Booted", None),
+        ];
+        let foreign: Vec<String> = ["theirs", "theirs-coming", "theirs-down"]
+            .map(String::from)
+            .to_vec();
+        let p = plan(&sims, t, 3, &foreign);
+        assert_eq!(p.already, vec!["mine"]);
+        // A shut-down clone is free whoever booted it last.
+        assert_eq!(p.reuse, vec!["theirs-down"]);
+        // Numbers in use by the other owner's clones are never reused.
+        assert_eq!(p.create, vec![5]);
     }
 }

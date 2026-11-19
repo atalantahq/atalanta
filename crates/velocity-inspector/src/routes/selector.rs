@@ -29,6 +29,8 @@ pub struct GenerateRequest {
 
 #[derive(Serialize)]
 pub struct Candidate {
+    /// The DSL's flat form (`{"text": "Pay", "index": 1}`), review 02 M5.
+    #[serde(with = "velocity_core::selector_wire")]
     pub selector: Selector,
     pub yaml: String,
     #[serde(rename = "matchCount")]
@@ -37,6 +39,7 @@ pub struct Candidate {
 
 #[derive(Serialize)]
 pub struct GenerateResponse {
+    #[serde(with = "velocity_core::selector_wire")]
     pub selector: Selector,
     pub yaml_tap: String,
     pub yaml_assert: String,

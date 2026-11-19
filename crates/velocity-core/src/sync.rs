@@ -278,6 +278,12 @@ impl AdaptiveSyncEngine {
         // The device can watch for the settle itself (Android: accessibility
         // events): one call instead of a dozen tree reads, then one read so
         // the next wait has a "before" picture.
+        //
+        // A spinner turning doesn't raise the events it watches, so a
+        // screen whose new spinner is all that moves reads as settled
+        // there: that case goes on to the polling wait below, within what
+        // is left of the cap.
+        let mut spinner_hold = None;
         if self.action_at.is_some() {
             if let Some(r) = driver
                 .settle_on_device(
@@ -293,18 +299,22 @@ impl AdaptiveSyncEngine {
                 self.last_stats.reads += 1;
                 self.last_stats.reacted = r.reacted;
                 self.last_hash = Some(TreeDiff::hash_element(&tree));
+                let prior = self.last_spinners;
                 self.last_spinners = count_spinners(&tree);
-                if r.settled {
+                if r.settled && self.last_spinners <= prior {
                     self.settled_hash = self.last_hash;
                     self.last_stats.stable = true;
                     return Ok(());
                 }
-                self.last_stats.capped = true;
-                return Err(VelocityError::SyncTimeout {
-                    timeout_ms: self.cap().as_millis() as u64,
-                    stable_count: 0,
-                    required: 1,
-                });
+                if !r.settled {
+                    self.last_stats.capped = true;
+                    return Err(VelocityError::SyncTimeout {
+                        timeout_ms: self.cap().as_millis() as u64,
+                        stable_count: 0,
+                        required: 1,
+                    });
+                }
+                spinner_hold = Some(prior);
             }
         }
 
@@ -316,7 +326,9 @@ impl AdaptiveSyncEngine {
         let mut spinner_baseline = if action_at.is_some() {
             Some(self.last_spinners)
         } else {
-            None
+            // After a device settle that a new spinner held up: the
+            // spinners before the action are the baseline.
+            spinner_hold
         };
         let mut last_change = Instant::now();
         let mut hash = before;
@@ -402,14 +414,19 @@ impl AdaptiveSyncEngine {
     }
 }
 
-/// Visible loading spinners (Maestro's "is loading" check). Only iOS
-/// activity indicators: they are always indeterminate. An Android
-/// `ProgressBar` may be a determinate meter (battery level, a Wi-Fi scan
-/// bar that stays up), and holding every settle on one cost the full cap
-/// on ordinary Settings screens.
+/// Visible loading spinners (Maestro's "is loading" check): iOS activity
+/// indicators (always indeterminate) and elements the driver marks
+/// [`Element::indeterminate`] (Android: a `ProgressBar` with no range,
+/// tree-server protocol 18). A plain Android `ProgressBar` may be a
+/// determinate meter (battery level, a Wi-Fi scan bar that stays up), and
+/// holding every settle on one cost the full cap on ordinary Settings
+/// screens, so the class alone doesn't count. Only a spinner that appeared
+/// after the action holds the settle, and never past its cap.
 fn count_spinners(el: &Element) -> usize {
     let me = usize::from(
-        el.visible && !el.bounds.is_empty() && el.element_type.contains("ActivityIndicator"),
+        el.visible
+            && !el.bounds.is_empty()
+            && (el.indeterminate || el.element_type.contains("ActivityIndicator")),
     );
     me + el.children.iter().map(count_spinners).sum::<usize>()
 }
@@ -465,6 +482,8 @@ mod tests {
     struct MockDriver {
         call_count: AtomicUsize,
         elements: Vec<Element>,
+        /// What `settle_on_device` answers (`None`: no device settle).
+        device_settle: Option<velocity_common::DeviceSettle>,
     }
 
     #[async_trait::async_trait]
@@ -538,12 +557,22 @@ mod tests {
         async fn is_element_visible(&self, _: &str, _: &Element) -> Result<bool> {
             Ok(true)
         }
+        async fn settle_on_device(
+            &self,
+            _: &str,
+            _: u64,
+            _: u64,
+            _: u64,
+        ) -> Option<velocity_common::DeviceSettle> {
+            self.device_settle
+        }
     }
 
     fn driver(elements: Vec<Element>) -> MockDriver {
         MockDriver {
             call_count: AtomicUsize::new(0),
             elements,
+            device_settle: None,
         }
     }
 
@@ -702,6 +731,99 @@ mod tests {
         engine.invalidate_tree_diff();
         let result = engine.wait_for_idle(&d, "d").await;
         assert!(result.is_err(), "still loading at the cap");
+    }
+
+    fn with_progress_bar(text: &str, indeterminate: bool) -> Element {
+        let mut root = make_element(text);
+        root.children.push(Element {
+            element_type: "ProgressBar".into(),
+            indeterminate,
+            ..make_element("progress")
+        });
+        root
+    }
+
+    /// Review 09: an Android spinner (a ProgressBar with no range, marked
+    /// by the tree server) holds the settle like an iOS activity
+    /// indicator, up to the cap and no further; a determinate meter
+    /// doesn't.
+    #[tokio::test]
+    async fn an_android_indeterminate_spinner_holds_the_settle_up_to_the_cap() {
+        let mut screens = vec![make_element("form"), make_element("form")];
+        screens.extend(vec![with_progress_bar("form", true); 1000]);
+        let d = driver(screens);
+        let config = SyncConfig {
+            settle_cap_ms: Some(300),
+            ..Default::default()
+        };
+        let mut engine = AdaptiveSyncEngine::new(config);
+        engine.wait_for_idle(&d, "d").await.unwrap();
+        engine.invalidate_tree_diff();
+        let result = engine.wait_for_idle(&d, "d").await;
+        assert!(result.is_err(), "still loading at the cap");
+        let stats = engine.last_stats();
+        assert!(stats.capped, "{stats:?}");
+        assert!(stats.duration < Duration::from_millis(700), "{stats:?}");
+        let why = engine.busy_reason().unwrap_or_default();
+        assert!(why.contains("spinner"), "{why}");
+    }
+
+    /// The device's event settle can't see a spinner turn: a new one sends
+    /// the wait on to tree polling, still bounded by the cap.
+    #[tokio::test]
+    async fn a_device_settle_with_a_new_spinner_polls_on_to_the_cap() {
+        let mut screens = vec![make_element("form"), make_element("form")];
+        screens.extend(vec![with_progress_bar("form", true); 1000]);
+        let mut d = driver(screens);
+        let config = SyncConfig {
+            settle_cap_ms: Some(300),
+            ..Default::default()
+        };
+        let mut engine = AdaptiveSyncEngine::new(config);
+        engine.wait_for_idle(&d, "d").await.unwrap();
+        d.device_settle = Some(velocity_common::DeviceSettle {
+            settled: true,
+            reacted: true,
+            elapsed_ms: 10,
+        });
+        engine.invalidate_tree_diff();
+        let before = reads(&d);
+        let result = engine.wait_for_idle(&d, "d").await;
+        assert!(result.is_err(), "still loading at the cap");
+        assert!(reads(&d) - before > 2, "polled after the device settle");
+        assert!(engine.last_stats().duration < Duration::from_millis(700));
+    }
+
+    #[tokio::test]
+    async fn a_device_settle_without_a_new_spinner_needs_one_read() {
+        let mut d = driver(vec![make_element("form")]);
+        let mut engine = AdaptiveSyncEngine::new(SyncConfig::default());
+        engine.wait_for_idle(&d, "d").await.unwrap();
+        d.device_settle = Some(velocity_common::DeviceSettle {
+            settled: true,
+            reacted: false,
+            elapsed_ms: 10,
+        });
+        engine.invalidate_tree_diff();
+        let before = reads(&d);
+        engine.wait_for_idle(&d, "d").await.unwrap();
+        assert_eq!(reads(&d) - before, 1);
+    }
+
+    #[tokio::test]
+    async fn an_android_determinate_meter_does_not_hold_the_settle() {
+        let mut screens = vec![make_element("form"), make_element("form")];
+        screens.extend(vec![with_progress_bar("form", false); 1000]);
+        let d = driver(screens);
+        let config = SyncConfig {
+            settle_cap_ms: Some(2_000),
+            ..Default::default()
+        };
+        let mut engine = AdaptiveSyncEngine::new(config);
+        engine.wait_for_idle(&d, "d").await.unwrap();
+        engine.invalidate_tree_diff();
+        engine.wait_for_idle(&d, "d").await.unwrap();
+        assert!(!engine.last_stats().capped);
     }
 
     #[tokio::test]

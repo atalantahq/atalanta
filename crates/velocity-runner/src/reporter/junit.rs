@@ -24,9 +24,8 @@ pub fn write_junit(result: &SuiteResult, path: &str) -> Result<()> {
 /// [`write_junit`] with `options`.
 pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions) -> Result<()> {
     if let Some(parent) = std::path::Path::new(path).parent() {
-        std::fs::create_dir_all(parent).map_err(|e| {
-            VelocityError::Config(format!("failed to create report directory: {e}"))
-        })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|e| VelocityError::io("failed to create report directory", e))?;
     }
 
     // Rendered in memory and then put in place whole: CI reading the
@@ -37,13 +36,23 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
         .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
         .map_err(xml_err)?;
 
+    // `failures` (the test's own checks failed) and `errors` (the device,
+    // the driver or Velocity failed) are disjoint, as in the schema Jenkins
+    // and GitLab read: an emulator dying mid-run is not 120 assertion
+    // failures in the test trend.
+    let errors = result
+        .tests
+        .iter()
+        .filter(|t| error_kind(t).is_some())
+        .count();
+    let failures = result.failed.saturating_sub(errors).to_string();
+    let errors = errors.to_string();
+
     // <testsuites>
     let mut testsuites = BytesStart::new("testsuites");
     testsuites.push_attribute(("tests", result.total.to_string().as_str()));
-    testsuites.push_attribute(("failures", result.failed.to_string().as_str()));
-
-    // The schema most CI parsers read (Jenkins, GitLab) has `errors`.
-    testsuites.push_attribute(("errors", "0"));
+    testsuites.push_attribute(("failures", failures.as_str()));
+    testsuites.push_attribute(("errors", errors.as_str()));
     testsuites.push_attribute((
         "time",
         format!("{:.3}", result.duration.as_secs_f64()).as_str(),
@@ -56,17 +65,19 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
     let mut testsuite = BytesStart::new("testsuite");
     testsuite.push_attribute(("name", "velocity"));
     testsuite.push_attribute(("tests", result.total.to_string().as_str()));
-    testsuite.push_attribute(("failures", result.failed.to_string().as_str()));
-
-    // The schema most CI parsers read (Jenkins, GitLab) has `errors`.
-    testsuite.push_attribute(("errors", "0"));
+    testsuite.push_attribute(("failures", failures.as_str()));
+    testsuite.push_attribute(("errors", errors.as_str()));
     testsuite.push_attribute(("skipped", result.skipped.to_string().as_str()));
     testsuite.push_attribute((
         "time",
         format!("{:.3}", result.duration.as_secs_f64()).as_str(),
     ));
     // UTC, so say so: without the zone parsers read it as local time.
-    let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    // When the run started (the report is written at its end), so
+    // dashboards ordering by timestamp place the run where it began.
+    let started = chrono::Utc::now()
+        - chrono::Duration::from_std(result.duration).unwrap_or_else(|_| chrono::Duration::zero());
+    let timestamp = started.format("%Y-%m-%dT%H:%M:%SZ").to_string();
     testsuite.push_attribute(("timestamp", timestamp.as_str()));
     writer
         .write_event(Event::Start(testsuite))
@@ -104,7 +115,7 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
 
     let xml = xml_chars(&String::from_utf8_lossy(&writer.into_inner()));
     velocity_common::fsutil::write_atomic(std::path::Path::new(path), xml.as_bytes())
-        .map_err(|e| VelocityError::Config(format!("failed to write JUnit report at {path}: {e}")))
+        .map_err(|e| VelocityError::io(format!("failed to write JUnit report at {path}"), e))
 }
 
 /// The document with ANSI colour codes stripped and every character XML
@@ -202,10 +213,16 @@ fn write_testcase<W: Write>(
                 .map_err(xml_err)?;
             write_verification(writer, test)?;
 
-            let mut failure = BytesStart::new("failure");
+            // `<error>` for a device/driver or internal failure,
+            // `<failure>` for the test's own checks.
+            let (tag, kind) = match error_kind(test) {
+                Some(kind) => ("error", kind),
+                None => ("failure", "AssertionError"),
+            };
+            let mut failure = BytesStart::new(tag);
             let msg = test.error_message.as_deref().unwrap_or("Test failed");
             failure.push_attribute(("message", msg));
-            failure.push_attribute(("type", "AssertionError"));
+            failure.push_attribute(("type", kind));
 
             // Build failure body with step details
             let body = build_failure_body(test);
@@ -214,7 +231,7 @@ fn write_testcase<W: Write>(
                 .write_event(Event::Text(BytesText::new(&body)))
                 .map_err(xml_err)?;
             writer
-                .write_event(Event::End(BytesEnd::new("failure")))
+                .write_event(Event::End(BytesEnd::new(tag)))
                 .map_err(xml_err)?;
             for msg in &test.failed_attempts {
                 write_attempt(writer, "rerunFailure", msg)?;
@@ -301,6 +318,22 @@ fn write_testcase<W: Write>(
     }
 
     Ok(())
+}
+
+/// The JUnit error type of a failed test that is not the test's own fault:
+/// `InternalError` (a bug in Velocity, exit 5) or `InfrastructureError`
+/// (the device or driver failed). `None` for an assertion failure.
+fn error_kind(test: &TestResult) -> Option<&'static str> {
+    if test.status != TestStatus::Failed {
+        return None;
+    }
+    if test.internal_error {
+        Some("InternalError")
+    } else if test.infrastructure_failure {
+        Some("InfrastructureError")
+    } else {
+        None
+    }
 }
 
 /// One earlier attempt (`flakyFailure` / `rerunFailure`, Surefire format).
@@ -420,6 +453,29 @@ mod tests {
         ));
         write_junit(&suite(tests), path.to_str().unwrap()).unwrap();
         std::fs::read_to_string(path).unwrap()
+    }
+
+    /// Review 12 #7: a dead device is an `<error>`, counted in `errors`,
+    /// not an assertion failure.
+    #[test]
+    fn infrastructure_and_internal_failures_are_errors_not_failures() {
+        let assertion = TestResult::failed("a", "expected X".into(), Duration::ZERO);
+        let mut infra = TestResult::failed("b", "ADB connection lost".into(), Duration::ZERO);
+        infra.infrastructure_failure = true;
+        let mut internal = TestResult::failed("c", "panicked".into(), Duration::ZERO);
+        internal.internal_error = true;
+        let xml = render(vec![assertion, infra, internal]);
+        assert!(xml.contains(r#"failures="1""#), "{xml}");
+        assert!(xml.contains(r#"errors="2""#), "{xml}");
+        assert!(
+            xml.contains(r#"<error message="ADB connection lost" type="InfrastructureError">"#),
+            "{xml}"
+        );
+        assert!(xml.contains(r#"type="InternalError""#), "{xml}");
+        assert!(
+            xml.contains(r#"<failure message="expected X" type="AssertionError">"#),
+            "{xml}"
+        );
     }
 
     #[test]

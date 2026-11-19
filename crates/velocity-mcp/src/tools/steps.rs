@@ -64,10 +64,14 @@ async fn run_step(
     };
     let r = executor.execute_step(&step, device_id, app_id, 0).await?;
     if r.status == StepStatus::Failed {
-        return Err(VelocityError::Config(
-            r.error_message
+        let (kind, crashed) = executor.last_failure();
+        return Err(VelocityError::StepFailed {
+            kind: kind.unwrap_or(velocity_common::ErrorKind::Unknown),
+            crashed,
+            message: r
+                .error_message
                 .unwrap_or_else(|| format!("{} failed", r.action_name)),
-        ));
+        });
     }
     Ok(serde_json::json!({
         "action": r.action_name,

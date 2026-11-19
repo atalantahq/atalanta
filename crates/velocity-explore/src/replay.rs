@@ -55,7 +55,8 @@ impl ReplayReport {
 }
 
 /// Run the suite's first test once on `device_id`, with `overrides` for
-/// its `${VAR}`s, the session's settings (`base`), and no planner.
+/// its `${VAR}`s, the session's settings (`base`), and no planner;
+/// `jitter` (max ms, seed) pauses randomly before each step.
 pub async fn replay_once(
     driver: &dyn PlatformDriver,
     yaml: &str,
@@ -63,6 +64,7 @@ pub async fn replay_once(
     platform: Platform,
     overrides: &HashMap<String, String>,
     base: &velocity_common::SuiteConfig,
+    jitter: Option<(u64, u64)>,
 ) -> Result<ReplayRun> {
     let mut suite = velocity_core::parse_suite_from_str(yaml)?;
     velocity_core::env::interpolate_suite(&mut suite, overrides)?;
@@ -76,6 +78,11 @@ pub async fn replay_once(
         .first()
         .ok_or_else(|| velocity_common::VelocityError::Config("the test has no steps".into()))?;
     let mut executor = TestExecutor::new(driver, config, &suite.app_id);
+    // Burn-in (row 1.3): a random pause before each step, so a test that
+    // only passes at one speed shows it.
+    if let Some((max_ms, seed)) = jitter {
+        executor.set_jitter(max_ms, seed);
+    }
     let t = Instant::now();
     let result = executor
         .execute_test(test, device_id, &suite.app_id)

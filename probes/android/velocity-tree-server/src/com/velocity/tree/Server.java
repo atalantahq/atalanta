@@ -34,17 +34,33 @@ import java.util.List;
  * Protocol (one request per line, connection kept open):
  *   PING                     -> "PONG <version> <boot nonce>" (the nonce is
  *                               new each time the server starts)
- *   AUTH <token>             -> (protocol 13) "OK 0", or "ERR bad token" and
- *                               the connection is closed. Every command but
- *                               PING, AUTH and QUIT needs it first. The token
- *                               is new each start and written to TOKEN_FILE,
- *                               which only shell (or root) can read: the
- *                               host reads it with `adb shell cat`
+ *   HELLO <client nonce>     -> (protocol 18) "PROOF <hex>": HMAC-SHA256
+ *                               keyed with the session token over
+ *                               "velocity-tree server <boot nonce> <client
+ *                               nonce>". The host checks it before it sends
+ *                               anything else: an app that bound the public
+ *                               socket name first can't read the token file,
+ *                               so it can't answer, and never sees the token
+ *                               or a typed secret (security review #2)
+ *   AUTH <hex>               -> (protocol 18) "OK 0" when <hex> is HMAC-SHA256
+ *                               with the token over "velocity-tree client
+ *                               <boot nonce> <client nonce>" for this
+ *                               connection's HELLO; otherwise "ERR bad token"
+ *                               and the connection is closed. The token never
+ *                               crosses the socket (protocol 13 to 17 sent it
+ *                               in the clear). Every command but PING, HELLO,
+ *                               AUTH and QUIT needs it first. The token is new
+ *                               each start and written to TOKEN_FILE, which
+ *                               only shell (or root) can read: the host reads
+ *                               it with `adb shell cat`
  *   #<id> <command>          -> (protocol 8) the command, run at most once
  *                               per id: a command that changes the device
  *                               sent again with the same id (after a lost
  *                               reply and a reconnect) gets the first run's
- *                               reply, or waits for it, and never runs twice
+ *                               reply, or waits for it, and never runs twice.
+ *                               Protocol 19: "#<id>@<ms>" says how long the
+ *                               host waits; a resend waits for the first
+ *                               run at most that long (it used to be 60 s)
  *   DUMP [lite|notag]        -> "OK <len>" + XML ("lite": only the attributes
  *                               a settle compares). Protocol 9 adds `hint`
  *                               (an empty field's label), `state-desc` and
@@ -82,6 +98,9 @@ import java.util.List;
  *   SHOT png|jpeg [quality]  -> "OK <len>" + image bytes
  *   WINDOWS                  -> "OK <len>" + one line per window, top first:
  *                               "<layer> <type> <l>,<t>,<r>,<b> <package>"
+ *                               (protocol 18 adds " <touchable 1|0|?>
+ *                               <title>", the title to the end of the line;
+ *                               19 adds " <active 1|0>" before the title)
  *   MARK                     -> "OK <gen>"  (remember now as "the action")
  *   GEN                      -> "OK <gen> <ms since last event>"
  *   SETTLE reaction quiet cap
@@ -91,7 +110,9 @@ import java.util.List;
  *                               The same jar also carries VideoServer, the
  *                               scrcpy-style screen video entry point
  *                               (started as its own app_process)
- *   QUIT                     -> server exits
+ *   QUIT                     -> server exits (protocol 18: after letting go
+ *                               of its UiAutomation, so a new server can
+ *                               register at once)
  * Errors are "ERR <message>". Only adb (uid shell or root), never an app,
  * may connect: the socket name is public.
  *
@@ -101,9 +122,24 @@ import java.util.List;
  * one while the body's lines (`TAP 500 900`) ran. Now the first line that
  * is not a command, or a command before AUTH, gets one ERR and the
  * connection is closed, so nothing after it is read.
+ *
+ * Protocol 18: the HELLO/AUTH challenge-response above; the accessibility
+ * cache is cleared when the window set changed (and at most once a second
+ * otherwise), not before every read, and on API 26-33 too; dumps mark an
+ * indeterminate ProgressBar `indeterminate="true"` (a spinner whose node
+ * never changes while it spins); KEY events carry the virtual keyboard's
+ * device and source, as `input keyevent` sends them.
+ *
+ * Protocol 19: WINDOWS says which window is active; popups are dumped
+ * only from the active app's own windows (in freeform or desktop
+ * windowing, another app's floating window joined the dump as if it were
+ * the app's popup); windows are read from the active window's display;
+ * a request tag may carry the host's wait (see #<id>). The video server
+ * in this jar takes a token (VELOCITY_VIDEO_TOKEN) and a mutual
+ * HELLO/PROOF/AUTH handshake before it streams.
  */
 public final class Server {
-    static final String VERSION = "13";
+    static final String VERSION = "19";
     static final String SOCKET = "velocity_tree";
     /** New on every start: a host that reconnects can tell it is the same server. */
     static final String NONCE = Long.toHexString(new java.security.SecureRandom().nextLong());
@@ -113,11 +149,11 @@ public final class Server {
     static final String TOKEN_FILE = "/data/local/tmp/velocity-tree.token";
     /** Every request a connection may send; any other line closes it. */
     static final java.util.Set<String> COMMANDS = new java.util.HashSet<>(java.util.Arrays.asList(
-            "PING", "AUTH", "DUMP", "TAP", "TAPS", "PRESS", "SWIPE", "KEY", "TEXT", "SETTEXT", "IME",
+            "PING", "HELLO", "AUTH", "DUMP", "TAP", "TAPS", "PRESS", "SWIPE", "KEY", "TEXT", "SETTEXT", "IME",
             "GLOBAL", "SCROLLNODE", "SHOT", "WINDOWS", "MARK", "GEN", "SETTLE", "ENCODERS", "QUIT"));
     /** What a connection may send before AUTH. */
     static final java.util.Set<String> BEFORE_AUTH = new java.util.HashSet<>(java.util.Arrays.asList(
-            "PING", "AUTH", "QUIT"));
+            "PING", "HELLO", "AUTH", "QUIT"));
     /** The longest request line read; longer ones close the connection. */
     static final int MAX_LINE = 1 << 20;
     /** Node depth at which a dump stops descending (the Java stack). */
@@ -126,11 +162,24 @@ public final class Server {
     private static UiAutomation automation;
     /** UiAutomation.clearCache() (API 34+), looked up once; null if absent. */
     private static java.lang.reflect.Method clearCache;
+    /**
+     * Before API 34: AccessibilityInteractionClient's own clearCache(),
+     * reached by reflection as Appium does (app_process is not subject to
+     * hidden-API checks): clearCache() up to API 32, clearCache(int
+     * connectionId) on 33. Null when neither is there.
+     */
+    private static Object legacyClient;
+    private static java.lang.reflect.Method legacyClear;
+    private static Integer legacyConnectionId;
+    /** The floor: with no window change, the cache is cleared at most this often. */
     private static final long CACHE_CLEAR_MS = 1000;
     private static long lastClear = 0;
+    private static long lastClearWindowGen = -1;
 
     /** Accessibility events that mean the screen changed. */
     private static volatile long generation = 0;
+    /** Only the events that mean the set of windows changed (a chooser, a dialog). */
+    private static volatile long windowGeneration = 0;
     private static volatile long lastEventAt = 0;
     /** State at the last action (MARK or an injected input). */
     private static volatile long markGen = 0;
@@ -143,6 +192,7 @@ public final class Server {
             clearCache = UiAutomation.class.getMethod("clearCache");
         } catch (NoSuchMethodException ignored) {
             clearCache = null;
+            lookUpLegacyClear();
         }
         // Needed for getWindows(); harmless where it's already set.
         try {
@@ -156,7 +206,18 @@ public final class Server {
         lastEventAt = SystemClock.uptimeMillis();
         automation.setOnAccessibilityEventListener(Server::onEvent);
 
-        LocalServerSocket server = new LocalServerSocket(SOCKET);
+        LocalServerSocket server;
+        try {
+            server = new LocalServerSocket(SOCKET);
+        } catch (java.io.IOException e) {
+            // Someone else holds the public name: maybe a Velocity server
+            // started meanwhile, maybe an app squatting on it. Say so in
+            // words the host recognises instead of a stack trace.
+            System.err.println("velocity-tree: @" + SOCKET + " is already bound by another process: " + oneLine(e));
+            System.err.flush();
+            System.exit(3);
+            return;
+        }
         // After the bind: a second server that can't bind must not replace
         // the running one's token.
         writeToken();
@@ -170,7 +231,7 @@ public final class Server {
         }
     }
 
-    private static String newToken() {
+    static String newToken() {
         byte[] b = new byte[16];
         new java.security.SecureRandom().nextBytes(b);
         StringBuilder sb = new StringBuilder(32);
@@ -185,16 +246,38 @@ public final class Server {
      * directory: apps can't plant anything there.
      */
     private static void writeToken() throws java.io.IOException {
-        java.io.File tmp = new java.io.File(TOKEN_FILE + ".tmp");
+        writePrivate(TOKEN_FILE, TOKEN + "\n");
+    }
+
+    /**
+     * Write `content` to `path`, readable by this uid only: created empty,
+     * restricted, filled, then renamed into place (the video server's token
+     * file uses it too).
+     */
+    static void writePrivate(String path, String content) throws java.io.IOException {
+        java.io.File tmp = new java.io.File(path + ".tmp");
         tmp.delete();
-        try (java.io.FileOutputStream f = new java.io.FileOutputStream(tmp)) {
-            boolean ok = tmp.setReadable(false, false) && tmp.setWritable(false, false)
-                    && tmp.setReadable(true, true) && tmp.setWritable(true, true);
-            if (!ok) throw new java.io.IOException("cannot restrict " + tmp);
-            f.write((TOKEN + "\n").getBytes(StandardCharsets.UTF_8));
+        // Created 0600 in one call (O_EXCL, no symlink followed): a file
+        // made by FileOutputStream is 0666 & ~umask until the chmod after
+        // it, and adb shell's umask is 0 on many builds, so an app that
+        // opened it in that window read the token once written (audit
+        // 2026-11 AND-1).
+        java.io.FileDescriptor fd;
+        try {
+            fd = android.system.Os.open(tmp.getPath(),
+                    android.system.OsConstants.O_CREAT | android.system.OsConstants.O_EXCL
+                            | android.system.OsConstants.O_WRONLY
+                            | android.system.OsConstants.O_NOFOLLOW,
+                    0600);
+            android.system.Os.fchmod(fd, 0600);
+        } catch (android.system.ErrnoException e) {
+            throw new java.io.IOException("cannot create " + tmp + ": " + e.getMessage());
         }
-        if (!tmp.renameTo(new java.io.File(TOKEN_FILE))) {
-            throw new java.io.IOException("cannot write " + TOKEN_FILE);
+        try (java.io.FileOutputStream f = new java.io.FileOutputStream(fd)) {
+            f.write(content.getBytes(StandardCharsets.UTF_8));
+        }
+        if (!tmp.renameTo(new java.io.File(path))) {
+            throw new java.io.IOException("cannot write " + path);
         }
     }
 
@@ -217,6 +300,37 @@ public final class Server {
     static boolean tokenMatches(String got) {
         return java.security.MessageDigest.isEqual(
                 TOKEN.getBytes(StandardCharsets.UTF_8), got.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** A client nonce HELLO accepts: 16 to 64 hex digits. */
+    static boolean validNonce(String s) {
+        return s.length() >= 16 && s.length() <= 64 && s.matches("[0-9a-f]+");
+    }
+
+    /** Hex HMAC-SHA256 keyed with `key` (its UTF-8 bytes) over `msg`. */
+    static String hmac(String key, String msg) {
+        try {
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] d = mac.doFinal(msg.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(d.length * 2);
+            for (byte x : d) sb.append(String.format("%02x", x & 0xff));
+            return sb.toString();
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** What the server proves with for `clientNonce` (HELLO's answer). */
+    static String serverProof(String clientNonce) {
+        return hmac(TOKEN, "velocity-tree server " + NONCE + " " + clientNonce);
+    }
+
+    /** What AUTH must carry after HELLO `clientNonce` (constant-time check). */
+    static boolean clientProofMatches(String clientNonce, String got) {
+        String want = hmac(TOKEN, "velocity-tree client " + NONCE + " " + clientNonce);
+        return java.security.MessageDigest.isEqual(
+                want.getBytes(StandardCharsets.UTF_8), got.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -315,9 +429,13 @@ public final class Server {
             return;
         }
         switch (e.getEventType()) {
-            case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED:
             case AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED:
             case AccessibilityEvent.TYPE_WINDOWS_CHANGED:
+                windowGeneration++;
+                generation++;
+                lastEventAt = SystemClock.uptimeMillis();
+                break;
+            case AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED:
             case AccessibilityEvent.TYPE_VIEW_SCROLLED:
             case AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED:
             case AccessibilityEvent.TYPE_VIEW_SELECTED:
@@ -328,6 +446,23 @@ public final class Server {
             default:
                 break;
         }
+    }
+
+    /**
+     * Exit, letting go of the UiAutomation first: the registration in
+     * system_server used to be released only when the binder death reached
+     * it, and a new server started right after a QUIT (an upgrade) could
+     * find it "already registered" (review 01 #2).
+     */
+    private static void quit() {
+        try {
+            automation.getClass().getMethod("disconnect").invoke(automation);
+        } catch (Throwable ignored) {
+        }
+        // A token left behind outlives the server: whoever binds the socket
+        // next could prove it (audit 2026-11 AND-1).
+        new java.io.File(TOKEN_FILE).delete();
+        System.exit(0);
     }
 
     private static void mark() {
@@ -349,6 +484,8 @@ public final class Server {
             java.io.InputStream in = new java.io.BufferedInputStream(c.getInputStream());
             String line;
             boolean authed = false;
+            // The client nonce of this connection's HELLO (protocol 18).
+            String hello = null;
             while ((line = readLine(in)) != null) {
                 String id = null;
                 String body = line.trim();
@@ -365,8 +502,23 @@ public final class Server {
                     out.flush();
                     return;
                 }
+                if (p[0].equals("HELLO")) {
+                    // One per connection: a peer can't collect proofs for
+                    // many nonces on one connection.
+                    if (hello != null || p.length != 2 || !validNonce(p[1])) {
+                        text(out, "ERR bad hello; closing");
+                        out.flush();
+                        return;
+                    }
+                    hello = p[1];
+                    text(out, "PROOF " + serverProof(hello));
+                    out.flush();
+                    continue;
+                }
                 if (p[0].equals("AUTH")) {
-                    authed = p.length == 2 && tokenMatches(p[1]);
+                    // Only the proof for this connection's HELLO: the token
+                    // itself is no longer accepted (nor sent).
+                    authed = hello != null && p.length == 2 && clientProofMatches(hello, p[1]);
                     text(out, authed ? "OK 0" : "ERR bad token; closing");
                     out.flush();
                     if (!authed) return;
@@ -375,7 +527,7 @@ public final class Server {
                 if (p[0].equals("QUIT")) {
                     text(out, "BYE");
                     out.flush();
-                    System.exit(0);
+                    quit();
                 }
                 if (id != null && MUTATES.contains(p[0])) {
                     out.write(once(id, p));
@@ -441,6 +593,7 @@ public final class Server {
      * still going it waits for it, so the two never both run.
      */
     private static byte[] once(String id, String[] p) throws InterruptedException {
+        long waitMs = hostWaitMs(id);
         Done d;
         boolean first;
         synchronized (REPLIES) {
@@ -455,14 +608,38 @@ public final class Server {
             try {
                 d.reply = run(p);
             } finally {
+                // Never leave a finished run without a reply: a later resend
+                // of the id would read "still running" (review 01 #12).
+                if (d.reply == null) {
+                    d.reply = ("ERR request " + id + " failed\n").getBytes(StandardCharsets.UTF_8);
+                }
                 d.latch.countDown();
             }
             return d.reply;
         }
-        if (!d.latch.await(60, java.util.concurrent.TimeUnit.SECONDS) || d.reply == null) {
-            return ("ERR request " + id + " is still running\n").getBytes(StandardCharsets.UTF_8);
+        if (!d.latch.await(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS) || d.reply == null) {
+            return ("ERR request " + id + " is still running; the host stopped waiting after "
+                    + waitMs + " ms\n").getBytes(StandardCharsets.UTF_8);
         }
         return d.reply;
+    }
+
+    /** The longest a resend waits for a first run still going. */
+    static final long MAX_RESEND_WAIT_MS = 60_000;
+
+    /**
+     * How long the host waits for request `id` ("<id>@<ms>", protocol 19),
+     * capped at MAX_RESEND_WAIT_MS; that cap for an id without one.
+     */
+    static long hostWaitMs(String id) {
+        int at = id.lastIndexOf('@');
+        if (at < 0) return MAX_RESEND_WAIT_MS;
+        try {
+            long ms = Long.parseLong(id.substring(at + 1));
+            return Math.max(1, Math.min(ms, MAX_RESEND_WAIT_MS));
+        } catch (NumberFormatException e) {
+            return MAX_RESEND_WAIT_MS;
+        }
     }
 
     private static void handle(String[] p, OutputStream out) throws Exception {
@@ -556,7 +733,7 @@ public final class Server {
             case "QUIT":
                 text(out, "BYE");
                 out.flush();
-                System.exit(0);
+                quit();
                 break;
             default:
                 text(out, "ERR unknown command " + p[0]);
@@ -619,10 +796,23 @@ public final class Server {
         return automation.injectInputEvent(e, sync);
     }
 
+    /**
+     * A finger on the touchscreen, as `adb shell input tap` sends it. The
+     * short MotionEvent.obtain left the tool type unknown, and apps that
+     * route events by tool type dropped such taps: tapping a file in the
+     * Files app (DocumentsUI) did nothing (AndroidWorld rerun, 2026-11-07).
+     */
     private static MotionEvent touch(long down, int action, float x, float y) {
-        MotionEvent e = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0);
-        e.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-        return e;
+        MotionEvent.PointerProperties[] props = { new MotionEvent.PointerProperties() };
+        props[0].id = 0;
+        props[0].toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords[] coords = { new MotionEvent.PointerCoords() };
+        coords[0].x = x;
+        coords[0].y = y;
+        coords[0].pressure = 1f;
+        coords[0].size = 1f;
+        return MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, 1, props, coords,
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
     }
 
     /**
@@ -652,10 +842,21 @@ public final class Server {
         inject(touch(down, MotionEvent.ACTION_UP, x2, y2), false);
     }
 
+    /**
+     * A key from the virtual keyboard device, as `input keyevent` and
+     * UiAutomator send it: the short constructor left the source unknown,
+     * and apps that route keys by source or device dropped them (review 09
+     * #8).
+     */
     private static void key(int code) {
         long now = SystemClock.uptimeMillis();
-        if (!inject(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0), false)) refused("key " + code);
-        inject(new KeyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code, 0), false);
+        if (!inject(keyEvent(now, now, KeyEvent.ACTION_DOWN, code), false)) refused("key " + code);
+        inject(keyEvent(now, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, code), false);
+    }
+
+    private static KeyEvent keyEvent(long down, long at, int action, int code) {
+        return new KeyEvent(down, at, action, code, 0, 0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                InputDevice.SOURCE_KEYBOARD);
     }
 
     private static void refused(String what) {
@@ -819,7 +1020,7 @@ public final class Server {
     }
 
     private static String windows() {
-        List<AccessibilityWindowInfo> list = automation.getWindows();
+        List<AccessibilityWindowInfo> list = windowList(automation.getRootInActiveWindow());
         StringBuilder sb = new StringBuilder();
         // getWindows() is ordered top (front) first.
         for (AccessibilityWindowInfo w : list) {
@@ -833,35 +1034,61 @@ public final class Server {
             sb.append(w.getLayer()).append(' ').append(w.getType()).append(' ')
                     .append(r.left).append(',').append(r.top).append(',')
                     .append(r.right).append(',').append(r.bottom).append(' ')
-                    .append(pkg).append('\n');
+                    .append(pkg)
+                    // Protocol 18: whether the window takes touches ("?"
+                    // before API 33) and its title. SystemUI's rounded-corner
+                    // and cutout strips (ScreenDecorOverlay) are system
+                    // windows that never take a touch; taken for covers,
+                    // they refused taps a finger makes (review 09 #5).
+                    .append(' ').append(touchable(w))
+                    // Protocol 19: the active window, the one dumped: the
+                    // host's tap guard tells another app's window in front
+                    // of it from the app's own (review 09 #12).
+                    .append(' ').append(w.isActive() ? '1' : '0')
+                    .append(' ').append(title(w))
+                    .append('\n');
         }
         return sb.toString();
+    }
+
+    /** "1" when the window has a touchable region, "0" when it has none, "?" before API 33. */
+    private static String touchable(AccessibilityWindowInfo w) {
+        if (android.os.Build.VERSION.SDK_INT < 33) return "?";
+        try {
+            android.graphics.Region region = new android.graphics.Region();
+            w.getRegionInScreen(region);
+            return region.isEmpty() ? "0" : "1";
+        } catch (RuntimeException e) {
+            return "?";
+        }
+    }
+
+    /** The window's title on one line ("-" when none or before API 24). */
+    private static String title(AccessibilityWindowInfo w) {
+        if (android.os.Build.VERSION.SDK_INT < 24) return "-";
+        CharSequence t = w.getTitle();
+        if (t == null || t.length() == 0) return "-";
+        String s = t.toString().replaceAll("\\s+", " ").trim();
+        if (s.length() > 120) s = s.substring(0, 120);
+        return s.isEmpty() ? "-" : s;
     }
 
     // ---- tree -------------------------------------------------------------
 
     static synchronized String dump(boolean lite, boolean tags) throws InterruptedException {
-        // A long-lived connection keeps an accessibility cache that can go
-        // stale for good on Compose screens. Clearing it costs a full re-fetch
-        // (~85 ms vs ~3 ms per dump, measured on API 34), so do it at most
-        // once per CACHE_CLEAR_MS: staleness stays bounded below Velocity's
-        // element-wait polling, and most dumps stay fast.
-        long now = SystemClock.uptimeMillis();
-        if (clearCache != null && now - lastClear >= CACHE_CLEAR_MS) {
-            try { clearCache.invoke(automation); } catch (Exception ignored) { }
-            lastClear = now;
-        }
         AccessibilityNodeInfo root = activeRoot();
         if (root == null) throw new IllegalStateException("no active window");
         StringBuilder sb = new StringBuilder(64 * 1024);
+        List<AccessibilityWindowInfo> windows = windowList(root);
         sb.append("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"")
-                .append(rotation()).append('"');
+                .append(rotation(displayOf(root))).append('"');
         int attrsEnd = sb.length();
         sb.append('>');
         truncated = false;
         TAGS.start(System.nanoTime(), !lite && tags);
         node(sb, root, 0, lite, 0);
-        for (AccessibilityNodeInfo pane : sidePanes(root)) node(sb, pane, 0, lite, 0);
+        for (AccessibilityNodeInfo pane : sidePanes(root, windows)) node(sb, pane, 0, lite, 0);
+        for (AccessibilityNodeInfo popup : popupsAbove(root, windows)) node(sb, popup, 0, lite, 0);
         // Deeper nodes were left out: say so rather than pass for the whole tree.
         if (truncated) sb.insert(attrsEnd, " truncated=\"true\"");
         String toast = toastText;
@@ -923,14 +1150,14 @@ public final class Server {
     }
 
     /**
-     * The default display's rotation (0-3), as UiDevice reads it; 0 when the
-     * hidden API isn't there.
+     * The display's rotation (0-3), as UiDevice reads it; 0 when the hidden
+     * API isn't there.
      */
-    private static int rotation() {
+    private static int rotation(int displayId) {
         try {
             Class<?> dmg = Class.forName("android.hardware.display.DisplayManagerGlobal");
             Object global = dmg.getMethod("getInstance").invoke(null);
-            Object display = dmg.getMethod("getRealDisplay", int.class).invoke(global, 0);
+            Object display = dmg.getMethod("getRealDisplay", int.class).invoke(global, displayId);
             return display == null ? 0 : ((android.view.Display) display).getRotation();
         } catch (Throwable ignored) {
             return 0;
@@ -950,6 +1177,7 @@ public final class Server {
     private static AccessibilityNodeInfo activeRoot() throws InterruptedException {
         long deadline = SystemClock.uptimeMillis() + 3000;
         boolean cleared = false;
+        refreshCache();
         while (true) {
             AccessibilityNodeInfo root = automation.getRootInActiveWindow();
             if (root != null) return root;
@@ -961,12 +1189,77 @@ public final class Server {
                 }
             } catch (RuntimeException ignored) {
             }
-            if (!cleared && clearCache != null) {
-                try { clearCache.invoke(automation); } catch (Exception ignored) { }
+            if (!cleared) {
+                clearCacheNow();
                 cleared = true;
             }
             if (SystemClock.uptimeMillis() >= deadline) return null;
             Thread.sleep(50);
+        }
+    }
+
+    /**
+     * Clear the accessibility cache when it may be stale, not before every
+     * read. A long-lived connection's cache kept serving the window under a
+     * chooser ("Open with", started by tapping a file in Files) for 2 to 7 s
+     * after the chooser had focus (AndroidWorld Browser tasks, 2026-11-08),
+     * and can go stale for good on Compose screens. But a cleared cache
+     * makes the next walk one binder call per node, served on the app's
+     * main thread (~85 ms vs ~3 ms a dump on API 34), and the host's settle
+     * polls a dump every 25 ms: clearing on every read made each settle
+     * poll load the app it was waiting for (review 09 #1). So: at once when
+     * the set of windows changed since the last clear (the chooser case
+     * sends WINDOW_STATE_CHANGED and WINDOWS_CHANGED), and otherwise at most
+     * once per CACHE_CLEAR_MS, which bounds the Compose staleness.
+     */
+    private static synchronized void refreshCache() {
+        long now = SystemClock.uptimeMillis();
+        long windows = windowGeneration;
+        if (windows == lastClearWindowGen && now - lastClear < CACHE_CLEAR_MS) return;
+        lastClearWindowGen = windows;
+        lastClear = now;
+        clearCacheNow();
+    }
+
+    /** Empty the accessibility cache: UiAutomation's on API 34+, the client's before. */
+    private static void clearCacheNow() {
+        try {
+            if (clearCache != null) {
+                clearCache.invoke(automation);
+            } else if (legacyClear != null) {
+                if (legacyConnectionId != null) {
+                    legacyClear.invoke(legacyClient, legacyConnectionId);
+                } else {
+                    legacyClear.invoke(legacyClient);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * API 26-33 have no UiAutomation.clearCache(): find the interaction
+     * client's own. Up to API 32 it is clearCache(); API 33 keeps a cache
+     * per connection and takes UiAutomation's connection id.
+     */
+    private static void lookUpLegacyClear() {
+        try {
+            Class<?> c = Class.forName("android.view.accessibility.AccessibilityInteractionClient");
+            legacyClient = c.getMethod("getInstance").invoke(null);
+            try {
+                legacyClear = c.getMethod("clearCache");
+                legacyConnectionId = null;
+            } catch (NoSuchMethodException e) {
+                java.lang.reflect.Field f = UiAutomation.class.getDeclaredField("mConnectionId");
+                f.setAccessible(true);
+                legacyConnectionId = f.getInt(automation);
+                legacyClear = c.getMethod("clearCache", int.class);
+            }
+        } catch (Throwable e) {
+            legacyClient = null;
+            legacyClear = null;
+            legacyConnectionId = null;
+            System.err.println("velocity-tree: no accessibility cache clear on this Android version (" + oneLine(e) + ")");
         }
     }
 
@@ -979,14 +1272,15 @@ public final class Server {
      * A window that overlaps the active one is left out: what a dialog covers
      * must stay hidden.
      */
-    private static List<AccessibilityNodeInfo> sidePanes(AccessibilityNodeInfo activeRoot) {
+    private static List<AccessibilityNodeInfo> sidePanes(
+            AccessibilityNodeInfo activeRoot, List<AccessibilityWindowInfo> windows) {
         List<AccessibilityNodeInfo> panes = new java.util.ArrayList<>();
         Rect active = new Rect();
         activeRoot.getBoundsInScreen(active);
         List<Rect> taken = new java.util.ArrayList<>();
         taken.add(active);
         try {
-            for (AccessibilityWindowInfo w : automation.getWindows()) {
+            for (AccessibilityWindowInfo w : windows) {
                 if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION || w.isActive()) continue;
                 Rect r = new Rect();
                 w.getBoundsInScreen(r);
@@ -1004,6 +1298,89 @@ public final class Server {
             // active window alone, as before.
         }
         return panes;
+    }
+
+    /**
+     * Application windows in front of the active one that overlap it: the
+     * text-selection toolbar (Copy, Paste, Select all) and other popups an
+     * app draws in a window of their own. Left out, they were on the screen
+     * and in screenshots but not in the tree, so nothing could tap Paste
+     * (AndroidWorld rerun, 2026-11-08). getWindows() is ordered front first,
+     * so these are the windows before the active one; what is behind it
+     * stays hidden. With no window marked active, none (no guessing).
+     * Protocol 19: only the active app's own windows (or the framework's,
+     * "android", which draws some popups for the app). In freeform and
+     * desktop windowing another app's floating window is an application
+     * window in front too, and its nodes joined the dump as if the app
+     * under test had drawn them (review 09 #12).
+     */
+    private static List<AccessibilityNodeInfo> popupsAbove(
+            AccessibilityNodeInfo activeRoot, List<AccessibilityWindowInfo> windows) {
+        List<AccessibilityNodeInfo> out = new java.util.ArrayList<>();
+        Rect active = new Rect();
+        activeRoot.getBoundsInScreen(active);
+        CharSequence app = activeRoot.getPackageName();
+        try {
+            boolean anyActive = false;
+            for (AccessibilityWindowInfo w : windows) if (w.isActive()) { anyActive = true; break; }
+            if (!anyActive) return out;
+            for (AccessibilityWindowInfo w : windows) {
+                if (w.isActive()) break;
+                if (w.getType() != AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                Rect r = new Rect();
+                w.getBoundsInScreen(r);
+                // Not overlapping: a side pane, dumped by sidePanes.
+                if (r.isEmpty() || !Rect.intersects(r, active)) continue;
+                AccessibilityNodeInfo root = w.getRoot();
+                if (root == null || !sameApp(app, root.getPackageName())) continue;
+                out.add(root);
+            }
+        } catch (RuntimeException e) {
+            // getWindows() needs the interactive-windows flag.
+        }
+        return out;
+    }
+
+    /** Whether a popup window of package `pkg` belongs to the app `app`. */
+    static boolean sameApp(CharSequence app, CharSequence pkg) {
+        if (pkg == null) return false;
+        String p = pkg.toString();
+        return p.equals("android") || (app != null && p.equals(app.toString()));
+    }
+
+    /**
+     * The windows of the display `root` (the active window's root) is on.
+     * getWindows() is the default display's only, while the active window
+     * follows input focus to another display (DeX, an external screen):
+     * the dump's panes and popups, and the host's tap guard, then looked at
+     * the wrong display's windows (review 09 #10). API 30+; before, and on
+     * the default display, getWindows().
+     */
+    private static List<AccessibilityWindowInfo> windowList(AccessibilityNodeInfo root) {
+        int display = displayOf(root);
+        if (display != 0 && android.os.Build.VERSION.SDK_INT >= 30) {
+            try {
+                List<AccessibilityWindowInfo> l = automation.getWindowsOnAllDisplays().get(display);
+                if (l != null) return l;
+            } catch (RuntimeException ignored) {
+            }
+        }
+        try {
+            return automation.getWindows();
+        } catch (RuntimeException e) {
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    /** The display `root`'s window is on (API 30+); 0 when unknown. */
+    private static int displayOf(AccessibilityNodeInfo root) {
+        if (root == null || android.os.Build.VERSION.SDK_INT < 30) return 0;
+        try {
+            AccessibilityWindowInfo w = root.getWindow();
+            return w == null ? 0 : w.getDisplayId();
+        } catch (RuntimeException e) {
+            return 0;
+        }
     }
 
     /**
@@ -1025,11 +1402,22 @@ public final class Server {
         }
     }
 
+    private static boolean isSpinner(AccessibilityNodeInfo n) {
+        CharSequence cls = n.getClassName();
+        return cls != null && cls.toString().endsWith("ProgressBar") && n.getRangeInfo() == null;
+    }
+
     private static void node(StringBuilder sb, AccessibilityNodeInfo n, int index, boolean lite, int depth) {
         Rect r = new Rect();
         n.getBoundsInScreen(r);
         sb.append("<node index=\"").append(index).append('"');
-        attr(sb, "text", n.getText());
+        // An empty field showing its placeholder reports the placeholder as
+        // its text: Velocity saw "my_note" in Markor's emptied name field, so
+        // an empty field looked filled and a clear that worked read as a
+        // no-op (AndroidWorld, 2026-11-08). The placeholder is the hint.
+        CharSequence text = n.getText();
+        if (android.os.Build.VERSION.SDK_INT >= 26 && n.isShowingHintText()) text = null;
+        attr(sb, "text", text);
         CharSequence resourceId = n.getViewIdResourceName();
         attr(sb, "resource-id", resourceId);
         if (!lite && (resourceId == null || resourceId.length() == 0)) {
@@ -1040,8 +1428,8 @@ public final class Server {
         if (!lite) attr(sb, "package", n.getPackageName());
         attr(sb, "content-desc", n.getContentDescription());
         if (!lite) {
-            // Protocol 9: an empty Flutter/Compose field is found by its
-            // hint; state and error text say what a control shows.
+            // Protocol 9: an empty TextView/Flutter field's hint (Compose sets none: its label shows
+            // as a sibling node, review 09 #12); state and error text say what a control shows.
             if (android.os.Build.VERSION.SDK_INT >= 26) {
                 attr(sb, "hint", n.isShowingHintText() ? n.getText() : n.getHintText());
             }
@@ -1061,6 +1449,13 @@ public final class Server {
             flag(sb, "password", n.isPassword());
         }
         flag(sb, "selected", n.isSelected());
+        // Protocol 18: an indeterminate ProgressBar (Compose's
+        // CircularProgressIndicator() reports the same class) has no range
+        // info and no state that changes while it spins, so a settle that
+        // compares dumps took a loading screen for a settled one (review 09
+        // #4). A determinate meter (battery, a scan bar) has range info and
+        // is not marked. In lite dumps too: they are what a settle reads.
+        if (isSpinner(n)) sb.append(" indeterminate=\"true\"");
         sb.append(" bounds=\"[").append(r.left).append(',').append(r.top).append("][")
                 .append(r.right).append(',').append(r.bottom).append("]\"");
         int start = sb.length();

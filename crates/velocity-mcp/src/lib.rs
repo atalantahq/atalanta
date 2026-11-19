@@ -4,11 +4,15 @@
 //! diagnostics. Internal to the `velocity` CLI (`velocity mcp`); its API has
 //! no stability promise.
 
+pub mod agent_error;
+mod authored;
 pub mod install;
+pub mod profile;
 mod recording;
 mod refs;
 mod server;
 pub mod session;
+pub mod skills;
 mod snapshot;
 pub mod tasks;
 #[cfg(test)]

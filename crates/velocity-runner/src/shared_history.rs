@@ -305,9 +305,9 @@ pub fn merge_files(inputs: &[String], output: &Path) -> Result<(Vec<PathBuf>, Te
         let mut out = merged.clone();
         out.version = out.version.max(history::HISTORY_VERSION);
         let json = serde_json::to_string_pretty(&out)
-            .map_err(|e| VelocityError::Config(format!("failed to serialize history: {e}")))?;
+            .map_err(|e| VelocityError::io("failed to serialize history", e))?;
         velocity_common::fsutil::write_private(output, json.as_bytes())
-            .map_err(|e| VelocityError::Config(format!("{}: {e}", output.display())))?;
+            .map_err(|e| VelocityError::io(output.display(), e))?;
     } else {
         history::save(&output.to_string_lossy(), &merged)?;
     }
@@ -354,7 +354,7 @@ pub fn describe(h: &TestHistory) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::history::Outcome;
+    use crate::history::{HistoryOutcome, HistoryOutcome as Outcome};
     use std::collections::HashMap;
 
     fn job(tests: &[(&str, u64, &[Outcome], u64)]) -> TestHistory {
@@ -370,7 +370,7 @@ mod tests {
         h
     }
 
-    use Outcome::{Fail, Pass};
+    use HistoryOutcome::{Fail, Pass};
 
     #[test]
     fn each_test_comes_from_the_job_that_ran_it_last() {

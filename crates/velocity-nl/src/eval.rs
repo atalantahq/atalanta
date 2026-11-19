@@ -50,7 +50,7 @@ use velocity_common::{
 };
 
 use crate::planner::{NaturalPlanner, Usage};
-use crate::resolver::{plan_step_outcome, NaturalStep, PlanFailure};
+use crate::resolver::{plan_step_outcome, NaturalStep, PlanFailure, StepKeys};
 
 const TRACE_VERSION: u32 = 1;
 

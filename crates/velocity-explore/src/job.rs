@@ -39,6 +39,9 @@ pub struct JobResult {
     pub replay_before_repair: Option<ReplayReport>,
     /// What the repair did, when one ran.
     pub repair: Option<String>,
+    /// The trust gates (row 1.3), when they ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gates: Option<crate::gates::GateReport>,
 }
 
 impl JobResult {
@@ -47,6 +50,7 @@ impl JobResult {
         self.report.outcome.is_success()
             && self.yaml.is_some()
             && self.replay.as_ref().is_none_or(|r| r.all_passed())
+            && self.gates.as_ref().is_none_or(|g| g.trusted)
     }
 }
 
@@ -80,6 +84,15 @@ pub struct ExploreJob {
     pub dry_run: bool,
     /// Also produce the plain-English version.
     pub keep_nl: bool,
+    /// Run the trust gates after the replays (row 1.3; the CLI turns them
+    /// on): jitter on every replay after the first, the wrong-path replay
+    /// and the goal-text rule.
+    pub gates: bool,
+    /// The jitter's largest pause before a step, in ms.
+    pub replay_jitter_ms: u64,
+    /// `--after`: steps replayed with no model before exploring (a login,
+    /// [`crate::after::login_prefix`]); the test starts with them too.
+    pub after: Vec<crate::session::RecordedStep>,
     sink: Arc<Mutex<Option<EventSink>>>,
     sources: Arc<Mutex<Vec<Box<dyn InstructionSource>>>>,
     tx: tokio::sync::mpsc::UnboundedSender<String>,
@@ -104,6 +117,9 @@ impl ExploreJob {
             repair: true,
             dry_run: false,
             keep_nl: false,
+            gates: false,
+            replay_jitter_ms: 150,
+            after: Vec::new(),
             sink: Arc::new(Mutex::new(None)),
             sources: Arc::new(Mutex::new(vec![Box::new(rx)])),
             tx,
@@ -187,6 +203,7 @@ impl ExploreJob {
                 self.opts.platform,
                 &overrides,
                 &self.opts.config,
+                (self.gates && run > 1).then_some((self.replay_jitter_ms, run as u64)),
             )
             .await?;
             let calls = self.model_calls() - before;
@@ -216,8 +233,49 @@ impl ExploreJob {
 
     /// Explore, write, replay, repair once if needed.
     pub async fn run(self) -> Result<JobResult> {
+        let gates = self.gates;
+        let driver = self.driver.clone();
+        let opts = self.opts.clone();
+        let overrides = self.overrides();
+        let jitter = self.replay_jitter_ms;
+        let mut result = self.run_inner().await?;
+        if !gates {
+            return Ok(result);
+        }
+        let (Some(yaml), Some(replay)) = (result.yaml.clone(), result.replay.as_ref()) else {
+            return Ok(result);
+        };
+        let (runs, passed) = (replay.runs.len(), replay.passed());
+        // The wrong path only means something for a test that replays.
+        let wrong = if passed == runs && runs > 0 {
+            crate::gates::wrong_path(
+                &*driver,
+                &yaml,
+                &opts.device_id,
+                opts.platform,
+                &overrides,
+                &opts.config,
+            )
+            .await?
+        } else {
+            crate::gates::WrongPath::Skipped {
+                why: "the replays didn't all pass".into(),
+            }
+        };
+        let goal = crate::gates::goal_text_assertion(&yaml, &opts.goal);
+        result.gates = Some(crate::gates::GateReport::decide(
+            runs, passed, jitter, wrong, goal,
+        ));
+        Ok(result)
+    }
+
+    async fn run_inner(self) -> Result<JobResult> {
         let started = Instant::now();
-        let first = self.session(self.opts.clone()).run().await?;
+        let first = self
+            .session(self.opts.clone())
+            .with_prefix(self.after.clone())
+            .run()
+            .await?;
         let mut result = JobResult {
             report: first,
             first_report: None,
@@ -227,6 +285,7 @@ impl ExploreJob {
             replay: None,
             replay_before_repair: None,
             repair: None,
+            gates: None,
         };
         if self.dry_run || !result.report.outcome.is_success() {
             return Ok(result);

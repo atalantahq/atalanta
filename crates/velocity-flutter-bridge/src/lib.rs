@@ -3,6 +3,7 @@
 //! package in `dart/`), so Flutter widgets are tested headless, without a
 //! device. Internal to the `velocity` CLI (`framework: flutter`); its API
 //! has no stability promise.
+#![forbid(unsafe_code)]
 
 pub mod config;
 pub mod driver;

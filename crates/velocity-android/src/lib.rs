@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 pub mod adb;
 pub mod adb_backend;
 pub mod animations;

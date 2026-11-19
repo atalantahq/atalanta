@@ -53,6 +53,11 @@ pub struct Tab {
     touch: bool,
     /// The page's cross-origin frames (W4), when attached.
     frames: std::sync::Mutex<Option<Arc<crate::frames::Frames>>>,
+    /// The page's renderer crashed ("Aw, Snap!": out of memory,
+    /// `chrome://crash`). The browser's socket stays up, so `alive` can't
+    /// tell, and every later call failed as an internal error after
+    /// [`CDP_TIMEOUT`] (review 10 #6).
+    crashed: AtomicBool,
 }
 
 /// Kept as `Page` so the helpers below read as before.
@@ -65,7 +70,18 @@ impl Tab {
             alive,
             touch: false,
             frames: std::sync::Mutex::new(None),
+            crashed: AtomicBool::new(false),
         }
+    }
+
+    /// The renderer is gone: from now on every call is a lost connection,
+    /// a transient error the executor recovers from with a new browser.
+    pub fn mark_crashed(&self) {
+        self.crashed.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_crashed(&self) -> bool {
+        self.crashed.load(Ordering::SeqCst)
     }
 
     /// Taps on this page are touches (`Input.dispatchTouchEvent`), as a
@@ -306,14 +322,23 @@ impl Tab {
         if !self.is_alive() {
             return Err(lost("the browser connection is closed"));
         }
+        if self.is_crashed() {
+            return Err(lost(RENDERER_CRASHED));
+        }
         match tokio::time::timeout(limit, fut).await {
             Ok(Ok(v)) => Ok(v),
             Ok(Err(e)) if !self.is_alive() || is_connection_error(&e) => {
                 self.alive.store(false, Ordering::SeqCst);
                 Err(lost(e))
             }
+            // The crash event may come after the call's own error.
+            Ok(Err(e)) if self.is_crashed() || is_crash_error(&e.to_string()) => {
+                self.mark_crashed();
+                Err(lost(format!("{RENDERER_CRASHED} ({e})")))
+            }
             Ok(Err(e)) => Err(cdp_err(e)),
             Err(_) if !self.is_alive() => Err(lost("the browser connection is closed")),
+            Err(_) if self.is_crashed() => Err(lost(RENDERER_CRASHED)),
             Err(_) => Err(VelocityError::Internal(anyhow::anyhow!(
                 "Chrome did not answer a DevTools call within {limit:?}"
             ))),
@@ -394,6 +419,40 @@ impl Tab {
         Ok(result.value().cloned().unwrap_or(Value::Null))
     }
 
+    /// `DOM.setFileInputFiles` on the file input the element `id` stands
+    /// for, in the page or a same-origin frame (a cross-origin frame's
+    /// inputs are refused). Chrome fires `input` and `change` itself.
+    pub async fn set_files(&self, id: &str, paths: Vec<String>) -> Result<()> {
+        use chromiumoxide::cdp::browser_protocol::dom::SetFileInputFilesParams;
+        if crate::frames::Frames::split(id).is_some() {
+            return Err(cdp_err(
+                "a file input inside a cross-origin frame can't be given files",
+            ));
+        }
+        // Installs the library in this document if it isn't yet.
+        if self.call("fileInput", vec![id.into()]).await?.is_null() {
+            return Err(cdp_err("the element is not a file input"));
+        }
+        let ctx = self.isolated_context().await?;
+        let mut call = CallFunctionOnParams::new(
+            "function(id){return globalThis.__velocity.fileInputElement(id);}",
+        );
+        call.execution_context_id = Some(ctx);
+        call.arguments = Some(vec![CallArgument::builder().value(id).build()]);
+        call.return_by_value = Some(false);
+        let reply = self.exec(call).await?;
+        let object = reply
+            .result
+            .result
+            .object_id
+            .clone()
+            .ok_or_else(|| cdp_err("the file input left the page"))?;
+        let mut params = SetFileInputFilesParams::new(paths);
+        params.object_id = Some(object);
+        self.exec(params).await?;
+        Ok(())
+    }
+
     /// The current document's isolated world. chromiumoxide creates one per
     /// document (and tracks its id); right after a navigation it may not be
     /// known yet, so it is asked for (Chrome returns the same world).
@@ -434,6 +493,14 @@ pub(crate) fn is_connection_error(e: &CdpError) -> bool {
         e,
         CdpError::Ws(_) | CdpError::Io(_) | CdpError::ChannelSendError(_) | CdpError::NoResponse
     )
+}
+
+const RENDERER_CRASHED: &str = "the page's renderer crashed";
+
+/// A DevTools error that says the page's target is gone: its renderer
+/// crashed, or its session went with it.
+pub(crate) fn is_crash_error(msg: &str) -> bool {
+    msg.contains("Target crashed") || msg.contains("Session with given id not found")
 }
 
 pub fn lost(detail: impl std::fmt::Display) -> VelocityError {
@@ -670,6 +737,19 @@ const DRAG_STEPS: i32 = 10;
 /// held (`buttons`, so `pointermove` reports it pressed), release. One jump
 /// is too coarse for widgets that track the pointer (sliders, carousels).
 pub async fn drag(page: &Page, from: (i32, i32), to: (i32, i32)) -> Result<()> {
+    drag_held(page, from, to, 0, 0).await
+}
+
+/// [`drag`], held: a pause of `hold_ms` after the press, the moves spread
+/// over `move_ms`, and a rest before the release, for lists that pick a row
+/// up on a long press (row 3.1).
+pub async fn drag_held(
+    page: &Page,
+    from: (i32, i32),
+    to: (i32, i32),
+    hold_ms: u64,
+    move_ms: u64,
+) -> Result<()> {
     let (fx, fy) = (f64::from(from.0), f64::from(from.1));
     let (tx, ty) = (f64::from(to.0), f64::from(to.1));
     let event = |kind: DispatchMouseEventType, x: f64, y: f64| {
@@ -691,6 +771,10 @@ pub async fn drag(page: &Page, from: (i32, i32), to: (i32, i32)) -> Result<()> {
 
     page.exec(event(DispatchMouseEventType::MousePressed, fx, fy))
         .await?;
+    if hold_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(hold_ms)).await;
+    }
+    let pause = move_ms / DRAG_STEPS as u64;
     for i in 1..=DRAG_STEPS {
         let t = f64::from(i) / f64::from(DRAG_STEPS);
         page.exec(event(
@@ -699,6 +783,12 @@ pub async fn drag(page: &Page, from: (i32, i32), to: (i32, i32)) -> Result<()> {
             fy + (ty - fy) * t,
         ))
         .await?;
+        if pause > 0 {
+            tokio::time::sleep(Duration::from_millis(pause)).await;
+        }
+    }
+    if hold_ms > 0 || move_ms > 0 {
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
     page.exec(event(DispatchMouseEventType::MouseReleased, tx, ty))
         .await?;
@@ -818,6 +908,100 @@ pub async fn dispatch_key(page: &Page, key: &str) -> Result<()> {
     })?;
     for ev in key_events(&def, cfg!(target_os = "macos")) {
         page.exec(ev).await?;
+    }
+    Ok(())
+}
+
+/// Longest text typed key by key; longer text is inserted in one go
+/// (two DevTools round trips per key would make a pasted paragraph slow).
+pub const PER_KEY_MAX: usize = 256;
+
+/// The US-layout key for a printable ASCII character, as Puppeteer's
+/// `keyboard.type` sends it: its `code` and Windows virtual key code.
+/// `None` for anything else (text outside ASCII, a newline, a tab).
+pub fn char_key(c: char) -> Option<(String, i64)> {
+    const SHIFTED_DIGITS: &str = ")!@#$%^&*(";
+    const PUNCT: [(&str, &str, i64); 11] = [
+        (";:", "Semicolon", 186),
+        ("=+", "Equal", 187),
+        (",<", "Comma", 188),
+        ("-_", "Minus", 189),
+        (".>", "Period", 190),
+        ("/?", "Slash", 191),
+        ("`~", "Backquote", 192),
+        ("[{", "BracketLeft", 219),
+        ("\\|", "Backslash", 220),
+        ("]}", "BracketRight", 221),
+        ("'\"", "Quote", 222),
+    ];
+    if c.is_ascii_alphabetic() {
+        let up = c.to_ascii_uppercase();
+        return Some((format!("Key{up}"), up as i64));
+    }
+    if c.is_ascii_digit() {
+        return Some((format!("Digit{c}"), c as i64));
+    }
+    if c == ' ' {
+        return Some(("Space".into(), 32));
+    }
+    if let Some(d) = SHIFTED_DIGITS.find(c) {
+        return Some((format!("Digit{d}"), 48 + d as i64));
+    }
+    PUNCT
+        .iter()
+        .find(|(chars, _, _)| chars.contains(c))
+        .map(|(_, code, vk)| (code.to_string(), *vk))
+}
+
+/// Type `text` into the focused element as a user would: printable ASCII
+/// as a key press each (`keydown` with the character, `keypress`, the
+/// input, `keyup`), so a page that filters on `keyup` (an autocomplete, a
+/// search-as-you-type box) reacts; `Input.insertText` fired `input` only
+/// (review 10 #7). Anything else (accented letters, CJK, emoji, a newline)
+/// is inserted as text, as Puppeteer's `sendCharacter` does, so a newline
+/// never presses Enter and submits a form. Text longer than
+/// [`PER_KEY_MAX`], or with `VELOCITY_WEB_TYPING=insert`, is inserted in
+/// one go, as before.
+pub async fn type_text(page: &Page, text: &str) -> Result<()> {
+    use chromiumoxide::cdp::browser_protocol::input::InsertTextParams;
+    let per_key = text.chars().count() <= PER_KEY_MAX
+        && std::env::var("VELOCITY_WEB_TYPING").map_or(true, |v| v != "insert");
+    if !per_key {
+        page.exec(InsertTextParams::new(text)).await?;
+        return Ok(());
+    }
+    let mut run = String::new();
+    for c in text.chars() {
+        let Some((code, vk)) = char_key(c) else {
+            run.push(c);
+            continue;
+        };
+        if !run.is_empty() {
+            page.exec(InsertTextParams::new(std::mem::take(&mut run)))
+                .await?;
+        }
+        let key = c.to_string();
+        let down = DispatchKeyEventParams::builder()
+            .r#type(DispatchKeyEventType::KeyDown)
+            .key(key.clone())
+            .code(code.clone())
+            .windows_virtual_key_code(vk)
+            .text(key.clone())
+            .unmodified_text(key.clone())
+            .build()
+            .map_err(cdp_err)?;
+        let up = DispatchKeyEventParams::builder()
+            .r#type(DispatchKeyEventType::KeyUp)
+            .key(key)
+            .code(code)
+            .windows_virtual_key_code(vk)
+            .build()
+            .map_err(cdp_err)?;
+        page.exec(down).await?;
+        page.exec(up).await?;
+    }
+    if !run.is_empty() {
+        page.exec(InsertTextParams::new(run)).await?;
     }
     Ok(())
 }

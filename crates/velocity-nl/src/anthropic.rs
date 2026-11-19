@@ -151,6 +151,9 @@ impl AnthropicPlanner {
             .or_else(|| velocity_common::env::var("VELOCITY_NL_API_URL").ok())
             .unwrap_or_else(|| API_URL.to_string());
         let client = reqwest::Client::builder()
+            // A provider never redirects; following one would carry the key
+            // (`x-api-key`, `api-key`) to another host (audit 2026-11).
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(limits_for(&effort).0)
             .build()
             .map_err(|e| VelocityError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
@@ -335,8 +338,12 @@ impl AnthropicPlanner {
         self.request_body(CHECK_SYSTEM_PROMPT, check_schema(), content)
     }
 
-    /// A goal turn: the screen block (cache-marked: a re-ask on the same
-    /// screen reuses it), the screenshot when there is one, then the turn.
+    /// A goal turn: the run's stable part (goal, demos, values, apps;
+    /// cache-marked, so with the system prompt it is read from the cache on
+    /// every later turn), the screen block, the screenshot when there is
+    /// one, then the turn's own part (history, memo, notes). The screen
+    /// block is not marked: it changes on most turns, and a cache write
+    /// costs more than the input it replaces (review 14 F4).
     fn goal_body(&self, req: &crate::goal::GoalRequest<'_>) -> Value {
         let block = Self::screen_block(&PlanRequest {
             intent: req.goal,
@@ -347,11 +354,14 @@ impl AnthropicPlanner {
             screen: req.screen,
             feedback: None,
         });
-        let mut content = vec![json!({
-            "type": "text",
-            "text": block,
-            "cache_control": { "type": "ephemeral" }
-        })];
+        let mut content = vec![
+            json!({
+                "type": "text",
+                "text": crate::goal::goal_prompt_stable(req),
+                "cache_control": { "type": "ephemeral" }
+            }),
+            json!({ "type": "text", "text": block }),
+        ];
         if let Some(png) = req.screenshot {
             use base64::Engine as _;
             content.push(json!({
@@ -363,9 +373,9 @@ impl AnthropicPlanner {
                 }
             }));
         }
-        content.push(json!({ "type": "text", "text": crate::goal::goal_prompt(req) }));
+        content.push(json!({ "type": "text", "text": crate::goal::goal_prompt_turn(req) }));
         self.request_body(
-            crate::goal::GOAL_SYSTEM_PROMPT,
+            crate::goal::goal_system_prompt(req.benchmark),
             crate::goal::goal_schema(),
             content,
         )
@@ -376,9 +386,11 @@ impl AnthropicPlanner {
     fn reply_text(&self, parsed: &Value, what: &str) -> Result<String> {
         let usage = &parsed["usage"];
         let n = |k: &str| usage[k].as_u64().unwrap_or(0);
-        self.usage.record(
+        self.usage.record_cached(
             n("input_tokens") + n("cache_read_input_tokens") + n("cache_creation_input_tokens"),
             n("output_tokens"),
+            n("cache_read_input_tokens"),
+            n("cache_creation_input_tokens"),
         );
         tracing::debug!(
             input = usage["input_tokens"].as_u64(),

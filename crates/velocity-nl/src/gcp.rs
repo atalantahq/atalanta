@@ -89,6 +89,9 @@ impl GoogleToken {
     fn with_source(source: Source) -> Self {
         Self {
             client: reqwest::Client::builder()
+                // A provider never redirects; following one would carry the key
+                // (`x-api-key`, `api-key`) to another host (audit 2026-11).
+                .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(30))
                 .build()
                 .unwrap_or_default(),

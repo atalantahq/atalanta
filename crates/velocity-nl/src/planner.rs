@@ -58,6 +58,12 @@ pub struct Usage {
     /// Prompt tokens, cached reads and writes included.
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// The part of `input_tokens` read from the provider's prompt cache
+    /// (billed at a fraction of the input price).
+    pub cache_read_tokens: u64,
+    /// The part of `input_tokens` written to the prompt cache (Anthropic
+    /// bills these above the input price).
+    pub cache_write_tokens: u64,
 }
 
 impl Usage {
@@ -67,6 +73,113 @@ impl Usage {
             calls: self.calls.saturating_sub(earlier.calls),
             input_tokens: self.input_tokens.saturating_sub(earlier.input_tokens),
             output_tokens: self.output_tokens.saturating_sub(earlier.output_tokens),
+            cache_read_tokens: self
+                .cache_read_tokens
+                .saturating_sub(earlier.cache_read_tokens),
+            cache_write_tokens: self
+                .cache_write_tokens
+                .saturating_sub(earlier.cache_write_tokens),
+        }
+    }
+
+    /// The sum of two spends.
+    pub fn plus(self, other: Usage) -> Usage {
+        Usage {
+            calls: self.calls + other.calls,
+            input_tokens: self.input_tokens + other.input_tokens,
+            output_tokens: self.output_tokens + other.output_tokens,
+            cache_read_tokens: self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens: self.cache_write_tokens + other.cache_write_tokens,
+        }
+    }
+
+    /// The estimated cost in dollars at `input` and `output` dollars per
+    /// million tokens. Cache reads are billed at a tenth of the input
+    /// price and cache writes at 1.25 times it (Anthropic's list rates; an
+    /// OpenAI-compatible endpoint's cached reads cost the same or more, so
+    /// for those this is a slight underestimate).
+    pub fn cost(self, input: f64, output: f64) -> f64 {
+        self.cost_at(&Price::new(input, output))
+    }
+
+    /// The estimated cost in dollars at `price`, cache reads and writes at
+    /// the price's own rates.
+    pub fn cost_at(self, price: &Price) -> f64 {
+        let cached = self.cache_read_tokens + self.cache_write_tokens;
+        let plain = self.input_tokens.saturating_sub(cached) as f64;
+        (plain * price.input
+            + self.cache_read_tokens as f64 * price.cache_read()
+            + self.cache_write_tokens as f64 * price.cache_write()
+            + self.output_tokens as f64 * price.output)
+            / 1e6
+    }
+}
+
+/// Dollars per million tokens, for a cost estimate (`--price
+/// IN,OUT[,CACHE_READ[,CACHE_WRITE]]`). Cache rates left out default to
+/// Anthropic's list ratios: a tenth of the input price for a read, 1.25
+/// times it for a write. An OpenAI-compatible endpoint bills cached reads
+/// at half the input price and writes at the input price: pass them.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Price {
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: Option<f64>,
+    pub cache_write: Option<f64>,
+}
+
+impl Price {
+    pub fn new(input: f64, output: f64) -> Self {
+        Self {
+            input,
+            output,
+            cache_read: None,
+            cache_write: None,
+        }
+    }
+
+    /// The rate for a token read from the prompt cache.
+    pub fn cache_read(&self) -> f64 {
+        self.cache_read.unwrap_or(self.input * 0.1)
+    }
+
+    /// The rate for a token written to the prompt cache.
+    pub fn cache_write(&self) -> f64 {
+        self.cache_write.unwrap_or(self.input * 1.25)
+    }
+
+    /// Parse `IN,OUT[,CACHE_READ[,CACHE_WRITE]]`: two to four finite,
+    /// non-negative numbers.
+    pub fn parse(s: &str) -> std::result::Result<Self, String> {
+        let bad = || {
+            format!(
+                "--price {s:?} must be IN,OUT or IN,OUT,CACHE_READ[,CACHE_WRITE] (dollars per million tokens)"
+            )
+        };
+        let nums: Vec<f64> = s
+            .split(',')
+            .map(|v| {
+                v.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| n.is_finite() && *n >= 0.0)
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(bad)?;
+        match nums.as_slice() {
+            [i, o] => Ok(Self::new(*i, *o)),
+            [i, o, r] => Ok(Self {
+                cache_read: Some(*r),
+                ..Self::new(*i, *o)
+            }),
+            [i, o, r, w] => Ok(Self {
+                input: *i,
+                output: *o,
+                cache_read: Some(*r),
+                cache_write: Some(*w),
+            }),
+            _ => Err(bad()),
         }
     }
 }
@@ -77,14 +190,24 @@ pub struct UsageMeter {
     calls: std::sync::atomic::AtomicU64,
     input: std::sync::atomic::AtomicU64,
     output: std::sync::atomic::AtomicU64,
+    cache_read: std::sync::atomic::AtomicU64,
+    cache_write: std::sync::atomic::AtomicU64,
 }
 
 impl UsageMeter {
     pub fn record(&self, input: u64, output: u64) {
+        self.record_cached(input, output, 0, 0);
+    }
+
+    /// Record one call whose `input` tokens include `cache_read` tokens
+    /// read from and `cache_write` tokens written to the prompt cache.
+    pub fn record_cached(&self, input: u64, output: u64, cache_read: u64, cache_write: u64) {
         use std::sync::atomic::Ordering::Relaxed;
         self.calls.fetch_add(1, Relaxed);
         self.input.fetch_add(input, Relaxed);
         self.output.fetch_add(output, Relaxed);
+        self.cache_read.fetch_add(cache_read, Relaxed);
+        self.cache_write.fetch_add(cache_write, Relaxed);
     }
 
     pub fn get(&self) -> Usage {
@@ -93,6 +216,8 @@ impl UsageMeter {
             calls: self.calls.load(Relaxed),
             input_tokens: self.input.load(Relaxed),
             output_tokens: self.output.load(Relaxed),
+            cache_read_tokens: self.cache_read.load(Relaxed),
+            cache_write_tokens: self.cache_write.load(Relaxed),
         }
     }
 }
@@ -237,6 +362,8 @@ impl PlannedStep {
 pub struct ScreenIndex {
     entries: Vec<Element>,
     omitted: usize,
+    /// What the omitted elements were, by kind ("30 text, 11 image").
+    omitted_kinds: String,
     platform: Platform,
 }
 
@@ -256,6 +383,7 @@ impl ScreenIndex {
         let mut entries = Vec::new();
         collect(root, screen, platform, &mut entries);
         let omitted = entries.len().saturating_sub(MAX_ELEMENTS);
+        let mut omitted_kinds = String::new();
         if omitted > 0 {
             let words = words(query);
             let mut ranked: Vec<(usize, usize)> = entries
@@ -266,12 +394,14 @@ impl ScreenIndex {
             ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
             let mut keep: Vec<usize> = ranked[..MAX_ELEMENTS].iter().map(|r| r.1).collect();
             keep.sort_unstable();
+            omitted_kinds = omitted_summary(ranked[MAX_ELEMENTS..].iter().map(|r| &entries[r.1]));
             let mut all: Vec<Option<Element>> = entries.into_iter().map(Some).collect();
             entries = keep.into_iter().filter_map(|i| all[i].take()).collect();
         }
         Self {
             entries,
             omitted,
+            omitted_kinds,
             platform,
         }
     }
@@ -357,7 +487,10 @@ impl ScreenIndex {
             })
             .collect();
         if self.omitted > 0 {
-            lines.push(format!("… ({} more elements omitted)", self.omitted));
+            lines.push(format!(
+                "… ({} more elements omitted: {})",
+                self.omitted, self.omitted_kinds
+            ));
         }
         lines.join("\n")
     }
@@ -463,15 +596,67 @@ fn words(s: &str) -> Vec<String> {
 }
 
 /// How many of the step's words appear in the element's id, label or text.
+/// Above the cap a control ("Save", a text field) shares no word with a
+/// goal like "Delete these expenses" and lost its place to every row that
+/// named one (review 14 F6): a control counts as matching one goal word,
+/// and wins a tie with an element that matches as many.
 fn relevance(el: &Element, query: &[String]) -> usize {
-    if query.is_empty() {
-        return 0;
-    }
     let mut hay = words(&el.platform_id);
     for s in [&el.label, &el.text].into_iter().flatten() {
         hay.extend(words(s));
     }
-    query.iter().filter(|w| hay.contains(w)).count()
+    let hits = query.iter().filter(|w| hay.contains(w)).count();
+    let ty = el.element_type.to_ascii_lowercase();
+    let control = INTERACTIVE_TYPES
+        .iter()
+        .any(|t| ty.contains(t) && *t != "image");
+    let control = usize::from(control);
+    // A pure layout row (`FrameLayout id="content"`) is the first to go:
+    // it can't be acted on and names nothing (review 14 F6).
+    if hits == 0 && control == 0 && is_layout(el) {
+        return 0;
+    }
+    1 + 2 * hits.max(control) + control
+}
+
+/// A layout container with no text or label of its own.
+fn is_layout(el: &Element) -> bool {
+    let has_text = |s: &Option<String>| s.as_deref().is_some_and(|s| !s.trim().is_empty());
+    if has_text(&el.label) || has_text(&el.text) {
+        return false;
+    }
+    let ty = el.element_type.rsplit('.').next().unwrap_or("");
+    ty.ends_with("Layout") || ty == "ViewGroup" || ty == "View" || ty == "Other" || ty == "div"
+}
+
+/// What a list of omitted elements was, by kind: controls the model could
+/// act on are named first, so it knows whether scrolling or a narrower
+/// screen would show something it needs.
+fn omitted_summary<'a>(dropped: impl Iterator<Item = &'a Element>) -> String {
+    let (mut controls, mut texts, mut images, mut layout) = (0, 0, 0, 0);
+    for el in dropped {
+        let ty = el.element_type.to_ascii_lowercase();
+        if ty.contains("image") || ty.contains("img") {
+            images += 1;
+        } else if INTERACTIVE_TYPES.iter().any(|t| ty.contains(t)) {
+            controls += 1;
+        } else if is_layout(el) {
+            layout += 1;
+        } else {
+            texts += 1;
+        }
+    }
+    let mut parts = vec![if controls == 0 {
+        "none interactive".to_string()
+    } else {
+        format!("{controls} interactive")
+    }];
+    for (n, what) in [(texts, "text"), (images, "image"), (layout, "layout")] {
+        if n > 0 {
+            parts.push(format!("{n} {what}"));
+        }
+    }
+    parts.join(", ")
 }
 
 /// Element types worth listing even without a label or text (e.g. an icon
@@ -486,13 +671,13 @@ fn collect(el: &Element, screen: Option<&Rect>, platform: Platform, out: &mut Ve
     let ty = el.element_type.to_ascii_lowercase();
     let has_handle = has_text(&el.label)
         || has_text(&el.text)
+        || has_text(&el.hint)
         || stable_id(el, platform).is_some()
         || INTERACTIVE_TYPES.iter().any(|t| ty.contains(t));
     let on_screen = screen.is_none_or(|s| el.bounds.intersects(s));
     if has_handle && el.visible && !el.bounds.is_empty() && on_screen {
-        let mut flat = el.clone();
-        flat.children = Vec::new();
-        out.push(flat);
+        // Shallow: a clone copied the whole subtree just to drop it.
+        out.push(el.without_children());
     }
     for child in &el.children {
         collect(child, screen, platform, out);
@@ -583,6 +768,54 @@ fn extract_json(s: &str) -> Option<&str> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    #[test]
+    fn a_control_keeps_its_place_above_the_cap() {
+        let mut children: Vec<Element> = (0..200)
+            .map(|i| {
+                let t = format!("Expense {i}");
+                el(&format!("r{i}"), "TextView", Some(&t), None)
+            })
+            .collect();
+        children.push(el("save", "Button", Some("Save"), None));
+        let root = Element {
+            children,
+            ..el("root", "", None, None)
+        };
+        let idx = ScreenIndex::build(&root, None, Platform::Android, "Delete the expense");
+        assert!(idx.render().contains("\"Save\""), "{}", idx.render());
+    }
+
+    #[test]
+    fn cost_bills_cache_reads_and_writes_at_their_own_rates() {
+        let u = super::Usage {
+            calls: 1,
+            input_tokens: 1_000_000,
+            output_tokens: 100_000,
+            cache_read_tokens: 500_000,
+            cache_write_tokens: 100_000,
+        };
+        // 400k plain at $3, 500k reads at $0.30, 100k writes at $3.75,
+        // 100k out at $15.
+        let c = u.cost(3.0, 15.0);
+        assert!((c - (1.2 + 0.15 + 0.375 + 1.5)).abs() < 1e-9, "{c}");
+        let d = u.since(super::Usage {
+            cache_read_tokens: 100_000,
+            ..Default::default()
+        });
+        assert_eq!(d.cache_read_tokens, 400_000);
+        assert_eq!(u.plus(d).cache_write_tokens, 200_000);
+        // Explicit cache rates win over the default ratios.
+        let p = Price::parse("3,15,1.5,3").unwrap();
+        let c = u.cost_at(&p);
+        assert!((c - (1.2 + 0.75 + 0.3 + 1.5)).abs() < 1e-9, "{c}");
+        assert_eq!(Price::parse("3,15").unwrap(), Price::new(3.0, 15.0));
+        assert_eq!(Price::parse("3,15,0.3").unwrap().cache_write(), 3.75);
+        for bad in ["3", "3,x", "3,15,1,2,9", "-1,2", "3,inf"] {
+            assert!(Price::parse(bad).is_err(), "{bad}");
+        }
+    }
+
     use super::*;
     use velocity_common::Rect;
 
@@ -824,7 +1057,32 @@ pub(crate) mod tests {
         assert_eq!(index.len(), MAX_ELEMENTS);
         let text = index.render();
         assert!(text.contains("Checkout now"), "target must survive the cap");
-        assert!(text.contains("more elements omitted"));
+        // The model is told what was dropped: 51 text rows, no control.
+        assert!(
+            text.contains("… (51 more elements omitted: none interactive, 51 text)"),
+            "{}",
+            text.lines().last().unwrap()
+        );
+    }
+
+    #[test]
+    fn layout_rows_go_first_above_the_cap() {
+        let mut children: Vec<Element> = (0..150)
+            .map(|i| el("", "TextView", Some(&format!("Row {i}")), None))
+            .collect();
+        children.insert(0, el("content", "android.widget.FrameLayout", None, None));
+        let root = Element {
+            children,
+            ..el("hierarchy", "", None, None)
+        };
+        let index = ScreenIndex::build(&root, None, Platform::Android, "");
+        let text = index.render();
+        assert!(!text.contains("FrameLayout"), "{}", &text[..200]);
+        assert!(text.contains("Row 149"));
+        assert!(
+            text.ends_with("1 more elements omitted: none interactive, 1 layout)"),
+            "{text}"
+        );
     }
 
     #[test]

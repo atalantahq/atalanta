@@ -626,19 +626,20 @@ async fn the_mirror_frames_h264_from_the_video_stream() {
     assert_eq!(u64::from_be_bytes(b[2..10].try_into().unwrap()), 3000);
 
     // Paused (tab hidden): nothing; resumed: deltas wait for a key frame.
+    // The server acknowledges each switch, so no sleep decides the order
+    // (review 07 M9).
     ws.send(Message::Text(r#"{"type":"pause"}"#.into()))
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(next_json(&mut ws).await["type"], "paused");
     dev_write
         .write_all(&media(0, 4000, &[0, 0, 0, 1, 0x41, 4]))
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
     ws.send(Message::Text(r#"{"type":"resume"}"#.into()))
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(next_json(&mut ws).await["type"], "resumed");
     dev_write
         .write_all(&media(0, 5000, &[0, 0, 0, 1, 0x41, 5]))
         .await

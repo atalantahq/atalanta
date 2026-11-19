@@ -18,6 +18,9 @@ members = [
     "crates/velocity-api",
     "velocity-cli",
 ]
+# cargo-fuzz targets: their own workspace and lockfile, built with nightly
+# (fuzz/Cargo.toml), never by `cargo build` here.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.2.0"
@@ -43,7 +46,12 @@ async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # rustls instead of the platform TLS: no OpenSSL to link or ship on Linux.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2", "charset"] }
+# Roots: Mozilla's bundled set plus the OS trust store
+# (`rustls-tls-native-roots`; SSL_CERT_FILE / SSL_CERT_DIR, when set,
+# replace the OS store), so a corporate or mitmproxy CA the machine trusts
+# works.
+# Proxies come from HTTP(S)_PROXY / ALL_PROXY, minus NO_PROXY.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots", "http2", "charset"] }
 quick-xml = { version = "0.41", features = ["serialize"] }
 regex = "1"
 clap = { version = "4", features = ["derive"] }
@@ -87,6 +95,8 @@ velocity-api = { path = "crates/velocity-api", version = "=0.2.0" }
 # false positives here: CI runs clippy with `-D warnings`.
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
+# `cargo fuzz` builds with `--cfg fuzzing` (fuzz/, tree_server::fuzzing).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
 
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "warn"

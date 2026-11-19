@@ -1,7 +1,7 @@
 //! review-i2 m4: with `web.frames: off` (no frames connection) a
 //! cross-origin iframe's document must not keep the network busy: the
-//! VEL-132 heuristic covers it. Its own test binary: it sets the
-//! process environment.
+//! VEL-132 heuristic covers it. Its own test binary: it changes
+//! Velocity's process-wide settings.
 
 mod common;
 
@@ -13,7 +13,11 @@ use velocity_common::PlatformDriver;
 #[tokio::test]
 async fn frames_off_a_cross_origin_iframe_does_not_keep_the_network_busy() {
     require_chrome!();
-    std::env::set_var("VELOCITY_WEB_FRAMES", "off");
+    // Through Velocity's settings, not `set_var`, which races with every
+    // thread reading the environment (review 07 M7).
+    velocity_common::env::set_settings(
+        [("VELOCITY_WEB_FRAMES".to_string(), "off".to_string())].into(),
+    );
     let inner = serve(&[(
         "/inner.html",
         "<!doctype html><html><body><button id=\"in\">In</button></body></html>",

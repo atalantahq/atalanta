@@ -97,10 +97,10 @@ pub fn reject_heals(path: &std::path::Path, mappings: &[HealedMapping]) -> Resul
         }
     }
     velocity_common::redact::redact_serde(&mut list);
-    let json = serde_json::to_string_pretty(&list)
-        .map_err(|e| VelocityError::Config(format!("heal-rejected: {e}")))?;
+    let json =
+        serde_json::to_string_pretty(&list).map_err(|e| VelocityError::io("heal-rejected", e))?;
     velocity_common::fsutil::write_state(path, json.as_bytes())
-        .map_err(|e| VelocityError::Config(format!("Failed to write {}: {e}", path.display())))?;
+        .map_err(|e| VelocityError::io(format!("Failed to write {}", path.display()), e))?;
     Ok(added)
 }
 
@@ -715,11 +715,10 @@ impl SelectorHealer {
             return Ok(());
         }
 
-        let json = serde_json::to_string_pretty(&mappings).map_err(|e| {
-            VelocityError::Config(format!("Failed to serialize healed mappings: {e}"))
-        })?;
+        let json = serde_json::to_string_pretty(&mappings)
+            .map_err(|e| VelocityError::io("Failed to serialize healed mappings", e))?;
         velocity_common::fsutil::write_state(std::path::Path::new(path), json.as_bytes()).map_err(
-            |e| VelocityError::Config(format!("Failed to write healed mappings to {path}: {e}")),
+            |e| VelocityError::io(format!("Failed to write healed mappings to {path}"), e),
         )?;
 
         info!(

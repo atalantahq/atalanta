@@ -67,6 +67,7 @@ impl Selector {
 /// How a relative selector's target relates to its anchor.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Relation {
     Below,
     Above,
@@ -206,6 +207,30 @@ pub struct Element {
     /// `None`: derive it from `element_type` ([`crate::role::role_of`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// The web element's DOM `id` attribute (`platform_id` is a per-load
+    /// node id there). Set by the web driver only: `id:` selectors match
+    /// it, and it is the web's stable developer id. Until 2026-11-07 it
+    /// was stored as `label`, so recorded tests typed `text: <id>`, which
+    /// the page never matches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dom_id: Option<String>,
+    /// The web element's `class` attribute (web driver only): `className:`
+    /// matches its words, and an icon with nothing else to go by is
+    /// selected by it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub css_class: Option<String>,
+    /// The web element's test id (web driver only): its `data-testid`
+    /// (RN-web `testID`) or Flutter web's `flt-semantics-identifier`.
+    /// `id:` selectors match it, as the page's own `id:` query does, so a
+    /// recorded `id:` is checked for uniqueness against the same set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_id: Option<String>,
+    /// An indeterminate progress indicator (Android: a `ProgressBar` with
+    /// no range, reported by the tree server as `indeterminate="true"`):
+    /// a spinner that turns until the work behind it ends. Settle waits
+    /// on it, within its cap.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub indeterminate: bool,
 }
 
 /// Where the input focus is, relative to an `inputText` target (D-5).
@@ -223,6 +248,33 @@ pub enum FocusCheck<'a> {
 }
 
 impl Element {
+    /// This element without its subtree: a shallow copy, for a flat list
+    /// (`el.clone()` then dropping `children` copied the whole subtree
+    /// first, O(n · depth) over a tree; review 04 #1).
+    pub fn without_children(&self) -> Element {
+        Element {
+            platform_id: self.platform_id.clone(),
+            label: self.label.clone(),
+            text: self.text.clone(),
+            element_type: self.element_type.clone(),
+            bounds: self.bounds,
+            enabled: self.enabled,
+            visible: self.visible,
+            children: Vec::new(),
+            hint: self.hint.clone(),
+            focused: self.focused,
+            obscured: self.obscured,
+            checked: self.checked,
+            visible_bounds: self.visible_bounds,
+            selected: self.selected,
+            role: self.role.clone(),
+            dom_id: self.dom_id.clone(),
+            css_class: self.css_class.clone(),
+            test_id: self.test_id.clone(),
+            indeterminate: self.indeterminate,
+        }
+    }
+
     /// Every element in this tree that reports input focus, pre-order.
     pub fn focused_elements(&self) -> Vec<&Element> {
         let mut out = Vec::new();
@@ -388,6 +440,7 @@ pub enum Direction {
 /// Hardware/soft keys that can be pressed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub enum Key {
     /// Android's back button; iOS's navigation-bar back; history back on
     /// the web (D-9). Never "delete a character": that is `backspace`.
@@ -527,6 +580,14 @@ pub enum Action {
         selector: Selector,
         duration_ms: Option<u64>,
     },
+    /// Press `from`, hold, move onto `to`, rest, lift: reordering a list
+    /// (row 3.1, Maestro #1203).
+    Drag {
+        from: Selector,
+        to: Selector,
+        hold_ms: Option<u64>,
+        move_ms: Option<u64>,
+    },
     InputText {
         selector: Selector,
         text: String,
@@ -628,6 +689,8 @@ pub enum Action {
     /// for `${NAME}` in later steps (`velocity-api` runs it). Needs no
     /// device: a suite of only these runs without one.
     Http(Box<crate::http::HttpRequest>),
+    /// Run an allowed program on the host (`exec`, row 3.2).
+    Exec(Box<crate::exec::ExecStep>),
     /// A natural-language step (e.g. "tap the login button") resolved to a
     /// concrete action at run time by an LLM planner (see the `velocity-nl`
     /// crate). The first resolution is cached against the screen fingerprint so
@@ -783,6 +846,44 @@ impl std::fmt::Display for DeviceState {
 #[cfg(test)]
 mod tests {
     use super::{glob_match, Element, FocusCheck, Key, MockRule, Platform, Rect};
+
+    /// `without_children` copies every field but the subtree: a field added
+    /// to `Element` and forgotten there would show up here.
+    #[test]
+    fn without_children_keeps_every_field_but_the_subtree() {
+        let r = Rect {
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        };
+        let el = Element {
+            platform_id: "p".into(),
+            label: Some("l".into()),
+            text: Some("t".into()),
+            element_type: "Button".into(),
+            bounds: r,
+            enabled: true,
+            visible: true,
+            children: vec![Element::default()],
+            hint: Some("h".into()),
+            focused: Some(true),
+            obscured: true,
+            checked: Some(false),
+            visible_bounds: Some(r),
+            selected: Some(true),
+            role: Some("button".into()),
+            dom_id: Some("d".into()),
+            css_class: Some("c".into()),
+            test_id: Some("ti".into()),
+            indeterminate: true,
+        };
+        let flat = el.without_children();
+        assert!(flat.children.is_empty());
+        let mut want = serde_json::to_value(&el).unwrap();
+        want["children"] = serde_json::json!([]);
+        assert_eq!(serde_json::to_value(&flat).unwrap(), want);
+    }
 
     /// D-5: focus on the target or overlapping it passes; focus elsewhere
     /// is reported; a tree with no focus says nothing.

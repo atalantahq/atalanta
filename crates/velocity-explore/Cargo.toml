@@ -25,9 +25,18 @@ serde_yaml = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 anyhow = { workspace = true }
+png = { workspace = true }
+
+[features]
+# The fake app (`testkit`) the integration tests drive; not shipped in the
+# library otherwise (review 06 #8).
+testkit = []
 
 [dev-dependencies]
-tokio = { workspace = true }
+velocity-explore = { path = ".", features = ["testkit"] }
+# test-util: the explore tests that wait for a late screen run on tokio's
+# paused clock, not wall time (review 07 H3).
+tokio = { workspace = true, features = ["test-util"] }
 tempfile = { workspace = true }
 
 [lints]

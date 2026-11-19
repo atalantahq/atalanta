@@ -13,8 +13,15 @@ pub fn type_text_yaml(selector: &Selector, text: &str) -> String {
     format!(
         "- inputText: {{ selector: {}, text: {} }}",
         selector_to_yaml(selector),
-        yaml_double_quoted(text)
+        literal(text)
     )
+}
+
+/// A recorded string as a quoted YAML scalar that loads back as itself: a
+/// suite fills `${NAME}` in every string when it loads, so `${` is written
+/// `$${` (an app label or typed text never reads a variable).
+fn literal(value: &str) -> String {
+    yaml_double_quoted(&velocity_core::env::escape(value))
 }
 
 pub fn swipe_yaml(direction: &str) -> String {
@@ -79,7 +86,7 @@ fn selector_to_yaml(selector: &Selector) -> String {
 
 /// The `key: value` pairs of a selector map.
 fn selector_fields(selector: &Selector) -> Vec<String> {
-    let q = yaml_double_quoted;
+    let q = literal;
     match selector {
         Selector::Id(id) => vec![format!("id: {}", q(id))],
         Selector::Text(text) => vec![format!("text: {}", q(text))],

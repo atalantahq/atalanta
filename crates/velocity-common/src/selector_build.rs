@@ -8,11 +8,19 @@ use crate::{Element, Platform, Rect, Selector};
 ///
 /// Android's `platform_id` is the resource-id and iOS's is the accessibility
 /// identifier; both survive reruns. Web's is a per-page-load node id, so it is
-/// never offered as a selector (NB-2). Neither is an id a driver made up: a
+/// never offered as a selector (NB-2); the page's own `id` attribute
+/// (`dom_id`) is offered instead. Neither is an id a driver made up: a
 /// headless tree-path key or a UUID re-targets as soon as a view is added.
 pub fn stable_id(el: &Element, platform: Platform) -> Option<&str> {
     if platform == Platform::Web {
-        return None;
+        // The page's own `id` attribute is the developer's, like a
+        // resource-id; the node id in `platform_id` is not.
+        // `data-testid` is what the page's `id:` query also matches.
+        return el
+            .dom_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .or_else(|| el.test_id.as_deref().filter(|s| !s.is_empty()));
     }
     let id = el.platform_id.as_str();
     let placeholder = matches!(id, "" | "hierarchy" | "ios_hierarchy" | "root");
@@ -60,12 +68,13 @@ pub fn robust_selector(
     if let Some(id) = stable_id(target, platform) {
         candidates.push(Selector::Id(id.to_string()));
     }
+    // The accessibility label on every platform. On the web that is
+    // `aria-label`, which a `text:` selector never matches in the page
+    // (it reads visible text): `tap: { text: "Add Green tea" }` for
+    // `<button aria-label="Add Green tea">Add to cart</button>` found
+    // nothing and waited out its timeout (pilot, 2026-11-07).
     if let Some(label) = non_empty(&target.label) {
-        candidates.push(if platform == Platform::Web {
-            Selector::Text(label.to_string())
-        } else {
-            Selector::AccessibilityId(label.to_string())
-        });
+        candidates.push(Selector::AccessibilityId(label.to_string()));
     }
     if let Some(text) = non_empty(&target.text) {
         if Some(text) != non_empty(&target.label) {
@@ -85,6 +94,18 @@ pub fn robust_selector(
                 Selector::Role(role.to_string()),
                 Selector::Name(name),
             ]));
+        }
+    }
+    // On the web, an element with nothing else to go by (an icon) by its
+    // class words, which the page resolves (`.trash`), before its bare tag.
+    if candidates.is_empty() && platform == Platform::Web {
+        if let Some(cls) = target
+            .css_class
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            candidates.push(Selector::ClassName(cls.to_string()));
         }
     }
     if candidates.is_empty() {
@@ -115,7 +136,7 @@ pub fn robust_selector(
         None => stable_id(target, platform)
             .map(|id| Selector::Id(id.to_string()))
             .or_else(|| non_empty(&target.text).map(|t| Selector::Text(t.to_string())))
-            .or_else(|| non_empty(&target.label).map(|l| Selector::Text(l.to_string())))
+            .or_else(|| non_empty(&target.label).map(|l| Selector::AccessibilityId(l.to_string())))
             .unwrap_or_else(|| Selector::ClassName(target.element_type.clone())),
     }
 }

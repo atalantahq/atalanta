@@ -12,6 +12,15 @@
 //!   a reason is better.
 //! - Everything booted is recorded in `~/.velocity/provisioned.json`, so
 //!   `devices down` stops those devices and nothing else.
+//! - Each entry carries an owner: `--owner`, else `VELOCITY_OWNER`, else the
+//!   CI job (GitHub Actions, GitLab, Buildkite, Jenkins, CircleCI), else
+//!   none (a person at a terminal). `devices down` stops only the caller's
+//!   own devices (`--all` stops every owner's), and `up` counts only the
+//!   caller's own emulators as already up, so two CI jobs sharing a host
+//!   and a user never stop each other's devices.
+//! - Picking an emulator port, launching it and recording it happen under
+//!   one host-wide lock, so two `up`s at once never pick the same port;
+//!   creating the iOS golden simulator has its own lock for the same reason.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,7 +51,7 @@ use velocity_common::host::Room;
 use velocity_common::host::{check_room, measure};
 
 fn home() -> PathBuf {
-    PathBuf::from(velocity_common::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+    velocity_common::host::home_dir()
 }
 
 /// [`check_room`] against a fresh measurement.
@@ -85,6 +94,55 @@ pub struct Entry {
     /// Unix seconds.
     #[serde(default)]
     pub at: u64,
+    /// Who booted it ([`owner`]); `None` for a person at a terminal (and
+    /// for entries written before owners existed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+/// The owner new entries get and `down` stops: `explicit` (`--owner`),
+/// else `VELOCITY_OWNER`, else the CI job this runs in, else `None`.
+pub fn owner(explicit: Option<&str>) -> Option<String> {
+    owner_from(explicit, |k| velocity_common::env::var(k).ok())
+}
+
+fn owner_from(explicit: Option<&str>, var: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let nonempty = |v: Option<String>| v.filter(|v| !v.trim().is_empty());
+    if let Some(o) = explicit
+        .map(str::to_string)
+        .filter(|o| !o.trim().is_empty())
+    {
+        return Some(o);
+    }
+    if let Some(o) = nonempty(var("VELOCITY_OWNER")) {
+        return Some(o);
+    }
+    let join = |keys: &[&str]| -> Option<String> {
+        let parts: Vec<String> = keys.iter().filter_map(|k| nonempty(var(k))).collect();
+        (!parts.is_empty()).then(|| parts.join(":"))
+    };
+    // Matrix jobs share GITHUB_JOB; two runner agents on one host differ
+    // in RUNNER_NAME.
+    if nonempty(var("GITHUB_RUN_ID")).is_some() {
+        return join(&[
+            "GITHUB_RUN_ID",
+            "GITHUB_RUN_ATTEMPT",
+            "GITHUB_JOB",
+            "RUNNER_NAME",
+        ])
+        .map(|o| format!("github:{o}"));
+    }
+    for (ci, keys) in [
+        ("gitlab", &["CI_JOB_ID"][..]),
+        ("buildkite", &["BUILDKITE_JOB_ID"][..]),
+        ("circleci", &["CIRCLE_WORKFLOW_JOB_ID"][..]),
+        ("jenkins", &["BUILD_TAG", "EXECUTOR_NUMBER"][..]),
+    ] {
+        if nonempty(var(keys[0])).is_some() {
+            return join(keys).map(|o| format!("{ci}:{o}"));
+        }
+    }
+    None
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -108,6 +166,13 @@ struct RegistryLock {
 
 impl RegistryLock {
     fn take(path: &std::path::Path) -> Self {
+        Self::take_named(path, "json.lock")
+    }
+
+    /// Another host-wide lock beside the registry (`<registry>.<ext>`),
+    /// for work that must not interleave across processes but also calls
+    /// [`Registry::update`] (which takes the registry's own lock).
+    fn take_named(path: &std::path::Path, ext: &str) -> Self {
         use std::os::unix::io::AsRawFd;
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -116,7 +181,7 @@ impl RegistryLock {
             .create(true)
             .truncate(false)
             .write(true)
-            .open(path.with_extension("json.lock"))
+            .open(path.with_extension(ext))
             .ok()
             .filter(|f| {
                 // SAFETY: a valid open descriptor, owned by `f`.
@@ -227,6 +292,7 @@ pub async fn android_up(
     n: usize,
     avd: Option<&str>,
     port_base: u16,
+    owner: Option<&str>,
 ) -> Result<Vec<String>, VelocityError> {
     let avd = match avd {
         Some(a) => a.to_string(),
@@ -244,16 +310,24 @@ pub async fn android_up(
     let running = emulator::running_serials().await;
     let reg = Registry::load();
 
-    // Ours and still up count toward N; forget the ones that are gone.
+    // Ours (this owner's) and still up count toward N; forget the ones
+    // that are gone. Another owner's emulator is never "ours": its job may
+    // stop it at any moment.
     let mut ready = Vec::new();
     let mut gone = Vec::new();
     for e in reg.devices.iter().filter(|e| e.platform == "android") {
         if running.contains(&e.id) && emulator::avd_name(&e.id).await.as_deref() == e.avd.as_deref()
         {
-            if e.avd.as_deref() == Some(avd.as_str()) && ready.len() < n {
+            if e.avd.as_deref() == Some(avd.as_str())
+                && e.owner.as_deref() == owner
+                && ready.len() < n
+            {
                 ready.push(e.id.clone());
             }
-        } else {
+        } else if !e.pid.is_some_and(pid_alive) {
+            // Not in `adb devices` and its process is gone. (One whose
+            // emulator process is alive is still booting, maybe for
+            // another `up` right now: keep it.)
             gone.push(e.id.clone());
         }
     }
@@ -271,6 +345,15 @@ pub async fn android_up(
     let mut refused = None;
     for i in 0..need {
         let pending = ANDROID_BYTES * i as u64;
+        // Held from picking the port until the emulator is recorded: a
+        // second `up` waits here, then sees this one's entry (its emulator
+        // may not be in `adb devices` yet) and skips the port.
+        let _ports = RegistryLock::take_named(&registry_path(), "json.ports.lock");
+        for e in Registry::load().devices {
+            if e.platform == "android" && !taken.contains(&e.id) {
+                taken.push(e.id);
+            }
+        }
         let Some(port) = emulator::free_port(port_base, &taken) else {
             refused = Some(VelocityError::DeviceBootFailed {
                 id: avd.clone(),
@@ -303,8 +386,10 @@ pub async fn android_up(
             started: true,
             created: false,
             at: now(),
+            owner: owner.map(String::from),
         };
         Registry::update(|r| r.record(entry));
+        drop(_ports);
         booting.spawn(async move {
             let r = emulator::wait_booted(&serial, Some(&mut child), ANDROID_BOOT_TIMEOUT).await;
             (serial, r)
@@ -426,7 +511,21 @@ async fn golden(
         )));
     }
     // First time on this host: make the golden and get first-boot
-    // migration over with once.
+    // migration over with once. Under a host-wide lock, looking again
+    // once we hold it: two `up`s at once used to create two goldens of
+    // one name, and `find_golden` then picked either.
+    let _golden_lock = RegistryLock::take_named(&registry_path(), "json.golden.lock");
+    let fresh = sims::parse_sims(&simctl.list_json("devices").await?);
+    if let Some(g) = find_golden(&fresh, type_name, None)? {
+        if g.shutdown() {
+            return Ok(g.udid.clone());
+        }
+        return Err(VelocityError::Config(format!(
+            "golden simulator {} ({}) is {}; it must be shut down to be cloned \
+             (another `velocity devices up` may be creating it: run again when it finishes)",
+            g.name, g.udid, g.state
+        )));
+    }
     let name = sims::golden_name(type_name);
     guard(&name, 0)?;
     let start = Instant::now();
@@ -441,6 +540,7 @@ async fn golden(
             started: false,
             created: true,
             at: now(),
+            owner: None,
         })
     });
     println!(
@@ -463,11 +563,17 @@ pub async fn ios_up(
     n: usize,
     wanted_type: Option<&str>,
     wanted_golden: Option<&str>,
+    owner: Option<&str>,
 ) -> Result<Vec<String>, VelocityError> {
     let simctl = Arc::new(Simctl::new());
     let (type_name, type_id) = device_type(&simctl, wanted_type).await?;
+    // Held from reading the simulators until every clone this `up` boots
+    // is recorded: a second `up` at once waits, then sees them as another
+    // owner's (or this owner's) instead of booting or cloning the same ones.
+    let clones_lock = RegistryLock::take_named(&registry_path(), "json.clones.lock");
     let all = sims::parse_sims(&simctl.list_json("devices").await?);
-    let plan = sims::plan(&all, &type_name, n);
+    let foreign = foreign_ios(&Registry::load(), owner);
+    let plan = sims::plan(&all, &type_name, n, &foreign);
     let mut ready = plan.already.clone();
     for id in &ready {
         println!("  {} {id} ({type_name}) already booted", "✓".green());
@@ -510,6 +616,7 @@ pub async fn ios_up(
                     started: false,
                     created: true,
                     at: now(),
+                    owner: owner.map(String::from),
                 })
             });
             to_boot.push((udid, name, true));
@@ -534,6 +641,7 @@ pub async fn ios_up(
                 started: true,
                 created: name.starts_with("velocity-"),
                 at: now(),
+                owner: owner.map(String::from),
             })
         });
         let simctl = simctl.clone();
@@ -543,6 +651,7 @@ pub async fn ios_up(
             (udid, name, r)
         });
     }
+    drop(clones_lock);
     let mut failed = None;
     while let Some(joined) = booting.join_next().await {
         let Ok((udid, name, r)) = joined else {
@@ -637,6 +746,8 @@ pub struct UpArgs {
     pub app: Option<String>,
     pub app_id: Option<String>,
     pub port: u16,
+    /// `--owner`; see [`owner`].
+    pub owner: Option<String>,
 }
 
 pub async fn up(args: UpArgs) -> anyhow::Result<i32> {
@@ -644,13 +755,21 @@ pub async fn up(args: UpArgs) -> anyhow::Result<i32> {
         usage_bail!("nothing to provision: pass --android N and/or --ios N");
     }
     let start = Instant::now();
+    let who = owner(args.owner.as_deref());
+    if let Some(o) = &who {
+        println!(
+            "{} Owner: {o} (`velocity devices down` from the same job stops these)",
+            "=>".cyan().bold()
+        );
+    }
     if args.android > 0 {
         println!(
             "{} Android: {} read-only emulator(s)",
             "=>".cyan().bold(),
             args.android
         );
-        let serials = android_up(args.android, args.avd.as_deref(), args.port).await?;
+        let serials =
+            android_up(args.android, args.avd.as_deref(), args.port, who.as_deref()).await?;
         install_up(Platform::Android, &serials, &args).await?;
     }
     if args.ios > 0 {
@@ -663,6 +782,7 @@ pub async fn up(args: UpArgs) -> anyhow::Result<i32> {
             args.ios,
             args.device_type.as_deref(),
             args.golden.as_deref(),
+            who.as_deref(),
         )
         .await?;
         install_up(Platform::Ios, &udids, &args).await?;
@@ -693,14 +813,41 @@ async fn install_up(platform: Platform, devices: &[String], args: &UpArgs) -> an
     Ok(())
 }
 
-/// Stop what Velocity started (`platform` limits it to one), and with
-/// `delete` also delete the simulators it created.
-pub async fn down(platform: Option<Platform>, delete: bool) -> anyhow::Result<i32> {
+/// What `devices down` acts on.
+pub struct DownArgs {
+    /// Only this platform.
+    pub platform: Option<Platform>,
+    /// Also delete the simulators Velocity created.
+    pub delete: bool,
+    /// `--owner`; see [`owner`].
+    pub owner: Option<String>,
+    /// `--all`: every owner's devices, not only the caller's.
+    pub all: bool,
+}
+
+/// Whether `down` for `owner` (or `--all`) acts on `e`. Shared goldens
+/// (owner `None`, created, never started) belong to whoever runs
+/// `down --delete`.
+fn owned_by(e: &Entry, owner: Option<&str>, all: bool) -> bool {
+    all || e.owner.as_deref() == owner || (e.owner.is_none() && !e.started && e.created)
+}
+
+/// Stop what Velocity started for this owner (`platform` limits it to
+/// one), and with `delete` also delete the simulators it created.
+pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
+    let DownArgs {
+        platform,
+        delete,
+        owner: explicit,
+        all,
+    } = args;
+    let who = owner(explicit.as_deref());
     let taken = Registry::load().devices;
     let simctl = Simctl::new();
     let running = emulator::running_serials().await;
     let mut kept = Vec::new();
     let mut stopped = 0;
+    let mut others: Vec<String> = Vec::new();
     for e in taken.iter().cloned() {
         let mine = match platform {
             Some(Platform::Android) => e.platform == "android",
@@ -708,6 +855,17 @@ pub async fn down(platform: Option<Platform>, delete: bool) -> anyhow::Result<i3
             _ => true,
         };
         if !mine {
+            kept.push(e);
+            continue;
+        }
+        if !owned_by(&e, who.as_deref(), all) {
+            if e.started {
+                others.push(format!(
+                    "{} ({})",
+                    e.id,
+                    e.owner.as_deref().unwrap_or("no owner")
+                ));
+            }
             kept.push(e);
             continue;
         }
@@ -788,6 +946,15 @@ pub async fn down(platform: Option<Platform>, delete: bool) -> anyhow::Result<i3
         r.devices.retain(|e| !seen.contains(&e.id));
         r.devices.extend(kept);
     });
+    if !others.is_empty() {
+        println!(
+            "  {} left {} device(s) another owner started: {}. \
+             `velocity devices down --all` stops them too",
+            "·".dimmed(),
+            others.len(),
+            others.join(", ")
+        );
+    }
     println!(
         "{} Stopped {stopped} device(s){}",
         "=>".green().bold(),
@@ -804,12 +971,38 @@ pub async fn down(platform: Option<Platform>, delete: bool) -> anyhow::Result<i3
 /// (gone, or another AVD) don't count: they inflated the number
 /// `run --provision` asked android_up for, which booted extra emulators
 /// (VEL-S01).
-fn ours_running(reg: &Registry, running: &[String], avd: Option<&str>) -> usize {
+fn ours_running(
+    reg: &Registry,
+    running: &[String],
+    avd: Option<&str>,
+    owner: Option<&str>,
+) -> usize {
     reg.devices
         .iter()
         .filter(|e| e.platform == "android" && e.started && running.contains(&e.id))
         .filter(|e| avd.is_none() || e.avd.as_deref() == avd)
+        .filter(|e| e.owner.as_deref() == owner)
         .count()
+}
+
+/// Simulators another owner booted through Velocity: `ios_up` neither
+/// counts them as up nor boots them (see `sims::plan`).
+fn foreign_ios(reg: &Registry, owner: Option<&str>) -> Vec<String> {
+    reg.devices
+        .iter()
+        .filter(|e| e.platform == "ios" && e.started && e.owner.as_deref() != owner)
+        .map(|e| e.id.clone())
+        .collect()
+}
+
+/// Whether process `pid` still exists (signal 0 checks without sending).
+fn pid_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: kill with signal 0 only checks for the process.
+    let r = unsafe { libc::kill(pid, 0) };
+    r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 async fn wait_gone(serial: &str) {
@@ -995,16 +1188,18 @@ pub async fn for_run(
                     .ok()
                     .and_then(|a| a.into_iter().next()),
             };
+            let who = owner(None);
             let ours = ours_running(
                 &Registry::load(),
                 &emulator::running_serials().await,
                 avd.as_deref(),
+                who.as_deref(),
             );
             let port = velocity_common::env::var("VELOCITY_EMULATOR_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(emulator::FIRST_PORT);
-            android_up(ours + need, avd.as_deref(), port).await?;
+            android_up(ours + need, avd.as_deref(), port, who.as_deref()).await?;
         }
         Platform::Ios => {
             let simctl = Simctl::new();
@@ -1016,11 +1211,13 @@ pub async fn for_run(
             )
             .await?;
             let all = sims::parse_sims(&simctl.list_json("devices").await?);
+            let who = owner(None);
+            let foreign = foreign_ios(&Registry::load(), who.as_deref());
             let up = sims::clones(&all, &type_name)
                 .iter()
-                .filter(|s| s.booted())
+                .filter(|s| s.booted() && !foreign.contains(&s.udid))
                 .count();
-            ios_up(up + need, Some(&type_name), None).await?;
+            ios_up(up + need, Some(&type_name), None, who.as_deref()).await?;
         }
         Platform::Web => {}
     }
@@ -1035,6 +1232,83 @@ pub async fn for_run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_owner_comes_from_the_flag_then_the_env_then_the_ci_job() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |k: &str| {
+                pairs
+                    .iter()
+                    .find(|(n, _)| *n == k)
+                    .map(|(_, v)| v.to_string())
+            }
+        };
+        assert_eq!(owner_from(None, env(&[])), None);
+        assert_eq!(
+            owner_from(Some("job-7"), env(&[("VELOCITY_OWNER", "x")])).as_deref(),
+            Some("job-7")
+        );
+        assert_eq!(
+            owner_from(None, env(&[("VELOCITY_OWNER", "x"), ("CI_JOB_ID", "9")])).as_deref(),
+            Some("x")
+        );
+        assert_eq!(
+            owner_from(None, env(&[("CI_JOB_ID", "9")])).as_deref(),
+            Some("gitlab:9")
+        );
+        assert_eq!(
+            owner_from(
+                None,
+                env(&[
+                    ("GITHUB_RUN_ID", "1"),
+                    ("GITHUB_RUN_ATTEMPT", "2"),
+                    ("GITHUB_JOB", "e2e"),
+                    ("RUNNER_NAME", "mac-3"),
+                ])
+            )
+            .as_deref(),
+            Some("github:1:2:e2e:mac-3")
+        );
+    }
+
+    /// One CI job's `devices down` leaves another job's emulator alone.
+    #[test]
+    fn down_acts_only_on_the_callers_own_devices_unless_all() {
+        let mut a = android_entry("emulator-5554");
+        a.owner = Some("job-a".into());
+        let mut b = android_entry("emulator-5556");
+        b.owner = Some("job-b".into());
+        let none = android_entry("emulator-5558");
+        assert!(owned_by(&a, Some("job-a"), false));
+        assert!(!owned_by(&b, Some("job-a"), false));
+        assert!(!owned_by(&none, Some("job-a"), false));
+        assert!(owned_by(&none, None, false));
+        assert!(!owned_by(&a, None, false));
+        assert!(owned_by(&b, Some("job-a"), true));
+        // A shared golden (never started, no owner) is anyone's to delete.
+        let golden = Entry {
+            platform: "ios".into(),
+            id: "G".into(),
+            name: "velocity-iPhone-golden".into(),
+            avd: None,
+            pid: None,
+            started: false,
+            created: true,
+            at: 0,
+            owner: None,
+        };
+        assert!(owned_by(&golden, Some("job-a"), false));
+    }
+
+    #[test]
+    fn an_old_registry_without_owners_still_loads() {
+        let e: Entry = serde_json::from_str(
+            r#"{"platform":"android","id":"emulator-5554","name":"P","started":true}"#,
+        )
+        .unwrap();
+        assert_eq!(e.owner, None);
+        assert!(!serde_json::to_string(&e).unwrap().contains("owner"));
+    }
 
     /// VEL-S06: `--golden <name>` with two simulators of that name is an
     /// error naming both, not the first one found.
@@ -1109,6 +1383,7 @@ mod tests {
             started,
             created: false,
             at: 0,
+            owner: None,
         };
         let reg = Registry {
             devices: vec![
@@ -1121,8 +1396,9 @@ mod tests {
         let running: Vec<String> = ["emulator-5554", "emulator-5558", "emulator-5560"]
             .map(String::from)
             .to_vec();
-        assert_eq!(ours_running(&reg, &running, Some("Pixel")), 1);
-        assert_eq!(ours_running(&reg, &running, None), 2);
+        assert_eq!(ours_running(&reg, &running, Some("Pixel"), None), 1);
+        assert_eq!(ours_running(&reg, &running, None, None), 2);
+        assert_eq!(ours_running(&reg, &running, None, Some("job-2")), 0);
     }
 
     const LIMITS: (f64, u64, u64) = (35.0, 3 * GB, 3 * GB);
@@ -1172,6 +1448,7 @@ mod tests {
             started: true,
             created: false,
             at: 0,
+            owner: None,
         }
     }
 
@@ -1254,6 +1531,7 @@ mod tests {
             started,
             created,
             at: 0,
+            owner: None,
         };
         reg.record(e(false, true));
         reg.record(e(true, false));
