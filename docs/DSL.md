@@ -85,6 +85,28 @@ When a selector matches several elements, Velocity uses the first in tree order 
 - `${VAR}`, `${VAR:-default}` and `${VAR:?message}` are read from `--env K=V`, then from the environment. `$${` writes a literal `${`.
 - Values of variables with secret-looking names are masked in all output and reports. So are the variables listed in `VELOCITY_SECRETS`.
 - An `http` step's `capture:` sets variables while the test runs (see [HTTP and API tests](#http-and-api-tests)).
+- `${keychain:NAME}` reads the OS keychain: service `velocity` (`VELOCITY_KEYCHAIN_SERVICE`), account `NAME`, with `security find-generic-password` on macOS and `secret-tool lookup` on Linux. Store one with `security add-generic-password -s velocity -a NAME -w` or `secret-tool store --label velocity service velocity account NAME`. `VELOCITY_KEYCHAIN_CMD` names another program, called as `<cmd> <service> <account>` and printing the secret (a password-manager CLI, a CI secret store). The value is always masked.
+- `${totp:NAME}` types the current 6-digit one-time code (RFC 6238: SHA-1, 30 s) for the base32 secret in `NAME`, the one an authenticator app is set up with. `NAME` may be a variable or `keychain:NAME`. The code is worked out when its step runs, so it is fresh; the secret and the code are masked.
+
+### Logging in
+
+Keep the login in a suite of its own (`login.yaml`) with every credential as a `${NAME}`:
+
+```yaml
+appId: com.example.app
+tests:
+  - name: sign in
+    steps:
+      - launchApp: { clearState: true }
+      - inputText: { selector: { id: email }, text: "${LOGIN_EMAIL}" }
+      - inputText: { selector: { id: password }, text: "${keychain:LOGIN_PASSWORD}" }
+      - inputText: { selector: { id: code }, text: "${totp:LOGIN_TOTP}" }
+      - tap: { id: sign_in }
+      - assertVisible: { text: Home }
+```
+
+- **`velocity login login.yaml`** runs it (the first test, or `--test NAME`) once, with no retry and no result cache, and leaves the app logged in. An agent can call it from a shell without ever seeing the password.
+- **`velocity explore "<goal>" --after login.yaml`** replays it with no model before the first planning turn. The test explore writes starts with the same steps, by name. Over MCP, `run {goal, app_id, after: "login.yaml"}` does the same.
 
 ## Flows
 
@@ -259,6 +281,53 @@ A matcher is a plain value, which must be equal (numbers by value, `1` = `1.0`),
 No response (connection refused, DNS, TLS, timeout) fails the test (exit 1), like a failed check. `optional: true` forgives both. `config.http.insecure: true` accepts any TLS certificate, for a dev server's self-signed one. `RUST_LOG=velocity_api=debug` logs every request and the start of each response.
 
 Design notes and the tools compared: [research/landscape-api-testing.md](research/landscape-api-testing.md).
+
+## Reordering (`drag`)
+
+`drag` presses one element and drops it on another, the way a person reorders a list.
+
+> Status: verified in headless Chrome only. Not yet run on an emulator, a simulator or a real reorderable list ([STATUS.md](STATUS.md)).
+
+For example:
+
+```yaml
+appId: com.example.groceries
+tests:
+  - name: milk moves below eggs
+    steps:
+      - launchApp: {}
+      - drag: { from: { text: Milk }, to: { text: Eggs } }
+      - assertVisible: { text: "Eggs, Milk" }
+```
+
+It presses the centre of `from` and holds it for `holdMs` (default 700, past the platforms' long-press time, so the list picks the row up). It then moves onto the centre of `to` over `moveMs` (default 900), rests 250 ms so the list drops the row instead of flinging it, and lifts. Android uses `input motionevent` (Android 10+; `input draganddrop` before), iOS W3C pointer actions with a pause (or WebDriverAgent's `dragfromtoforduration`), and the web the mouse with the button held. A `swipe` is a quick stroke and picks nothing up.
+
+## Host commands (`exec`)
+
+> Status: verified with headless Chrome on macOS. Not yet run with `adb` against a device ([STATUS.md](STATUS.md)).
+
+`exec` runs a program on the machine running Velocity, such as an `adb` command or a script that seeds test data. It checks how the program ended and keeps its output. It is off unless the suite lists the program:
+
+```yaml
+appId: com.example.app
+config:
+  exec:
+    allow: [adb, ./scripts/seed.sh]
+tests:
+  - name: a seeded cart shows
+    steps:
+      - exec: { run: "./scripts/seed.sh cart 3", capture: CART_ID }
+      - exec:
+          run: [adb, -s, "${VELOCITY_DEVICE_ID}", shell, pm, grant, com.example.app, android.permission.CAMERA]
+      - launchApp: {}
+      - assertVisible: { text: "Cart ${CART_ID}" }
+```
+
+- **No shell.** A string is split on spaces, and quotes keep a part whole, so `;`, `|` and `$(…)` are plain characters. The program, the first part, must be in `config.exec.allow` exactly as written; `velocity validate` refuses the suite otherwise (exit 2), and the executor checks again.
+- **Checks.** `expect: { exitCode: 0 }` (the default) and `contains: "text"`, which the output must include. A failure shows the exit code and the end of the output, masked.
+- **Capture.** `capture: NAME` sets `${NAME}` to the trimmed standard output for the test's later steps (masked when the name looks secret).
+- **Environment.** `VELOCITY_DEVICE_ID` is the test's device. `timeoutMs` bounds the step (default 60 s), and `cwd` sets its folder.
+- **Agents.** An MCP agent can't add `exec` to a suite it writes (`run {yaml}`) outside `--profile full`; see the Rule of Two in [SECURITY.md](SECURITY.md#9-agents-the-rule-of-two).
 
 ## Accessibility audit
 

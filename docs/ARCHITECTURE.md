@@ -187,7 +187,7 @@ Heals are written to `.velocity/healed-selectors.json`. `velocity heal --accept`
 
 ## Natural-language steps
 
-`do:`/`act:` and `assert:`/`expect:` steps, and bare string steps, go through `velocity-nl`.
+`do:`/`act:` and `assert:`/`expect:` steps, and bare string steps, go through `velocity-nl`. The executor sees it only through the `NaturalStepResolver` trait in `velocity-common/src/natural.rs`, so `velocity-core` does not depend on `velocity-nl` or its HTTP clients; the CLI and the runner attach a `NaturalResolver`.
 
 **The model picks and code decides.**
 
