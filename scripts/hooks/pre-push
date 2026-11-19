@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Opt-in pre-push hook (scripts/install-hooks.sh): secrets in every commit
+# being pushed, and the dependency checks that need no build. Slower than
+# pre-commit (it may use the network for advisories). Bypass once with
+# `git push --no-verify`.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+bad=0
+note() { printf 'pre-push: %s\n' "$*" >&2; }
+zero=0000000000000000000000000000000000000000
+
+# stdin: <local ref> <local sha> <remote ref> <remote sha>, one per ref.
+while read -r _ local_sha _ remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue # a branch deletion
+    if [ "$remote_sha" = "$zero" ]; then
+        range="$local_sha" # a new branch: everything not on any remote
+        opts=(--log-opts="$local_sha --not --remotes")
+    else
+        range="$remote_sha..$local_sha"
+        opts=(--log-opts="$range")
+    fi
+    if command -v gitleaks > /dev/null 2>&1; then
+        gitleaks git "${opts[@]}" --config .gitleaks.toml --redact --no-banner . || {
+            note "gitleaks found a possible secret in $range"; bad=1; }
+    else
+        note "gitleaks not installed (brew install gitleaks): secrets not checked"
+    fi
+done
+
+if git diff --name-only "@{push}.." 2> /dev/null | grep -qE 'Cargo\.lock|package-lock\.json' ||
+    ! git rev-parse "@{push}" > /dev/null 2>&1; then
+    scripts/security-check.sh deny osv npm-audit || bad=1
+fi
+
+exit "$bad"

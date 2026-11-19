@@ -1,0 +1,55 @@
+# gitleaks configuration (scripts/security-check.sh, .github/workflows/security.yml).
+#
+# The default rule set, plus an allowlist of values that are known to be fake:
+# test fixtures, RFC test vectors and redaction test cases. Every entry names
+# where the value lives and why it is not a secret. Keep it narrow: allow a
+# specific value or file, never a whole rule or a directory of real code.
+#
+# Reviewed 2026-11-11 against the full history (`gitleaks git .`) and the
+# working tree (`gitleaks dir .`): every finding was one of the values below.
+# A new finding is a real secret until someone shows otherwise. If one ever
+# turns out to be real, rotate it first; rewriting history does not un-leak it.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake tokens, passwords and RFC test vectors in tests"
+# regexTarget defaults to the captured secret.
+regexes = [
+    # velocity-cli/tests/http_api.rs, crates/velocity-api/tests/session.rs:
+    # bearer tokens a local fake HTTP server hands out.
+    '''^tok-5ecret-0123456789$''',
+    '''^tok-0123456789abcdef$''',
+    # The Sec-WebSocket-Key sample nonce from RFC 6455 section 1.3
+    # (crates/velocity-inspector/tests/{server,console}.rs).
+    '''^dGhlIHNhbXBsZSBub25jZQ==$''',
+    # Typed-password fixtures in the secret-masking tests
+    # (crates/velocity-explore/tests/explore.rs, crates/velocity-core/src/healing.rs).
+    '''^S3cr3t-pw-T5-explore$''',
+    '''^vel065-Pa55w0rd-QzX$''',
+    # The ASCII-hex counting token used for handshake/HMAC tests
+    # (tree_server.rs, video.rs, wda_bootstrap.rs, HostChecks.java).
+    '''^0123456789abcdef(0123456789abcdef)?$''',
+    # The RFC 6238 Appendix B TOTP seed ("12345678901234567890" in base32)
+    # (crates/velocity-common/src/secrets.rs, crates/velocity-core/src/env.rs).
+    '''^GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ$''',
+    # Redaction test cases (crates/velocity-common/src/redact.rs): an
+    # AWS-shaped key id and an api-key value that must be masked.
+    '''^AKIAABCDEFGHIJKLMNOP$''',
+    '''^abcdef123456$''',
+]
+
+[[allowlists]]
+description = "Throwaway RSA key for the GCP service-account JWT tests"
+# Generated for the tests (see the TEST_KEY comment in
+# crates/velocity-nl/src/gcp.rs), paired only with the fake
+# tester@velocity-test.iam.gserviceaccount.com; it authenticates nothing.
+paths = ['''^crates/velocity-nl/fixtures/test-service-account-key\.pem$''']
+
+[[allowlists]]
+description = "PEM template around a key generated at test time"
+# crates/velocity-ios/src/asc.rs test_key(): format!("-----BEGIN PRIVATE
+# KEY-----\n{}\n...") with a P-256 key ring generates on each run.
+regexTarget = "match"
+regexes = ['''BEGIN PRIVATE KEY-----\\n\{\}\\n-----END PRIVATE KEY''']

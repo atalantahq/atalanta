@@ -1,12 +1,24 @@
+# Version updates, weekly. No Gradle or pub entries: the sync probe
+# compiles against a deliberate API floor and the Flutter bridge has only
+# SDK dependencies (SECURITY.md, "Dependabot").
 version: 2
 updates:
   # Rust dependencies, weekly, as one grouped PR for compatible updates so
   # CI runs once; major versions come one PR each (they change APIs).
+  # Each PR changes Cargo.lock, so it also needs
+  # `python3 scripts/third-party-rust.py --write` committed on its branch
+  # (ci.yml's Release files job fails until then, and attaches the
+  # regenerated file; SECURITY.md, "Dependabot").
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
       day: monday
+    # A release must be a week old before a version update proposes it:
+    # most malicious or broken publishes are yanked within days. Security
+    # updates are not delayed.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       rust-minor:
@@ -18,6 +30,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # A release must be a week old before a version update proposes it:
+    # most malicious or broken publishes are yanked within days. Security
+    # updates are not delayed.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 3
     groups:
       frontend-minor:
@@ -29,6 +46,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # A release must be a week old before a version update proposes it:
+    # most malicious or broken publishes are yanked within days. Security
+    # updates are not delayed.
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns: ["*"]

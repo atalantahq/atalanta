@@ -7,7 +7,9 @@ name: Release
 #
 # Assets: velocity-<version>-<target>.tar.gz (a velocity-<version>-<target>/
 # directory holding velocity, LICENSE, NOTICE, README.md, CHANGELOG.md),
-# SHA256SUMS, velocity.rb. install.sh, the Homebrew formula and the npm
+# the CycloneDX SBOMs velocity-<version>-{velocity-cli,inspector-frontend}.cdx.json,
+# SHA256SUMS (archives and SBOMs), SHA256SUMS.sigstore.json (its signed
+# provenance attestation), velocity.rb. install.sh, the Homebrew formula and the npm
 # packages all read these names.
 #
 # The publish jobs (crates.io, npm, Homebrew tap) are off until the owner
@@ -31,6 +33,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Same toolchain as ci.yml (the release-files job there checks they agree).
+  RUST_VERSION: "1.98.1"
 
 jobs:
   # The tag, the workspace version and the changelog must agree before
@@ -42,7 +46,13 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Check the tag matches Cargo.toml and CHANGELOG.md
         id: version
         shell: bash
@@ -59,6 +69,13 @@ jobs:
             echo "::error::CHANGELOG.md still says $version is unreleased; give it the release date"
             exit 1
           fi
+          # The release notes are the [X.Y.Z] section only: anything still
+          # under [Unreleased] would be left out of them. Fold it in first
+          # (scripts/bump-version.sh X.Y.Z --date does).
+          if scripts/changelog-section.sh Unreleased > /dev/null 2>&1; then
+            echo "::error::CHANGELOG.md has entries under [Unreleased]; move them into [$version] (scripts/bump-version.sh $version --date)"
+            exit 1
+          fi
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
@@ -73,17 +90,23 @@ jobs:
       run:
         working-directory: crates/velocity-inspector/frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] -- v4 caches only with `cache:`, unset
         with:
           node-version: "24"
-          cache: npm
-          cache-dependency-path: crates/velocity-inspector/frontend/package-lock.json
+          # No dependency cache: release inputs are fetched fresh, never
+          # restored from a cache another workflow could have written.
       - run: npm ci
       - run: npm test
       - run: npm run build
       - run: test -f dist/index.html
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: inspector-dist
           path: crates/velocity-inspector/frontend/dist
@@ -117,11 +140,17 @@ jobs:
       VERSION: ${{ needs.preflight.outputs.version }}
       TARGET: ${{ matrix.target }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # The inspector UI is embedded at compile time from this folder.
       - name: Download inspector frontend
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: inspector-dist
           path: crates/velocity-inspector/frontend/dist
@@ -129,13 +158,25 @@ jobs:
         shell: bash
         run: test -f crates/velocity-inspector/frontend/dist/index.html
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
+      # No rust-cache here: shipped binaries are built cold, never from a
+      # target/ restored from another workflow's cache.
+      - name: Toolchain versions
+        shell: bash
+        run: |
+          rustc -Vv
+          cargo -V
+
+      # Embeds the dependency list (crate names, versions, sources) in the
+      # binary, so `cargo audit bin` / osv-scanner / syft can check a
+      # shipped binary against advisories later (cargo-auditable).
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
-          key: ${{ matrix.target }}
+          tool: cargo-auditable@0.7.7
 
       - name: Install zig and cargo-zigbuild
         if: matrix.zig
@@ -143,14 +184,24 @@ jobs:
         run: |
           python3 -m pip install --user ziglang==0.13.0.post1
           cargo install --locked cargo-zigbuild@0.20.1
+          python3 -m ziglang version
+          cargo zigbuild --version
 
+      # `velocity version` prints these on its second line (option_env!).
       - name: Build release binary
         shell: bash
+        env:
+          ZIG: ${{ matrix.zig }}
         run: |
-          if [ "${{ matrix.zig }}" = "true" ]; then
-            cargo zigbuild --release --locked --target "$TARGET" -p velocity-cli
+          VELOCITY_GIT_SHA=${GITHUB_SHA:0:12}
+          VELOCITY_RUSTC_VERSION=$(rustc -V | cut -d' ' -f2)
+          export VELOCITY_GIT_SHA VELOCITY_RUSTC_VERSION
+          # `cargo auditable <cmd>` runs `cargo <cmd>` with itself as the
+          # rustc workspace wrapper, so it composes with zigbuild.
+          if [ "$ZIG" = "true" ]; then
+            cargo auditable zigbuild --release --locked --target "$TARGET" -p velocity-cli
           else
-            cargo build --release --locked --target "$TARGET" -p velocity-cli
+            cargo auditable build --release --locked --target "$TARGET" -p velocity-cli
           fi
 
       - name: Check the binary
@@ -169,7 +220,8 @@ jobs:
           case "$TARGET" in
             x86_64-unknown-linux-musl|*-apple-darwin)
               "$bin" --version
-              "$bin" --version | grep -q "$VERSION" ;;
+              "$bin" --version | grep -q "$VERSION"
+              "$bin" version | sed -n 2p | grep -q "^commit ${GITHUB_SHA:0:12}," ;;
           esac
 
       - name: Package
@@ -179,24 +231,60 @@ jobs:
           name="velocity-${VERSION}-${TARGET}"
           mkdir -p "dist/$name"
           cp "target/$TARGET/release/velocity" LICENSE NOTICE README.md CHANGELOG.md "dist/$name/"
+          # NOTICE points at the third-party inventories by these paths.
+          mkdir -p "dist/$name/docs/licenses"
+          cp docs/licenses/THIRD-PARTY-RUST.md docs/licenses/THIRD-PARTY-NPM.md "dist/$name/docs/licenses/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           echo "archive=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: ${{ steps.package.outputs.archive }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ steps.package.outputs.name }}
           path: ${{ steps.package.outputs.archive }}
           if-no-files-found: error
 
+  # CycloneDX SBOMs of what the binaries contain: the crates (all targets)
+  # and the embedded frontend's production npm packages. Attached to the
+  # release, listed in SHA256SUMS and attested with the archives.
+  sbom:
+    name: SBOM
+    needs: preflight
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.preflight.outputs.version }}
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] -- v4 caches only with `cache:`, unset
+        with:
+          node-version: "24"
+      - run: scripts/sbom.sh sbom "$VERSION"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom
+          path: sbom
+          if-no-files-found: error
+
   release:
     name: GitHub release
-    needs: [preflight, build]
+    needs: [preflight, build, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -205,15 +293,26 @@ jobs:
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Only the release tarballs: `inspector-dist` is a build input.
       - name: Download release archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: assets
           pattern: velocity-*
           merge-multiple: true
+      - name: Download SBOMs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sbom
+          path: assets
 
       - name: Checksums, formula and notes
         shell: bash
@@ -223,44 +322,74 @@ jobs:
           if [ "$count" -ne 4 ]; then
             echo "::error::expected 4 archives, found $count"; ls -l; exit 1
           fi
-          sha256sum velocity-*.tar.gz > SHA256SUMS
+          test -f "velocity-${VERSION}-velocity-cli.cdx.json" && test -f "velocity-${VERSION}-inspector-frontend.cdx.json"
+          sha256sum velocity-*.tar.gz velocity-*.cdx.json > SHA256SUMS
           cat SHA256SUMS
           cd ..
           scripts/render-formula.sh "$VERSION" assets/SHA256SUMS > assets/velocity.rb
+          if grep -q '0\{64\}' assets/velocity.rb || ! grep -q "releases/download/v${VERSION}/" assets/velocity.rb; then
+            echo "::error::the rendered formula has a placeholder sha256 or no v${VERSION} URLs"; exit 1
+          fi
           {
             scripts/changelog-section.sh "$VERSION"
             echo
             echo "## Install"
             echo
             echo '```sh'
-            echo "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh"
+            echo "curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/v${VERSION}/install.sh | sh -s -- --version ${VERSION}"
             echo "brew install omkar-dev/velocity/velocity"
             echo "npx @velocity-test/cli --version"
             echo "cargo install velocity-cli --locked"
             echo '```'
             echo
             echo "Binaries: macOS (Apple silicon, Intel) and Linux (x86_64, arm64; static). Windows is not supported."
-            echo "Check a download: \`sha256sum -c SHA256SUMS --ignore-missing\`, and its provenance: \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`."
+            echo "Check a download: \`sha256sum -c SHA256SUMS --ignore-missing\`, and its provenance: \`gh attestation verify <file> --repo ${GITHUB_REPOSITORY}\`. SHA256SUMS is signed by the release workflow through Sigstore: \`gh attestation verify SHA256SUMS --repo ${GITHUB_REPOSITORY}\`, or offline with \`gh attestation verify SHA256SUMS --repo ${GITHUB_REPOSITORY} --bundle SHA256SUMS.sigstore.json\`."
+            echo
+            echo "SBOMs (CycloneDX): \`velocity-${VERSION}-velocity-cli.cdx.json\` (the crates in the binary; the binaries also embed this list, readable with \`cargo audit bin\`) and \`velocity-${VERSION}-inspector-frontend.cdx.json\` (the embedded web UI's npm packages)."
+            echo
+            echo "The macOS binaries are ad-hoc signed, not Developer ID signed or notarised. Installed with install.sh, brew or npm they run as is; a tarball downloaded in a browser is quarantined, and macOS asks you to approve it (System Settings > Privacy & Security), or run \`xattr -d com.apple.quarantine velocity\` once you have checked it against SHA256SUMS."
+            echo
+            echo "Built with Rust ${RUST_VERSION} (the toolchain CI tests); the Linux binaries with zig 0.13.0 and cargo-zigbuild 0.20.1."
           } > notes.md
 
+      # Provenance for the SBOMs (the archives were attested where they
+      # were built), and a Sigstore-signed attestation of SHA256SUMS, which
+      # vouches for every asset it lists. Its bundle ships as
+      # SHA256SUMS.sigstore.json for offline verification.
+      - name: Attest the SBOMs
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: assets/velocity-*.cdx.json
       - name: Attest the checksum file
-        uses: actions/attest-build-provenance@v2
+        id: attest_sums
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: assets/SHA256SUMS
+      - name: Keep the checksum attestation as an asset
+        env:
+          BUNDLE: ${{ steps.attest_sums.outputs.bundle-path }}
+        run: cp "$BUNDLE" assets/SHA256SUMS.sigstore.json
 
+      # The runner's own gh, not a third-party action, in the one job that
+      # holds contents: write.
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Velocity ${{ needs.preflight.outputs.version }}
-          body_path: notes.md
-          prerelease: ${{ needs.preflight.outputs.prerelease == 'true' }}
-          fail_on_unmatched_files: true
-          files: |
-            assets/velocity-*.tar.gz
-            assets/SHA256SUMS
-            assets/velocity.rb
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+        run: |
+          flags=()
+          [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+          gh release create "v${VERSION}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Velocity ${VERSION}" \
+            --notes-file notes.md \
+            "${flags[@]}" \
+            assets/velocity-"${VERSION}"-*.tar.gz assets/velocity-"${VERSION}"-*.cdx.json \
+            assets/SHA256SUMS assets/SHA256SUMS.sigstore.json assets/velocity.rb
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: formula
           path: assets/velocity.rb
@@ -271,14 +400,22 @@ jobs:
     if: vars.PUBLISH_CRATES == 'true' && needs.preflight.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       # velocity-inspector's package carries the built UI (its `include`).
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: inspector-dist
           path: crates/velocity-inspector/frontend/dist
       - run: test -f crates/velocity-inspector/frontend/dist/index.html
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
       # Every workspace crate, in dependency order; `--allow-dirty` only
       # because frontend/dist is gitignored.
       - run: cargo publish --workspace --locked --allow-dirty
@@ -296,12 +433,19 @@ jobs:
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # setup-node v4 caches only with `cache:`, which is not set here.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning]
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: assets
           pattern: velocity-*
@@ -310,14 +454,15 @@ jobs:
       # Platform packages before the launcher that depends on them.
       - name: Publish
         shell: bash
+        env:
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           tag=latest
-          [ "${{ needs.preflight.outputs.prerelease }}" = "true" ] && tag=next
+          [ "$PRERELEASE" = "true" ] && tag=next
           for dir in npm/dist/cli-*/ npm/dist/cli/; do
             npm publish "$dir" --access public --provenance --tag "$tag"
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   homebrew:
     name: Update the Homebrew tap
@@ -325,11 +470,18 @@ jobs:
     if: vars.PUBLISH_HOMEBREW == 'true' && needs.preflight.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: formula
-      - uses: actions/checkout@v4
+      # The one checkout that keeps its credentials: the next step pushes
+      # with them, to the tap only (HOMEBREW_TAP_TOKEN can write nothing else).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 # zizmor: ignore[artipacked]
         with:
+          persist-credentials: true
           repository: omkar-dev/homebrew-velocity
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap

@@ -1,0 +1,32 @@
+# Code owners: a pull request touching these paths needs the owner's review
+# once a branch ruleset requires code-owner review (SECURITY.md, "GitHub
+# settings checklist"). These are the files that decide what CI runs and
+# with which permissions, what gets released and installed, and the
+# network- or agent-facing security boundaries.
+
+# CI, release and supply-chain configuration
+/.github/                                       @omkar-dev
+/action.yml                                     @omkar-dev
+/deny.toml                                      @omkar-dev
+/osv-scanner.toml                               @omkar-dev
+/.gitleaks.toml                                 @omkar-dev
+/.semgrepignore                                 @omkar-dev
+/Cargo.toml                                     @omkar-dev
+/fuzz/                                          @omkar-dev
+
+# Release and install tooling
+/scripts/                                       @omkar-dev
+/install.sh                                     @omkar-dev
+/Formula/                                       @omkar-dev
+/npm/                                           @omkar-dev
+/docs/licenses/                                 @omkar-dev
+
+# Security boundaries: the MCP server agents drive, and the on-device tree
+# server (its handshake, and the jar every Android run pushes)
+/crates/velocity-mcp/                           @omkar-dev
+/probes/android/velocity-tree-server/           @omkar-dev
+/crates/velocity-android/assets/                @omkar-dev
+
+# Security documentation
+/SECURITY.md                                    @omkar-dev
+/docs/SECURITY.md                               @omkar-dev

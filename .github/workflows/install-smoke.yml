@@ -26,7 +26,10 @@ name: Install smoke
 # what runs this after every tagged release (its head_branch is the tag).
 
 on:
-  workflow_run:
+  # Only completed Release runs started by a tag push in this repository
+  # are acted on (the `version` job's `if:`); nothing from the triggering
+  # run is checked out or downloaded, and the version is validated.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: [Release]
     types: [completed]
   release:
@@ -73,6 +76,10 @@ env:
     tests:
       - name: Serves the JSON file
         steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+            with:
+              egress-policy: audit
           - http:
               url: /health.json
               expect:
@@ -95,6 +102,10 @@ env:
                   "$.items[*].sku": { contains: B2 }
       - name: A missing file is a 404
         steps:
+          - name: Harden the runner
+            uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+            with:
+              egress-policy: audit
           - http:
               url: /missing.json
               expect: { status: 404 }
@@ -114,23 +125,34 @@ env:
 jobs:
   version:
     name: Resolve version
-    # A failed release published nothing to check.
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # A failed release published nothing to check. A workflow_run can also
+    # come from a pull request whose branch carries a workflow named
+    # Release: only a tag push in this repository counts.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
       prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
       - id: v
         shell: bash
         env:
           RAW: ${{ github.event.workflow_run.head_branch || github.event.release.tag_name || inputs.version }}
         run: |
           version="${RAW#v}"
-          case "$version" in
-            [0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::'$RAW' is not a version (X.Y.Z)"; exit 1 ;;
-          esac
+          # X.Y.Z or X.Y.Z-pre: digits, dots, letters and dashes only (the
+          # value is used in URLs, file names and GITHUB_OUTPUT).
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$RAW' is not a version (X.Y.Z)"; exit 1
+          fi
           # Same rule as release.yml's preflight.
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -149,11 +171,18 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
       # The release assets are uploaded before the release is published, so
       # nothing to wait for. The script is the one the README pipes from main.
+      # Exactly what the README tells users to run; install.sh checks the
+      # archive against the release's SHA256SUMS before installing it.
       - name: Install with install.sh
         shell: bash
-        run: |
+        # nosemgrep: yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell
+        run: | # zizmor: ignore[github-env] -- only a fixed RUNNER_TEMP path goes to GITHUB_PATH
           set -euo pipefail
           dir="$RUNNER_TEMP/velocity-bin"
           curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh" |
@@ -180,11 +209,15 @@ jobs:
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
       HOMEBREW_NO_ENV_HINTS: "1"
     steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
       # ubuntu-latest ships Homebrew at /home/linuxbrew but not on PATH.
       - name: Put brew on PATH (Linux)
         if: runner.os == 'Linux'
         shell: bash
-        run: |
+        run: | # zizmor: ignore[github-env] -- only the runner image's brew directory
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           dirname "$(command -v brew)" >> "$GITHUB_PATH"
       # release.yml's homebrew job pushes Formula/velocity.rb to the tap after
@@ -230,7 +263,11 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/setup-node@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] -- v4 caches only with `cache:`, unset here
         with:
           node-version: "24"
       # The launcher is published last, after the platform packages.
@@ -264,7 +301,15 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      # Floating stable on purpose: what a user running `cargo install` has
+      # (the release binaries themselves are built with RUST_VERSION).
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
       # `cargo publish --workspace` uploads velocity-cli last; wait for it to
       # be in the index.
       - name: Wait for velocity-cli ${{ env.VERSION }} on crates.io

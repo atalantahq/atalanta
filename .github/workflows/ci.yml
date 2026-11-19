@@ -40,9 +40,18 @@ jobs:
       rust: ${{ steps.filter.outputs.rust }}
       frontend: ${{ steps.filter.outputs.frontend }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      tree_jar: ${{ steps.filter.outputs.tree_jar }}
+      bench: ${{ steps.filter.outputs.bench }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      # Credentials kept: on a push, paths-filter runs `git fetch` for the
+      # previous commit, which a private repository refuses without them.
+      # The job runs nothing else, with read-only permissions.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 # zizmor: ignore[artipacked]
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         id: filter
         with:
           filters: |
@@ -64,6 +73,14 @@ jobs:
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/**'
+            bench:
+              - 'bench/killtest/**'
+              - '.github/workflows/ci.yml'
+            tree_jar:
+              - 'probes/android/velocity-tree-server/**'
+              - 'crates/velocity-android/assets/**'
+              - 'scripts/check-tree-jar.sh'
+              - '.github/workflows/ci.yml'
 
   # The inspector's web UI is built here, never by build.rs. The Rust
   # jobs below build without it (the inspector then serves its API and a
@@ -76,8 +93,14 @@ jobs:
       run:
         working-directory: crates/velocity-inspector/frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm
@@ -86,7 +109,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: test -f dist/index.html
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: inspector-dist
           path: crates/velocity-inspector/frontend/dist
@@ -97,8 +120,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt
@@ -111,12 +140,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -133,25 +168,82 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: test-${{ matrix.os }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-nextest
+      # ~150 web tests skip themselves (`require_chrome!`) when there is no
+      # Chrome, and a skipped test reports PASS. Install one explicitly and
+      # point the tests (CHROME_PATH) and chromiumoxide (CHROME) at it, so a
+      # runner-image change can't turn the web tests green and empty.
+      - uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1.7.3
+        id: chrome
+        with:
+          chrome-version: stable
+      - name: Chrome is installed
+        shell: bash
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          test -x "$CHROME_BIN" || { echo "::error::no Chrome at '$CHROME_BIN'"; exit 1; }
+          "$CHROME_BIN" --version
+          echo "CHROME_PATH=$CHROME_BIN" >> "$GITHUB_ENV"
+          echo "CHROME=$CHROME_BIN" >> "$GITHUB_ENV"
       # One process per test, the 62 test binaries in parallel instead of one
       # after another (172 s serially on a laptop). Doc tests run separately:
       # nextest doesn't run them.
       - run: cargo nextest run --workspace --locked --profile ci
+      # The ci profile stores passing tests' output in junit.xml: any test
+      # that skipped itself for want of Chrome fails the job here.
+      - name: No Chrome test skipped itself
+        shell: bash
+        run: |
+          junit=target/nextest/ci/junit.xml
+          test -f "$junit" || { echo "::error::no $junit"; exit 1; }
+          if grep -c 'skipped: no Chrome' "$junit"; then
+            echo "::error::tests skipped themselves for want of Chrome (see 'skipped: no Chrome' in $junit)"
+            exit 1
+          fi
+      # retries = 1 lets a flaky test pass a pull request, but it is listed
+      # in the summary, and on main it fails the job so it gets fixed.
+      - name: Flaky tests
+        if: always()
+        shell: bash
+        run: |
+          junit=target/nextest/ci/junit.xml
+          [ -f "$junit" ] || exit 0
+          flaky=$(grep -c '<flakyFailure' "$junit" || true)
+          echo "flaky tests (passed on retry): $flaky" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$flaky" -gt 0 ]; then
+            grep -B1 '<flakyFailure' "$junit" | grep -o 'testcase name="[^"]*"' | sort -u >> "$GITHUB_STEP_SUMMARY" || true
+            if [ "$GITHUB_REF" = refs/heads/main ]; then
+              echo "::error::$flaky test(s) passed only on retry"; exit 1
+            fi
+          fi
       - run: cargo test --workspace --locked --doc
+      # Row 0.5: what the MCP tool definitions cost an agent on every turn,
+      # per profile, in the job summary. The test fails past its budget.
+      - name: MCP schema size
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo test -p velocity-mcp-server --lib --locked core_profile_schema_budget -- --nocapture 2>&1 \
+            | grep '^mcp schema:' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: junit-${{ matrix.os }}
           path: target/nextest/ci/junit.xml
@@ -164,15 +256,27 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89
-      - uses: Swatinem/rust-cache@v2
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: "1.89"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: msrv
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo check --workspace --all-targets --locked
+      # Every test target must compile on the floor, and the unit tests run
+      # there (the integration tests, which drive Chrome and fake devices,
+      # run on RUST_VERSION in the test job).
+      - run: cargo test --workspace --locked --no-run
+      - run: cargo test --workspace --locked --lib --bins
 
   # The release profile (fat LTO, one codegen unit) is the slowest job by
   # far and catches nothing clippy and the tests don't, except a link or
@@ -186,11 +290,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: release-${{ matrix.os }}
       - run: cargo build --workspace --release --locked
@@ -208,43 +318,179 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: inspector-dist
           path: crates/velocity-inspector/frontend/dist
-      - run: shellcheck install.sh scripts/*.sh
+      # Every shell script in the repo, the probe builds included (-x follows
+      # the files they source, relative to each script).
+      - run: >-
+          shellcheck -x -P SCRIPTDIR install.sh scripts/*.sh scripts/measure/*.sh scripts/hooks/*
+          probes/android/velocity-tree-server/build.sh
+          probes/android/velocity-sync-probe/host-check.sh
+          probes/ios/VelocitySyncProbe/HostChecks/run.sh
+          bench/head-to-head/run.sh
       - name: Changelog entry and formula for the workspace version
         run: |
           version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
           scripts/changelog-section.sh "$version" > /dev/null
-          scripts/render-formula.sh "$version" > /dev/null
-      - uses: dtolnay/rust-toolchain@master
+          # The committed formula is the script's HEAD-only output (no
+          # release checksums): never URLs for assets that may not exist.
+          scripts/render-formula.sh "$version" | diff -u Formula/velocity.rb - ||
+            { echo "::error::Formula/velocity.rb is stale: scripts/render-formula.sh $version > Formula/velocity.rb"; exit 1; }
+      # The tree-server protocol is written in three places; CLAUDE.md is
+      # what agents read first, so a stale number there misleads them.
+      - name: Tree-server protocol agrees across the code and CLAUDE.md
+        run: |
+          rust=$(sed -n 's/^const SERVER_VERSION: &str = "\([0-9]*\)";$/\1/p' crates/velocity-android/src/tree_server.rs)
+          java=$(sed -n 's/^ *static final String VERSION = "\([0-9]*\)";$/\1/p' probes/android/velocity-tree-server/src/com/velocity/tree/Server.java)
+          doc=$(grep -o 'protocol [0-9]*' CLAUDE.md | head -1 | cut -d' ' -f2)
+          echo "tree_server.rs $rust, Server.java $java, CLAUDE.md $doc"
+          if [ -z "$rust" ] || [ "$rust" != "$java" ] || [ "$rust" != "$doc" ]; then
+            echo "::error::tree-server protocol differs: tree_server.rs '$rust', Server.java '$java', CLAUDE.md '$doc'"; exit 1
+          fi
+      # Release binaries must be built by the toolchain these jobs test:
+      # every workflow that builds Velocity pins the same RUST_VERSION.
+      - name: One Rust toolchain across workflows
+        run: |
+          want=$(sed -n 's/^  RUST_VERSION: "\(.*\)"$/\1/p' .github/workflows/ci.yml)
+          [ -n "$want" ] || { echo "::error::no RUST_VERSION in ci.yml"; exit 1; }
+          bad=0
+          for f in release.yml device-smoke.yml docs.yml flutter-bridge.yml security.yml; do
+            got=$(sed -n 's/^  RUST_VERSION: "\(.*\)"$/\1/p' ".github/workflows/$f")
+            if [ "$got" != "$want" ]; then
+              echo "::error file=.github/workflows/$f::RUST_VERSION '$got', ci.yml has '$want'"; bad=1
+            fi
+          done
+          if grep -nE 'dtolnay/rust-toolchain@(stable|beta|nightly)' .github/workflows/*.yml; then
+            echo "::error::a floating dtolnay/rust-toolchain ref; pin the action's SHA and pass toolchain:"; bad=1
+          fi
+          exit "$bad"
+      # Every action pinned to a full commit SHA (Dependabot keeps them
+      # current): a moved tag can't change what runs.
+      - name: Actions pinned to commit SHAs
+        run: |
+          if grep -nE '^\s*-?\s*uses:\s*[^.][^@]*@' .github/workflows/*.yml action.yml | grep -vE '@[0-9a-f]{40}( |$)'; then
+            echo "::error::actions above are not pinned to a full commit SHA"; exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
+      # NOTICE points at this inventory; it must list what Cargo.lock has.
+      # A Cargo.lock change (a Dependabot PR included) needs the inventory
+      # regenerated in the same PR. Dependabot can't do that itself, so on
+      # a failure the regenerated file is attached to the run and the
+      # summary gives the one-command fix (SECURITY.md, "Dependabot").
+      - name: Third-party licence inventory is current
+        id: inventory
+        run: python3 -I scripts/third-party-rust.py --check
+      - name: Regenerated licence inventory
+        if: failure() && steps.inventory.outcome == 'failure'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          python3 -I scripts/third-party-rust.py --write
+          {
+            echo "### docs/licenses/THIRD-PARTY-RUST.md is stale"
+            echo
+            echo "Cargo.lock changed without the inventory. On this branch (\`${HEAD_REF:-main}\`):"
+            echo
+            echo '```sh'
+            echo 'python3 scripts/third-party-rust.py --write && git commit -am "Regenerate THIRD-PARTY-RUST.md" && git push'
+            echo '```'
+            echo
+            echo "The regenerated file is attached to this run as \`third-party-rust\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the regenerated inventory
+        if: failure() && steps.inventory.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: third-party-rust
+          path: docs/licenses/THIRD-PARTY-RUST.md
+          retention-days: 7
       - name: Package every crate
         run: |
           cargo package --workspace --locked --no-verify --allow-dirty
           cargo package -p velocity-inspector --list --allow-dirty | grep -qx 'frontend/dist/index.html'
 
-  # Licences, bans and sources must pass. Advisories must pass too; the two
-  # with no fix upstream are ignored in deny.toml with their reasons. A new
-  # advisory appearing overnight shouldn't block an unrelated PR, so on PRs
-  # it is reported, and the weekly canary run fails on it.
+  # The committed tree-server jar (include_bytes!'d into every release and
+  # pushed to every Android device) must be what the committed Java builds
+  # to, with the platform, build-tools and JDK pinned in toolchain.env.
+  tree-jar:
+    name: Tree-server jar reproduces
+    needs: changes
+    if: needs.changes.outputs.tree_jar == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Read the pinned toolchain
+        id: pins
+        run: grep -E '^TREE_[A-Z_]+=' probes/android/velocity-tree-server/toolchain.env >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: ${{ steps.pins.outputs.TREE_JDK }}
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+      - name: Install the pinned SDK platform and build-tools
+        env:
+          PLATFORM: ${{ steps.pins.outputs.TREE_PLATFORM }}
+          BUILD_TOOLS: ${{ steps.pins.outputs.TREE_BUILD_TOOLS }}
+        run: sdkmanager "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS"
+      - name: Rebuild and compare with the committed jar
+        run: scripts/check-tree-jar.sh
+
+  # The trust benchmark's scorer is what a reviewer trusts least: its tests
+  # run on every change to it. (bench/androidworld/test_bench.py imports
+  # AndroidWorld, which is not installed here; run it where AndroidWorld is.)
+  bench-tests:
+    name: Bench scorer tests
+    needs: changes
+    if: needs.changes.outputs.bench == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: python3 -I bench/killtest/test_score.py
+
+  # Licences, bans and sources must pass. RustSec advisories run in
+  # security.yml (on dependency changes, on main and weekly), outside
+  # `CI OK`: a new advisory published overnight shouldn't block an
+  # unrelated PR.
   deny:
-    name: cargo-deny (${{ matrix.checks }})
+    name: cargo-deny (licenses bans sources)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        checks: ["licenses bans sources", advisories]
-    continue-on-error: ${{ matrix.checks == 'advisories' && github.event_name == 'pull_request' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
-          command: check ${{ matrix.checks }}
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check licenses bans sources
 
   # The workflows themselves: expressions, job graph, and shellcheck on
   # every `run:` script.
@@ -255,18 +501,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: raven-actions/actionlint@v2
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
 
   # The one check branch protection needs: every job above passed or was
   # skipped on purpose (a docs-only change skips the Rust jobs).
   ci-ok:
     name: CI OK
     if: always()
-    needs: [changes, frontend, fmt, clippy, test, msrv, release-files, deny, actionlint]
+    needs: [changes, frontend, fmt, clippy, test, msrv, release-files, tree-jar, bench-tests, deny, actionlint]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
       - name: Every job passed or was skipped
         env:
           RESULTS: ${{ toJSON(needs) }}

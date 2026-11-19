@@ -8,6 +8,13 @@ on:
   pull_request:
     types: [labeled, synchronize, reopened]
 
+permissions:
+  contents: read
+
+env:
+  # Same toolchain as ci.yml (the release-files job there checks they agree).
+  RUST_VERSION: "1.98.1"
+
 jobs:
   dart:
     name: Dart bridge (Flutter ${{ matrix.flutter }})
@@ -30,8 +37,14 @@ jobs:
       run:
         working-directory: crates/velocity-flutter-bridge/dart
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: ${{ matrix.flutter }}
           channel: ${{ matrix.channel }}
@@ -50,7 +63,15 @@ jobs:
       (github.event.action != 'labeled' || github.event.label.name == 'flutter-ci'))
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test -p velocity-flutter-bridge

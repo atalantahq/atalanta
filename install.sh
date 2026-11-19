@@ -11,6 +11,16 @@
 #   --no-modify-path    VELOCITY_NO_MODIFY_PATH=1  don't add DIR to your shell profile
 #   --verify-attestation  VELOCITY_VERIFY_ATTESTATION=1  also check the build's
 #                       provenance with `gh attestation verify` (needs the GitHub CLI)
+#   --sha256 HEX        VELOCITY_SHA256       the archive must also have this sha256
+#                       (pins the exact build, e.g. in CI, on top of SHA256SUMS)
+#   --keep-quarantine   VELOCITY_KEEP_QUARANTINE=1  on macOS, leave a
+#                       com.apple.quarantine flag in place (see below)
+#
+# macOS: the release binaries are ad-hoc signed, not Developer ID signed or
+# notarised. curl does not quarantine what it downloads, so normally there is
+# nothing to do. If the installed binary does carry the quarantine flag, this
+# script removes it, after the SHA256SUMS check, and says so; Gatekeeper would
+# otherwise refuse to run it. --keep-quarantine leaves it for you to approve.
 #
 # Supported: macOS (Apple silicon, Intel) and Linux (x86_64, arm64; static
 # binaries, any distribution). Windows is not supported.
@@ -24,6 +34,8 @@ INSTALL_DIR="${VELOCITY_INSTALL_DIR:-$HOME/.velocity/bin}"
 MODIFY_PATH=1
 [ "${VELOCITY_NO_MODIFY_PATH:-0}" = 1 ] && MODIFY_PATH=0
 VERIFY_ATTESTATION="${VELOCITY_VERIFY_ATTESTATION:-0}"
+PINNED_SHA256="${VELOCITY_SHA256:-}"
+KEEP_QUARANTINE="${VELOCITY_KEEP_QUARANTINE:-0}"
 
 if [ -t 2 ]; then
     BOLD=$(printf '\033[1m'); RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
@@ -39,7 +51,7 @@ die() {
 }
 
 usage() {
-    sed -n '2,17p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' >&2 || true
+    sed -n '2,26p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//' >&2 || true
     exit "${1:-0}"
 }
 
@@ -47,10 +59,13 @@ while [ $# -gt 0 ]; do
     case $1 in
         --version) [ $# -ge 2 ] || die "--version needs a value"; VERSION=$2; shift 2 ;;
         --version=*) VERSION=${1#*=}; shift ;;
+        --sha256) [ $# -ge 2 ] || die "--sha256 needs a value"; PINNED_SHA256=$2; shift 2 ;;
+        --sha256=*) PINNED_SHA256=${1#*=}; shift ;;
         --dir) [ $# -ge 2 ] || die "--dir needs a value"; INSTALL_DIR=$2; shift 2 ;;
         --dir=*) INSTALL_DIR=${1#*=}; shift ;;
         --no-modify-path) MODIFY_PATH=0; shift ;;
         --verify-attestation) VERIFY_ATTESTATION=1; shift ;;
+        --keep-quarantine) KEEP_QUARANTINE=1; shift ;;
         -h|--help) usage 0 ;;
         *) die "unknown option: $1 (see --help)" ;;
     esac
@@ -63,7 +78,12 @@ download() {
     if need curl; then
         curl --proto '=https,file' --tlsv1.2 -fsSL --retry 3 -o "$2" "$1"
     elif need wget; then
-        wget -q -O "$2" "$1"
+        # GNU wget: HTTPS only, TLS 1.2 or newer (busybox wget has neither flag).
+        if wget --help 2>&1 | grep -q -- '--https-only'; then
+            wget -q --https-only --secure-protocol=TLSv1_2 -O "$2" "$1"
+        else
+            wget -q -O "$2" "$1"
+        fi
     else
         die "need curl or wget to download Velocity"
     fi
@@ -178,6 +198,12 @@ main() {
     [ "$expected" = "$actual" ] ||
         die "checksum mismatch for ${archive}: expected ${expected}, got ${actual}"
     info "Checksum verified (sha256 ${actual})."
+    if [ -n "$PINNED_SHA256" ]; then
+        pinned=$(printf '%s' "$PINNED_SHA256" | tr 'A-F' 'a-f')
+        [ "$pinned" = "$actual" ] ||
+            die "the archive's sha256 ${actual} is not the pinned ${pinned} (--sha256 / VELOCITY_SHA256)"
+        info "Pinned sha256 matches."
+    fi
 
     if [ "$VERIFY_ATTESTATION" = 1 ]; then
         need gh || die "--verify-attestation needs the GitHub CLI (gh)"
@@ -199,13 +225,26 @@ main() {
     chmod 755 "${INSTALL_DIR}/.velocity.tmp.$$"
     mv -f "${INSTALL_DIR}/.velocity.tmp.$$" "${INSTALL_DIR}/velocity"
 
-    if [ "$(uname -s)" = Darwin ]; then
-        # Downloaded with curl, so normally not quarantined; clear it anyway.
-        xattr -d com.apple.quarantine "${INSTALL_DIR}/velocity" 2>/dev/null || true
+    # The binary is ad-hoc signed, not notarised (see the header). Only act
+    # when the flag is actually there, and say what was done.
+    quarantined=0
+    if [ "$(uname -s)" = Darwin ] &&
+        xattr -p com.apple.quarantine "${INSTALL_DIR}/velocity" >/dev/null 2>&1; then
+        if [ "$KEEP_QUARANTINE" = 1 ]; then
+            info "Left the macOS quarantine flag on ${INSTALL_DIR}/velocity (--keep-quarantine); approve it in System Settings > Privacy & Security on first run."
+            quarantined=1
+        else
+            xattr -d com.apple.quarantine "${INSTALL_DIR}/velocity" ||
+                die "could not remove the quarantine flag from ${INSTALL_DIR}/velocity"
+            info "Removed the macOS quarantine flag from ${INSTALL_DIR}/velocity (its sha256 matched SHA256SUMS; the binary is not notarised). --keep-quarantine skips this."
+        fi
     fi
 
-    "${INSTALL_DIR}/velocity" --version >/dev/null 2>&1 ||
-        die "installed ${INSTALL_DIR}/velocity but it does not run on this machine"
+    # A quarantined binary would be stopped by Gatekeeper here: skip the run check.
+    if [ "$quarantined" = 0 ]; then
+        "${INSTALL_DIR}/velocity" --version >/dev/null 2>&1 ||
+            die "installed ${INSTALL_DIR}/velocity but it does not run on this machine"
+    fi
 
     add_to_path
     ok "Velocity ${VERSION} installed: ${INSTALL_DIR}/velocity"
