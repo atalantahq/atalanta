@@ -53,9 +53,10 @@ Modifiers:
 
 Launch the app (or `appId`); `clearState: true` wipes its data first.
 
-Argument: nothing or map: `appId`?, `clearState`?.
+Argument: nothing or map: `appId`?, `arguments`?, `clearState`?.
 
 - `appId` (string)
+- `arguments` (map of key to value) - Launch arguments passed to the app (name -> string | bool | number); names are `[A-Za-z0-9_.-]`, not starting with `-`
 - `clearState` (boolean)
 
 ### `stopApp`

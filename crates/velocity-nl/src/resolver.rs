@@ -1031,6 +1031,7 @@ mod tests {
             Action::LaunchApp {
                 app_id: "com.other.bank".into(),
                 clear_state: true,
+                arguments: Default::default(),
             },
             Action::Wait { ms: 3_600_000 },
             Action::GoBack,

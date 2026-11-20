@@ -881,7 +881,16 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                     if let Some(c) = get("clearState") {
                         pairs.push(("clearState", c));
                     }
-                    warn_unused(arg, &["appId", "clearState"], line, command, ctx);
+                    if let Some(a) = get("arguments") {
+                        pairs.push(("arguments", a));
+                    }
+                    warn_unused(
+                        arg,
+                        &["appId", "clearState", "arguments"],
+                        line,
+                        command,
+                        ctx,
+                    );
                 }
                 _ => {}
             }
@@ -2373,6 +2382,34 @@ mod tests {
 
     // VEL-240: a `retry` block was skipped, emptying the flow, and the
     // migration still said success.
+    #[test]
+    fn launch_app_arguments_carry_over() {
+        let (result, suite) = migrate(
+            "args",
+            &[(
+                "flow.yaml",
+                "appId: com.shop\n---\n- launchApp:\n    arguments:\n      isE2E: true\n      server: \"https://staging\"\n- tapOn: \"Go\"\n",
+            )],
+        );
+        assert!(result.success);
+        let velocity_common::Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action
+        else {
+            panic!(
+                "expected LaunchApp, got {:?}",
+                suite.tests[0].steps[0].action
+            );
+        };
+        assert_eq!(arguments.inner.len(), 2, "{arguments:?}");
+        assert!(
+            !result
+                .issues
+                .iter()
+                .any(|i| i.message.contains("arguments")),
+            "{:?}",
+            result.issues
+        );
+    }
+
     #[test]
     fn a_retry_block_is_inlined_once_with_a_warning() {
         let (result, suite) = migrate(
