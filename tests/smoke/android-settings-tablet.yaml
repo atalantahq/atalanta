@@ -16,11 +16,12 @@ tests:
       - stopApp: {}
       - launchApp:
           appId: com.android.settings
-      - assertVisible: { text: "Network & internet" }
-      - tap: { text: "Network & internet" }
-      - assertVisible: { text: "Airplane mode" }
-      # The list stays on the left: open another page and check the right
-      # pane changed.
-      - tap: { text: "Storage" }
-      - assertNotVisible: { text: "Airplane mode" }
+      # The right pane opens on Network & internet, so start from another
+      # page: then the tap below has to change it. Rows are anchored to the
+      # list pane (the right pane repeats the page title).
+      - tap: { text: "Storage", childOf: { id: "homepage_container" } }
       - assertVisible: { textContains: "GB total" }
+      - assertNotVisible: { text: "Airplane mode" }
+      - tap: { text: "Network & internet", childOf: { id: "homepage_container" } }
+      - assertVisible: { text: "Airplane mode" }
+      - assertNotVisible: { textContains: "GB total" }
