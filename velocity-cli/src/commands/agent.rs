@@ -786,7 +786,10 @@ fn summary(command: &str, data: &Value) -> String {
     if let Some(path) = s("path") {
         return format!("ok {command} {path}");
     }
+    // A passing `assert --not` must not read like a positive assert.
+    let not = data.get("visible").and_then(Value::as_bool) == Some(false);
     match s("selector") {
+        Some(sel) if not => format!("ok {command} not visible: {sel}"),
         Some(sel) => format!("ok {command} {sel}"),
         None => format!("ok {command} {data}"),
     }

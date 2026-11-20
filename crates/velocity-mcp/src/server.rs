@@ -2303,13 +2303,17 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "assert_visible".to_string(),
-                description: "Check that an element a selector or ref names is visible now (no waiting: use wait_for_element to wait). Does not change the device. Fails with ASSERTION_FAILED when it is not; recorded as an assertion for export_session_flow. Safe to repeat".to_string(),
+                description: "Check that an element a selector or ref names is visible, now or within timeout_ms. Does not change the device. Fails with ASSERTION_FAILED when it is not; recorded as an assertion for export_session_flow. Safe to repeat".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "selector": {
                             "type": "object",
                             "description": "Selector to check visibility for"
+                        },
+                        "timeout_ms": {
+                            "type": "integer",
+                            "description": "How long it may take to appear (default 0: check now; max 30000)"
                         }
                     },
                     "required": ["selector"]

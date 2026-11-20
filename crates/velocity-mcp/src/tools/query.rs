@@ -145,6 +145,16 @@ pub async fn assert_visible(
 ) -> Result<Value> {
     let selector: Selector = super::interaction::parse_selector(args)?;
 
+    // `timeout_ms` (default 0: check now) waits for it first, as
+    // `velocity assert --timeout` asks; the check below then reports it.
+    if u64_arg(args, "timeout_ms")?.unwrap_or(0) > 0 {
+        match wait_for_element(driver, device_id, args).await {
+            Ok(_) => {}
+            Err(e) if e.kind() == velocity_common::ErrorKind::ElementNotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+
     let element = super::interaction::find_live(driver, device_id, &selector).await?;
     let visible = driver.is_element_visible(device_id, &element).await?;
 
@@ -554,6 +564,26 @@ mod wait_tests {
         assert_eq!(found["waited_ms"], 0, "{found}");
         assert_visible(&d, "d", &args).await.unwrap();
         get_element(&d, "d", &args).await.unwrap();
+    }
+
+    // SUNMI tablet, 2026-11-21: `velocity assert --timeout 3s` failed at
+    // once ("after 0ms"); assert_visible ignored timeout_ms.
+    #[tokio::test]
+    async fn assert_visible_waits_for_its_timeout_and_checks_now_without_one() {
+        let d = driver().await;
+        let start = Instant::now();
+        let none = serde_json::json!({ "selector": { "text": "never-there" } });
+        assert!(assert_visible(&d, "headless", &none).await.is_err());
+        assert!(start.elapsed() < Duration::from_millis(300));
+
+        let start = Instant::now();
+        let waits = serde_json::json!({
+            "selector": { "text": "never-there" },
+            "timeout_ms": 600,
+            "poll_interval_ms": 100
+        });
+        let e = assert_visible(&d, "headless", &waits).await.unwrap_err();
+        assert!(start.elapsed() >= Duration::from_millis(600), "{e}");
     }
 
     // VEL-245: a wrong-typed number is reported, not silently the default.
