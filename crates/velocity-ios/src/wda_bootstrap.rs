@@ -19,7 +19,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
@@ -995,33 +995,94 @@ impl WdaBootstrap {
             .join(format!("{}.log", sanitize(device_id)));
         rotate_log(&log_path, MAX_LOG_BYTES);
         let (ready_tx, mut ready_rx) = watch::channel(false);
-        spawn_drain(child.stdout.take(), log_path.clone(), ready_tx.clone());
-        spawn_drain(child.stderr.take(), log_path.clone(), ready_tx);
+        let (cause_tx, cause_rx) = watch::channel(None);
+        let (running_tx, running_rx) = watch::channel(false);
+        spawn_drain(
+            child.stdout.take(),
+            log_path.clone(),
+            ready_tx.clone(),
+            cause_tx.clone(),
+            running_tx.clone(),
+        );
+        spawn_drain(
+            child.stderr.take(),
+            log_path.clone(),
+            ready_tx,
+            cause_tx,
+            running_tx,
+        );
         self.wda_process = Some(child);
         if !self.physical {
             self.launched = Some((device_id.to_string(), RunnerKind::requested()));
         }
 
         let deadline = tokio::time::Instant::now() + WDA_READY_TIMEOUT;
+        let mut warned_runner_started = false;
+        let mut runner_started_at: Option<Instant> = None;
         loop {
+            // A fatal startup cause (the drain matched it in the log) wins
+            // over everything else: fail fast instead of waiting out the
+            // iOS automation timeout.
+            if let Some(cause) = cause_rx.borrow().clone() {
+                return Err(VelocityError::RunnerFailing {
+                    device_id: device_id.to_string(),
+                    detail: format!("{cause}; see {}", log_path.display()),
+                });
+            }
             if self.is_running().await {
                 return Ok(());
             }
             if let Some(child) = self.wda_process.as_mut() {
                 if let Ok(Some(status)) = child.try_wait() {
-                    return Err(config(format!(
-                        "WDA exited before becoming ready ({status}); see {}",
-                        log_path.display()
-                    )));
+                    // This run's lines only (the log file keeps earlier
+                    // runs): give the readers a moment to finish the pipes.
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                    let cause = cause_rx.borrow().clone();
+                    let detail = match cause {
+                        Some(cause) => format!(
+                            "exited before becoming ready ({status}); {cause}; see {}",
+                            log_path.display()
+                        ),
+                        None => format!(
+                            "exited before becoming ready ({status}); see {}",
+                            log_path.display()
+                        ),
+                    };
+                    return Err(VelocityError::RunnerFailing {
+                        device_id: device_id.to_string(),
+                        detail,
+                    });
                 }
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(config(format!(
-                    "WDA failed to start within {}s on port {}; see {}",
-                    WDA_READY_TIMEOUT.as_secs(),
-                    self.port,
-                    log_path.display()
-                )));
+                return Err(VelocityError::RunnerFailing {
+                    device_id: device_id.to_string(),
+                    detail: format!(
+                        "failed to start within {}s on port {}; see {}",
+                        WDA_READY_TIMEOUT.as_secs(),
+                        self.port,
+                        log_path.display()
+                    ),
+                });
+            }
+            // Physical device: if the runner logged "Running tests..." but
+            // still isn't serving 20 s later, warn once (the MCP/agent call
+            // timeout of 55 s is shorter than iOS's ~60 s automation
+            // timeout, so this is what an agent sees).
+            if self.physical && !*running_rx.borrow() {
+                // not yet logged "Running tests..."
+            } else if self.physical && !warned_runner_started {
+                if runner_started_at.is_none() {
+                    runner_started_at = Some(Instant::now());
+                } else if let Some(started) = runner_started_at {
+                    if Instant::now() - started >= Duration::from_secs(20) {
+                        warn!(
+                            "the runner started on the phone but isn't serving yet; if this lasts, \
+                             enable Settings → Developer → Enable UI Automation and keep the phone unlocked"
+                        );
+                        warned_runner_started = true;
+                    }
+                }
             }
             // Wake early on a log readiness marker, else poll.
             let _ = tokio::time::timeout(WDA_POLL_INTERVAL, ready_rx.changed()).await;
@@ -1514,8 +1575,13 @@ fn rotate_log(log: &Path, max: u64) {
     }
 }
 
-fn spawn_drain<R>(pipe: Option<R>, log: PathBuf, ready: watch::Sender<bool>)
-where
+fn spawn_drain<R>(
+    pipe: Option<R>,
+    log: PathBuf,
+    ready: watch::Sender<bool>,
+    cause: watch::Sender<Option<String>>,
+    running: watch::Sender<bool>,
+) where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     let Some(pipe) = pipe else { return };
@@ -1534,12 +1600,53 @@ where
             if line.contains("ServerURLHere") || line.contains("WebDriverAgent started") {
                 let _ = ready.send(true);
             }
+            if line.contains("Running tests...") {
+                let _ = running.send(true);
+            }
+            if let Some(c) = startup_cause(&line) {
+                let _ = cause.send(Some(c.to_string()));
+            }
             if let Some(f) = file.as_mut() {
                 let _ = f.write_all(line.as_bytes()).await;
                 let _ = f.write_all(b"\n").await;
             }
         }
     });
+}
+
+/// If `line` names a known reason the runner can't start on a device,
+/// return the user-facing cause (readiness signalling stays on its own
+/// channel). Substring match, case-insensitive.
+fn startup_cause(line: &str) -> Option<&'static str> {
+    let l = line.to_lowercase();
+    if l.contains("timed out while enabling automation mode")
+        || l.contains("failed to initialize for ui testing")
+    {
+        return Some(
+            "the iPhone did not allow UI automation: on the phone turn on Settings \
+             → Developer → Enable UI Automation, unlock it, and enter the passcode \
+             if asked; then run again",
+        );
+    }
+    if l.contains("developer mode") && l.contains("disabled") {
+        return Some(
+            "Developer Mode is off on the device: Settings → Privacy & Security \
+             → Developer Mode",
+        );
+    }
+    if l.contains("invalid code signature")
+        || l.contains("has not been explicitly trusted")
+        || l.contains("untrusted developer")
+    {
+        return Some(
+            "the device does not trust the runner's signing certificate: \
+             Settings → General → VPN & Device Management → trust it",
+        );
+    }
+    if l.contains("device is locked") || l.contains("passcode protected") {
+        return Some("the device is locked: unlock it and keep the screen on");
+    }
+    None
 }
 
 struct XcodeInfo {
@@ -2484,6 +2591,83 @@ mod tests {
             None,
             "wifi path"
         );
+    }
+
+    #[test]
+    fn startup_cause_matches_known_failures() {
+        assert_eq!(
+            startup_cause("Running tests... timed out while enabling automation mode."),
+            Some(
+                "the iPhone did not allow UI automation: on the phone turn on Settings \
+                 → Developer → Enable UI Automation, unlock it, and enter the passcode \
+                 if asked; then run again"
+            )
+        );
+        assert_eq!(
+            startup_cause("Failed to initialize for UI testing: the device said no"),
+            Some(
+                "the iPhone did not allow UI automation: on the phone turn on Settings \
+                 → Developer → Enable UI Automation, unlock it, and enter the passcode \
+                 if asked; then run again"
+            )
+        );
+        assert_eq!(
+            startup_cause("Developer Mode is disabled on this device"),
+            Some(
+                "Developer Mode is off on the device: Settings → Privacy & Security \
+                  → Developer Mode"
+            )
+        );
+        assert_eq!(
+            startup_cause("invalid code signature for the runner"),
+            Some(
+                "the device does not trust the runner's signing certificate: \
+                 Settings → General → VPN & Device Management → trust it"
+            )
+        );
+        assert_eq!(
+            startup_cause("the app has not been explicitly trusted"),
+            Some(
+                "the device does not trust the runner's signing certificate: \
+                 Settings → General → VPN & Device Management → trust it"
+            )
+        );
+        assert_eq!(
+            startup_cause("Untrusted Developer: tap to trust"),
+            Some(
+                "the device does not trust the runner's signing certificate: \
+                 Settings → General → VPN & Device Management → trust it"
+            )
+        );
+        assert_eq!(
+            startup_cause("the device is locked"),
+            Some("the device is locked: unlock it and keep the screen on")
+        );
+        assert_eq!(
+            startup_cause("passcode protected, cannot start"),
+            Some("the device is locked: unlock it and keep the screen on")
+        );
+        // case-insensitive
+        assert_eq!(
+            startup_cause("TIMED OUT WHILE ENABLING AUTOMATION MODE"),
+            Some(
+                "the iPhone did not allow UI automation: on the phone turn on Settings \
+                 → Developer → Enable UI Automation, unlock it, and enter the passcode \
+                 if asked; then run again"
+            )
+        );
+    }
+
+    #[test]
+    fn startup_cause_ignores_ordinary_lines() {
+        assert_eq!(startup_cause("WebDriverAgent started on port 8100"), None);
+        assert_eq!(startup_cause("Running tests..."), None);
+        assert_eq!(startup_cause("ServerURLHere: http://127.0.0.1:8100"), None);
+        assert_eq!(
+            startup_cause("something about developer mode on this phone"),
+            None
+        );
+        assert_eq!(startup_cause("unrelated: screen locked? no"), None);
     }
 
     /// A fake runner that answers `/status` to anyone (started without a
