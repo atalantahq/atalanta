@@ -338,10 +338,15 @@ pub fn parse_devices(v: &serde_json::Value) -> Vec<DeviceInfo> {
             // Without the Developer Disk Image's services mounted, the
             // runner launch fails later with a vaguer error (N9). Older
             // devicectl builds don't report the key: absent counts as ready.
-            let ddi = props
-                .and_then(|p| p.get("ddiServicesAvailable"))
-                .and_then(|v| v.as_bool())
-                != Some(false);
+            // The key means something only while the tunnel is up: an idle
+            // device (`tunnelState: disconnected`, opened on first use)
+            // reports `false` (seen on an iPhone 12, iOS 26.5.2, 2026-11-21).
+            let tunnel_up = str_at(conn, "tunnelState").as_deref() == Some("connected");
+            let ddi = !tunnel_up
+                || props
+                    .and_then(|p| p.get("ddiServicesAvailable"))
+                    .and_then(|v| v.as_bool())
+                    != Some(false);
             Some(DeviceInfo {
                 id: udid,
                 name: str_at(props, "name")
@@ -422,15 +427,25 @@ mod tests {
                 "deviceProperties": { "name": "No DDI", "developerModeStatus": "enabled", "ddiServicesAvailable": false },
                 "hardwareProperties": { "platform": "iOS", "reality": "physical", "udid": "D" }
             },
+            {
+                "connectionProperties": { "pairingState": "paired", "tunnelState": "disconnected", "transportType": "wired" },
+                "deviceProperties": { "name": "Idle", "developerModeStatus": "enabled", "ddiServicesAvailable": false },
+                "hardwareProperties": { "platform": "iOS", "reality": "physical", "udid": "E" }
+            },
             { "hardwareProperties": { "platform": "iOS", "reality": "virtual", "udid": "SIM" } }
         ]}});
         let devices = parse_devices(&v);
-        assert_eq!(devices.len(), 4, "simulators come from simctl");
+        assert_eq!(devices.len(), 5, "simulators come from simctl");
         let state = |id: &str| devices.iter().find(|d| d.id == id).unwrap().state;
         assert_eq!(state("A"), DeviceState::Booted);
         assert_eq!(state("B"), DeviceState::Shutdown, "not connected");
         assert_eq!(state("C"), DeviceState::Shutdown, "no Developer Mode");
         assert_eq!(state("D"), DeviceState::Shutdown, "no DDI services (N9)");
+        assert_eq!(
+            state("E"),
+            DeviceState::Booted,
+            "an idle tunnel's ddiServicesAvailable means nothing yet"
+        );
         assert!(devices
             .iter()
             .all(|d| d.device_type == DeviceType::Physical));
