@@ -1361,7 +1361,12 @@ mod tests {
         let pro = vec![golden.clone(), other_type];
         assert!(!golden_in_use(&golden, &pro, Some("b"), false));
         // a's own down of its clone does not keep the golden for itself.
-        assert!(!golden_in_use(&golden, &[golden.clone(), a1], Some("a"), false));
+        assert!(!golden_in_use(
+            &golden,
+            &[golden.clone(), a1],
+            Some("a"),
+            false
+        ));
     }
 
     #[test]
