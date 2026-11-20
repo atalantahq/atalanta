@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use velocity_common::{
     Action, Element, Platform, PlatformDriver, Result, Selector, Step, TestCase, TestStatus,
+    VelocityError,
 };
 use velocity_core::TestExecutor;
 
@@ -34,6 +35,28 @@ pub enum WrongPath {
     Passed { step: usize, tapped: String },
     /// No check was possible (no tap, or the tap has no sibling).
     Skipped { why: String },
+}
+
+/// What [`check`] needs besides the driver, the YAML and the goal.
+pub struct CheckOptions<'a> {
+    pub device_id: &'a str,
+    pub platform: velocity_common::Platform,
+    /// `${NAME}` values (data and secrets) for the replays.
+    pub overrides: &'a std::collections::HashMap<String, String>,
+    /// The settings to replay with (a suite file's own `config:`).
+    pub config: &'a velocity_common::SuiteConfig,
+    /// Burn-in replays; must be >= 1 (0 is a Config error).
+    pub replays: usize,
+    /// Upper bound of the random pause before each step, on replays after the first.
+    pub jitter_ms: u64,
+}
+
+/// The gates' verdict and the replays they ran.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckResult {
+    pub gates: GateReport,
+    pub replay: crate::replay::ReplayReport,
 }
 
 /// What the gates found.
@@ -250,6 +273,97 @@ pub async fn wrong_path(
             why: format!("step {} ({selector}) has no sibling to tap instead", k + 1),
         },
     })
+}
+
+/// The largest random pause before a step on burn-in replays after the
+/// first, in ms: what `velocity explore` and `velocity gate` use by default.
+pub const DEFAULT_JITTER_MS: u64 = 150;
+
+/// Gate `yaml`'s one test against `goal`: replay it `replays` times (the
+/// later ones with jitter, stopping at the first that fails), then the
+/// wrong-path replay, then the goal-text rule. Explore's job decides with
+/// the same [`decide_gates`] after its own replays.
+pub async fn check(
+    driver: &dyn PlatformDriver,
+    yaml: &str,
+    goal: &str,
+    opts: &CheckOptions<'_>,
+) -> Result<CheckResult> {
+    if goal.trim().is_empty() {
+        return Err(VelocityError::Config(
+            "the gates need a goal: what the test is meant to show".into(),
+        ));
+    }
+    let suite = velocity_core::parse_suite_from_str(yaml)?;
+    if suite.tests.len() != 1 {
+        return Err(VelocityError::Config(format!(
+            "the gates check a file with one test; this one has {}",
+            suite.tests.len()
+        )));
+    }
+    if opts.replays == 0 {
+        return Err(VelocityError::Config(
+            "replays must be at least 1 for the gates".into(),
+        ));
+    }
+    let mut replay = crate::replay::ReplayReport::default();
+    for run in 1..=opts.replays {
+        let r = crate::replay::replay_once(
+            driver,
+            yaml,
+            opts.device_id,
+            opts.platform,
+            opts.overrides,
+            opts.config,
+            (run > 1).then_some((opts.jitter_ms, run as u64)),
+        )
+        .await?;
+        let passed = r.passed;
+        replay.runs.push(r);
+        if !passed {
+            break;
+        }
+    }
+    let gates = decide_gates(driver, yaml, goal, replay.runs.len(), replay.passed(), opts).await?;
+    Ok(CheckResult { gates, replay })
+}
+
+/// After the replays: the wrong-path replay (only for a test whose replays
+/// all passed), the goal-text rule, and the verdict. Shared by [`check`]
+/// and explore's job so the two can't drift. `opts.replays` is not read:
+/// `runs` is how many replays actually ran.
+pub(crate) async fn decide_gates(
+    driver: &dyn PlatformDriver,
+    yaml: &str,
+    goal: &str,
+    runs: usize,
+    passed: usize,
+    opts: &CheckOptions<'_>,
+) -> Result<GateReport> {
+    // The wrong path only means something for a test that replays.
+    let wrong = if passed == runs && runs > 0 {
+        wrong_path(
+            driver,
+            yaml,
+            opts.device_id,
+            opts.platform,
+            opts.overrides,
+            opts.config,
+        )
+        .await?
+    } else {
+        WrongPath::Skipped {
+            why: "the replays didn't all pass".into(),
+        }
+    };
+    let goal_text = goal_text_assertion(yaml, goal);
+    Ok(GateReport::decide(
+        runs,
+        passed,
+        opts.jitter_ms,
+        wrong,
+        goal_text,
+    ))
 }
 
 /// Neighbours of the last tap the wrong-path replay tries.

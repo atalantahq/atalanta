@@ -11,9 +11,9 @@ use colored::Colorize;
 use tracing_subscriber::EnvFilter;
 
 use commands::{
-    agent, api, baselines, daemon, device, doctor, explore, heal, history, init, inspect, lint,
-    login, mcp, migrate, nl_eval, repl, results, run, schema, settings, shard_plan, signing, trace,
-    validate, verify_change,
+    agent, api, baselines, daemon, device, doctor, explore, gate, heal, history, init, inspect,
+    lint, login, mcp, migrate, nl_eval, repl, results, run, schema, settings, shard_plan, signing,
+    trace, validate, verify_change,
 };
 
 #[derive(Parser)]
@@ -96,6 +96,11 @@ enum Command {
     /// description with no model (or explores and saves one that passes its
     /// trust gates) and writes PR evidence: video, failures.md, a manifest
     VerifyChange(verify_change::VerifyChangeArgs),
+
+    /// Check a one-test suite YAML (hand-written or exported) before trusting
+    /// it: burn-in replays, a wrong-path replay that must fail, and an
+    /// assertion naming goal text. Exit 0 trusted, 1 not trusted.
+    Gate(gate::GateArgs),
 
     /// Run a stored login flow so an agent starts from a logged-in app
     /// without handling the password: ${NAME}s from the environment,
@@ -360,6 +365,7 @@ async fn run_command(cli: Cli) -> anyhow::Result<i32> {
         Command::Baselines { command } => baselines::execute(command).await,
         Command::Schema(args) => schema::execute(args),
         Command::Trace { command } => trace::execute(command),
+        Command::Gate(args) => Box::pin(gate::execute(args)).await,
         Command::Repl(args) => Box::pin(repl::execute(args)).await,
         Command::Explore(args) => Box::pin(explore::execute(*args)).await,
         Command::Signing { command } => signing::execute(command).await,
@@ -408,6 +414,7 @@ mod tests {
         for (name, doc) in [
             ("run", &cli_md),
             ("explore", &cli_md),
+            ("gate", &cli_md),
             ("init", &cli_md),
             ("doctor", &cli_md),
             ("mcp", &both),

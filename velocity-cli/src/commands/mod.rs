@@ -22,6 +22,7 @@ pub mod doctor;
 pub mod duration_arg;
 pub mod env_file;
 pub mod explore;
+pub mod gate;
 pub mod heal;
 pub mod history;
 pub mod init;

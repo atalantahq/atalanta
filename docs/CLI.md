@@ -23,6 +23,7 @@
 | `heal [--accept\|--discard\|--reject N]` | Review selectors that self-healing fixed during passing tests |
 | `history merge <files…>` | Merge the history files of several CI jobs |
 | `verify-change "<description>" --app-id <id> [--after login.yaml]` | Did the change do what it says? Replays the saved test for the description with no model, or explores and saves one that passes its trust gates; writes PR evidence (`manifest.json`, `failures.md`, `comment.md`, video) to `--bundle` (default `velocity-results/verify-change`), saved tests to `--cache` (default `.velocity/verify-cache`). Exit 0 passed, 1 failed |
+| `gate <file> --goal "<text>"` | Run the trust gates on a one-test suite YAML (hand-written or exported): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text ([below](#gate)). Exit 0 trusted, 1 not trusted |
 | `login <suite> [--test NAME] [-d DEVICE] [--env K=V]` | Run a stored login flow once (no retry, no cache) and leave the app logged in; `${NAME}`s from the environment, `${keychain:NAME}` or `${totp:NAME}`, masked everywhere ([DSL.md](DSL.md#logging-in)) |
 | `results check [--expect-shards N] <paths…>` | After a sharded run: fail (exit 1) when a shard reported nothing, ran no tests, left a damaged `results.json` / `junit.xml`, or the shards computed different partitions (their `shard_plan` fingerprints differ) ([CI.md](CI.md#no-silent-passes)) |
 | `trace view [PATH] [--no-open]` | Open the trace viewer: a test's `traces/<test>/` folder (or its `steps.json`/`trace.html`), or a run's artifacts folder or `results.json` (an index of every kept trace) |
@@ -207,6 +208,24 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 
 Exit codes: 0 when the goal was reached, the test written and every replay passed; 1 otherwise (gave up, stuck, unverified, out of budget, a replay still failing after the repair); 2 configuration; 3 device; 4 `--timeout`.
 
+## `gate`
+
+`velocity gate <file> --goal "<text>" [flags]`. Gates a one-test suite YAML, hand-written or exported from an agent session (`velocity export`, MCP `export_session_flow`), before it is trusted. Nothing is explored and no model is called: it replays the test N times (the later ones with timing jitter), replays it once on the wrong path (a neighbouring tap instead of the last navigational one, which must fail), and checks that an assertion names text from the goal.
+
+| Flag | Meaning |
+|---|---|
+| `<file>` | The suite YAML to gate: exactly one test |
+| `--goal <TEXT>` | What the test is meant to show (required); an assertion must name text from it |
+| `-p, --platform ios\|android\|web`, `-d, --device ID` | Default: the platform from the device id, and the first booted device no other Velocity process holds |
+| `--lease-wait DURATION` | How long to wait for a device another Velocity process holds (default 600 s; a bare number is seconds) |
+| `--replay N` | Burn-in replays (default 5; 0 is a config error) |
+| `--jitter-ms N` | Upper bound of the random pause before each step, on replays after the first (default 150 ms) |
+| `--env NAME=VALUE` | A value for a `${NAME}` (repeatable) |
+| `--env-file PATH` | KEY=VALUE lines for the `${NAME}`s (repeatable) |
+| `--json` | One JSON object on stdout: `{file, goal, trusted, gates, replay}` |
+
+Exit codes: 0 trusted, 1 not trusted, 2 configuration/usage, 3 device.
+
 ## AI environment
 
 `VELOCITY_NL_PROVIDER`, `VELOCITY_NL_MODEL` (may be `provider:model`), `VELOCITY_NL_EXPLORE_MODEL`, `VELOCITY_NL_API_URL`, `VELOCITY_NL_API_KEY`, `VELOCITY_NL_IMAGES=0`, `VELOCITY_NL_OUTPUT=json_schema|tools|text`, `VELOCITY_NL_EFFORT` (Anthropic), `VELOCITY_NL_CACHE`, `VELOCITY_NL_TRACES=0`, and each provider's key variable. See [AI-PROVIDERS.md](AI-PROVIDERS.md).
@@ -360,6 +379,7 @@ A folder run returns its most severe file's code. The order is 5 > 2 > 1 > 4 > 3
 |---|---|---|---|---|---|
 | `run`, `verify-change` | passed | a test failed | usage or configuration | device or infrastructure | 4 suite timeout, 5 internal, 129/130/143 signals |
 | `explore` | goal reached, test written, every replay passed | gave up, stuck, unverified, out of budget, replay failing | configuration | device | 4 `--timeout` |
+| `gate` | trusted: every replay passed, the wrong path failed, an assertion names the goal | not trusted (the reasons are printed) | usage or configuration (no such file, not one test, `--replay 0`) | device | 5 internal |
 | `doctor` | ready, or degraded without `--strict` | | a project check failed (or, with `--strict`, project warnings) | blocked by the environment (or, with `--strict`, degraded) | |
 | agent commands (`snapshot`, `tap`, …) | ok | a failure the reply describes | malformed command line | `DEVICE_*`, `SESSION_BUSY` | |
 | `validate`, `schema` | valid | | a parse or validation error | | |

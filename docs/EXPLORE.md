@@ -167,6 +167,8 @@ A test that replays is a cache of the run, and the cache must not lie. After the
 - **Wrong path.** On the device, the test runs up to its last tap. It then taps one of the two nearest neighbours of that element (the same kind of element, with real text of its own) and runs to the end. It must fail. If it still passes, its assertions can't tell the screen it should reach from a neighbouring one, for example two plans whose checkouts look the same. Each neighbour gets a fresh run from the launch. A tap with no neighbour is reported as not checked.
 - **Goal text.** At least one assertion must name a word of the goal (stop words like "open" and "page" don't count), so the test checks what the goal asked for and not only that some screen showed.
 
+Hand-written tests and tests exported from an agent session (`velocity export`, the MCP server's `export_session_flow`) were never explored, so explore's gates never ran on them. They can be gated the same way with `velocity gate FILE --goal "..."`: it replays the file's one test, runs the wrong-path replay and the goal-text rule, and prints `trusted` or `not trusted` with the reasons ([CLI.md](CLI.md#gate)). A test is worth committing as a regression test only once it is trusted.
+
 Each assertion explore writes has also had to fail on the screen before its step (the writer's own rule). The summary prints a `gates:` line: `trusted`, or `not trusted` and why. An untrusted test is still written, so it can be reviewed and fixed, but the exit code is 1 and the JSON report's `gates.trusted` is false. Five passing replays mean "burned in", not "proven stable": 95% confidence needs about 170 reruns (ICST 2021).
 
 ## Steering a run: CLI, MCP, console and library
