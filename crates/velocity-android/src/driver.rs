@@ -985,10 +985,17 @@ fn uncovered_point(
         w.kind == 1
             && active.is_some_and(|a| w.package != a && w.package != "-" && w.package != "android")
     };
+    // The active window is the one the dump was read from, so it holds
+    // the target: it never covers it, whatever its kind. Without this a
+    // button in the framework's own "keeps stopping" dialog (package
+    // `android`, a system window) was refused as covered by that dialog
+    // (2026-11-11, Finding A).
+    let own =
+        |w: &crate::tree_server::Window| (w.kind == 1 && !foreign(w)) || w.active == Some(true);
     let cover = |p: (i32, i32)| {
         windows
             .iter()
-            .take_while(|w| !(w.kind == 1 && !foreign(w) && contains(&w.bounds, p)))
+            .take_while(|w| !(own(w) && contains(&w.bounds, p)))
             .find(|w| (w.kind != 1 || foreign(w)) && w.takes_touches() && contains(&w.bounds, p))
     };
     let center = bounds.center();
@@ -2701,6 +2708,36 @@ mod launch_tests {
         other.active = None;
         app.active = None;
         assert!(super::uncovered_point(&[other, app], &under).is_ok());
+    }
+
+    /// Finding A (2026-11-11): "Close app" in the framework's crash dialog
+    /// (package `android`, a system window, active) was refused as covered
+    /// by its own window. A system window that is not the active one still
+    /// covers.
+    #[test]
+    fn a_button_in_the_active_system_dialog_is_not_covered_by_it() {
+        let mut dialog = win(20, 3, 1000, 600);
+        dialog.package = "android".into();
+        dialog.title = "Application Error: com.android.settings".into();
+        dialog.active = Some(true);
+        let mut app = win(1, 1, 0, 2400);
+        app.package = "com.android.settings".into();
+        app.active = Some(false);
+        let close = velocity_common::Rect {
+            x: 70,
+            y: 1332,
+            width: 940,
+            height: 126,
+        };
+        assert_eq!(
+            super::uncovered_point(&[dialog.clone(), app.clone()], &close).unwrap(),
+            (540, 1395)
+        );
+        // The same dialog over an app that is the active window covers.
+        dialog.active = Some(false);
+        app.active = Some(true);
+        let cover = super::uncovered_point(&[dialog, app], &close).unwrap_err();
+        assert_eq!(cover.package, "android");
     }
 
     #[test]
