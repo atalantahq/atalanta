@@ -10,6 +10,7 @@ velocity tap @e7                   # act on a ref; prints what changed on screen
 velocity type @e3 "qa@example.com" # type into a field
 velocity assert "Welcome"          # check something is visible
 velocity export --out velocity/login.yaml   # save the session as a test, with assertions
+velocity gate velocity/login.yaml --goal "log in"   # trust gates: replays, wrong path, goal text
 velocity run velocity/login.yaml   # replay it: no model involved
 ```
 

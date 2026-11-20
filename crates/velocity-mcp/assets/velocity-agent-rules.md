@@ -9,7 +9,7 @@ Velocity runs YAML test suites on Android emulators/devices, iOS simulators/devi
 
 ## Tools
 
-`velocity mcp` serves five tools (`--profile full` lists the ones they stand for; their names are in brackets below): `observe` reads the screen, `act {action: …}` does one thing and returns what changed, `run` starts and polls background runs, `artifacts {kind: …}` explains failures and exports the session, and `verify_change` checks a change and leaves PR evidence.
+`velocity mcp` serves five tools (`--profile full` lists the tools they stand for, named in brackets below): `observe` reads the screen, `act {action: …}` does one thing and returns what changed, `run` starts and polls background runs, `artifacts {kind: …}` explains failures and exports the session, and `verify_change` checks a change and leaves PR evidence.
 
 `velocity skills get mcp-tools` says what each changes, returns and whether a call is safe to repeat.
 
@@ -21,7 +21,7 @@ Two ways to get a test: let `velocity explore` write one for a goal (below), or 
 2. **Look at the screen**: `observe` [`snapshot`] (one line per element, each with a ref like `@e12`). `mode: "delta"` shows only what changed. Use `observe {what: screenshot}` only for what text can't show (images, colours).
 3. **Drive the app**: `act` with `launch`, `tap`, `type`, `scroll`, `swipe`, `press_key` (`back`, `enter`, …). Target elements with `ref: "@e12"` from the latest observe, or a `selector` (`{"id": "login"}`, `{"text": "Sign in"}`). A stale ref is an error that says so: observe again.
 4. **Check as you go**: `act {action: assert_visible}` / `assert_not_visible`.
-5. **Save it**: `artifacts {kind: flow}` [`export_session_flow`] turns the session's actions into a suite, with an `assertVisible` after each action that changed the screen. Review those assertions, then write the YAML to a file (for example `tests/login.yaml`).
+5. **Save it**: `artifacts {kind: flow}` [`export_session_flow`] turns the session's actions into a suite, with an `assertVisible` after each action that changed the screen. Review its assertions, save it (e.g. `tests/login.yaml`) and gate it: `run {yaml, goal, gate: true}`; keep it if `trusted`.
 6. **Run it**: `run {suite: <path>}` [`run_task`] returns at once with a `task_id`; poll `run {task_id}` [`task_status`] until it is `passed`, `failed`, `stopped` or `error`. Or in a shell: `velocity run tests/login.yaml`.
 7. **Fix failures**: `artifacts` [`describe_failure`] gives the failing step, its `file:line`, the error and the closest elements on screen; `artifacts {kind: trace}` [`inspect_trace`] shows each step, and `step_screenshot` the screen with a red ring where it tapped. Change the selector or add a wait, then run again.
 
@@ -37,10 +37,10 @@ Two ways to get a test: let `velocity explore` write one for a goal (below), or 
 
 ## Rules
 
-- **Never put secrets in YAML.** Use `${ENV_VAR}` (for example `text: ${LOGIN_PASSWORD}`) and set the variable in the environment. With MCP, type them with `act {action: type, secret: "LOGIN_PASSWORD"}` [`type_text`]: the value is typed, never shown, and the export writes `${LOGIN_PASSWORD}`. The variable must be listed in `VELOCITY_SECRETS`.
+- **Never put secrets in YAML.** Use `${ENV_VAR}` (e.g. `text: ${LOGIN_PASSWORD}`) and set it in the environment. With MCP, type them with `act {action: type, secret: "LOGIN_PASSWORD"}` [`type_text`]: the value is typed, never shown, and the export writes `${LOGIN_PASSWORD}`. The variable must be listed in `VELOCITY_SECRETS`.
 - Prefer stable selectors: `id` (resource-id / accessibility identifier), then `accessibilityId`, then exact `text`. Avoid text that changes (times, counts, prices) and `index` unless elements are true twins.
 - Don't add sleeps: Velocity waits for the screen to settle after every step. Use `assertVisible` to wait for something to appear.
-- One device runs one thing at a time: while a `run` task runs on a device, `act` and `observe` on it report it busy.
+- One device runs one thing at a time: during a `run` task, `act` and `observe` on that device report it busy.
 
 ## YAML cheat sheet
 

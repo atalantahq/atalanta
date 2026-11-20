@@ -1168,7 +1168,26 @@ impl McpServer {
                     {
                         self.recorder.clear();
                     }
-                    Ok(serde_json::json!({ "steps": steps, "assertions": assertions, "yaml": yaml }))
+                    // Row 1.3(f): a recorded test has passed no trust gate.
+                    // Say so, and how to run them, before it is committed.
+                    let goal = arguments
+                        .get("goal")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|g| !g.is_empty());
+                    let next = match goal {
+                        Some(g) => format!(
+                            "not gated yet: run_task {{\"yaml\": <this yaml>, \"goal\": {}, \"gate\": true}} (or velocity gate FILE --goal ...) and commit it only if summary.gates.trusted",
+                            serde_json::Value::String(g.to_string())
+                        ),
+                        None => "not gated yet: run_task {\"yaml\": <this yaml>, \"goal\": \"<what it shows>\", \"gate\": true} (or velocity gate FILE --goal ...) and commit it only if summary.gates.trusted".to_string(),
+                    };
+                    Ok(serde_json::json!({
+                        "steps": steps,
+                        "assertions": assertions,
+                        "yaml": yaml,
+                        "gates": { "gated": false, "trusted": false, "next": next },
+                    }))
                 }
                 "run_task" => self.run_task(&device_id, &arguments).await,
                 "verify_change" => self.verify_change(&device_id, &arguments).await,
@@ -1404,22 +1423,22 @@ impl McpServer {
         }
     }
 
-    async fn run_task(&mut self, device_id: &str, args: &Value) -> Result<Value> {
-        use crate::tasks::process::{Child, RunRequest, SuiteRun};
-        if args.get("goal").is_some() {
-            return self.explore_task(device_id, args).await;
-        }
-        let device = args
-            .get("device")
-            .and_then(Value::as_str)
-            .map(String::from)
-            .unwrap_or_else(|| device_id.to_string());
-        if let Some(task) = self.tasks.running_on(&device) {
-            return Err(VelocityError::Config(format!(
-                "{device} is already running task {task}; wait for it or task_stop it"
-            )));
-        }
-        let (id, dir) = self.tasks.new_task_dir()?;
+    /// The suite a task runs: inline `yaml` (written to the task folder),
+    /// a `suite` path (in the project or the tasks folder), or the loaded
+    /// one; with the child's environment. A suite the agent wrote, outside
+    /// --profile full, may not run host programs, read the environment or
+    /// keychain, or pick where model calls go, and its child gets only the
+    /// environment a run needs (the Rule of Two, SECURITY.md §9). Shared by
+    /// suite runs and trust-gate tasks so both get the same checks.
+    fn task_suite(
+        &self,
+        args: &Value,
+        dir: &std::path::Path,
+    ) -> Result<(
+        std::path::PathBuf,
+        velocity_common::TestSuite,
+        Option<ChildEnv>,
+    )> {
         // The child's environment: all of this process's, except for a
         // suite the agent wrote outside --profile full.
         let mut child_env = None;
@@ -1500,6 +1519,30 @@ impl McpServer {
                 (std::path::PathBuf::from(path), suite)
             }
         };
+        Ok((suite_path, suite, child_env))
+    }
+
+    async fn run_task(&mut self, device_id: &str, args: &Value) -> Result<Value> {
+        use crate::tasks::process::{Child, RunRequest, SuiteRun};
+        // Before the goal check: a gate task names its goal too.
+        if args.get("gate").and_then(Value::as_bool) == Some(true) {
+            return self.gate_task(device_id, args).await;
+        }
+        if args.get("goal").is_some() {
+            return self.explore_task(device_id, args).await;
+        }
+        let device = args
+            .get("device")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| device_id.to_string());
+        if let Some(task) = self.tasks.running_on(&device) {
+            return Err(VelocityError::Config(format!(
+                "{device} is already running task {task}; wait for it or task_stop it"
+            )));
+        }
+        let (id, dir) = self.tasks.new_task_dir()?;
+        let (suite_path, suite, child_env) = self.task_suite(args, &dir)?;
         let tags: Vec<String> = match args.get("tags") {
             Some(Value::Array(a)) => a
                 .iter()
@@ -1752,6 +1795,111 @@ impl McpServer {
             "log": info.log,
             "out": out,
             "next": "poll task_status {task_id} (wait_ms waits for the next turn); steer it with task_inject; when it passes, review the YAML in summary.explore.yaml and run it with run_task suite=<that path>",
+        }))
+    }
+
+    /// `run_task` with `gate: true`: `velocity gate` as a task. The trust
+    /// gates (burn-in replays, the wrong-path replay, an assertion naming
+    /// the goal) on a one-test suite before it is committed: an exported
+    /// session, or any test the agent wrote. In the background because the
+    /// replays outlast a tool call's deadline. The suite gets the same checks
+    /// as a suite run's ([`Self::task_suite`]).
+    async fn gate_task(&mut self, device_id: &str, args: &Value) -> Result<Value> {
+        use crate::tasks::process::{Child, GateRun};
+        let bad = |m: String| VelocityError::Config(m);
+        let goal = args
+            .get("goal")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|g| !g.is_empty())
+            .ok_or_else(|| {
+                bad(
+                    "gate needs 'goal': what the test is meant to show (an assertion must name it)"
+                        .into(),
+                )
+            })?
+            .to_string();
+        for k in [
+            "filter",
+            "tags",
+            "app_id",
+            "model",
+            "script",
+            "data",
+            "secret",
+            "max_steps",
+            "out",
+            "after",
+            "verify",
+            "retries",
+        ] {
+            if args.get(k).is_some() {
+                return Err(bad(format!(
+                    "'{k}' is not used when gating; give suite or yaml, goal and replay"
+                )));
+            }
+        }
+        let device = args
+            .get("device")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| device_id.to_string());
+        if let Some(task) = self.tasks.running_on(&device) {
+            return Err(bad(format!(
+                "{device} is already running task {task}; wait for it or task_stop it"
+            )));
+        }
+        let (id, dir) = self.tasks.new_task_dir()?;
+        let (suite_path, suite, child_env) = self.task_suite(args, &dir)?;
+        if suite.tests.len() != 1 {
+            return Err(bad(format!(
+                "gate checks a suite with one test; this one has {} (export_session_flow writes one)",
+                suite.tests.len()
+            )));
+        }
+        let mut argv = vec![
+            "gate".to_string(),
+            suite_path.to_string_lossy().into_owned(),
+            // `=`: a goal that starts with `-` is still the goal's value.
+            format!("--goal={goal}"),
+            "--json".into(),
+            "--device".into(),
+            device.clone(),
+        ];
+        if let Some(p) = self.platform.or(self.device_platform(&device).await) {
+            argv.extend(["--platform".into(), p.to_string().to_lowercase()]);
+        }
+        if let Some(n) = args.get("replay").and_then(Value::as_u64) {
+            argv.extend(["--replay".into(), n.clamp(1, 20).to_string()]);
+        }
+        let log = dir.join("run.log");
+        let body = GateRun {
+            child: Child {
+                program: self.program()?,
+                args: argv,
+                cwd: std::env::current_dir().ok(),
+                log: log.clone(),
+                env: child_env,
+            },
+        };
+        let meta = crate::tasks::TaskMeta {
+            target: suite_path.to_string_lossy().into_owned(),
+            device: Some(device),
+            dir: dir.clone(),
+            log,
+            artifacts: dir,
+            tests_total: Some(1),
+        };
+        // The device is the child's now: refs from this process are stale.
+        self.refs.expire("run_task");
+        let info = self.tasks.spawn(id, meta, Box::new(body));
+        Ok(serde_json::json!({
+            "task_id": info.id,
+            "kind": info.kind,
+            "state": info.state,
+            "dir": info.dir,
+            "log": info.log,
+            "next": "poll task_status {task_id}; when it ends, summary.gates.trusted says whether the test may be committed, summary.gates.gates.reasons why not",
         }))
     }
 
@@ -2275,7 +2423,8 @@ impl McpServer {
                     "properties": {
                         "name": { "type": "string", "description": "Test name" },
                         "app_id": { "type": "string", "description": "App id (default: the loaded suite's)" },
-                        "clear": { "type": "boolean", "description": "Start a new recording afterwards" }
+                        "clear": { "type": "boolean", "description": "Start a new recording afterwards" },
+                        "goal": { "type": "string", "description": "What the test shows; the reply's gates.next is then the exact run_task call that gates it" }
                     }
                 }),
             },
@@ -2395,7 +2544,7 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
         ),
         def(
             "run_task",
-            "Run a suite, or explore a goal, in the background and return at once with a task_id, its folder and log. With suite/yaml: a velocity run. With goal (+ app_id): velocity explore, where an agent reaches the goal on the device, writes a deterministic YAML test and replays it with no model; steer it with task_inject. Poll task_status for progress (step i/n; explore: turn, op, target) and the machine-readable summary (explore: the YAML path, replays, model calls and tokens); stop it with task_stop. The device is busy for other tools until it ends",
+            "Run a suite, or explore a goal, in the background and return at once with a task_id, its folder and log. With suite/yaml: a velocity run. With goal (+ app_id): velocity explore, where an agent reaches the goal on the device, writes a deterministic YAML test and replays it with no model; steer it with task_inject. With gate: true, a one-test suite/yaml and goal: velocity gate, the trust gates a test must pass before it is committed. Poll task_status for progress (step i/n; explore: turn, op, target) and the machine-readable summary (explore: the YAML path, replays, model calls and tokens); stop it with task_stop. The device is busy for other tools until it ends",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -2417,7 +2566,8 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
                     "max_steps": { "type": "integer", "description": "Explore: planning turns at most (default 40)" },
                     "replay": { "type": "integer", "description": "Explore: replays of the written test, with no model (default 5)" },
                     "out": { "type": "string", "description": "Explore: where to write the test (default: explore.yaml in the task folder)" },
-                    "after": { "type": "string", "description": "Explore: a suite whose first test (a login) runs first with no model; its ${SECRET}s come from the server's environment or keychain and are never shown" }
+                    "after": { "type": "string", "description": "Explore: a suite whose first test (a login) runs first with no model; its ${SECRET}s come from the server's environment or keychain and are never shown" },
+                    "gate": { "type": "boolean", "description": "With suite or yaml (one test) and goal: run the trust gates instead (velocity gate): replays with jitter, a wrong-path replay that must fail, an assertion naming the goal. summary.gates.trusted says whether to commit it; replay sets the replays (default 5)" }
                 }
             }),
         ),
@@ -2544,12 +2694,15 @@ fn tool_failure(f: &agent_error::Failure) -> Value {
 /// `task_inject`). `Ok(Some(env))` is the environment its child gets;
 /// `Ok(None)` means the file is the user's and runs as written (audit
 /// 2026-11 MCP-1: explore and verify_change's `after` skipped these).
+/// The environment a task's child gets, when not all of this process's.
+type ChildEnv = Vec<(std::ffi::OsString, std::ffi::OsString)>;
+
 fn gate_task_file(
     profile: crate::profile::Profile,
     tasks_root: &std::path::Path,
     what: &str,
     path: &std::path::Path,
-) -> Result<Option<Vec<(std::ffi::OsString, std::ffi::OsString)>>> {
+) -> Result<Option<ChildEnv>> {
     if profile == crate::profile::Profile::Full {
         return Ok(None);
     }
@@ -4009,6 +4162,124 @@ mod t2_tests {
         )
         .await;
         assert_eq!(bad["isError"], true);
+    }
+
+    // Row 1.3(f): an exported session is not gated, and the reply says how
+    // to gate it (the exact run_task call when a goal is given).
+    #[tokio::test]
+    async fn an_export_says_it_is_not_gated_and_how_to_gate_it() {
+        let (mut s, _dir) = launched(FORM).await;
+        let out = call(
+            &mut s,
+            "export_session_flow",
+            serde_json::json!({ "app_id": "com.app", "goal": "sign in" }),
+        )
+        .await;
+        let v: Value = serde_json::from_str(&text(&out)).unwrap();
+        assert_eq!(v["gates"]["gated"], false, "{v}");
+        assert_eq!(v["gates"]["trusted"], false, "{v}");
+        let next = v["gates"]["next"].as_str().unwrap();
+        assert!(
+            next.contains("\"gate\": true") && next.contains("\"goal\": \"sign in\""),
+            "{next}"
+        );
+        let plain = call(&mut s, "export_session_flow", serde_json::json!({})).await;
+        let v: Value = serde_json::from_str(&text(&plain)).unwrap();
+        assert!(v["gates"]["next"]
+            .as_str()
+            .unwrap()
+            .contains("<what it shows>"));
+    }
+
+    // A gate task takes one test and a goal, and an agent-written suite gets
+    // a suite run's checks: no host programs outside --profile full.
+    #[tokio::test]
+    async fn a_gate_task_is_refused_before_it_starts_when_it_cannot_mean_anything() {
+        let (s, _dir) = launched(FORM).await;
+        // The default profile: the one an agent gets.
+        let mut s = s.profile(crate::profile::Profile::Core);
+        let one =
+            "appId: com.app\ntests:\n  - name: t\n    steps:\n      - tap: { text: Continue }\n";
+        let two = "appId: com.app\ntests:\n  - name: a\n    steps:\n      - tap: { text: A }\n  - name: b\n    steps:\n      - tap: { text: B }\n";
+        let exec = "appId: com.app\nconfig:\n  exec:\n    allow: [echo]\ntests:\n  - name: t\n    steps:\n      - exec: { run: echo hi }\n";
+        for (args, says) in [
+            (serde_json::json!({ "gate": true, "yaml": one }), "goal"),
+            (
+                serde_json::json!({ "gate": true, "yaml": one, "goal": "  " }),
+                "goal",
+            ),
+            (
+                serde_json::json!({ "gate": true, "yaml": two, "goal": "sign in" }),
+                "one test",
+            ),
+            (
+                serde_json::json!({ "gate": true, "yaml": exec, "goal": "say hi" }),
+                "exec",
+            ),
+            (
+                serde_json::json!({ "gate": true, "yaml": one, "goal": "sign in", "filter": "t" }),
+                "not used when gating",
+            ),
+        ] {
+            let r = call(&mut s, "run", args.clone()).await;
+            assert_eq!(r["isError"], true, "{args}: {r}");
+            assert!(text(&r).contains(says), "{args}: {r}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_gate_task_runs_velocity_gate_and_reports_the_verdict() {
+        let (s, _dir) = launched(FORM).await;
+        // Records its argv next to the suite, then prints a verdict; the
+        // goal decides which one.
+        let bin = crate::test_util::script(
+            "fake-velocity-gate-tool",
+            "#!/bin/sh\nfile=\"$2\"; echo \"$*\" > \"$file.argv\"\ncase \"$*\" in\n  *--goal=weak*) printf '{\"file\":\"%s\",\"goal\":\"weak\",\"trusted\":false,\"gates\":{\"trusted\":false,\"reasons\":[\"wrong path: still passed\"]},\"replay\":{\"runs\":[{\"passed\":true,\"ms\":5},{\"passed\":true,\"ms\":6}]}}' \"$file\"; exit 1;;\n  *) printf '{\"file\":\"%s\",\"goal\":\"sign in\",\"trusted\":true,\"gates\":{\"trusted\":true,\"reasons\":[]},\"replay\":{\"runs\":[{\"passed\":true,\"ms\":5}]}}' \"$file\";;\nesac\n",
+        );
+        let mut s = s.with_velocity_bin(bin);
+        let one =
+            "appId: com.app\ntests:\n  - name: t\n    steps:\n      - tap: { text: Continue }\n";
+        for (goal, state, trusted) in [("sign in", "passed", true), ("weak", "failed", false)] {
+            let out = call(
+                &mut s,
+                "run_task",
+                serde_json::json!({ "gate": true, "yaml": one, "goal": goal, "replay": 2 }),
+            )
+            .await;
+            assert!(out.get("isError").is_none(), "{out}");
+            let v: Value = serde_json::from_str(&text(&out)).unwrap();
+            assert_eq!(v["kind"], "gate", "{v}");
+            let id = v["task_id"].as_str().unwrap().to_string();
+            s.tasks
+                .wait(&id, std::time::Duration::from_secs(60))
+                .await
+                .unwrap();
+            let fin: Value = serde_json::from_str(&text(
+                &call(&mut s, "task_status", serde_json::json!({ "task_id": id })).await,
+            ))
+            .unwrap();
+            assert_eq!(fin["state"], state, "{fin}");
+            assert_eq!(fin["summary"]["gates"]["trusted"], trusted, "{fin}");
+            if !trusted {
+                assert!(
+                    fin["error"].as_str().unwrap().contains("wrong path"),
+                    "{fin}"
+                );
+                assert_eq!(fin["summary"]["passed"], 2, "{fin}");
+            }
+            let file = fin["summary"]["gates"]["file"].as_str().unwrap();
+            let argv = std::fs::read_to_string(format!("{file}.argv")).unwrap();
+            for part in [
+                "gate ",
+                &format!("--goal={goal}"),
+                "--json",
+                "--device headless",
+                "--replay 2",
+            ] {
+                assert!(argv.contains(part), "{part} in {argv}");
+            }
+        }
     }
 
     #[cfg(unix)]
