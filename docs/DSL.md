@@ -108,6 +108,32 @@ tests:
 - **`velocity login login.yaml`** runs it (the first test, or `--test NAME`) once, with no retry and no result cache, and leaves the app logged in. An agent can call it from a shell without ever seeing the password.
 - **`velocity explore "<goal>" --after login.yaml`** replays it with no model before the first planning turn. The test explore writes starts with the same steps, by name. Over MCP, `run {goal, app_id, after: "login.yaml"}` does the same.
 
+## Launch arguments
+
+`launchApp` can pass arguments to the app, for example to point a test build at a staging server or turn on a test
+login (the same form as Maestro's):
+
+```yaml
+- launchApp:
+    clearState: true
+    arguments:
+      isE2E: true
+      server: "https://staging.example.com"
+      retries: 3
+```
+
+Values are text, `true`/`false` or numbers (quote a number to keep it text: `pin: "0042"`), and `${VAR}`s are filled in
+as elsewhere. Names use `[A-Za-z0-9_.-]` and can't start with `-`.
+
+- **Android:** intent extras on the launch (`--es` text, `--ez` true/false, `--ei` or `--el` whole numbers, `--ef`
+  decimals), read with `intent.getStringExtra("server")` and friends.
+- **iOS:** launch arguments `-server https://staging.example.com`, read with
+  `UserDefaults.standard.string(forKey: "server")`, as Xcode scheme arguments are.
+- **Web and headless:** a validation error.
+
+Until the Android and iOS drivers support them (in progress), a `launchApp` with arguments fails with a configuration
+error.
+
 ## Flows
 
 `runFlow: <id>` inlines a flow's steps. Flows can call flows, but not in a cycle.

@@ -271,6 +271,8 @@ struct ScriptDriver {
     /// least `pending_after` lookups ran; a launch clears it.
     pending: Mutex<Option<String>>,
     pending_after: AtomicUsize,
+    /// Recorded launches: `(device_id, app_id, clear_state, arguments)`.
+    launches: Mutex<Vec<(String, String, bool, velocity_common::LaunchArgs)>>,
 }
 
 type Stroke = ((i32, i32), (i32, i32));
@@ -325,6 +327,7 @@ impl ScriptDriver {
             lookup_cache: None,
             pending: Mutex::new(None),
             pending_after: AtomicUsize::new(0),
+            launches: Mutex::new(Vec::new()),
             evidence: None,
             evidence_finished: Default::default(),
         }
@@ -421,6 +424,20 @@ impl PlatformDriver for ScriptDriver {
     }
     async fn launch_app(&self, _: &str, _: &str, _: bool) -> Result<()> {
         *self.pending.lock().unwrap() = None;
+        Ok(())
+    }
+    async fn launch_app_with(
+        &self,
+        d: &str,
+        a: &str,
+        c: bool,
+        args: &velocity_common::LaunchArgs,
+    ) -> Result<()> {
+        *self.pending.lock().unwrap() = None;
+        self.launches
+            .lock()
+            .unwrap()
+            .push((d.to_string(), a.to_string(), c, args.clone()));
         Ok(())
     }
     async fn stop_app(&self, _: &str, _: &str) -> Result<()> {
@@ -697,6 +714,30 @@ fn tap(text: &str) -> Action {
     Action::Tap {
         selector: Selector::Text(text.into()),
     }
+}
+
+/// AUT-024: a launchApp's arguments reach the driver unchanged.
+#[tokio::test]
+async fn launch_app_passes_its_arguments_to_the_driver() {
+    let driver = ScriptDriver::new(vec![]);
+    let mut args = velocity_common::LaunchArgs::default();
+    args.inner
+        .insert("isE2E".into(), velocity_common::LaunchArg::Bool(true));
+    args.inner.insert(
+        "server".into(),
+        velocity_common::LaunchArg::Str("https://staging.example.com".into()),
+    );
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let launch = step(Action::LaunchApp {
+        app_id: "app".into(),
+        clear_state: false,
+        arguments: args.clone(),
+    });
+    let r = ex.execute_step(&launch, "d", "app", 0).await.unwrap();
+    assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
+    let launches = driver.launches.lock().unwrap();
+    assert_eq!(launches.len(), 1);
+    assert_eq!(launches[0].3, args);
 }
 
 /// VEL-218: the default refusals named internal methods ("navigate()
@@ -3253,6 +3294,7 @@ async fn batching_skips_a_plain_relaunch_after_a_passing_test() {
         step(Action::LaunchApp {
             app_id: String::new(),
             clear_state: false,
+            arguments: Default::default(),
         })
     };
     let mut ex = TestExecutor::new(&driver, cfg, "app");
@@ -3276,6 +3318,7 @@ async fn batching_skips_a_plain_relaunch_after_a_passing_test() {
             &test_case(vec![step(Action::LaunchApp {
                 app_id: String::new(),
                 clear_state: true,
+                arguments: Default::default(),
             })]),
             "d",
             "app",
@@ -3451,6 +3494,7 @@ async fn a_relaunch_or_a_stop_ends_the_sticky_crash() {
                 step(Action::LaunchApp {
                     app_id: String::new(),
                     clear_state: false,
+                    arguments: Default::default(),
                 }),
                 step(tap("Pay")),
             ]),
@@ -3591,6 +3635,7 @@ async fn restore_state_runs_after_a_crash() {
                 step(Action::LaunchApp {
                     app_id: String::new(),
                     clear_state: false,
+                    arguments: Default::default(),
                 }),
                 step(tap("Pay")),
             ]),
@@ -3911,6 +3956,7 @@ async fn batching_relaunches_after_a_mid_test_stop() {
         step(Action::LaunchApp {
             app_id: String::new(),
             clear_state: false,
+            arguments: Default::default(),
         })
     };
     let stop = step(Action::StopApp {
@@ -4016,6 +4062,7 @@ async fn another_app_in_front_is_noted_and_never_batched() {
         step(Action::LaunchApp {
             app_id: String::new(),
             clear_state: false,
+            arguments: Default::default(),
         })
     };
     let mut ex = TestExecutor::new(&driver, cfg, "app");
@@ -4058,6 +4105,7 @@ async fn a_negative_check_off_app_fails_unless_the_test_left_the_app() {
         step(Action::LaunchApp {
             app_id: app.into(),
             clear_state: false,
+            arguments: Default::default(),
         })
     };
     let run = |steps: Vec<Step>| {
@@ -4229,6 +4277,7 @@ async fn an_isolated_test_is_never_batched() {
         step(Action::LaunchApp {
             app_id: String::new(),
             clear_state: false,
+            arguments: Default::default(),
         })
     };
     let mut ex = TestExecutor::new(&driver, cfg, "app");

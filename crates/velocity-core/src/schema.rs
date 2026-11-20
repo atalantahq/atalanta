@@ -102,7 +102,15 @@ fn action_arg(action: &str) -> Value {
     match action {
         "launchApp" => json!({ "oneOf": [
             { "type": "null" },
-            obj(json!({ "appId": { "type": "string" }, "clearState": { "type": "boolean" } }), &[])
+            obj(json!({
+                "appId": { "type": "string" },
+                "clearState": { "type": "boolean" },
+                "arguments": {
+                    "type": "object",
+                    "description": "Launch arguments passed to the app (name -> string | bool | number); names are `[A-Za-z0-9_.-]`, not starting with `-`",
+                    "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }] }
+                }
+            }), &[])
         ]}),
         "stopApp" => json!({ "oneOf": [
             { "type": "null" },
