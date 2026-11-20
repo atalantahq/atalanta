@@ -256,7 +256,9 @@ pub enum VelocityError {
         required: u32,
     },
 
-    #[error("Step timeout: step {step_index} in '{test_name}' exceeded {timeout_ms}ms")]
+    /// `step_index` counts from 0; the message counts from 1, like the
+    /// failure reports.
+    #[error("Step timeout: step {} in '{test_name}' exceeded {timeout_ms}ms", step_index + 1)]
     StepTimeout {
         test_name: String,
         step_index: usize,
