@@ -28,7 +28,7 @@
 //!
 //! Before the stream (video server 2, security review #10) the host proves
 //! it holds the server's per-start token, and the server that it does
-//! ([`authenticate`]): the `adb forward` port is on the host's loopback,
+//! (`authenticate`): the `adb forward` port is on the host's loopback,
 //! where any local process used to be able to take the one client slot and
 //! watch the screen. The token is in a device file only shell or root can
 //! read; it never crosses the socket.

@@ -299,7 +299,7 @@ impl DeviceFarm {
         self.lock().devices.get(device_id).map(|d| d.health)
     }
 
-    /// Record how a test went on `device_id`. After [`QUARANTINE_AFTER`]
+    /// Record how a test went on `device_id`. After `QUARANTINE_AFTER`
     /// consecutive infrastructure failures the device leaves the pool, so one
     /// sick emulator can't fail the rest of the suite (flaky failures cluster
     /// on shared causes like a device — Parry et al. 2025). Returns true if
@@ -348,7 +348,7 @@ impl DeviceFarm {
 
     /// Re-check quarantined devices whose probe is due; return a ready one to
     /// the pool (probation, not a life sentence). A device that fails
-    /// [`MAX_PROBES`] probes is retired. When nothing healthy remains and no
+    /// `MAX_PROBES` probes is retired. When nothing healthy remains and no
     /// device is on probation, waiters are released with an error instead of
     /// hanging. Returns the ids that came back.
     pub async fn probe_quarantined(&self) -> Vec<String> {

@@ -6,7 +6,7 @@
 //! `POST /pets` → `{petId}`), scored, the best above a threshold kept:
 //! AutoRestTest (ICSE 2025) found a graph of such links the main reason it
 //! beat four other REST testers. Each request checks what its response
-//! schema promises ([`mine`]), and [`confirm`] drops the checks a real
+//! schema promises ([`mine`]), and [`confirm`](fn@confirm) drops the checks a real
 //! server's GET responses disprove (RBCTest, ICSE 2026, does the same with
 //! its mined constraints). Bodies, links and checks never invent a secret:
 //! security schemes become `${API_TOKEN}`-style variables.
@@ -46,7 +46,7 @@ impl Default for Options {
     }
 }
 
-/// The suite before it is written: [`confirm`] edits it, [`render`]
+/// The suite before it is written: [`confirm`](fn@confirm) edits it, [`render`]
 /// writes it.
 #[derive(Debug, Clone)]
 pub struct Scaffold {

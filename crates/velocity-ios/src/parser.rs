@@ -15,7 +15,7 @@ const MAX_DEPTH: usize = 512;
 /// A source that can't be the whole screen is an error, never a short or
 /// empty tree (an empty tree passes every `assertNotVisible`): no element,
 /// unbalanced tags (a truncated body, VEL-286), a tree deeper than
-/// [`MAX_DEPTH`], or an empty zero-size application (what a failed
+/// `MAX_DEPTH`, or an empty zero-size application (what a failed
 /// snapshot looks like, IOS-N1).
 pub fn parse_ios_hierarchy(xml: &str) -> Result<Element> {
     let mut reader = Reader::from_str(xml);

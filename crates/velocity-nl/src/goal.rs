@@ -337,7 +337,7 @@ const BENCHMARK_RULE: &str = "- This run is judged by an outside harness on the 
 /// The goal planner's instructions for a run with no test written
 /// (`velocity explore --benchmark`): [`GOAL_SYSTEM_PROMPT`] without the
 /// test-writing parts (the recorded-test framing, `assert`, `launch` and
-/// the assert example), with [`BENCHMARK_RULE`]. Byte-stable for a run, so
+/// the assert example), with `BENCHMARK_RULE`. Byte-stable for a run, so
 /// it caches like the other; and the per-turn benchmark note it replaces
 /// contradicted the assert rule and example on every turn (review 14 F7).
 pub fn goal_system_prompt(benchmark: bool) -> &'static str {

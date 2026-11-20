@@ -91,7 +91,7 @@ fn compact_line(r: &str, e: &Element) -> String {
 }
 
 /// Each element that a selector built from its id or text can find gets a
-/// `ref` the other tools accept as `{"ref": "eN"}` (see [`crate::refs`]).
+/// `ref` the other tools accept as `{"ref": "eN"}` (see `crate::refs`).
 pub async fn list_elements(
     driver: &Arc<dyn PlatformDriver>,
     device_id: &str,

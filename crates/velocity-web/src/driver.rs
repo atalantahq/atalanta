@@ -1553,7 +1553,7 @@ impl velocity_common::PlatformDriver for WebDriver {
     /// on the shared Chrome's lock, so N stuck ones took N x 3 s, past the
     /// stop grace: review-i2 m3); closing the shared Chrome right after
     /// takes them all. Everything together is bounded by
-    /// [`CLEANUP_TIMEOUT`]; a Chrome left then is killed when dropped.
+    /// `CLEANUP_TIMEOUT`; a Chrome left then is killed when dropped.
     async fn cleanup(&self) {
         let all: Vec<BrowserSession> = self.sessions.lock().await.drain().map(|(_, s)| s).collect();
         let shared = self.shared.lock().await.take();
@@ -1623,7 +1623,7 @@ impl velocity_common::PlatformDriver for WebDriver {
     }
 
     /// Restarts the browsers whose connection died, or that don't answer
-    /// a ping within [`PING_TIMEOUT`] (a hung renderer keeps its socket
+    /// a ping within `PING_TIMEOUT` (a hung renderer keeps its socket
     /// open, and with several browsers it was never restarted: review-d6
     /// m2). Not the others: with several devices that would pull the page
     /// out from under tests running on them. With one browser that answers,
