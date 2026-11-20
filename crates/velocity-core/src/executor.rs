@@ -3478,7 +3478,8 @@ impl<'a> TestExecutor<'a> {
                 if vanished {
                     return Err(VelocityError::ElementNotFound {
                         selector: format!(
-                            "{selector} (gone while waiting for it to be actionable)"
+                            "{selector} (gone or hidden, e.g. behind a sheet, while waiting \
+                             for it to be actionable)"
                         ),
                         timeout_ms,
                         screenshot: None,
