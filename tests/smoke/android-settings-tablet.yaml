@@ -1,0 +1,26 @@
+# Device smoke suite for two-pane Android tablets (Settings shows its list and
+# the open page side by side). It never presses back: on a tablet that leaves
+# Settings and brings the app underneath to the front. Checked on a SUNMI
+# tablet (Android 14), 2026-11-21.
+appId: com.android.settings
+
+config:
+  platform: android
+  retry:
+    count: 1
+
+tests:
+  - name: settings_opens_and_switches_pages
+    tags: [smoke, tablet]
+    steps:
+      - stopApp: {}
+      - launchApp:
+          appId: com.android.settings
+      - assertVisible: { text: "Network & internet" }
+      - tap: { text: "Network & internet" }
+      - assertVisible: { text: "Airplane mode" }
+      # The list stays on the left: open another page and check the right
+      # pane changed.
+      - tap: { text: "Storage" }
+      - assertNotVisible: { text: "Airplane mode" }
+      - assertVisible: { textContains: "GB total" }
