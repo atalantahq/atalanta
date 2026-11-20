@@ -348,6 +348,11 @@ fn capabilities(suite: &TestSuite) -> Vec<(&str, usize, &Step, Can)> {
             Action::AssertSystemState { .. } if headless => {
                 Can::Never("the headless driver can't read system state (assertSystemState)")
             }
+            Action::LaunchApp { arguments, .. }
+                if (headless || platform == Some(Platform::Web)) && !arguments.is_empty() =>
+            {
+                Can::Never("launchApp with arguments works only on Android or iOS")
+            }
             Action::TapXY { .. }
             | Action::InputRaw { .. }
             | Action::Goto { .. }
@@ -1198,6 +1203,7 @@ mod tests {
                     step(Action::LaunchApp {
                         app_id: "com.test".to_string(),
                         clear_state: false,
+                        arguments: Default::default(),
                     }),
                     step(Action::Wait { ms: 500 }),
                     step(Action::Screenshot { filename: None }),

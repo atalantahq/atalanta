@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::types::{DeviceInfo, Direction, Element, Key, Selector};
+use crate::types::{DeviceInfo, Direction, Element, Key, LaunchArgs, Selector};
 use crate::VelocityError;
 
 /// Health status of a platform driver connection.
@@ -74,6 +74,25 @@ pub trait PlatformDriver: Send + Sync {
         Ok(crate::InstallOutcome::Installed)
     }
     async fn launch_app(&self, device_id: &str, app_id: &str, clear_state: bool) -> Result<()>;
+    /// Launch `app_id` on `device_id` with launch arguments (AUT-024).
+    /// Empty args fall through to [`Self::launch_app`]; non-empty args that a
+    /// platform doesn't yet support return a configuration error. Android and
+    /// iOS support lands in part 2.
+    async fn launch_app_with(
+        &self,
+        device_id: &str,
+        app_id: &str,
+        clear_state: bool,
+        args: &LaunchArgs,
+    ) -> Result<()> {
+        if args.is_empty() {
+            self.launch_app(device_id, app_id, clear_state).await
+        } else {
+            Err(VelocityError::Config(
+                "launch arguments are not supported on this platform yet".into(),
+            ))
+        }
+    }
     async fn stop_app(&self, device_id: &str, app_id: &str) -> Result<()>;
 
     // Element queries

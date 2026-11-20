@@ -551,8 +551,17 @@ fn interpolate_action(
     f: &mut dyn FnMut(&str) -> Result<String>,
 ) -> Result<()> {
     match action {
-        Action::LaunchApp { app_id, .. } => {
+        Action::LaunchApp {
+            app_id,
+            clear_state: _,
+            arguments,
+        } => {
             *app_id = f(app_id)?;
+            for value in arguments.inner.values_mut() {
+                if let velocity_common::LaunchArg::Str(s) = value {
+                    *s = f(s)?;
+                }
+            }
         }
         Action::StopApp { app_id } => {
             *app_id = f(app_id)?;

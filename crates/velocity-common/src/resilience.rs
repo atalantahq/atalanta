@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::error::{ErrorKind, Result, VelocityError};
 use crate::traits::{HealthStatus, PlatformDriver};
-use crate::types::{DeviceInfo, Direction, Element, Key, Selector};
+use crate::types::{DeviceInfo, Direction, Element, Key, LaunchArgs, Selector};
 
 /// Configuration for retry behavior.
 #[derive(Debug, Clone)]
@@ -578,6 +578,26 @@ impl PlatformDriver for ResilientDriver {
             let aid = aid.clone();
             let inner = self.inner.clone();
             async move { inner.launch_app(&did, &aid, clear_state).await }
+        })
+        .await
+    }
+
+    async fn launch_app_with(
+        &self,
+        device_id: &str,
+        app_id: &str,
+        clear_state: bool,
+        args: &LaunchArgs,
+    ) -> Result<()> {
+        let did = device_id.to_string();
+        let aid = app_id.to_string();
+        let args = args.clone();
+        self.with_once(device_id, || {
+            let did = did.clone();
+            let aid = aid.clone();
+            let args = args.clone();
+            let inner = self.inner.clone();
+            async move { inner.launch_app_with(&did, &aid, clear_state, &args).await }
         })
         .await
     }

@@ -22,7 +22,7 @@
 //! suite parser and validator before it is returned.
 
 use serde_yaml::{Mapping, Value};
-use velocity_common::{Action, Direction, Key, Result, Selector, VelocityError};
+use velocity_common::{Action, Direction, Key, LaunchArgs, Result, Selector, VelocityError};
 
 use crate::session::{ExploreReport, LaunchMode, RecordedStep, ValueSlot};
 use velocity_nl::GoalOp;
@@ -336,6 +336,7 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
                 &Action::LaunchApp {
                     app_id: report.app_id.clone(),
                     clear_state: report.launch == LaunchMode::Clean,
+                    arguments: LaunchArgs::default(),
                 },
                 None,
             )?);
@@ -508,6 +509,7 @@ pub fn generate_nl(report: &ExploreReport, opts: &GenOptions) -> Result<String> 
             &Action::LaunchApp {
                 app_id: report.app_id.clone(),
                 clear_state: report.launch == LaunchMode::Clean,
+                arguments: LaunchArgs::default(),
             },
             None,
         )?);

@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 use velocity_common::{
-    Action, Direction, Flow, Key, NaturalKind, Result, Selector, SourcePos, Step, SuiteConfig,
-    SuiteResult, TestCase, TestSuite, VelocityError,
+    validate_launch_arg_name, Action, Direction, Flow, Key, LaunchArg, LaunchArgs, NaturalKind,
+    Result, Selector, SourcePos, Step, SuiteConfig, SuiteResult, TestCase, TestSuite,
+    VelocityError,
 };
 
 use crate::source_map::{self, ItemLocation, SuiteLocations};
@@ -308,6 +310,7 @@ impl<'de> Visitor<'de> for DslStepVisitor {
             "launchApp" => Some(Action::LaunchApp {
                 app_id: String::new(),
                 clear_state: false,
+                arguments: LaunchArgs::default(),
             }),
             "stopApp" => Some(Action::StopApp {
                 app_id: String::new(),
@@ -775,9 +778,21 @@ where
     match key {
         "launchApp" => {
             let v: LaunchAppDsl = map.next_value()?;
+            let arguments = v
+                .arguments
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(name, value)| {
+                    validate_launch_arg_name(&name).map_err(|msg| {
+                        de::Error::custom(format!("launchApp.arguments.{name}: {msg}"))
+                    })?;
+                    Ok((name, value))
+                })
+                .collect::<std::result::Result<_, _>>()?;
             Ok(Action::LaunchApp {
                 app_id: v.app_id.unwrap_or_default(),
                 clear_state: v.clear_state.unwrap_or(false),
+                arguments: LaunchArgs { inner: arguments },
             })
         }
         "stopApp" => {
@@ -1264,6 +1279,8 @@ struct LaunchAppDsl {
     app_id: Option<String>,
     #[serde(default)]
     clear_state: Option<bool>,
+    #[serde(default)]
+    arguments: Option<BTreeMap<String, LaunchArg>>,
 }
 
 #[derive(Deserialize)]
@@ -1741,6 +1758,55 @@ tests:
     }
 
     #[test]
+    fn launch_app_arguments_keep_their_types() {
+        let yaml = r#"
+appId: com.example
+tests:
+  - name: t
+    steps:
+      - launchApp:
+          arguments:
+            isE2E: true
+            retries: 3
+            ratio: 1.5
+            server: "https://staging.example.com"
+            pin: "0042"
+"#;
+        let suite = parse_suite_from_str(yaml).unwrap();
+        let Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action else {
+            panic!("expected LaunchApp");
+        };
+        let a = &arguments.inner;
+        assert_eq!(a["isE2E"], LaunchArg::Bool(true));
+        assert_eq!(a["retries"], LaunchArg::Int(3));
+        assert_eq!(a["ratio"], LaunchArg::Float(1.5));
+        assert_eq!(
+            a["server"],
+            LaunchArg::Str("https://staging.example.com".into())
+        );
+        assert_eq!(
+            a["pin"],
+            LaunchArg::Str("0042".into()),
+            "a quoted number stays text"
+        );
+    }
+
+    #[test]
+    fn a_launch_argument_name_starting_with_a_dash_is_refused() {
+        let yaml = r#"
+appId: com.example
+tests:
+  - name: t
+    steps:
+      - launchApp:
+          arguments:
+            "-flag": true
+"#;
+        let e = parse_suite_from_str(yaml).unwrap_err().to_string();
+        assert!(e.contains("must not start with '-'"), "{e}");
+    }
+
+    #[test]
     fn parse_launch_stop_app() {
         let yaml = r#"
 appId: com.test
@@ -1755,6 +1821,7 @@ tests:
             Action::LaunchApp {
                 app_id,
                 clear_state,
+                ..
             } => {
                 assert_eq!(app_id, "com.other");
                 assert!(*clear_state);

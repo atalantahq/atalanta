@@ -158,6 +158,7 @@ mod tests {
                     step(Action::LaunchApp {
                         app_id: "com.test".to_string(),
                         clear_state: true,
+                        arguments: Default::default(),
                     }),
                     step(Action::RunFlow {
                         flow_id: "login".to_string(),
@@ -300,6 +301,7 @@ mod tests {
                     steps: vec![step(Action::LaunchApp {
                         app_id: "com.test".to_string(),
                         clear_state: true,
+                        arguments: Default::default(),
                     })],
                 },
                 Flow {
