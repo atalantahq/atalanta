@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use velocity_common::{
-    Action, Direction, Key, Platform, PlatformDriver, Rect, Result, Selector, Step, StepStatus,
-    SuiteConfig, VelocityError, VerifyCheck, VerifyLevel, VerifyOutcome,
+    Action, Direction, Key, LaunchArgs, Platform, PlatformDriver, Rect, Result, Selector, Step,
+    StepStatus, SuiteConfig, VelocityError, VerifyCheck, VerifyLevel, VerifyOutcome,
 };
 use velocity_core::TestExecutor;
 use velocity_nl::{
@@ -1063,6 +1063,7 @@ impl<'a> Run<'a> {
             let action = Action::LaunchApp {
                 app_id: self.opts.app_id.clone(),
                 clear_state,
+                arguments: LaunchArgs::default(),
             };
             let (ok, ms, _, err) = self.exec(&action).await?;
             let at = self.at();
@@ -2442,6 +2443,7 @@ impl<'a> Run<'a> {
                     action: Action::LaunchApp {
                         app_id: app_id.clone(),
                         clear_state: false,
+                        arguments: LaunchArgs::default(),
                     },
                     typed: None,
                     target: Some(name.clone()),
@@ -2456,6 +2458,7 @@ impl<'a> Run<'a> {
             GoalOp::Launch => plain(Action::LaunchApp {
                 app_id: self.opts.app_id.clone(),
                 clear_state: false,
+                arguments: LaunchArgs::default(),
             }),
             GoalOp::Wait => {
                 if step.ms > 10_000 {

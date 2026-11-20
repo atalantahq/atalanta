@@ -793,7 +793,11 @@ impl<'a> TestExecutor<'a> {
             && self.retry_attempt == 0
             && matches!(
                 test.steps.first().map(|s| &s.action),
-                Some(Action::LaunchApp { app_id: a, clear_state: false })
+                Some(Action::LaunchApp {
+                    app_id: a,
+                    clear_state: false,
+                    ..
+                })
                     if self.app_left_running.as_deref() == Some(if a.is_empty() { app_id } else { a.as_str() })
             );
         self.app_left_running = None;
@@ -3769,6 +3773,7 @@ impl<'a> TestExecutor<'a> {
             Action::LaunchApp {
                 app_id: override_id,
                 clear_state,
+                arguments,
             } => {
                 let id = if override_id.is_empty() {
                     app_id
@@ -3799,7 +3804,10 @@ impl<'a> TestExecutor<'a> {
                         }
                     }
                 }
-                let result = self.driver.launch_app(device_id, id, clear).await;
+                let result = self
+                    .driver
+                    .launch_app_with(device_id, id, clear, arguments)
+                    .await;
                 if result.is_ok() {
                     // Another app in front: the suite's app is no longer
                     // the one a batched next test would find.

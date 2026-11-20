@@ -5,7 +5,9 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use velocity_common::{Action, Direction, PlatformDriver, Result, Step, StepStatus, VelocityError};
+use velocity_common::{
+    Action, Direction, LaunchArgs, PlatformDriver, Result, Step, StepStatus, VelocityError,
+};
 use velocity_core::TestExecutor;
 
 /// The loaded suite's config and app id, if a suite is loaded.
@@ -109,6 +111,7 @@ pub async fn launch_app(
     let action = Action::LaunchApp {
         app_id: app.clone(),
         clear_state,
+        arguments: LaunchArgs::default(),
     };
     let mut out = run_step(driver, device_id, config_path, &app, action, None).await?;
     out["app_id"] = app.into();

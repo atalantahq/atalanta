@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// A selector used to find UI elements on the screen.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -541,6 +542,75 @@ pub enum ScreenshotCrop {
     Rect(Rect),
 }
 
+/// `launchApp` arguments (AUT-024), by name: Android intent extras, iOS
+/// launch arguments (`-name value`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LaunchArgs {
+    pub inner: BTreeMap<String, LaunchArg>,
+}
+
+impl LaunchArgs {
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+}
+
+impl std::fmt::Display for LaunchArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        for (name, value) in &self.inner {
+            parts.push(format!("{name}={value}"));
+        }
+        write!(f, "{}", parts.join(" "))
+    }
+}
+
+/// One launch argument: name -> value. Bool is decoded before numbers
+/// before string so YAML `true`/`3` keep their type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LaunchArg {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(String),
+}
+
+impl std::fmt::Display for LaunchArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Int(n) => write!(f, "{n}"),
+            Self::Float(n) => write!(f, "{n}"),
+            Self::Str(s) => write!(f, "{s:?}"),
+        }
+    }
+}
+
+/// Validates a launch argument name: non-empty, `[A-Za-z0-9_.-]` only,
+/// never starting with `-`. Returns an error message (not a `Result`) for a
+/// parser/validator to wrap in a clear message.
+pub fn validate_launch_arg_name(name: &str) -> std::result::Result<(), String> {
+    if name.is_empty() {
+        return Err("launch argument name must not be empty".into());
+    }
+    if name.starts_with('-') {
+        return Err(format!(
+            "launch argument name {name:?} must not start with '-'"
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_' | '.' | '-'))
+    {
+        return Err(format!(
+            "launch argument name {name:?} may only contain [A-Za-z0-9_.-]"
+        ));
+    }
+    Ok(())
+}
+
 /// An action to perform on the device.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -548,6 +618,8 @@ pub enum Action {
     LaunchApp {
         app_id: String,
         clear_state: bool,
+        #[serde(default, skip_serializing_if = "LaunchArgs::is_empty")]
+        arguments: LaunchArgs,
     },
     StopApp {
         app_id: String,
@@ -845,7 +917,10 @@ impl std::fmt::Display for DeviceState {
 
 #[cfg(test)]
 mod tests {
-    use super::{glob_match, Element, FocusCheck, Key, MockRule, Platform, Rect};
+    use super::{
+        glob_match, validate_launch_arg_name, Element, FocusCheck, Key, LaunchArg, LaunchArgs,
+        MockRule, Platform, Rect,
+    };
 
     /// `without_children` copies every field but the subtree: a field added
     /// to `Element` and forgotten there would show up here.
@@ -1194,6 +1269,42 @@ mod tests {
         ] {
             assert_eq!(Platform::of_device_id(id), p, "{id}");
         }
+    }
+
+    #[test]
+    fn launch_arg_names_reject_bad_and_accept_good() {
+        for good in ["x", "a_b", "A.B", "isE2E", "server1", "a-b", "x.y-z"] {
+            assert!(validate_launch_arg_name(good).is_ok(), "{good}");
+        }
+        for bad in ["", "-x", "-a.b", "a b", "a!b", "a/b", "a@b", "a.b c"] {
+            assert!(
+                validate_launch_arg_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn launch_args_round_trip_preserve_types() {
+        let args = LaunchArgs {
+            inner: [
+                ("isE2E".into(), LaunchArg::Bool(true)),
+                ("retries".into(), LaunchArg::Int(3)),
+                ("ratio".into(), LaunchArg::Float(1.5)),
+                (
+                    "server".into(),
+                    LaunchArg::Str("https://staging.example.com".into()),
+                ),
+            ]
+            .into(),
+        };
+        let json = serde_json::to_string(&args).unwrap();
+        let back: LaunchArgs = serde_json::from_str(&json).unwrap();
+        assert_eq!(args, back);
+        // Bool before number before string: YAML `true`/`3` keep their type.
+        let y = serde_yaml::to_string(&args).unwrap();
+        let back_y: LaunchArgs = serde_yaml::from_str(&y).unwrap();
+        assert_eq!(args, back_y);
     }
 }
 
