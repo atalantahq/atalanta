@@ -29,6 +29,10 @@ ignore = [
     # ttf-parser, through cosmic-text/fontdb in the headless renderer. Its
     # suggested replacement (skrifa) needs cosmic-text to move first.
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained via cosmic-text; no upgrade yet" },
+    # chrono (2026-11-20): an "unmaintained" notice with no safe upgrade, used
+    # for timestamps in core, ios and the reporters. Moving to jiff or time is
+    # a separate change; revisit when the advisory names a successor.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; no upgrade yet, migration not started" },
 ]
 
 # ---------------------------------------------------------------------------
