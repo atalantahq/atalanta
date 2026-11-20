@@ -113,9 +113,33 @@ fn modal_kind(node: &Element) -> Option<&'static str> {
     })
 }
 
-/// Whether a modal layer is up anywhere in `tree`.
+/// Whether a modal layer may be up anywhere in `tree`: one of the modal
+/// node types, or two navigation bars on screen. A SwiftUI page sheet on
+/// iOS 26 has no Sheet, Popover or `PopoverDismissRegion` node at all; it
+/// shows only as a second `NavigationBar` later in the tree, so the
+/// visibility read never ran and taps behind the sheet went through
+/// (2026-11-11, Finding B). The visibility read settles which content is
+/// really hidden; two bars side by side (an iPad split view) only cost
+/// that read.
 pub fn has_modal_layer(tree: &Element) -> bool {
-    modal_kind(tree).is_some() || tree.children.iter().any(has_modal_layer)
+    fn any_modal(n: &Element) -> bool {
+        modal_kind(n).is_some() || n.children.iter().any(any_modal)
+    }
+    fn bars(n: &Element, screen: &Rect, count: &mut usize) {
+        if n.element_type == "NavigationBar" && n.visible && intersect(&n.bounds, screen).is_some()
+        {
+            *count += 1;
+        }
+        for c in &n.children {
+            bars(c, screen, count);
+        }
+    }
+    if any_modal(tree) {
+        return true;
+    }
+    let mut count = 0;
+    bars(tree, &tree.bounds, &mut count);
+    count >= 2
 }
 
 /// Copy `src`'s `visible` flags onto `dst`, node by node, when the two
@@ -655,6 +679,35 @@ mod tests {
         let mut root = el("Application", "app", 0, 0, 402, 874);
         root.children = children;
         root
+    }
+
+    /// Finding B (2026-11-11): the iOS 26 Settings "Apple Account" page
+    /// sheet is only a second NavigationBar later in the tree.
+    #[test]
+    fn a_second_navigation_bar_counts_as_a_possible_modal_layer() {
+        let list = el("Table", "list", 0, 116, 402, 758);
+        let one = screen(vec![
+            el("NavigationBar", "Settings", 0, 62, 402, 54),
+            list.clone(),
+        ]);
+        assert!(!has_modal_layer(&one));
+        let mut sheet = el("Other", "AUTH_SIGN_IN_CHOICE_VIEW", 0, 70, 402, 804);
+        sheet.children = vec![el("NavigationBar", "Apple Account", 0, 70, 402, 56)];
+        let two = screen(vec![
+            el("NavigationBar", "Settings", 0, 62, 402, 54),
+            list.clone(),
+            sheet,
+        ]);
+        assert!(has_modal_layer(&two));
+        // A bar that is off screen or reported hidden does not count.
+        let mut gone = el("NavigationBar", "Old", 0, 900, 402, 54);
+        gone.visible = true;
+        let off = screen(vec![
+            el("NavigationBar", "Settings", 0, 62, 402, 54),
+            list,
+            gone,
+        ]);
+        assert!(!has_modal_layer(&off));
     }
 
     fn keyboard() -> Element {
