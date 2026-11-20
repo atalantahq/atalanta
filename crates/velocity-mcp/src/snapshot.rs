@@ -59,6 +59,10 @@ struct Shown {
 #[derive(Debug, Default)]
 pub struct Snapshots {
     pub platform: Option<Platform>,
+    /// The device id the last snapshot and refs belong to. `None` until the
+    /// first snapshot on a device, so old saved state without it keeps
+    /// working on whichever device the next command uses.
+    pub device: Option<String>,
     next: u64,
     refs: HashMap<Identity, u64>,
     /// The last snapshot, by ref number.
@@ -70,6 +74,7 @@ pub struct Snapshots {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SnapshotState {
     platform: Option<Platform>,
+    device: Option<String>,
     next: u64,
     refs: Vec<(Identity, u64)>,
     last: Option<Vec<(u64, Shown)>>,
@@ -79,6 +84,7 @@ impl Snapshots {
     pub fn to_state(&self) -> SnapshotState {
         SnapshotState {
             platform: self.platform,
+            device: self.device.clone(),
             next: self.next,
             refs: self.refs.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             last: self
@@ -91,9 +97,25 @@ impl Snapshots {
     pub fn from_state(state: SnapshotState) -> Self {
         Self {
             platform: state.platform,
+            device: state.device,
             next: state.next,
             refs: state.refs.into_iter().collect(),
             last: state.last.map(|v| v.into_iter().collect()),
+        }
+    }
+
+    /// Start fresh for a different device: refs numbered from @e1 again, no
+    /// last snapshot to delta against. Kept (not cleared) when there is no
+    /// saved device id, so old state keeps working on any device.
+    pub fn reset_for_device(&mut self, device_id: &str, keep: bool) {
+        self.device = Some(device_id.to_string());
+        if !keep {
+            // The other device's platform too: the caller falls back to
+            // its own.
+            self.platform = None;
+            self.next = 0;
+            self.refs = HashMap::new();
+            self.last = None;
         }
     }
 }

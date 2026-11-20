@@ -635,14 +635,26 @@ impl McpServer {
     }
 
     /// Load what [`save_state`](Self::save_state) wrote. State from another
-    /// version is ignored (a fresh session), never misread.
-    pub fn load_state(&mut self, state: &Value) {
+    /// version is ignored (a fresh session), never misread. When the saved
+    /// state's device differs from `device_id` (a session moves from an
+    /// iPhone to an Android phone, say), start fresh for that device: no
+    /// delta against the other device's snapshot, refs numbered from @e1
+    /// again. State without a device id belongs to whatever device the next
+    /// command uses (no forced reset).
+    pub fn load_state(&mut self, state: &Value, device_id: &str) {
         if state.get("version").and_then(Value::as_u64) != Some(1) {
             return;
         }
+        let saved_device = state
+            .get("snapshots")
+            .and_then(|s| s.get("device"))
+            .and_then(Value::as_str);
+        let reset_device = saved_device.is_some_and(|d| d != device_id);
         if let Ok(s) = serde_json::from_value(state["snapshots"].clone()) {
             let platform = self.snapshots.platform;
-            self.snapshots = Snapshots::from_state(s);
+            let mut snaps = Snapshots::from_state(s);
+            snaps.reset_for_device(device_id, !reset_device);
+            self.snapshots = snaps;
             self.snapshots.platform = self.snapshots.platform.or(platform);
         }
         if let Ok(r) = serde_json::from_value(state["recorder"].clone()) {
@@ -1410,6 +1422,7 @@ impl McpServer {
             self.recorder.platform = Some(p);
         }
         self.recorder.observe(&tree, screen.as_ref());
+        self.snapshots.device = Some(device_id.to_string());
         self.snapshots.take(&tree, screen.as_ref(), opts)
     }
 
@@ -3523,7 +3536,7 @@ mod tests {
 mod t2_tests {
     use super::*;
 
-    async fn launched(xml_children: &str) -> (McpServer, tempfile::TempDir) {
+    async fn launched_layout(xml_children: &str) -> (tempfile::TempDir, String) {
         let dir = tempfile::tempdir().unwrap();
         let layout = dir.path().join("main.xml");
         std::fs::write(
@@ -3535,8 +3548,14 @@ mod t2_tests {
             ),
         )
         .unwrap();
+        let path = layout.to_string_lossy().into_owned();
+        (dir, path)
+    }
+
+    async fn launched(xml_children: &str) -> (McpServer, tempfile::TempDir) {
+        let (dir, path) = launched_layout(xml_children).await;
         let config = velocity_headless::HeadlessConfig {
-            app_path: Some(layout.to_string_lossy().into_owned()),
+            app_path: Some(path),
             ..Default::default()
         };
         let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
@@ -3550,8 +3569,12 @@ mod t2_tests {
         (s, dir)
     }
 
-    /// Another driver on the layout `launched` wrote into `dir`.
-    async fn launched_driver(dir: &tempfile::TempDir) -> Arc<dyn PlatformDriver> {
+    /// Another driver on the layout `launched` wrote into `dir`, with the app
+    /// launched on `device_id`.
+    async fn launched_driver_on(
+        dir: &tempfile::TempDir,
+        device_id: &str,
+    ) -> Arc<dyn PlatformDriver> {
         let layout = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(|e| e.ok().map(|e| e.path()))
@@ -3565,7 +3588,7 @@ mod t2_tests {
             velocity_common::Platform::Android,
             config,
         ));
-        driver.launch_app("headless", "app", false).await.unwrap();
+        driver.launch_app(device_id, "app", false).await.unwrap();
         driver
     }
 
@@ -3758,11 +3781,14 @@ mod t2_tests {
         drop(one);
 
         // A new server on the same device, as the next command builds.
-        let driver = launched_driver(&dir).await;
+        let driver = launched_driver_on(&dir, "headless").await;
         let mut two = McpServer::new(driver, "headless".into(), None)
             .with_platform(velocity_common::Platform::Android)
             .with_tasks(TaskManager::new(dir.path().join("tasks2"), vec![]));
-        two.load_state(&serde_json::from_str(&state.to_string()).unwrap());
+        two.load_state(
+            &serde_json::from_str(&state.to_string()).unwrap(),
+            "headless",
+        );
         let typed = two
             .call(
                 "type_text",
@@ -3775,11 +3801,11 @@ mod t2_tests {
         assert_eq!(settled["settled"], true, "{settled}");
         let state = two.save_state();
 
-        let driver = launched_driver(&dir).await;
+        let driver = launched_driver_on(&dir, "headless").await;
         let mut three = McpServer::new(driver, "headless".into(), None)
             .with_platform(velocity_common::Platform::Android)
             .with_tasks(TaskManager::new(dir.path().join("tasks3"), vec![]));
-        three.load_state(&state);
+        three.load_state(&state, "headless");
         let out = three
             .call(
                 "export_session_flow",
@@ -3790,8 +3816,12 @@ mod t2_tests {
         let v: Value = serde_json::from_str(&text(&out)).unwrap();
         assert_eq!(v["steps"], 1, "{v}");
         // State from another version starts a fresh session.
-        let mut four = McpServer::new(launched_driver(&dir).await, "headless".into(), None);
-        four.load_state(&serde_json::json!({ "version": 99 }));
+        let mut four = McpServer::new(
+            launched_driver_on(&dir, "headless").await,
+            "headless".into(),
+            None,
+        );
+        four.load_state(&serde_json::json!({ "version": 99 }), "headless");
         let stale = four
             .call("tap", serde_json::json!({ "ref": email }))
             .await
@@ -3889,6 +3919,108 @@ mod t2_tests {
         let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
         velocity_core::validate_suite(&suite).unwrap();
         assert_eq!(v["steps"], 2, "{yaml}");
+    }
+
+    // A session's snapshot state is keyed by device: refs and the delta
+    // belong to one device, and a different device starts fresh.
+    #[tokio::test]
+    async fn snapshot_state_is_keyed_by_device() {
+        let (dir, _layout) = launched_layout(FORM).await;
+
+        // Device A: a full snapshot, then a delta (no change) on the same device.
+        let driver_a = launched_driver_on(&dir, "iphone").await;
+        let mut a = McpServer::new(driver_a, "iphone".into(), None)
+            .with_platform(velocity_common::Platform::Ios);
+        let full_a = text(&call(&mut a, "snapshot", serde_json::json!({})).await);
+        assert!(full_a.starts_with("# "), "{full_a}");
+        assert!(full_a.contains("@e2"), "{full_a}");
+        let delta_a = text(&call(&mut a, "snapshot", serde_json::json!({ "mode": "delta" })).await);
+        assert!(
+            delta_a.contains("no change") || delta_a.contains("delta:"),
+            "{delta_a}"
+        );
+
+        // Device B: a full screen again (no delta against A), refs from @e1.
+        let driver_b = launched_driver_on(&dir, "emulator-5554").await;
+        let mut b = McpServer::new(driver_b, "emulator-5554".into(), None)
+            .with_platform(velocity_common::Platform::Android);
+        // Load A's state onto B: device mismatch resets snapshots, so A's ref
+        // is STALE_REF and B gets a full screen when it snapshots.
+        let state_a = a.save_state();
+        b.load_state(&state_a, "emulator-5554");
+        assert_eq!(
+            b.snapshots.platform,
+            Some(velocity_common::Platform::Android)
+        );
+        // The first delta on B is not a diff against A's screen.
+        let first_b = text(&call(&mut b, "snapshot", serde_json::json!({ "mode": "delta" })).await);
+        assert!(!first_b.contains("delta:"), "{first_b}");
+        b.load_state(&state_a, "emulator-5554");
+        let stale = call(&mut b, "tap", serde_json::json!({ "ref": "@e2" })).await;
+        assert_eq!(stale["isError"], true, "{stale}");
+        assert_eq!(
+            stale["structuredContent"]["error"]["code"], "STALE_REF",
+            "{stale}"
+        );
+        let full_b = text(&call(&mut b, "snapshot", serde_json::json!({})).await);
+        assert!(
+            full_b.contains("@e1 ") && !full_b.contains("delta:"),
+            "a different device gets a full screen: {full_b}"
+        );
+        assert!(full_b.contains("@e2"), "{full_b}");
+
+        // Back on A: still delta-capable and @e2 resolves there.
+        let delta_a2 =
+            text(&call(&mut a, "snapshot", serde_json::json!({ "mode": "delta" })).await);
+        assert!(
+            delta_a2.contains("no change") || delta_a2.contains("delta:"),
+            "{delta_a2}"
+        );
+        let ok = call(&mut a, "tap", serde_json::json!({ "ref": "@e2" })).await;
+        assert!(ok.get("isError").is_none(), "{ok}");
+
+        // State saved on B then loaded on a new server for B keeps numbering.
+        let state_b = b.save_state();
+        let driver_b2 = launched_driver_on(&dir, "emulator-5554").await;
+        let mut b2 = McpServer::new(driver_b2, "emulator-5554".into(), None)
+            .with_platform(velocity_common::Platform::Android);
+        b2.load_state(&state_b, "emulator-5554");
+        let again = text(&call(&mut b2, "snapshot", serde_json::json!({ "mode": "delta" })).await);
+        assert!(
+            again.contains("no change") || again.contains("delta:"),
+            "{again}"
+        );
+        drop(dir);
+    }
+
+    // Old saved state (no device id) belongs to whichever device uses it next.
+    #[tokio::test]
+    async fn old_state_without_a_device_keeps_working_on_any_device() {
+        let (dir, _layout) = launched_layout(FORM).await;
+        let driver = launched_driver_on(&dir, "iphone").await;
+        let mut s = McpServer::new(driver, "iphone".into(), None)
+            .with_platform(velocity_common::Platform::Ios);
+        let full = text(&call(&mut s, "snapshot", serde_json::json!({})).await);
+        assert!(full.starts_with("# "), "{full}");
+        let mut state = s.save_state();
+        // Strip the saved device id to emulate an old state file.
+        let old = state
+            .pointer_mut("/snapshots")
+            .and_then(|s| s.as_object_mut())
+            .unwrap();
+        old.remove("device");
+
+        // Loaded on device B: full screen, refs from @e1 (no forced reset).
+        let driver_b = launched_driver_on(&dir, "emulator-5554").await;
+        let mut b = McpServer::new(driver_b, "emulator-5554".into(), None)
+            .with_platform(velocity_common::Platform::Android);
+        b.load_state(&state, "emulator-5554");
+        let full_b = text(&call(&mut b, "snapshot", serde_json::json!({})).await);
+        assert!(
+            full_b.contains("@e1 ") && !full_b.contains("delta:"),
+            "state without a device id keeps working on any device: {full_b}"
+        );
+        drop(dir);
     }
 
     #[tokio::test]
