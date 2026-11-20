@@ -382,7 +382,7 @@ impl TestHistory {
     /// Flagged as flaky: enough runs to judge (Buildkite/Trunk use a minimum
     /// sample), a flip-or-retry rate of at least 15%, and not cleared by a
     /// clean recent streak — a fixed test drops the flag after
-    /// [`CLEAR_AFTER`] straight passes instead of waiting for the window to
+    /// `CLEAR_AFTER` straight passes instead of waiting for the window to
     /// roll over.
     pub fn flagged_flaky(&self, test: &str) -> bool {
         self.outcomes.get(test).is_some_and(|runs| flagged(runs))
@@ -429,7 +429,7 @@ impl TestHistory {
 
     /// Chance that one run of `test` fails (a straight failure, or a first
     /// attempt that needed a retry), from the recent window. `None` with
-    /// fewer than [`FLAG_MIN_RUNS`] runs.
+    /// fewer than `FLAG_MIN_RUNS` runs.
     pub fn fail_rate(&self, test: &str) -> Option<f64> {
         let runs = self.outcomes.get(test)?;
         if runs.len() < FLAG_MIN_RUNS {
@@ -771,7 +771,7 @@ const MAX_DURATION_MS: u64 = 24 * 60 * 60 * 1000;
 /// A test not run for this long is dropped from the history.
 const FORGET_AFTER_SECS: u64 = 90 * 24 * 60 * 60;
 
-/// Drop tests that haven't run for [`FORGET_AFTER_SECS`] and are no longer
+/// Drop tests that haven't run for `FORGET_AFTER_SECS` and are no longer
 /// in the suite (`suite_tests`, every test's name, not only those this run
 /// selected): deleted and renamed tests stayed in velocity-history.json
 /// forever, and the file only grew (VEL-189). A test still in the suite is

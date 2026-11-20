@@ -231,7 +231,7 @@ fn suite_files(dir: &Path, depth: usize, dirs_left: &mut usize, out: &mut Vec<Pa
 }
 
 /// The tests under `dirs` most like `goal`, best first: at most
-/// [`MAX_DEMOS`], each scoring at least [`MIN_SCORE`]. Only suites for
+/// [`MAX_DEMOS`], each scoring at least `MIN_SCORE`. Only suites for
 /// `app_id` (or an `${APP_ID}`-style placeholder) on `platform` count.
 /// Files that don't parse are skipped: a demo is a nicety, never an error.
 pub fn find(dirs: &[PathBuf], app_id: &str, platform: Platform, goal: &str) -> Vec<Demo> {

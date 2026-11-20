@@ -480,7 +480,7 @@ pub struct SuiteRun {
     pub launcher: Arc<dyn SuiteLauncher>,
 }
 
-/// `s` without ANSI colour codes, at most [`MAX_LINE`] characters.
+/// `s` without ANSI colour codes, at most `MAX_LINE` characters.
 pub fn clean_line(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();

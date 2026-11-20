@@ -1,3 +1,7 @@
+// The doc comments in this binary are clap's --help text: `<goal>`, `<type>`
+// and bare URLs in them are meant literally, not as HTML or links.
+#![allow(rustdoc::invalid_html_tags, rustdoc::bare_urls)]
+
 mod commands;
 mod profile;
 mod signals;

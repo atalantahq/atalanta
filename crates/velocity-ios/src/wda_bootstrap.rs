@@ -4,7 +4,7 @@
 //!   weeks of Sept 2026) and v16.12.11+ adds `lib_TestingInterop.dylib`, which
 //!   Xcode 26.0.x simulators don't ship, so tracking `master` broke iOS here.
 //!   The ref is picked from what the installed Xcode supports
-//!   ([`pick_wda_ref`]) and can be overridden with `VELOCITY_WDA_REF`.
+//!   (`pick_wda_ref`) and can be overridden with `VELOCITY_WDA_REF`.
 //! - **Built once per (ref, Xcode build, arch)** into `~/.velocity/wda/build/…`
 //!   for the generic simulator destination, so the `.xctestrun` serves every
 //!   simulator of that SDK. A later run only launches it (~17 s instead of a

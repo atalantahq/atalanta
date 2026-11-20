@@ -12,7 +12,7 @@
 //!   screens (element click 1,376 → 356–397 ms).
 //! - Taps go through W3C `/actions` (≈360 ms vs 488 ms for a zero-length drag).
 //!
-//! Errors are typed (see [`WdaClient::send`]):
+//! Errors are typed (see `WdaClient::send`):
 //! - a refused connection is [`VelocityError::WdaUnreachable`] (the request
 //!   never arrived, so it can be replayed after a restart). So is any broken
 //!   connection (reset, closed, timed out) on a read or lookup: repeating

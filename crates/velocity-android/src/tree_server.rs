@@ -9,7 +9,7 @@
 //! device it is pushed to `/data/local/tmp`, started with `app_process` as the
 //! shell user, and reached through `adb forward`. Any failure tears the
 //! session down and the caller falls back to `uiautomator dump`; after
-//! [`MAX_FAILURES`] in a row the server is left alone for a while (2 s,
+//! `MAX_FAILURES` in a row the server is left alone for a while (2 s,
 //! doubling to 60 s) and then tried again. Disable it with
 //! `VELOCITY_ANDROID_TREE_SERVER=0`.
 //!
@@ -26,10 +26,10 @@
 //! reachable by any web page's blind `fetch()`) is closed by the server on
 //! the first line that isn't a command, and every connection must present
 //! the server's session token (`AUTH`) before anything but `PING`/`QUIT`.
-//! The server writes a fresh token to [`TOKEN_FILE`] on the device (shell
+//! The server writes a fresh token to `TOKEN_FILE` on the device (shell
 //! or root only) at each start; the host reads it through adb (R-2, R-3).
 //!
-//! Since protocol 18 the handshake is mutual ([`CHALLENGE_VERSION`]): the
+//! Since protocol 18 the handshake is mutual (`CHALLENGE_VERSION`): the
 //! socket name is public, and an app that bound it first used to answer
 //! `PONG` and receive the token and every typed secret. Now the host sends
 //! `HELLO <nonce>` and checks the server's HMAC over it with the token
@@ -557,7 +557,7 @@ impl TreeServer {
             .await
     }
 
-    /// Type `text` into the focused field (any Unicode), [`TEXT_CHUNK`]
+    /// Type `text` into the focused field (any Unicode), `TEXT_CHUNK`
     /// characters per command, each with a deadline that grows with its
     /// length. `None` only when nothing was typed: once a chunk went in,
     /// the server going away is an error, not a cue to type it all again

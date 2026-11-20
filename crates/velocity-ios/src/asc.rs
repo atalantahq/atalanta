@@ -127,7 +127,7 @@ impl AscKey {
         })
     }
 
-    /// A signed ES256 token (JWT) valid for [`TOKEN_TTL_SECS`] from `now`.
+    /// A signed ES256 token (JWT) valid for `TOKEN_TTL_SECS` from `now`.
     pub fn token_at(&self, now: u64) -> Result<String> {
         let b64 = |v: &Value| {
             base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string().as_bytes())
