@@ -35,14 +35,9 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      # Fails the run when a shard reported nothing (docs/CI.md).
+      - uses: omkar-dev/velocity@v0.2.0
         with:
-          path: shards
-          pattern: velocity-results-*
-      - name: Every shard reported
-        # The same pinned release's installer, which checks the download.
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/v0.2.0/install.sh \
-            | sh -s -- --version 0.2.0 --dir "$RUNNER_TEMP/bin" --no-modify-path
-          "$RUNNER_TEMP/bin/velocity" results check --expect-shards 2 shards
+          version: 0.2.0
+          platform: android
+          check-shards: 2
