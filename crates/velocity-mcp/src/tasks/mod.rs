@@ -46,6 +46,8 @@ pub enum TaskKind {
     Explore,
     /// `velocity verify-change`: a saved flow replayed, or explored and saved.
     Verify,
+    /// `velocity gate`: the trust gates on a written test.
+    Gate,
 }
 
 impl TaskKind {
@@ -140,6 +142,10 @@ pub struct Summary {
     /// tokens (the counts above are then the replay runs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explore: Option<serde_json::Value>,
+    /// Gate tasks: `{trusted, gates, file, goal}` from `velocity gate --json`
+    /// (the counts above are then the burn-in replays).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gates: Option<serde_json::Value>,
 }
 
 impl Summary {

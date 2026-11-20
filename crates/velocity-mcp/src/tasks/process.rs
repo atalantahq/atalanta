@@ -435,6 +435,97 @@ impl TaskBody for VerifyRun {
     }
 }
 
+/// `velocity gate --json` as a task: the trust gates on a written test.
+pub struct GateRun {
+    pub child: Child,
+}
+
+#[async_trait::async_trait]
+impl TaskBody for GateRun {
+    fn kind(&self) -> TaskKind {
+        TaskKind::Gate
+    }
+
+    async fn run(self: Box<Self>, mut ctx: TaskContext) -> TaskOutcome {
+        let events = ctx.dir.join("events.jsonl");
+        let result_file = ctx.dir.join("result.json");
+        let exit = match self
+            .child
+            .supervise(&mut ctx, &events, Some(&result_file), None)
+            .await
+        {
+            Ok(e) => e,
+            Err(e) => return error_outcome(e),
+        };
+        let result = std::fs::read(&result_file)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+        let summary = result.as_ref().map(gate_summary);
+        let state = if exit.stopped {
+            TaskState::Stopped
+        } else {
+            match exit.code {
+                Some(0) => TaskState::Passed,
+                // 1: the test is not trusted; the reasons are in the result.
+                Some(1) if result.is_some() => TaskState::Failed,
+                _ => TaskState::Error,
+            }
+        };
+        let error = match state {
+            TaskState::Error => Some(self.child.failure("velocity gate", exit.code)),
+            TaskState::Failed => result.as_ref().map(|r| {
+                let reasons: Vec<&str> = r["gates"]["reasons"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(serde_json::Value::as_str).collect())
+                    .unwrap_or_default();
+                format!("not trusted: {}", reasons.join("; "))
+            }),
+            _ => None,
+        };
+        TaskOutcome {
+            state,
+            summary,
+            error,
+            exit_code: exit.code,
+        }
+    }
+}
+
+/// The summary of `velocity gate --json` output: the burn-in replays as the
+/// counts, failed replays as failures, and the gates' verdict.
+pub fn gate_summary(r: &serde_json::Value) -> Summary {
+    use serde_json::json;
+    let runs = r["replay"]["runs"].as_array().cloned().unwrap_or_default();
+    let passed = runs.iter().filter(|x| x["passed"] == true).count();
+    let failures = runs
+        .iter()
+        .enumerate()
+        .filter(|(_, x)| x["passed"] != true)
+        .map(|(i, x)| Failure {
+            test: format!("replay {}", i + 1),
+            step: x["failedStep"].as_u64().map(|s| format!("{}", s + 1)),
+            error: x["error"]
+                .as_str()
+                .map(|e| velocity_common::redact::redact(e).into_owned()),
+            screenshot: None,
+            trace: None,
+        })
+        .collect();
+    Summary {
+        total: runs.len(),
+        passed,
+        failed: runs.len() - passed,
+        failures,
+        gates: Some(json!({
+            "trusted": r["trusted"],
+            "gates": r["gates"],
+            "file": r["file"],
+            "goal": r["goal"],
+        })),
+        ..Default::default()
+    }
+}
+
 /// The summary of `velocity explore --json` output: the test written, the
 /// replays, and what the model cost.
 pub fn explore_summary(r: &serde_json::Value) -> Summary {

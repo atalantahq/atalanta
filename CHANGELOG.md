@@ -81,7 +81,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - `velocity shard-plan`, `velocity history merge`, `velocity trace view`, `velocity heal`, `velocity baselines review|accept|reject` (`review --serve` gives a side-by-side review page).
 - `velocity devices up|down` (boot or clone the devices a parallel run needs), `velocity repl`, `velocity daemon start|stop|status` (keeps drivers warm for `run --daemon`), and `velocity signing` (iOS signing with an App Store Connect API key).
 - `velocity mcp install|config|rules`, `velocity migrate waits` (removes redundant `wait:` steps).
-- `velocity gate <file> --goal "<text>"`: the trust gates for a one-test suite YAML that was never explored (hand-written, or exported from an agent session): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text. Exit 0 trusted, 1 not trusted ([CLI.md](docs/CLI.md#gate)).
+- `velocity gate <file> --goal "<text>"`: the trust gates for a one-test suite YAML that was never explored (hand-written, or exported from an agent session): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text. Exit 0 trusted, 1 not trusted ([CLI.md](docs/CLI.md#gate)). Over MCP, `run_task` with `gate: true` runs it as a background task (`summary.gates`), and `export_session_flow` says its test is not gated yet and gives the call that gates it.
 - The global `--color auto|always|never` flag. `NO_COLOR` and `CLICOLOR` are honoured.
 
 #### Suite DSL
