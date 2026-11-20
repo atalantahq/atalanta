@@ -1055,8 +1055,8 @@ const ACTION_REPO: &str = "omkar-dev/velocity";
 /// The GitHub Actions workflow `init` writes: the suite in two shards
 /// through the Velocity Action (a pinned release, the device brought up
 /// and retried, a device that never came up exit 3), then
-/// `velocity results check` over every shard's results, so a shard that
-/// died or uploaded nothing fails the run (NEW-001). `real` is
+/// the Action's `check-shards` mode so a shard that died or uploaded
+/// nothing fails the run (NEW-001). `real` is
 /// `--ci github` (the workflow itself) rather than the example.
 pub fn ci_workflow(platform: Platform, dir: &str, real: bool) -> String {
     let version = env!("CARGO_PKG_VERSION");
@@ -1120,17 +1120,12 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      # Fails the run when a shard reported nothing (docs/CI.md).
+      - uses: {ACTION_REPO}@v{version}
         with:
-          path: shards
-          pattern: velocity-results-*
-      - name: Every shard reported
-        # The same pinned release's installer, which checks the download.
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/{ACTION_REPO}/v{version}/install.sh \\
-            | sh -s -- --version {version} --dir \"$RUNNER_TEMP/bin\" --no-modify-path
-          \"$RUNNER_TEMP/bin/velocity\" results check --expect-shards 2 shards
+          version: {version}
+          platform: {name}
+          check-shards: 2
 "
     )
 }
@@ -1599,10 +1594,7 @@ mod tests {
         let _: Value = serde_yaml::from_str(&ci).expect("the CI example is YAML");
         assert!(ci.contains("shard: ${{ matrix.shard }}/2"), "{ci}");
         assert!(ci.contains(&format!("version: {}", env!("CARGO_PKG_VERSION"))));
-        assert!(
-            ci.contains("results check --expect-shards 2 shards"),
-            "{ci}"
-        );
+        assert!(ci.contains("check-shards: 2"), "{ci}");
         let real = ci_workflow(Platform::Web, "velocity", true);
         let _: Value = serde_yaml::from_str(&real).expect("the workflow is YAML");
         assert!(real.contains("velocity init --ci github") && real.contains("platform: web"));

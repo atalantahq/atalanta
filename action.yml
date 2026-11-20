@@ -10,9 +10,18 @@
 #       shard: ${{ matrix.shard }}/4
 #
 # Exit codes are Velocity's (docs/CLI.md#exit-codes); a device that never
-# came up is 3 (infrastructure), never a test failure. After a sharded
-# matrix, run `velocity results check --expect-shards N` on the downloaded
-# results (docs/CI.md#no-silent-passes).
+# came up is 3 (infrastructure), never a test failure. In check mode the
+# Action installs Velocity only, runs no tests, and (after the matrix)
+# downloads every shard's results artifact and runs `velocity results
+# check --expect-shards N`:
+#
+#   results:                       # after the matrix: every shard reported?
+#     needs: tests
+#     if: always()
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: omkar-dev/velocity@v0.2.0
+#         with: { version: 0.2.0, platform: android, check-shards: 4 }
 name: Velocity
 description: Run Velocity UI tests on an Android emulator, an iOS simulator or headless Chrome.
 author: omkar-dev
@@ -32,8 +41,9 @@ inputs:
     description: android, ios or web.
     required: true
   suite:
-    description: Suite file or folder to run.
-    required: true
+    description: Suite file or folder to run (not used in check mode).
+    required: false
+    default: ""
   shard:
     description: This job's shard, M/N (optional).
     required: false
@@ -66,6 +76,10 @@ inputs:
     description: Times to try bringing the device up before giving up with exit 3 (Android at most 2; the second uses a fresh AVD).
     required: false
     default: "2"
+  check-shards:
+    description: "Check mode: the number of shards a matrix ran. Downloads every shard's results artifact for `platform` and fails unless all N reported (velocity results check). Runs no tests."
+    required: false
+    default: ""
 
 outputs:
   results-dir:
@@ -85,11 +99,21 @@ runs:
         # Inputs reach the script as variables, never spliced into it.
         PLATFORM: ${{ inputs.platform }}
         SHARD: ${{ inputs.shard }}
+        SUITE: ${{ inputs.suite }}
+        CHECK_SHARDS: ${{ inputs.check-shards }}
       run: | # zizmor: ignore[github-env] -- writes only RUNNER_TEMP paths and the validated platform/shard
         set -euo pipefail
         case "$PLATFORM" in android|ios|web) ;; *)
           echo "::error title=Velocity::platform must be android, ios or web, not '$PLATFORM'"; exit 2 ;;
         esac
+        if [ -z "$CHECK_SHARDS" ] && [ -z "$SUITE" ]; then
+          echo "::error title=Velocity::suite is required unless check-shards is set"; exit 2
+        fi
+        if [ -n "$CHECK_SHARDS" ]; then
+          case "$CHECK_SHARDS" in ''|*[!0-9]*|0)
+            echo "::error title=Velocity::check-shards must be a positive integer, not '$CHECK_SHARDS'"; exit 2 ;;
+          esac
+        fi
         sh "$GITHUB_ACTION_PATH/install.sh"
         echo "$VELOCITY_INSTALL_DIR" >> "$GITHUB_PATH"
         echo "VELOCITY_ACTION_STATE=$RUNNER_TEMP/velocity-action" >> "$GITHUB_ENV"
@@ -104,14 +128,14 @@ runs:
     # ---- Android: KVM, a cached AVD (keyed by everything that shapes it),
     # then the run inside the emulator, retried when the emulator never boots.
     - name: Enable KVM
-      if: inputs.platform == 'android'
+      if: inputs.platform == 'android' && inputs.check-shards == ''
       shell: bash
       run: |
         echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
         sudo udevadm control --reload-rules
         sudo udevadm trigger --name-match=kvm
     - name: AVD cache
-      if: inputs.platform == 'android'
+      if: inputs.platform == 'android' && inputs.check-shards == ''
       id: avd
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
@@ -120,7 +144,7 @@ runs:
           ~/.android/adb*
         key: velocity-avd-${{ runner.os }}-${{ inputs.api-level }}-${{ inputs.target }}-${{ inputs.arch }}-v1
     - name: Create the AVD snapshot
-      if: inputs.platform == 'android' && steps.avd.outputs.cache-hit != 'true'
+      if: inputs.platform == 'android' && steps.avd.outputs.cache-hit != 'true' && inputs.check-shards == ''
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       with:
         api-level: ${{ inputs.api-level }}
@@ -131,7 +155,7 @@ runs:
         disable-animations: false
         script: echo "AVD snapshot created"
     - name: Run on the emulator
-      if: inputs.platform == 'android'
+      if: inputs.platform == 'android' && inputs.check-shards == ''
       id: run1
       continue-on-error: true
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -150,14 +174,14 @@ runs:
         emulator-boot-timeout: 600
         script: sh "${{ github.action_path }}/scripts/action-run.sh"
     - name: Did the emulator boot?
-      if: inputs.platform == 'android'
+      if: inputs.platform == 'android' && inputs.check-shards == ''
       id: booted
       shell: bash
       run: |
         if [ -f "$VELOCITY_ACTION_STATE/booted" ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else
           echo "::warning title=Velocity::the emulator did not boot; trying once more with a fresh AVD"; fi
     - name: Run on the emulator (retry after a failed boot)
-      if: inputs.platform == 'android' && steps.booted.outputs.yes != 'true' && inputs.boot-attempts != '1'
+      if: inputs.platform == 'android' && steps.booted.outputs.yes != 'true' && inputs.boot-attempts != '1' && inputs.check-shards == ''
       continue-on-error: true
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
       env:
@@ -177,7 +201,7 @@ runs:
 
     # ---- iOS: boot a simulator (retried), then run.
     - name: Boot a simulator and run
-      if: inputs.platform == 'ios'
+      if: inputs.platform == 'ios' && inputs.check-shards == ''
       shell: bash
       env:
         SUITE: ${{ inputs.suite }}
@@ -198,7 +222,7 @@ runs:
 
     # ---- Web: headless Chrome needs no device.
     - name: Run in headless Chrome
-      if: inputs.platform == 'web'
+      if: inputs.platform == 'web' && inputs.check-shards == ''
       shell: bash
       env:
         SUITE: ${{ inputs.suite }}
@@ -208,7 +232,7 @@ runs:
       run: sh "$GITHUB_ACTION_PATH/scripts/action-run.sh"
 
     - name: Upload results
-      if: always() && inputs.upload == 'true'
+      if: always() && inputs.upload == 'true' && inputs.check-shards == ''
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: ${{ env.VELOCITY_ARTIFACT }}
@@ -216,8 +240,25 @@ runs:
         retention-days: 14
         if-no-files-found: warn
     - name: Result
-      if: always()
+      if: always() && inputs.check-shards == ''
       shell: bash
       env:
         BOOT_ATTEMPTS: ${{ inputs.boot-attempts }}
       run: sh "$GITHUB_ACTION_PATH/scripts/action-result.sh"
+    - name: Download every shard's results
+      # Only after a good install: nothing else runs in check mode.
+      if: inputs.check-shards != ''
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        pattern: velocity-results-${{ inputs.platform }}-shard-*
+        path: ${{ runner.temp }}/velocity-shards
+    - name: Check every shard reported
+      # Only after a good install: nothing else runs in check mode.
+      if: inputs.check-shards != ''
+      shell: bash
+      env:
+        CHECK_SHARDS: ${{ inputs.check-shards }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/velocity-shards"
+        velocity results check --expect-shards "$CHECK_SHARDS" "$RUNNER_TEMP/velocity-shards"

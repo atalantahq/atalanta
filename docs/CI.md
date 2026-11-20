@@ -23,7 +23,7 @@ Exit codes are listed in [CLI.md](CLI.md#exit-codes): 1 means a test failed, 2 a
 - **Web.** Headless Chrome; nothing to boot.
 - **Results.** The results folder is uploaded as `velocity-results-<platform>-shard-M-of-N` (or `-all`), and the job's exit code is Velocity's.
 
-Inputs: `version` (required), `sha256`, `platform` (required), `suite` (required), `shard`, `args`, `results-dir`, `upload`, `api-level` (34), `target` (google_apis), `arch` (x86_64), `boot-attempts` (2).
+Inputs: `version` (required), `sha256`, `platform` (required), `suite` (optional; not used in check mode), `shard`, `args`, `results-dir`, `upload`, `api-level` (34), `target` (google_apis), `arch` (x86_64), `boot-attempts` (2), `check-shards` (check mode: the number of shards a matrix ran; the Action installs Velocity only, runs no tests, and fails unless every shard reported).
 
 ## No silent passes
 
@@ -34,7 +34,21 @@ A run that tests nothing must not go green. Velocity refuses these:
 - **A shard that owns no test** (more shards than tests, or dependency groups that can't be split): exit 2, naming the shard. Selection after the partition (`--last-failed`, `--changed-since`) can still leave a shard empty on purpose; `--fail-if-none` covers that.
 - **A planned test with no result** (a worker that stopped, a bug): it is reported failed as an internal error (exit 5), never dropped.
 
-What one job can't see is a job that died before uploading, or uploaded an empty or damaged folder. Add a step after the matrix that downloads every shard's artifacts and checks them:
+What one job can't see is a job that died before uploading, or uploaded an empty or damaged folder. With the Velocity Action, use check mode instead of hand-writing that job: after the sharded matrix, add a `results` job that sets `check-shards` to the matrix size:
+
+```yaml
+  results:                       # after the matrix: every shard reported?
+    needs: tests                 # the sharded matrix
+    if: always()                 # also when a shard failed or was cancelled
+    runs-on: ubuntu-latest
+    steps:
+      - uses: omkar-dev/velocity@v0.2.0
+        with: { version: 0.2.0, platform: android, check-shards: 4 }
+```
+
+The Action installs Velocity only, runs no tests, downloads every shard's `velocity-results-<platform>-shard-M-of-N` artifact and runs `velocity results check --expect-shards N`. It exits 1 when fewer or more results files than `--expect-shards` arrived, a shard number is missing or twice, a shard ran no test, a `results.json` doesn't parse or has no `junit.xml` with a test suite next to it, or the shards disagree on the partition: each shard records its plan's fingerprint in `results.json` (`shard_plan`), and two different fingerprints (different checkouts, filters or `--shard-timings` files) mean a test may have run twice or not at all. With one plan, a test planned in two shards, or plans that don't add up to the whole, fail too.
+
+On other CI systems (or without the Action), download every shard's artifacts and check them the same way:
 
 ```yaml
   results:
@@ -46,8 +60,6 @@ What one job can't see is a job that died before uploading, or uploaded an empty
         with: { path: shards }
       - run: velocity results check --expect-shards 4 shards
 ```
-
-It exits 1 when fewer or more results files than `--expect-shards` arrived, a shard number is missing or twice, a shard ran no test, a `results.json` doesn't parse or has no `junit.xml` with a test suite next to it, or the shards disagree on the partition: each shard records its plan's fingerprint in `results.json` (`shard_plan`), and two different fingerprints (different checkouts, filters or `--shard-timings` files) mean a test may have run twice or not at all. With one plan, a test planned in two shards, or plans that don't add up to the whole, fail too.
 
 ## Sharing history between jobs (no server)
 
