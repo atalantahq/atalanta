@@ -489,6 +489,40 @@ async fn verify_final_needs_real_evidence() {
     );
 }
 
+// A test's own `verify:` survives parsing and flow resolution, the path a
+// real run takes. Until 2026-11-20 the resolver dropped it, so the check
+// never ran and a test that should have failed passed. The tests above
+// build TestCase by hand and never went through the resolver.
+#[tokio::test]
+async fn a_tests_own_verify_runs_after_parsing_and_resolution() {
+    use velocity_common::VerifyOutcome;
+    let yaml = r#"
+appId: app
+tests:
+  - name: buying works
+    description: the purchase went through
+    verify: final
+    steps:
+      - tap: { text: Buy }
+"#;
+    let suite = velocity_core::parse_suite_from_str(yaml).unwrap();
+    let tests = velocity_core::resolve_flows(&suite).unwrap();
+    let driver = ScriptDriver::new(vec![node("buy", "Buy", 0)]);
+    let checks = Arc::new(AtomicUsize::new(0));
+    let (nl, _) = checked("verify-own-level", false, &[], checks.clone());
+    // The suite sets no level: the test's own is the only one.
+    let mut ex = TestExecutor::new(&driver, config(300), "app").with_planner(nl);
+    let r = ex.execute_test(&tests[0], "d", "app").await.unwrap();
+    assert_eq!(checks.load(Ordering::SeqCst), 1, "the check ran");
+    assert_eq!(
+        r.status,
+        TestStatus::Failed,
+        "a failed check fails the test"
+    );
+    assert_eq!(r.verification[0].claim, "the purchase went through");
+    assert_eq!(r.verification[0].outcome, VerifyOutcome::Fails);
+}
+
 // checkpoints: a failed check is recorded and the test goes on, failing
 // at the end; strict stops at the first failed check.
 #[tokio::test]
