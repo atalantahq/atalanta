@@ -1,6 +1,8 @@
 # Device smoke suite for CI (C5): drives the emulator's own Settings app,
 # so it needs no private app build. Run by .github/workflows/device-smoke.yml
 # (API 34 Google APIs image: the home screen lists "Network & internet").
+# Phone layout only: on a two-pane tablet `back` leaves Settings, and whatever
+# app is underneath comes to the front. Use android-settings-tablet.yaml there.
 appId: com.android.settings
 
 config:
