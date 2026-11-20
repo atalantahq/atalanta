@@ -616,7 +616,7 @@ async fn run_call(call: Call, common: &Common) -> anyhow::Result<Reply> {
     let mut server = McpServer::new(driver, device.clone(), common.config.clone())
         .with_platform(platform)
         .with_leases(common.headless_layout.is_none());
-    server.load_state(&session.state["server"]);
+    server.load_state(&session.state["server"], &device);
 
     // One lease for the whole command: another agent on this device waits
     // (or gets DEVICE_BUSY) instead of acting between this action and the
