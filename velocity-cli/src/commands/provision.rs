@@ -832,6 +832,28 @@ fn owned_by(e: &Entry, owner: Option<&str>, all: bool) -> bool {
     all || e.owner.as_deref() == owner || (e.owner.is_none() && !e.started && e.created)
 }
 
+/// Whether `golden` (a shared `velocity-<type>-golden`) still backs a clone
+/// that `down` for `owner` leaves alone. Such a golden is kept: deleting it
+/// made the other owner's next `up` create and boot it again (2026-11-11,
+/// Finding D). `--all` deletes it with the clones.
+fn golden_in_use(golden: &Entry, entries: &[Entry], owner: Option<&str>, all: bool) -> bool {
+    if all || golden.platform != "ios" {
+        return false;
+    }
+    let Some(prefix) = golden.name.strip_suffix("-golden") else {
+        return false;
+    };
+    entries.iter().any(|c| {
+        c.platform == "ios"
+            && c.id != golden.id
+            && !owned_by(c, owner, all)
+            && c.name
+                .strip_prefix(prefix)
+                .and_then(|n| n.strip_prefix('-'))
+                .is_some_and(|n| n.parse::<u32>().is_ok())
+    })
+}
+
 /// Stop what Velocity started for this owner (`platform` limits it to
 /// one), and with `delete` also delete the simulators it created.
 pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
@@ -922,7 +944,15 @@ pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
             }
             e.started = false;
         }
-        if e.created && delete {
+        if e.created && delete && golden_in_use(&e, &taken, who.as_deref(), all) {
+            println!(
+                "  {} kept {} ({}): another owner's clone still uses it",
+                "·".dimmed(),
+                e.name,
+                e.id
+            );
+            kept.push(e);
+        } else if e.created && delete {
             match simctl.delete(&e.id).await {
                 Ok(()) => {
                     let _ = std::fs::remove_dir_all(velocity_common::install::device_markers_dir(
@@ -1298,6 +1328,40 @@ mod tests {
             owner: None,
         };
         assert!(owned_by(&golden, Some("job-a"), false));
+    }
+
+    /// Finding D (2026-11-11): `down --owner b --delete` deleted the golden
+    /// that owner a's booted clone came from.
+    #[test]
+    fn a_golden_another_owners_clone_uses_is_kept() {
+        let ios = |id: &str, name: &str, owner: Option<&str>, started: bool| Entry {
+            platform: "ios".into(),
+            id: id.into(),
+            name: name.into(),
+            avd: None,
+            pid: None,
+            started,
+            created: true,
+            at: 0,
+            owner: owner.map(Into::into),
+        };
+        let golden = ios("G", "velocity-iPhone-17-golden", None, false);
+        let a1 = ios("A1", "velocity-iPhone-17-1", Some("a"), true);
+        let b2 = ios("B2", "velocity-iPhone-17-2", Some("b"), true);
+        let other_type = ios("P1", "velocity-iPhone-17-Pro-1", Some("a"), true);
+        let all = vec![golden.clone(), a1.clone(), b2.clone()];
+        // b's down leaves a's clone, so the golden stays.
+        assert!(golden_in_use(&golden, &all, Some("b"), false));
+        // With only b's own clone left, b may delete it.
+        let only_b = vec![golden.clone(), b2];
+        assert!(!golden_in_use(&golden, &only_b, Some("b"), false));
+        // `--all` deletes everything.
+        assert!(!golden_in_use(&golden, &all, Some("b"), true));
+        // A clone of another device type does not hold this golden.
+        let pro = vec![golden.clone(), other_type];
+        assert!(!golden_in_use(&golden, &pro, Some("b"), false));
+        // a's own down of its clone does not keep the golden for itself.
+        assert!(!golden_in_use(&golden, &[golden.clone(), a1], Some("a"), false));
     }
 
     #[test]
