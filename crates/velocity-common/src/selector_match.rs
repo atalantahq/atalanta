@@ -554,7 +554,8 @@ pub fn is_volatile_id(id: &str) -> bool {
 /// Which of several matches a bare selector acts on, for messages. Every
 /// driver that resolves over a tree should pick with [`resolve`], so this
 /// stays true everywhere.
-pub const BARE_PICK_RULE: &str = "the first in tree order";
+pub const BARE_PICK_RULE: &str =
+    "the first in tree order (for an `id:`, a switch or checkbox carrying it first)";
 
 /// The element an action on `selector` acts on: the one entry point every
 /// driver's tree lookup should use, so the same selector picks the same
@@ -596,12 +597,45 @@ pub fn find_ref_upto<'a>(
                 .into_iter()
                 .next()
         }
+        Selector::Id(_) => {
+            if let Some(toggle) = toggle_with_id(root, selector, screen) {
+                return Some(toggle);
+            }
+            tiers_upto(selector, max).iter().find_map(|case| {
+                innermost_matches(root, selector, screen, *case)
+                    .into_iter()
+                    .next()
+            })
+        }
         _ => tiers_upto(selector, max).iter().find_map(|case| {
             innermost_matches(root, selector, screen, *case)
                 .into_iter()
                 .next()
         }),
     }
+}
+
+/// The first switch or checkbox a bare `id:` matches. When a row's id is
+/// also on its toggle, the toggle is what the id names: on iOS 26 Settings
+/// a row switch shares its id with the row and its label button, and `tap:
+/// {id}` hit the label, which does not toggle (2026-11-11, Finding C).
+fn toggle_with_id<'a>(
+    root: &'a Element,
+    selector: &Selector,
+    screen: Option<&Rect>,
+) -> Option<&'a Element> {
+    fn walk<'a>(
+        el: &'a Element,
+        selector: &Selector,
+        screen: Option<&Rect>,
+    ) -> Option<&'a Element> {
+        let is_toggle = matches!(crate::role::role_of(el), Some("switch" | "checkbox"));
+        if is_toggle && matches_selector(el, selector, screen) {
+            return Some(el);
+        }
+        el.children.iter().find_map(|c| walk(c, selector, screen))
+    }
+    walk(root, selector, screen)
 }
 
 /// Whether `selector` has a `text:` part anywhere (the case-insensitive
@@ -1238,6 +1272,28 @@ mod tests {
             children,
             ..Default::default()
         }
+    }
+
+    /// Finding C (2026-11-11): iOS 26 Settings puts one id on the row, the
+    /// label button and the switch; a bare `id:` must act on the switch.
+    #[test]
+    fn a_bare_id_on_a_row_and_its_switch_picks_the_switch() {
+        let mut label = el("KeyboardVisceral", Some("Haptic Feedback"), 0, 0, vec![]);
+        label.element_type = "XCUIElementTypeButton".into();
+        let mut switch = el("KeyboardVisceral", None, 0, 0, vec![]);
+        switch.element_type = "XCUIElementTypeSwitch".into();
+        let mut row = el("KeyboardVisceral", None, 0, 0, vec![label, switch]);
+        row.element_type = "XCUIElementTypeCell".into();
+        let root = el("", None, 0, 0, vec![row]);
+        let found = find_in_tree(&root, &Selector::Id("KeyboardVisceral".into()), None).unwrap();
+        assert_eq!(found.element_type, "XCUIElementTypeSwitch");
+        // With no toggle the rule is unchanged: the first innermost match.
+        let mut a = el("x", Some("first"), 0, 0, vec![]);
+        a.element_type = "XCUIElementTypeButton".into();
+        let b = el("x", Some("second"), 0, 50, vec![]);
+        let plain = el("", None, 0, 0, vec![a, b]);
+        let found = find_in_tree(&plain, &Selector::Id("x".into()), None).unwrap();
+        assert_eq!(found.text.as_deref(), Some("first"));
     }
 
     #[test]
