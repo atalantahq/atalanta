@@ -20,7 +20,10 @@ members = [
 ]
 # cargo-fuzz targets: their own workspace and lockfile, built with nightly
 # (fuzz/Cargo.toml), never by `cargo build` here.
-exclude = ["fuzz"]
+# `crates/velocity-adapter` is a parked prototype of the adapter plugin
+# system (docs/research/v4/PLAN-v5-ship-adapters-worlds.md §4). It does not
+# build yet and stays out of the workspace until plan v5's §3.10 gate is met.
+exclude = ["fuzz", "crates/velocity-adapter"]
 
 [workspace.package]
 version = "0.2.0"
