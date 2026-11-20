@@ -93,6 +93,7 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
 - **Real iPhones and iPads** *(unverified on devices)*:
   - `xcrun devicectl` installs, launches and copies crash logs.
   - The runner's port is forwarded over an in-process usbmuxd connection (what `iproxy` does).
+  - A runner that can't start says why and stops at once (exit 3): UI Automation not enabled (Settings → Developer → Enable UI Automation, phone unlocked), Developer Mode off, an untrusted signing certificate, or a locked device. A runner that logged "Running tests..." but isn't serving 20 s later gets a warning naming UI Automation.
   - Signing needs `VELOCITY_IOS_TEAM_ID`. `velocity signing` uses an App Store Connect API key instead of an Apple ID.
   - A Wi-Fi-only device needs `ios.allowWifiRunner` and VelocityRunner (whose token is always on).
   - These are simulator-only: `saveState`/`restoreState`, `clearState` (a device warns; use `reset: { strategy: reinstall }`), and the status-bar freeze.
