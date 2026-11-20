@@ -20,8 +20,10 @@ fn resolve_test_case(test: &TestCase, flow_map: &HashMap<&str, &Flow>) -> Result
         isolated: test.isolated,
         depends_on: test.depends_on.clone(),
         steps: resolved_steps,
-        description: None,
-        verify: None,
+        // Kept: the executor reads both from the resolved test, so dropping
+        // them made a test's `verify:` never run (a silent pass).
+        description: test.description.clone(),
+        verify: test.verify,
     })
 }
 
@@ -177,6 +179,35 @@ mod tests {
         for step in &resolved[0].steps {
             assert!(!matches!(step.action, Action::RunFlow { .. }));
         }
+    }
+
+    #[test]
+    fn resolving_keeps_a_tests_verify_and_description() {
+        let suite = TestSuite {
+            app_id: "a".to_string(),
+            config: SuiteConfig::default(),
+            flows: vec![],
+            tests: vec![TestCase {
+                name: "t".to_string(),
+                tags: vec![],
+                isolated: false,
+                depends_on: vec![],
+                steps: vec![step(Action::Tap {
+                    selector: Selector::Text("Go".to_string()),
+                })],
+                description: Some("the order is paid".to_string()),
+                verify: Some(velocity_common::VerifyLevel::Strict),
+            }],
+        };
+        let resolved = resolve_flows(&suite).unwrap();
+        assert_eq!(
+            resolved[0].verify,
+            Some(velocity_common::VerifyLevel::Strict)
+        );
+        assert_eq!(
+            resolved[0].description.as_deref(),
+            Some("the order is paid")
+        );
     }
 
     #[test]
