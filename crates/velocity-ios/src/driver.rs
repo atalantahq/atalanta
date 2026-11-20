@@ -17,6 +17,10 @@ use crate::wda_manager::WdaManager;
 /// How long a tree read stays usable. Every action drops it, so this only
 /// bounds reads with no action in between (polling invalidates explicitly).
 const TREE_TTL: Duration = Duration::from_millis(2000);
+/// How long a visibility-bearing tree read is reused for an unchanged screen
+/// under a modal layer: the `visible` flags are copied onto each new poll's
+/// tree until the next action, for up to this long.
+const VISIBILITY_REUSE: Duration = Duration::from_secs(10);
 /// How long a launch waits on the runner's terminate before `simctl
 /// terminate` takes over: a healthy runner answers in well under a second.
 const RUNNER_TERMINATE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -56,6 +60,12 @@ struct DeviceConn {
     /// The tree (by address) whose `visible` flags were read under a modal
     /// layer ([`IosDriver::with_visibility`]), so it is read once.
     visible_for: std::sync::Mutex<Option<usize>>,
+    /// The full tree from the last successful `get_source_with_visibility`
+    /// under a modal layer, and when it was read: its `visible` flags are
+    /// reused onto each new poll's tree for `VISIBILITY_REUSE`, so polling an
+    /// `assertVisible` under a sheet makes one visibility read instead of one
+    /// per poll.
+    last_visibility: std::sync::Mutex<Option<(Arc<Element>, Instant)>>,
 }
 
 impl DeviceConn {
@@ -84,6 +94,7 @@ impl DeviceConn {
             reports_focus: std::sync::atomic::AtomicU8::new(0),
             runner_failing: std::sync::Mutex::new(None),
             visible_for: std::sync::Mutex::new(None),
+            last_visibility: std::sync::Mutex::new(None),
         }
     }
 
@@ -101,6 +112,10 @@ impl DeviceConn {
     fn invalidate(&self) {
         *self.tree.lock().unwrap_or_else(|e| e.into_inner()) = None;
         *self.focused.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .last_visibility
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// The last tree read, however old (D-5's pre-tap focus).
@@ -1235,7 +1250,11 @@ impl IosDriver {
     /// `visible` is frame-only, so it isn't asked. The flags are copied onto
     /// the tree already read, and only when both reads have the same shape
     /// (the screen didn't change between them); otherwise nothing changes.
-    /// Off with `VELOCITY_IOS_SHEET_VISIBILITY=off`.
+    /// While nothing changes the `visible` flags are reused for up to
+    /// [`VISIBILITY_REUSE`] (10 s): polling an `assertVisible` under a sheet
+    /// reads them once, not once per poll. The read is dropped after every
+    /// action and when the screen's shape changes. Off with
+    /// `VELOCITY_IOS_SHEET_VISIBILITY=off`.
     async fn with_visibility(&self, conn: &DeviceConn, tree: Arc<Element>) -> Arc<Element> {
         let key = Arc::as_ptr(&tree) as usize;
         if !sheet_visibility()
@@ -1246,6 +1265,35 @@ impl IosDriver {
         {
             return tree;
         }
+        // Reuse the last visibility-bearing tree if it's fresh enough and has
+        // the same shape as the current one: one visibility read per screen,
+        // not one per poll.
+        let reused = conn
+            .last_visibility
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() < VISIBILITY_REUSE)
+            .and_then(|(cached, _)| {
+                let mut merged = (*tree).clone();
+                crate::hit::copy_visibility(&mut merged, cached).then_some(merged)
+            });
+        if let Some(merged) = reused {
+            debug!("reusing visibility flags read under a sheet (no new /source request)");
+            let merged = Arc::new(merged);
+            let mut cache = conn.tree.lock().unwrap_or_else(|e| e.into_inner());
+            // Only replace the cached tree this was built from.
+            if let Some((t, _)) = cache.as_mut() {
+                if Arc::ptr_eq(t, &tree) {
+                    *t = merged.clone();
+                }
+            }
+            drop(cache);
+            *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(Arc::as_ptr(&merged) as usize);
+            return merged;
+        }
+        let started = Instant::now();
         let xml = conn
             .wda
             .lock()
@@ -1260,11 +1308,18 @@ impl IosDriver {
                 return tree;
             }
         };
+        let full = Arc::new(full);
+        *conn
+            .last_visibility
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some((full.clone(), Instant::now()));
         let mut merged = (*tree).clone();
         if !crate::hit::copy_visibility(&mut merged, &full) {
             debug!("the screen changed between reads; visibility not applied");
             return tree;
         }
+        let elapsed_ms = started.elapsed().as_millis();
+        debug!("visibility read under a sheet took {elapsed_ms} ms");
         let merged = Arc::new(merged);
         let mut cache = conn.tree.lock().unwrap_or_else(|e| e.into_inner());
         // Only replace the cached tree this was built from.
@@ -4576,5 +4631,169 @@ mod relaunch_and_typing_tests {
         d.input_text(SIM, &field, "hi").await.unwrap();
         assert_eq!(f.count("GET", "/source") - reads, 1, "one poll");
         assert_eq!(f.count("POST", "/wda/keys"), 1);
+    }
+
+    /// Two lookups of the same sheet screen with no action between them make
+    /// ONE visibility request, not two.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn two_lookups_of_the_same_sheet_reuse_visibility() {
+        let sheet_xml = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="402" height="874" enabled="true"><XCUIElementTypeSheet type="XCUIElementTypeSheet" label="" x="8" y="600" width="386" height="266" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Save" x="8" y="650" width="386" height="56" enabled="true"/></XCUIElementTypeSheet></XCUIElementTypeApplication>"#;
+        let visibility_count = Arc::new(std::sync::Mutex::new(0));
+        let plain_count = Arc::new(std::sync::Mutex::new(0));
+        let vc = visibility_count.clone();
+        let pc = plain_count.clone();
+        let vc2 = visibility_count.clone();
+        let pc2 = plain_count.clone();
+        let f = FakeWda::start(move |r| {
+            if r.path == "/status" {
+                return Resp::Json(200, r#"{"value":{"ready":true}}"#.into());
+            }
+            if r.method == "POST" && r.path == "/session" {
+                return ok(r#"{"sessionId":"S1","capabilities":{}}"#);
+            }
+            if r.path.ends_with("/source") {
+                if r.query == "excluded_attributes=accessible" {
+                    *vc.lock().unwrap() += 1;
+                    return source(sheet_xml);
+                }
+                *pc.lock().unwrap() += 1;
+                return source(sheet_xml);
+            }
+            ok("null")
+        })
+        .await;
+        let d = IosDriver::with_wda_url(&f.url);
+        // First lookup: plain read + visibility read.
+        d.find_element(SIM, &Selector::Text("Save".into()))
+            .await
+            .unwrap();
+        assert_eq!(*pc2.lock().unwrap(), 1, "one plain read");
+        assert_eq!(*vc2.lock().unwrap(), 1, "one visibility read");
+        // Second lookup on the same screen: reused visibility, no new request.
+        d.find_element(SIM, &Selector::Text("Save".into()))
+            .await
+            .unwrap();
+        assert_eq!(*pc2.lock().unwrap(), 1, "still one plain read");
+        assert_eq!(
+            *vc2.lock().unwrap(),
+            1,
+            "still one visibility read (reused)"
+        );
+        drop(visibility_count);
+        drop(plain_count);
+    }
+
+    /// After an action (a tap) the next lookup makes a fresh visibility request
+    /// because `invalidate` cleared `last_visibility`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_action_invalidates_visibility_cache() {
+        let sheet_xml = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="402" height="874" enabled="true"><XCUIElementTypeSheet type="XCUIElementTypeSheet" label="" x="8" y="600" width="386" height="266" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Save" x="8" y="650" width="386" height="56" enabled="true"/></XCUIElementTypeSheet></XCUIElementTypeApplication>"#;
+        let visibility_count = Arc::new(std::sync::Mutex::new(0));
+        let vc_closure = visibility_count.clone();
+        let vc_test = visibility_count.clone();
+        let f = FakeWda::start(move |r| {
+            if r.path == "/status" {
+                return Resp::Json(200, r#"{"value":{"ready":true}}"#.into());
+            }
+            if r.method == "POST" && r.path == "/session" {
+                return ok(r#"{"sessionId":"S1","capabilities":{}}"#);
+            }
+            if r.method == "POST" && r.path.ends_with("/actions") {
+                return ok("null");
+            }
+            if r.path.ends_with("/source") {
+                if r.query == "excluded_attributes=accessible" {
+                    *vc_closure.lock().unwrap() += 1;
+                }
+                return source(sheet_xml);
+            }
+            ok("null")
+        })
+        .await;
+        let d = IosDriver::with_wda_url(&f.url);
+        d.find_element(SIM, &Selector::Text("Save".into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            *vc_test.lock().unwrap(),
+            1,
+            "one visibility read before the tap"
+        );
+        d.tap(
+            SIM,
+            &d.find_element(SIM, &Selector::Text("Save".into()))
+                .await
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        d.find_element(SIM, &Selector::Text("Save".into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            *vc_test.lock().unwrap(),
+            2,
+            "fresh visibility read after the tap"
+        );
+        drop(visibility_count);
+    }
+
+    /// A screen whose shape changed between reads makes a fresh visibility
+    /// request: `copy_visibility` returns false when the cached visibility
+    /// tree no longer matches the plain tree.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_shape_change_makes_a_fresh_visibility_request() {
+        let sheet_xml_a = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="402" height="874" enabled="true"><XCUIElementTypeSheet type="XCUIElementTypeSheet" label="" x="8" y="600" width="386" height="266" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Save" x="8" y="650" width="386" height="56" enabled="true"/></XCUIElementTypeSheet></XCUIElementTypeApplication>"#;
+        let sheet_xml_b = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="402" height="874" enabled="true"><XCUIElementTypeSheet type="XCUIElementTypeSheet" label="" x="8" y="600" width="386" height="266" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Save" x="20" y="200" width="60" height="60" enabled="true"/></XCUIElementTypeSheet></XCUIElementTypeApplication>"#;
+        let visibility_count = Arc::new(std::sync::Mutex::new(0));
+        let vc_closure = visibility_count.clone();
+        let vc_test = visibility_count.clone();
+        let state = Arc::new(std::sync::Mutex::new(0u8));
+        let st = state.clone();
+        let f = FakeWda::start(move |r| {
+            if r.path == "/status" {
+                return Resp::Json(200, r#"{"value":{"ready":true}}"#.into());
+            }
+            if r.method == "POST" && r.path == "/session" {
+                return ok(r#"{"sessionId":"S1","capabilities":{}}"#);
+            }
+            if r.path.ends_with("/source") {
+                let n = *st.lock().unwrap();
+                if r.query == "excluded_attributes=accessible" {
+                    *vc_closure.lock().unwrap() += 1;
+                }
+                return if n == 0 {
+                    source(sheet_xml_a)
+                } else {
+                    source(sheet_xml_b)
+                };
+            }
+            ok("null")
+        })
+        .await;
+        let d = IosDriver::with_wda_url(&f.url);
+        // First lookup: reads sheet A, visibility read caches it.
+        d.find_element(SIM, &Selector::Text("Save".into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            *vc_test.lock().unwrap(),
+            1,
+            "one visibility read for screen A"
+        );
+        // Let the plain tree cache (2 s TTL) expire but not the visibility cache (10 s reuse).
+        tokio::time::sleep(TREE_TTL + Duration::from_millis(50)).await;
+        *state.lock().unwrap() = 1;
+        // Second lookup: plain read fetches screen B (tree cache expired),
+        // visibility cache holds A (different shape) → copy_visibility fails → fresh visibility read.
+        d.find_element(SIM, &Selector::Text("Save".into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            *vc_test.lock().unwrap(),
+            2,
+            "fresh visibility read after shape change"
+        );
+        drop(visibility_count);
     }
 }
