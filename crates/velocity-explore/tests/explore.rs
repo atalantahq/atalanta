@@ -7,9 +7,11 @@
 //! runner (review 07 H3). What the tests assert is what happened (reads,
 //! notes, steps), never how long it took.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use velocity_common::{Platform, VerifyLevel};
+use velocity_explore::gates;
 use velocity_explore::scripted::{Script, ScriptedChecker, ScriptedPlanner};
 use velocity_explore::testkit::{FakeApp, Node};
 use velocity_explore::*;
@@ -1488,6 +1490,164 @@ async fn the_gates_refuse_a_test_that_passes_on_the_wrong_path() {
     );
     assert!(g.reasons.iter().any(|r| r.contains("wrong path")), "{g:?}");
     assert!(!result.ok());
+}
+
+// Row 1.3: `velocity gate` reuses the same gates as `velocity explore`, on a
+// file that was never explored (or was exported from a session).
+#[tokio::test(start_paused = true)]
+async fn gate_trusts_a_one_test_file_that_fails_on_the_wrong_path() {
+    let r = rig(settings_app(), NETWORK);
+    let mut job = r.job(opts("open Network & internet"));
+    // replays = 0: explore writes the YAML without gating it.
+    job.replays = 0;
+    let result = job.run().await.unwrap();
+    let yaml = result.yaml.clone().expect("a test is written");
+
+    let opts = gates::CheckOptions {
+        device_id: "fake-1",
+        platform: Platform::Android,
+        overrides: &HashMap::new(),
+        config: &FakeApp::config(),
+        replays: 3,
+        jitter_ms: 5,
+    };
+    let checked = gates::check(&*r.app, &yaml, "open Network & internet", &opts)
+        .await
+        .unwrap();
+    assert!(checked.gates.trusted, "{:?}", checked.gates);
+    assert_eq!(
+        (checked.gates.replays, checked.gates.replays_passed),
+        (3, 3)
+    );
+    assert!(
+        matches!(checked.gates.wrong_path, gates::WrongPath::Rejected { .. }),
+        "{:?}",
+        checked.gates
+    );
+    assert!(checked.gates.goal_text.is_some(), "{:?}", checked.gates);
+}
+
+#[tokio::test(start_paused = true)]
+async fn gate_rejects_a_goal_with_no_shared_words() {
+    let r = rig(settings_app(), NETWORK);
+    let mut job = r.job(opts("open Network & internet"));
+    job.replays = 0;
+    let result = job.run().await.unwrap();
+    let yaml = result.yaml.clone().expect("a test is written");
+
+    let opts = gates::CheckOptions {
+        device_id: "fake-1",
+        platform: Platform::Android,
+        overrides: &HashMap::new(),
+        config: &FakeApp::config(),
+        replays: 3,
+        jitter_ms: 5,
+    };
+    let checked = gates::check(&*r.app, &yaml, "zzz qqq", &opts)
+        .await
+        .unwrap();
+    assert!(!checked.gates.trusted, "{:?}", checked.gates);
+    assert!(
+        checked
+            .gates
+            .reasons
+            .iter()
+            .any(|r| r.contains("goal text")),
+        "{:?}",
+        checked.gates
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn gate_errors_on_a_two_test_file() {
+    let r = rig(settings_app(), NETWORK);
+    let yaml = "appId: a\ntests:\n  - name: one\n    steps:\n      - tap: { text: X }\n  - name: two\n    steps:\n      - tap: { text: Y }\n";
+    let opts = gates::CheckOptions {
+        device_id: "fake-1",
+        platform: Platform::Android,
+        overrides: &HashMap::new(),
+        config: &FakeApp::config(),
+        replays: 3,
+        jitter_ms: 5,
+    };
+    let err = gates::check(&*r.app, yaml, "open X", &opts)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("one test"), "{err}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn gate_errors_on_zero_replays() {
+    let r = rig(settings_app(), NETWORK);
+    let yaml = "appId: a\ntests:\n  - name: t\n    steps:\n      - tap: { text: X }\n";
+    let opts = gates::CheckOptions {
+        device_id: "fake-1",
+        platform: Platform::Android,
+        overrides: &HashMap::new(),
+        config: &FakeApp::config(),
+        replays: 0,
+        jitter_ms: 5,
+    };
+    let err = gates::check(&*r.app, yaml, "open X", &opts)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("replays"), "{err}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn gate_refuses_a_test_that_passes_on_the_wrong_path() {
+    let app = FakeApp::new()
+        .screen(
+            "home",
+            vec![
+                Node::text(TV, "Plans"),
+                Node::text(TV, "Monthly"),
+                Node::text(TV, "Yearly"),
+            ],
+        )
+        .screen(
+            "monthly",
+            vec![Node::text(TV, "Checkout"), Node::text(TV, "Pay now")],
+        )
+        .screen(
+            "yearly",
+            vec![Node::text(TV, "Checkout"), Node::text(TV, "Pay now")],
+        )
+        .link("home", "Monthly", "monthly")
+        .link("home", "Yearly", "yearly");
+    let r = rig(
+        app,
+        r#"{
+          "steps": [
+            { "op": "tap", "target": "Monthly" },
+            { "op": "assert", "target": "Checkout", "reason": "checkout opened" },
+            { "op": "done", "outcome": "success", "reason": "monthly checkout is open" }
+          ],
+          "check": { "holds": true, "evidence": ["Checkout"], "reason": "checkout shown" }
+        }"#,
+    );
+    let mut job = r.job(opts("buy the monthly plan"));
+    job.replays = 0;
+    let result = job.run().await.unwrap();
+    let yaml = result.yaml.clone().expect("a test is written");
+
+    let opts = gates::CheckOptions {
+        device_id: "fake-1",
+        platform: Platform::Android,
+        overrides: &HashMap::new(),
+        config: &FakeApp::config(),
+        replays: 3,
+        jitter_ms: 5,
+    };
+    let checked = gates::check(&*r.app, &yaml, "buy the monthly plan", &opts)
+        .await
+        .unwrap();
+    assert!(!checked.gates.trusted, "{:?}", checked.gates);
+    assert!(
+        matches!(checked.gates.wrong_path, gates::WrongPath::Passed { .. }),
+        "{:?}",
+        checked.gates
+    );
 }
 
 #[tokio::test(start_paused = true)]

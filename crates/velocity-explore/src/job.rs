@@ -118,7 +118,7 @@ impl ExploreJob {
             dry_run: false,
             keep_nl: false,
             gates: false,
-            replay_jitter_ms: 150,
+            replay_jitter_ms: crate::gates::DEFAULT_JITTER_MS,
             after: Vec::new(),
             sink: Arc::new(Mutex::new(None)),
             sources: Arc::new(Mutex::new(vec![Box::new(rx)])),
@@ -246,26 +246,17 @@ impl ExploreJob {
             return Ok(result);
         };
         let (runs, passed) = (replay.runs.len(), replay.passed());
-        // The wrong path only means something for a test that replays.
-        let wrong = if passed == runs && runs > 0 {
-            crate::gates::wrong_path(
-                &*driver,
-                &yaml,
-                &opts.device_id,
-                opts.platform,
-                &overrides,
-                &opts.config,
-            )
-            .await?
-        } else {
-            crate::gates::WrongPath::Skipped {
-                why: "the replays didn't all pass".into(),
-            }
+        let check = crate::gates::CheckOptions {
+            device_id: &opts.device_id,
+            platform: opts.platform,
+            overrides: &overrides,
+            config: &opts.config,
+            replays: runs,
+            jitter_ms: jitter,
         };
-        let goal = crate::gates::goal_text_assertion(&yaml, &opts.goal);
-        result.gates = Some(crate::gates::GateReport::decide(
-            runs, passed, jitter, wrong, goal,
-        ));
+        result.gates = Some(
+            crate::gates::decide_gates(&*driver, &yaml, &opts.goal, runs, passed, &check).await?,
+        );
         Ok(result)
     }
 

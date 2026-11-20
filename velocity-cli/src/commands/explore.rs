@@ -431,7 +431,7 @@ fn printer(to_stderr: bool) -> velocity_explore::EventSink {
     })
 }
 
-async fn pick_device(driver: &dyn PlatformDriver) -> anyhow::Result<String> {
+pub(crate) async fn pick_device(driver: &dyn PlatformDriver) -> anyhow::Result<String> {
     let mut devices = driver.list_devices().await?;
     devices.sort_by_key(|d| d.state != velocity_common::DeviceState::Booted);
     devices
@@ -448,7 +448,7 @@ async fn pick_device(driver: &dyn PlatformDriver) -> anyhow::Result<String> {
 }
 
 /// The device's lease, waiting up to `wait` for another holder.
-async fn lease(
+pub(crate) async fn lease(
     device: &str,
     wait: Duration,
     quiet: bool,
@@ -831,34 +831,39 @@ fn print_summary(r: &JobResult, written: &[String]) {
         println!("   repair: {repair}");
     }
     if let Some(g) = &r.gates {
-        use velocity_explore::gates::WrongPath;
-        let wrong = match &g.wrong_path {
-            WrongPath::Rejected { tapped, .. } => format!("fails when it taps {tapped} instead"),
-            WrongPath::Passed { tapped, .. } => {
-                format!("still passes when it taps {tapped} instead")
-            }
-            WrongPath::Skipped { why } => format!("not checked ({why})"),
-        };
-        let verdict = if g.trusted {
-            "trusted".green().bold()
-        } else {
-            "not trusted".red().bold()
-        };
-        println!(
-            "   gates: {verdict}: {}/{} replays passed (jitter up to {} ms), wrong path {wrong}, goal text {}",
-            g.replays_passed,
-            g.replays,
-            g.jitter_ms,
-            g.goal_text.as_deref().unwrap_or("not asserted")
-        );
-        for reason in &g.reasons {
-            println!("     - {reason}");
-        }
+        print_gates(g);
     }
     if let Some(f) = written.first() {
         if r.ok() {
             println!("\n   next: velocity run {f}   (commit it; CI replays it with no model)");
         }
+    }
+}
+
+/// Print a job's trust gates (also used by `velocity gate`).
+pub(crate) fn print_gates(g: &velocity_explore::gates::GateReport) {
+    use velocity_explore::gates::WrongPath;
+    let wrong = match &g.wrong_path {
+        WrongPath::Rejected { tapped, .. } => format!("fails when it taps {tapped} instead"),
+        WrongPath::Passed { tapped, .. } => {
+            format!("still passes when it taps {tapped} instead")
+        }
+        WrongPath::Skipped { why } => format!("not checked ({why})"),
+    };
+    let verdict = if g.trusted {
+        "trusted".green().bold()
+    } else {
+        "not trusted".red().bold()
+    };
+    println!(
+        "   gates: {verdict}: {}/{} replays passed (jitter up to {} ms), wrong path {wrong}, goal text {}",
+        g.replays_passed,
+        g.replays,
+        g.jitter_ms,
+        g.goal_text.as_deref().unwrap_or("not asserted")
+    );
+    for reason in &g.reasons {
+        println!("     - {reason}");
     }
 }
 
