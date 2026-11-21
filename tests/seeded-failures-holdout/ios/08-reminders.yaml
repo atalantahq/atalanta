@@ -1,0 +1,12 @@
+appId: com.apple.reminders
+
+config:
+  platform: ios
+
+tests:
+  - name: holdout_ios_08
+    tags: [seeded-failure]
+    steps:
+      - launchApp: {}
+      - tap: { text: "Accessibility" }
+      - assertVisible: { text: "Display & Text Size" }

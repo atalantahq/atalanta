@@ -1,0 +1,18 @@
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+
+tests:
+  - name: holdout_ios_03
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.apple.Preferences
+          clearState: false
+      - tap: { text: "Accessibility" }
+      - assertVisible: { text: "Display & Text Size" }
+      - assertVisible: { text: "Larger Text" }
+      - assertVisible: { text: "Button Shapes" }
+      - tap: { id: "BackButton" }
+      - assertVisible: { text: "Motion" }
