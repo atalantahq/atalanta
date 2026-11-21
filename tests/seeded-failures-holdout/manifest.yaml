@@ -1,0 +1,175 @@
+# Held-out seeded failures: manifest.
+# Causes were written down before any seed was run.
+#
+# Scoring rules (fixed before any run):
+#   correct:      the report's own words state the planted cause (right step, true
+#                 reason). Evidence the report cites counts as support but does not
+#                 rescue words that do not commit to the cause.
+#   insufficient: names the failing step but commits to no cause.
+#   wrong:        states a specific cause that is not the planted one, or blames
+#                 another step.
+#   healed:       the step healed and the test passed; record what it healed to.
+#   no-failure:   the seed passed without healing (the seed is invalid; excluded).
+#
+# failing_step is 1-based and counts launchApp as step 1.
+seeds:
+  - id: holdout_ios_01
+    file: "tests/seeded-failures-holdout/ios/01-location.yaml"
+    platform: "ios"
+    category: "selector-typo"
+    seeded_cause: "Step 6 asserts the misspelled text 'Share My Locaton'; the real row 'Share My Location' is on screen."
+    failing_step: 6
+    correct_report_says: "The text 'Share My Locaton' is misspelled; the screen shows 'Share My Location' (a typo in the selector)."
+    wrong_report_would_say: "The Location Services screen did not load, or the element is hidden/off-screen or needs scrolling."
+  - id: holdout_ios_02
+    file: "tests/seeded-failures-holdout/ios/02-camera.yaml"
+    platform: "ios"
+    category: "selector-typo"
+    seeded_cause: "Step 4 taps the misspelled text 'Record Vidoe'; the real row 'Record Video' is on screen."
+    failing_step: 4
+    correct_report_says: "No element 'Record Vidoe'; the Camera screen has 'Record Video' (typo in the selector)."
+    wrong_report_would_say: "The Camera screen is not open, or the tap hit the wrong screen / the app crashed."
+  - id: holdout_ios_03
+    file: "tests/seeded-failures-holdout/ios/03-accessibility.yaml"
+    platform: "ios"
+    category: "wrong-screen"
+    seeded_cause: "The tap into 'Display & Text Size' is removed, so step 4 looks for 'Larger Text' while still on the Accessibility screen."
+    failing_step: 4
+    correct_report_says: "'Larger Text' is not on the current (Accessibility) screen; it is inside Display & Text Size, which was never opened (missing navigation step)."
+    wrong_report_would_say: "'Larger Text' is misspelled or the element is disabled/slow to load."
+  - id: holdout_ios_04
+    file: "tests/seeded-failures-holdout/ios/04-video.yaml"
+    platform: "ios"
+    category: "wrong-screen"
+    seeded_cause: "The tap into 'Record Video' is removed, so step 4 looks for '4K at 24 FPS' while still on the Camera screen."
+    failing_step: 4
+    correct_report_says: "'4K at 24 FPS' is not on the Camera screen; it lives on the Record Video screen, which was never opened (missing tap)."
+    wrong_report_would_say: "The text '4K at 24 FPS' is wrong or misspelled."
+  - id: holdout_ios_05
+    file: "tests/seeded-failures-holdout/ios/05-slomo.yaml"
+    platform: "ios"
+    category: "wrong-expected-value"
+    seeded_cause: "Step 8 asserts the Record Slo-mo value element ('1080p at 240 FPS') has text '720p at 120 FPS'; the element is right, the expectation is wrong."
+    failing_step: 8
+    correct_report_says: "The element's text is '1080p at 240 FPS', not the expected '720p at 120 FPS' (wrong expected value)."
+    wrong_report_would_say: "The element is missing or the Camera screen is not showing."
+  - id: holdout_ios_06
+    file: "tests/seeded-failures-holdout/ios/06-shapes.yaml"
+    platform: "ios"
+    category: "wrong-expected-value"
+    seeded_cause: "Step 6 asserts 'Button Shapes' is NOT visible while it is visible on the Display & Text Size screen."
+    failing_step: 6
+    correct_report_says: "'Button Shapes' is visible on the screen, so assertNotVisible fails (the expectation is inverted)."
+    wrong_report_would_say: "The wrong screen is showing, or the element is stale/not yet gone after a transition."
+  - id: holdout_ios_07
+    file: "tests/seeded-failures-holdout/ios/07-calendar.yaml"
+    platform: "ios"
+    category: "wrong-app"
+    seeded_cause: "Step 1 launches Calendar (com.apple.mobilecal) instead of Settings; step 2 then taps the Settings row 'Camera'."
+    failing_step: 2
+    correct_report_says: "The app in front is Calendar, not Settings; 'Camera' (a Settings row) does not exist there (wrong app launched)."
+    wrong_report_would_say: "The 'Camera' row is misspelled or has scrolled off screen in Settings."
+  - id: holdout_ios_08
+    file: "tests/seeded-failures-holdout/ios/08-reminders.yaml"
+    platform: "ios"
+    category: "wrong-app"
+    seeded_cause: "The suite appId is Reminders (com.apple.reminders), so launchApp starts Reminders; step 2 then taps the Settings row 'Accessibility'."
+    failing_step: 2
+    correct_report_says: "The app under test is Reminders, not Settings; 'Accessibility' is not in it (wrong appId)."
+    wrong_report_would_say: "The 'Accessibility' row is misspelled or off screen."
+  - id: holdout_ios_09
+    file: "tests/seeded-failures-holdout/ios/09-tracking.yaml"
+    platform: "ios"
+    category: "stale-state"
+    seeded_cause: "After opening Location Services (step 5), step 6 asserts 'Tracking', a row of the Privacy & Security screen it already left."
+    failing_step: 6
+    correct_report_says: "'Tracking' belongs to the Privacy & Security screen, which was already left; Location Services is showing (stale assumption about the current screen)."
+    wrong_report_would_say: "'Tracking' is misspelled or not loaded yet."
+  - id: holdout_ios_10
+    file: "tests/seeded-failures-holdout/ios/10-motion.yaml"
+    platform: "ios"
+    category: "stale-state"
+    seeded_cause: "After pressing back from Display & Text Size, step 8 asserts 'Larger Text', a row of the screen it just left."
+    failing_step: 8
+    correct_report_says: "'Larger Text' is on Display & Text Size, which back already left; the Accessibility screen is showing (stale screen assumption)."
+    wrong_report_would_say: "'Larger Text' text is misspelled, or back did not work and the app froze."
+  - id: holdout_android_01
+    file: "tests/seeded-failures-holdout/android/01-battery.yaml"
+    platform: "android"
+    category: "selector-typo"
+    seeded_cause: "Step 5 asserts the misspelled text 'Set a schedual'; the real row 'Set a schedule' is on screen."
+    failing_step: 5
+    correct_report_says: "No element 'Set a schedual'; the screen shows 'Set a schedule' (typo in the selector)."
+    wrong_report_would_say: "Battery Saver did not open, or the page needs scrolling."
+  - id: holdout_android_02
+    file: "tests/seeded-failures-holdout/android/02-dnd.yaml"
+    platform: "android"
+    category: "selector-typo"
+    seeded_cause: "Step 6 asserts the misspelled text 'Duraton for Quick Settings'; the real row 'Duration for Quick Settings' is on screen."
+    failing_step: 6
+    correct_report_says: "No element 'Duraton for Quick Settings'; the screen has 'Duration for Quick Settings' (typo in the selector)."
+    wrong_report_would_say: "The Do Not Disturb page is not showing or the row is below the fold."
+  - id: holdout_android_03
+    file: "tests/seeded-failures-holdout/android/03-apps.yaml"
+    platform: "android"
+    category: "wrong-screen"
+    seeded_cause: "The tap into 'Default apps' is removed, so step 4 looks for 'Browser app' while still on the Apps screen."
+    failing_step: 4
+    correct_report_says: "'Browser app' is not on the Apps screen; it is inside Default apps, which was never opened (missing tap)."
+    wrong_report_would_say: "'Browser app' is misspelled or the Settings app is slow."
+  - id: holdout_android_04
+    file: "tests/seeded-failures-holdout/android/04-saver.yaml"
+    platform: "android"
+    category: "wrong-screen"
+    seeded_cause: "The tap into 'Battery Saver' is removed, so step 4 looks for 'Set a schedule' while still on the Battery screen."
+    failing_step: 4
+    correct_report_says: "'Set a schedule' is not on the Battery screen; it is on the Battery Saver screen, which was never opened (missing tap)."
+    wrong_report_would_say: "'Set a schedule' is misspelled or the Battery page failed to load."
+  - id: holdout_android_05
+    file: "tests/seeded-failures-holdout/android/05-quick.yaml"
+    platform: "android"
+    category: "wrong-expected-value"
+    seeded_cause: "Step 6 asserts the 'Duration for Quick Settings' value element has text 'Ask every time'; its real text is 'Until you turn off'."
+    failing_step: 6
+    correct_report_says: "The element's text is 'Until you turn off', not the expected 'Ask every time' (wrong expected value)."
+    wrong_report_would_say: "The element is missing or the Do Not Disturb page is not showing."
+  - id: holdout_android_06
+    file: "tests/seeded-failures-holdout/android/06-sms.yaml"
+    platform: "android"
+    category: "wrong-expected-value"
+    seeded_cause: "Step 6 asserts 'SMS app' is NOT visible while it is visible on the Default apps screen."
+    failing_step: 6
+    correct_report_says: "'SMS app' is visible on the screen, so assertNotVisible fails (the expectation is inverted)."
+    wrong_report_would_say: "The Default apps screen did not load, or a transition left a stale element."
+  - id: holdout_android_07
+    file: "tests/seeded-failures-holdout/android/07-clock.yaml"
+    platform: "android"
+    category: "wrong-app"
+    seeded_cause: "Step 1 launches Clock (com.google.android.deskclock) instead of Settings; step 2 then taps the Settings row 'Battery'."
+    failing_step: 2
+    correct_report_says: "The app in front is Clock, not Settings; 'Battery' is not there (wrong app launched)."
+    wrong_report_would_say: "The 'Battery' row is misspelled or scrolled off in Settings."
+  - id: holdout_android_08
+    file: "tests/seeded-failures-holdout/android/08-agenda.yaml"
+    platform: "android"
+    category: "wrong-app"
+    seeded_cause: "The suite appId is Calendar (com.google.android.calendar), so launchApp starts Calendar; step 2 then taps the Settings row 'Sound & vibration'."
+    failing_step: 2
+    correct_report_says: "The app under test is Calendar, not Settings; 'Sound & vibration' is not in it (wrong appId)."
+    wrong_report_would_say: "The 'Sound & vibration' row is misspelled or scrolled off."
+  - id: holdout_android_09
+    file: "tests/seeded-failures-holdout/android/09-usage.yaml"
+    platform: "android"
+    category: "stale-state"
+    seeded_cause: "After opening Battery Saver (step 4), step 6 asserts 'Battery usage', a row of the Battery screen it already left."
+    failing_step: 6
+    correct_report_says: "'Battery usage' belongs to the Battery screen, which was already left; Battery Saver is showing (stale screen assumption)."
+    wrong_report_would_say: "'Battery usage' is misspelled or still loading."
+  - id: holdout_android_10
+    file: "tests/seeded-failures-holdout/android/10-browser.yaml"
+    platform: "android"
+    category: "stale-state"
+    seeded_cause: "After pressing back from Default apps, step 8 asserts 'Browser app', a row of the screen it just left."
+    failing_step: 8
+    correct_report_says: "'Browser app' is on Default apps, which back already left; the Apps screen is showing (stale screen assumption)."
+    wrong_report_would_say: "'Browser app' is misspelled, or back closed Settings."

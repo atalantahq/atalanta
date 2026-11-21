@@ -1,0 +1,19 @@
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: holdout_android_09
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - tap: { text: "Battery" }
+      - assertVisible: { text: "Battery usage" }
+      - tap: { text: "Battery Saver" }
+      - assertVisible: { text: "Set a schedule" }
+      - assertVisible: { text: "Battery usage" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Battery usage" }

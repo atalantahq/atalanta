@@ -1,0 +1,13 @@
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: holdout_android_07
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.google.android.deskclock
+          clearState: false
+      - tap: { text: "Battery" }

@@ -1,0 +1,12 @@
+appId: com.google.android.calendar
+
+config:
+  platform: android
+
+tests:
+  - name: holdout_android_08
+    tags: [seeded-failure]
+    steps:
+      - launchApp: {}
+      - tap: { text: "Sound & vibration" }
+      - assertVisible: { text: "Media volume" }

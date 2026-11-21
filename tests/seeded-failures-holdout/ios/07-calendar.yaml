@@ -1,0 +1,13 @@
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+
+tests:
+  - name: holdout_ios_07
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.apple.mobilecal
+          clearState: false
+      - tap: { text: "Camera" }
