@@ -155,6 +155,41 @@ impl DialogHandler {
                 Err(_) => break,
             };
 
+            // A crash / ANR dialog ("<app> keeps stopping", "<app> isn't
+            // responding"). Close it unless it belongs to the app under test
+            // or the step itself answers it.
+            if let Some(close) = self.find_crash_close(&hierarchy) {
+                // The step's own selector answers this dialog: leave it alone.
+                if target.is_some_and(|t| {
+                    self.find_crash_dialog(&hierarchy).is_some_and(|d| {
+                        velocity_common::selector_match::find_ref(d, t, None).is_some()
+                    })
+                }) {
+                    debug!("crash dialog is the step's own target; not dismissing it");
+                    break;
+                }
+                let title = self.find_crash_title_text(&hierarchy).unwrap_or_default();
+                let ours = self.app_id.is_empty()
+                    || title.contains(self.app_id.as_str())
+                    || driver.crash_report(device_id, &self.app_id).await.is_some();
+                if ours {
+                    break;
+                }
+                info!(title = %title, "closed another app's crash dialog");
+                match driver.tap(device_id, close).await {
+                    Ok(()) => {
+                        dismissed += 1;
+                        // Brief pause to let the dialog animate away
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to dismiss another app's crash dialog");
+                        break;
+                    }
+                }
+                continue;
+            }
+
             // Check if there's a system dialog present
             let Some(dialog) = self.find_dialog_element(&hierarchy) else {
                 break;
@@ -239,6 +274,52 @@ impl DialogHandler {
         }
 
         None
+    }
+
+    /// A crash / ANR dialog's `android:id/aerr_close` button (an "Close app"/
+    /// "Wait"-style dialog of another package). Returns the button to tap.
+    fn find_crash_close<'a>(&self, root: &'a Element) -> Option<&'a Element> {
+        Self::crash_close_in(root)
+    }
+
+    fn crash_close_in(el: &Element) -> Option<&Element> {
+        if el.platform_id == "android:id/aerr_close" {
+            return Some(el);
+        }
+        el.children.iter().find_map(|c| Self::crash_close_in(c))
+    }
+
+    /// The innermost dialog node holding both `android:id/alertTitle` and a
+    /// crash button (`aerr_close`/`aerr_wait`).
+    fn find_crash_dialog<'a>(&self, root: &'a Element) -> Option<&'a Element> {
+        fn any(el: &Element, f: &dyn Fn(&Element) -> bool) -> bool {
+            f(el) || el.children.iter().any(|c| any(c, f))
+        }
+        let title = |e: &Element| e.platform_id == "android:id/alertTitle";
+        let crash_button = |e: &Element| {
+            e.platform_id == "android:id/aerr_close" || e.platform_id == "android:id/aerr_wait"
+        };
+        let both = |e: &Element| any(e, &title) && any(e, &crash_button);
+        if !both(root) {
+            return None;
+        }
+        // Innermost first: the screen around the dialog holds both too, and
+        // matching the step's selector against the whole screen took any
+        // step's target for the dialog's.
+        root.children
+            .iter()
+            .find_map(|c| self.find_crash_dialog(c))
+            .or(Some(root))
+    }
+
+    /// The `android:id/alertTitle` text of a crash dialog, for logging.
+    fn find_crash_title_text(&self, root: &Element) -> Option<String> {
+        if root.platform_id == "android:id/alertTitle" {
+            return root.text.clone().or(root.label.clone());
+        }
+        root.children
+            .iter()
+            .find_map(|c| self.find_crash_title_text(c))
     }
 
     /// An Android framework AlertDialog (it holds `android:id/alertTitle`)
@@ -410,7 +491,7 @@ fn is_ios_system_alert(alert: &Element, root: &Element) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Rect;
+    use velocity_common::{DeviceInfo, Direction, Element, Key, Rect, Result, VelocityError};
 
     fn make_button(label: &str, element_type: &str) -> Element {
         Element {
@@ -772,5 +853,309 @@ mod tests {
         assert!(settings
             .find_dismiss_button(&dialog("com.android.settings"))
             .is_none());
+    }
+
+    /// A builder for the crash dialog used in the tests.
+    fn crash_dialog(title: &str, close_id: &str, close_label: &str) -> Element {
+        Element {
+            hint: None,
+            platform_id: "android:id/aerr_dialog".to_string(),
+            label: None,
+            text: None,
+            element_type: "android.widget.FrameLayout".to_string(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 390,
+                height: 844,
+            },
+            enabled: true,
+            visible: true,
+            children: vec![
+                Element {
+                    hint: None,
+                    platform_id: "android:id/alertTitle".to_string(),
+                    label: Some(title.to_string()),
+                    text: Some(title.to_string()),
+                    element_type: "android.widget.TextView".to_string(),
+                    bounds: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 390,
+                        height: 44,
+                    },
+                    enabled: true,
+                    visible: true,
+                    children: vec![],
+                    ..Default::default()
+                },
+                Element {
+                    hint: None,
+                    platform_id: close_id.to_string(),
+                    label: Some(close_label.to_string()),
+                    text: Some(close_label.to_string()),
+                    element_type: "android.widget.Button".to_string(),
+                    bounds: Rect {
+                        x: 0,
+                        y: 0,
+                        width: 390,
+                        height: 44,
+                    },
+                    enabled: true,
+                    visible: true,
+                    children: vec![],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    /// A driver that serves one fixed hierarchy and records taps and crash_report.
+    struct CrashHierarchyDriver {
+        screens: std::sync::Mutex<Vec<Element>>,
+        taps: std::sync::Mutex<Vec<String>>,
+        crash: std::sync::Mutex<Option<String>>,
+    }
+
+    impl CrashHierarchyDriver {
+        fn new(screens: Vec<Element>, crash: Option<String>) -> Self {
+            Self {
+                screens: std::sync::Mutex::new(screens),
+                taps: std::sync::Mutex::new(Vec::new()),
+                crash: std::sync::Mutex::new(crash),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PlatformDriver for CrashHierarchyDriver {
+        async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
+            Ok(vec![])
+        }
+        async fn boot_device(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn shutdown_device(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn install_app(&self, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn launch_app(&self, _: &str, _: &str, _: bool) -> Result<()> {
+            Ok(())
+        }
+        async fn stop_app(&self, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn find_element(&self, _: &str, _: &Selector) -> Result<Element> {
+            Err(VelocityError::Unsupported("not used".into()))
+        }
+        async fn find_elements(&self, _: &str, _: &Selector) -> Result<Vec<Element>> {
+            Ok(vec![])
+        }
+        async fn get_hierarchy(&self, _: &str) -> Result<Element> {
+            let mut screens = self.screens.lock().unwrap();
+            Ok(screens.remove(0))
+        }
+        async fn tap(&self, _: &str, el: &Element) -> Result<()> {
+            self.taps.lock().unwrap().push(el.platform_id.clone());
+            Ok(())
+        }
+        async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
+            Ok(())
+        }
+        async fn long_press(&self, _: &str, _: &Element, _: u64) -> Result<()> {
+            Ok(())
+        }
+        async fn input_text(&self, _: &str, _: &Element, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn clear_text(&self, _: &str, _: &Element) -> Result<()> {
+            Ok(())
+        }
+        async fn swipe(&self, _: &str, _: Direction) -> Result<()> {
+            Ok(())
+        }
+        async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
+            Ok(())
+        }
+        async fn press_key(&self, _: &str, _: Key) -> Result<()> {
+            Ok(())
+        }
+        async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
+            Ok((1080, 1920))
+        }
+        async fn get_element_text(&self, _: &str, _: &Element) -> Result<String> {
+            Ok(String::new())
+        }
+        async fn is_element_visible(&self, _: &str, _: &Element) -> Result<bool> {
+            Ok(true)
+        }
+        async fn crash_report(&self, _: &str, _: &str) -> Option<String> {
+            self.crash.lock().unwrap().clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn crash_dialog_of_another_app_is_closed() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.android.settings");
+        let driver = CrashHierarchyDriver::new(
+            vec![
+                crash_dialog(
+                    "com.google.androidenv.accessibilityforwarder keeps stopping",
+                    "android:id/aerr_close",
+                    "Close app",
+                ),
+                Element::default(),
+            ],
+            None,
+        );
+        let n = handler.dismiss_unless_target(&driver, "d", None).await;
+        assert_eq!(n, 1);
+        assert_eq!(driver.taps.lock().unwrap().len(), 1);
+        assert_eq!(driver.taps.lock().unwrap()[0], "android:id/aerr_close");
+    }
+
+    /// The dialog over the app's screen: the step's target is on that screen
+    /// (behind the dialog), not in the dialog, so the dialog is still closed.
+    #[tokio::test]
+    async fn a_step_target_behind_the_crash_dialog_does_not_keep_it_open() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.android.settings");
+        let behind = Element {
+            platform_id: "android:id/title".to_string(),
+            text: Some("Network & internet".to_string()),
+            element_type: "android.widget.TextView".to_string(),
+            ..Default::default()
+        };
+        let screen = Element {
+            children: vec![
+                behind,
+                crash_dialog(
+                    "com.google.androidenv.accessibilityforwarder keeps stopping",
+                    "android:id/aerr_close",
+                    "Close app",
+                ),
+            ],
+            ..Default::default()
+        };
+        let driver = CrashHierarchyDriver::new(vec![screen, Element::default()], None);
+        let target = Selector::Text("Network & internet".into());
+        let n = handler
+            .dismiss_unless_target(&driver, "d", Some(&target))
+            .await;
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test]
+    async fn crash_dialog_naming_our_app_is_left_alone() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.example.app");
+        let driver = CrashHierarchyDriver::new(
+            vec![
+                crash_dialog(
+                    "com.example.app keeps stopping",
+                    "android:id/aerr_close",
+                    "Close app",
+                ),
+                Element::default(),
+            ],
+            None,
+        );
+        let n = handler.dismiss_unless_target(&driver, "d", None).await;
+        assert_eq!(n, 0);
+        assert!(driver.taps.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn labelled_crash_dialog_with_crash_report_is_left_alone() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.android.settings");
+        let driver = CrashHierarchyDriver::new(
+            vec![
+                crash_dialog(
+                    "Settings keeps stopping",
+                    "android:id/aerr_close",
+                    "Close app",
+                ),
+                Element::default(),
+            ],
+            Some("boom".into()),
+        );
+        let n = handler.dismiss_unless_target(&driver, "d", None).await;
+        assert_eq!(n, 0);
+        assert!(driver.taps.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn crash_dialog_targeted_by_the_step_is_left_alone() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.android.settings");
+        let driver = CrashHierarchyDriver::new(
+            vec![
+                crash_dialog(
+                    "com.google.androidenv.accessibilityforwarder keeps stopping",
+                    "android:id/aerr_close",
+                    "Close app",
+                ),
+                Element::default(),
+            ],
+            None,
+        );
+        let target = Selector::Id("android:id/aerr_close".to_string());
+        let n = handler
+            .dismiss_unless_target(&driver, "d", Some(&target))
+            .await;
+        assert_eq!(n, 0);
+        assert!(driver.taps.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn crash_dialog_with_empty_app_id_is_left_alone() {
+        let handler = DialogHandler::new(DialogConfig::default());
+        let driver = CrashHierarchyDriver::new(
+            vec![
+                crash_dialog(
+                    "com.google.androidenv.accessibilityforwarder keeps stopping",
+                    "android:id/aerr_close",
+                    "Close app",
+                ),
+                Element::default(),
+            ],
+            None,
+        );
+        let n = handler.dismiss_unless_target(&driver, "d", None).await;
+        assert_eq!(n, 0);
+        assert!(driver.taps.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn anr_dialog_of_another_app_is_closed() {
+        let handler = DialogHandler::new(DialogConfig::default()).for_app("com.android.settings");
+        let root = Element {
+            hint: None,
+            platform_id: "root".to_string(),
+            label: None,
+            text: None,
+            element_type: "Application".to_string(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 390,
+                height: 844,
+            },
+            enabled: true,
+            visible: true,
+            children: vec![crash_dialog(
+                "Chrome isn't responding",
+                "android:id/aerr_close",
+                "Wait",
+            )],
+            ..Default::default()
+        };
+        let driver = CrashHierarchyDriver::new(vec![root, Element::default()], None);
+        let n = handler.dismiss_unless_target(&driver, "d", None).await;
+        assert_eq!(n, 1);
+        assert_eq!(driver.taps.lock().unwrap()[0], "android:id/aerr_close");
     }
 }
