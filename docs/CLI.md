@@ -50,11 +50,11 @@
 | `--file FILE` | History file, or a folder holding `velocity-history.json` (default `./velocity-results/velocity-history.json`, where `velocity run` writes it) |
 | `--window N` | Recent runs per test (default 20) |
 | `--max-rate R` | Fail when any test with at least 5 runs exceeds this rate (default 0.05) |
-| `--json` | Print one JSON object: `{window, maxRate, tests:[{name, runs, flaky, rate}], over:[names]}` |
+| `--json` | Print one JSON object: `{window, maxRate, tests:[{name, runs, flaky, flips, rate}], over:[names]}` |
 
-A test's `runs` is the window's run count, `flaky` the runs that passed only after a retry, and `rate = flaky / runs`. Infrastructure failures are not in the history, so they count in neither. The table marks each test above `--max-rate` with `*`.
+A test's `runs` is the window's run count, `flaky` the runs that passed only after a retry, `flips` the pass/fail changes between consecutive runs in the window, and `rate` is the same flakiness measure `velocity run` reports: `(flaky + flips) / (runs + runs - 1)`. Infrastructure failures are not in the history, so they count in neither. The table marks each test above `--max-rate` with `*`.
 
-Exit 0 when no test with at least 5 runs exceeds `--max-rate`; exit 1 when at least one does (the names are listed under `warning:`); exit 2 when the history file is missing or unreadable. Tests with fewer than 5 runs get a rate but never trip the threshold.
+Exit 0 when no test with at least 5 runs exceeds `--max-rate`; exit 1 when at least one does (the names are listed under `warning:`); exit 2 when the history file is missing or unreadable, when `--window` is under 5, or when `--max-rate` is outside 0..1. Tests with fewer than 5 runs get a rate but never trip the threshold.
 
 ## `init`
 

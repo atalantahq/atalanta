@@ -1055,21 +1055,30 @@ pub fn note_flakiness(history: &TestHistory, results: &mut [TestResult]) {
 
 /// One test's flake rate over its last `window` recorded runs.
 ///
-/// Infrastructure failures are never recorded in history (the update skips
-/// them), so they are in neither `runs` nor `flaky`.
+/// `flaky` counts runs that passed only on retry (`HistoryOutcome::Flaky`).
+/// `flips` counts pass<->fail changes between consecutive runs in the window
+/// (exactly one of the two is `HistoryOutcome::Fail`), the same rule
+/// `flakiness_of` uses. `rate` is `flaky + flips` over `runs + (runs - 1)`,
+/// i.e. the same measure `velocity run` reports. Infrastructure failures are
+/// never recorded in history (the update skips them), so they are in neither
+/// `runs`, `flaky` nor `flips`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlakyTest {
     pub name: String,
     pub runs: usize,
     pub flaky: usize,
+    pub flips: usize,
     pub rate: f64,
 }
 
 /// The flake rate of every test in `history`, over its last `window`
 /// recorded runs each, sorted by rate (worst first, ties by name).
 ///
-/// Pure: it only reads `history`. Infrastructure failures are not recorded
-/// there, so they count in neither the numerator nor the denominator.
+/// Pure: it only reads `history`. For each test it computes `flaky`
+/// (runs that passed only on retry), `flips` (pass<->fail changes between
+/// consecutive runs) and `rate = flakiness_of(window_runs).unwrap_or(0.0)`.
+/// Infrastructure failures are not recorded there, so they count in neither
+/// the numerator nor the denominator.
 pub fn flaky_rate(history: &TestHistory, window: usize) -> Vec<FlakyTest> {
     let mut out: Vec<FlakyTest> = history
         .outcomes
@@ -1085,11 +1094,16 @@ pub fn flaky_rate(history: &TestHistory, window: usize) -> Vec<FlakyTest> {
                 .iter()
                 .filter(|o| **o == HistoryOutcome::Flaky)
                 .count();
-            let rate = if n > 0 { flaky as f64 / n as f64 } else { 0.0 };
+            let flips = window_runs
+                .windows(2)
+                .filter(|w| (w[0] == HistoryOutcome::Fail) != (w[1] == HistoryOutcome::Fail))
+                .count();
+            let rate = flakiness_of(window_runs).unwrap_or(0.0);
             FlakyTest {
                 name: name.clone(),
                 runs: n,
                 flaky,
+                flips,
                 rate,
             }
         })
@@ -2213,7 +2227,8 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].runs, 3);
         assert_eq!(got[0].flaky, 2);
-        assert_eq!(got[0].rate, 2.0 / 3.0);
+        assert_eq!(got[0].flips, 0);
+        assert_eq!(got[0].rate, 0.4);
     }
 
     #[test]
@@ -2231,7 +2246,9 @@ mod tests {
         );
         let got = flaky_rate(&h, 20);
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].rate, 0.2);
+        assert_eq!(got[0].flaky, 1);
+        assert_eq!(got[0].flips, 0);
+        assert_eq!(got[0].rate, 1.0 / 9.0);
     }
 
     #[test]
@@ -2244,7 +2261,9 @@ mod tests {
         let got = flaky_rate(&h, 20);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].runs, 2);
-        assert_eq!(got[0].rate, 1.0);
+        assert_eq!(got[0].flaky, 2);
+        assert_eq!(got[0].flips, 0);
+        assert_eq!(got[0].rate, 2.0 / 3.0);
     }
 
     #[test]
@@ -2273,14 +2292,101 @@ mod tests {
         let got = flaky_rate(&h, 20);
         assert_eq!(got.len(), 2);
         assert_eq!(got[0].name, "b");
-        assert_eq!(got[0].rate, 0.2);
+        assert_eq!(got[0].flaky, 1);
+        assert_eq!(got[0].flips, 0);
+        assert_eq!(got[0].rate, 1.0 / 9.0);
         assert_eq!(got[1].name, "a");
+        assert_eq!(got[1].flaky, 0);
+        assert_eq!(got[1].flips, 0);
         assert_eq!(got[1].rate, 0.0);
     }
 
     #[test]
     fn flaky_rate_empty_history() {
         let h = TestHistory::default();
-        assert!(flaky_rate(&h, 20).is_empty());
+        let got = flaky_rate(&h, 20);
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn flaky_rate_pass_fail_alternating() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "t".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Fail,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Fail,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Fail,
+            ],
+        );
+        let got = flaky_rate(&h, 20);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].runs, 6);
+        assert_eq!(got[0].flaky, 0);
+        assert_eq!(got[0].flips, 5);
+        assert_eq!(got[0].rate, 5.0 / 11.0);
+    }
+
+    #[test]
+    fn flaky_rate_one_flaky_among_passes() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "t".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Flaky,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+            ],
+        );
+        let got = flaky_rate(&h, 20);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].runs, 6);
+        assert_eq!(got[0].flaky, 1);
+        assert_eq!(got[0].flips, 0);
+        assert_eq!(got[0].rate, 1.0 / 11.0);
+    }
+
+    #[test]
+    fn flaky_rate_window_uses_last_n() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "t".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Fail,
+                HistoryOutcome::Fail,
+                HistoryOutcome::Pass,
+            ],
+        );
+        let got = flaky_rate(&h, 3);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].runs, 3);
+        assert_eq!(got[0].flaky, 0);
+        assert_eq!(got[0].flips, 1);
+        assert_eq!(got[0].rate, 0.2);
+    }
+
+    #[test]
+    fn flaky_rate_single_run_is_zero() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert("t".into(), vec![HistoryOutcome::Pass]);
+        let got = flaky_rate(&h, 20);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].runs, 1);
+        assert_eq!(got[0].flaky, 0);
+        assert_eq!(got[0].flips, 0);
+        assert_eq!(got[0].rate, 0.0);
     }
 }

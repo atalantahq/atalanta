@@ -25,12 +25,13 @@ pub enum HistoryCommand {
 
     /// Show each test's flake rate over its last N recorded runs.
     ///
-    /// A run counts as flaky when it passed only after a retry, or failed
-    /// then passed with no code change (whatever history.rs already counts
-    /// as flaky). Infrastructure failures are excluded from the rate and
-    /// shown apart. Exits 1 when any test with at least 5 runs exceeds
-    /// --max-rate, exit 0 otherwise, exit 2 when the file is missing or
-    /// unreadable.
+    /// A run's flakiness counts runs that passed only on retry and pass/fail
+    /// flips between consecutive runs, the same measure `velocity run`
+    /// reports. Infrastructure failures are never recorded in history, so
+    /// they are not counted. Exits 1 when any test with at least 5 runs
+    /// exceeds --max-rate, exit 0 otherwise, exit 2 when the file is missing
+    /// or unreadable, or when --window is under 5 or --max-rate is outside
+    /// 0..1.
     Flaky {
         /// History file (a velocity-history.json, or a folder holding one);
         /// defaults to where `velocity run` writes it
@@ -79,6 +80,16 @@ pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
             max_rate,
             json,
         } => {
+            if window < 5 {
+                return Err(usage_err!(
+                    "history flaky: --window must be at least 5 (a test needs 5 runs to be judged)"
+                ));
+            }
+            if !max_rate.is_finite() || max_rate < 0.0 || max_rate > 1.0 {
+                return Err(usage_err!(
+                    "history flaky: --max-rate must be between 0 and 1"
+                ));
+            }
             let file_path = std::path::Path::new(&file);
             let history = match velocity_runner::history::load_file(file_path) {
                 Ok(h) => h,
@@ -101,6 +112,7 @@ pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
                                 "name": t.name,
                                 "runs": t.runs,
                                 "flaky": t.flaky,
+                                "flips": t.flips,
                                 "rate": t.rate,
                             })
                         })
@@ -109,7 +121,10 @@ pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
                 });
                 println!("{}", serde_json::to_string(&value).unwrap());
             } else {
-                println!("{:<32} {:>4} {:>5} {:>6}", "test", "runs", "flaky", "rate");
+                println!(
+                    "{:<32} {:>4} {:>5} {:>5} {:>6}",
+                    "test", "runs", "flaky", "flips", "rate"
+                );
                 for t in &tests {
                     let flag = if t.runs >= 5 && t.rate > max_rate {
                         "  *"
@@ -117,8 +132,8 @@ pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
                         ""
                     };
                     println!(
-                        "{:<32} {:>4} {:>5} {:>6.3}{}",
-                        t.name, t.runs, t.flaky, t.rate, flag
+                        "{:<32} {:>4} {:>5} {:>5} {:>6.3}{}",
+                        t.name, t.runs, t.flaky, t.flips, t.rate, flag
                     );
                 }
                 if !over.is_empty() {
