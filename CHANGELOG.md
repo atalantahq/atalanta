@@ -15,7 +15,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - **[may fail suites]** **MCP screenshots are files.** `screenshot` (and `observe {what: screenshot}`) saves the PNG and returns its path and size; the image is in the reply only with `inline: true`, and then downscaled below 2,000 px on its longest edge.
 - **[may fail suites]** **`velocity explore` trusts a test only after its gates** (5 replays, a wrong-path replay that must fail, a goal assertion); an untrusted test exits 1. `--no-gates` skips them ([EXPLORE.md](docs/EXPLORE.md#trust-gates)). [Details](docs/research/changelog-0.2.0-details.md#explore-gates)
 - **[may fail suites]** **No silent passes.** A shard that owns no test (more shards than tests) exits 2, naming it, instead of passing empty. A planned test that ends with no result (a worker that stopped) is reported failed as an internal error (exit 5) instead of missing from the totals.
-- **[may fail suites]** **`velocity mcp` serves five tools by default** (`observe`, `act`, `run`, `artifacts`, `verify_change`); a call to a full tool gets an error naming the core call. `--profile full` serves all 32 ([MCP.md](docs/MCP.md#core-tools)). [Details](docs/research/changelog-0.2.0-details.md#mcp-core)
+- **[may fail suites]** **`velocity mcp` serves five tools by default** (`observe`, `act`, `run`, `artifacts`, `verify_change`); a call to a full tool gets an error naming the core call. `--profile full` serves all 33 ([MCP.md](docs/MCP.md#core-tools)). [Details](docs/research/changelog-0.2.0-details.md#mcp-core)
 - **[may fail suites]** **`explore --values-from-goal` no longer copies screen text**; add `--values-from-screen` for the old behaviour. [Details](docs/research/changelog-0.2.0-details.md#values-goal)
 - **[may fail suites]** **The memory check fails the test** (was a warning) when peak PSS rises past `pssGrowthThresholdPct`, in both runners; `heapGrowthThresholdPct` still works with a warning. Android only. [Details](docs/research/changelog-0.2.0-details.md#memory-check)
 - **[may fail suites]** **Cabled iPhones bind loopback by default**; `VELOCITY_IOS_DEVICE_LOOPBACK=0` opts out if the runner never answers. Unchecked on a real iPhone. [Details](docs/research/changelog-0.2.0-details.md#iphone-loopback)
@@ -78,7 +78,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - `velocity init`, `velocity doctor [--fix] [--deep] [--json]`, `velocity explore`, `velocity nl-eval` (compares models on saved traces or a built-in task set).
 - `velocity run [PATH]` takes a suite file or a folder (`-c` still works).
 - `velocity lint`: finds fragile selectors and fixed waits. `velocity schema`: prints the suite JSON Schema for editor completion, or the DSL reference. `velocity settings`: lists the named settings.
-- `velocity shard-plan`, `velocity history merge`, `velocity history flaky` (rolling flake rate over a test's last N runs, CI-gated with `--max-rate`), `velocity trace view`, `velocity heal`, `velocity baselines review|accept|reject` (`review --serve` gives a side-by-side review page).
+- `velocity shard-plan`, `velocity history merge`, `velocity history flaky` (rolling flakiness over a test's last N runs, retries plus pass/fail flips as `velocity run` reports it, CI-gated with `--max-rate`), `velocity trace view`, `velocity heal`, `velocity baselines review|accept|reject` (`review --serve` gives a side-by-side review page).
 - `velocity devices up|down` (boot or clone the devices a parallel run needs), `velocity repl`, `velocity daemon start|stop|status` (keeps drivers warm for `run --daemon`), and `velocity signing` (iOS signing with an App Store Connect API key).
 - `velocity mcp install|config|rules`, `velocity migrate waits` (removes redundant `wait:` steps).
 - `velocity gate <file> --goal "<text>"`: the trust gates for a one-test suite YAML that was never explored (hand-written, or exported from an agent session): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text. Exit 0 trusted, 1 not trusted ([CLI.md](docs/CLI.md#gate)). Over MCP, `run_task` with `gate: true` runs it as a background task (`summary.gates`), and `export_session_flow` says its test is not gated yet and gives the call that gates it.
@@ -91,7 +91,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - Natural-language steps: `do:`, `act:`, `assert:`, `expect:`, or a bare string, with `data:` and `waitUntil:`. AI verification with `verify: off|final|checkpoints|strict` and per-step `checkpoint:`.
 - Selectors: `role:`/`name:`, `textMatches:`/`idMatches:`, state filters, relations (`below`, `childOf`, …), and `css:`/`xpath:` on the web. [Details](docs/research/changelog-0.2.0-details.md#selectors)
 - Step modifiers: `timeoutMs`, `settle`, `optional`, `force` and `appInFront`. Test keys: `dependsOn`, `sideEffects` and `description`.
-- `runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow (and the flows it runs), filled in when the suite loads; `velocity migrate maestro` carries Maestro's `runFlow` `env` over. ([DSL.md](docs/DSL.md#parameters))
+- `runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow (and the flows it runs), filled in when the suite loads; a parameter the call doesn't pass comes from the environment. Decimals must be quoted (`"1.50"`), and `flow` and `flowId` together are an error. MCP `run_flow` takes the same `env`. `velocity migrate maestro` carries Maestro's `runFlow` `env` over. ([DSL.md](docs/DSL.md#parameters))
 - `${VAR:-default}` and `${VAR:?message}`. `$${` writes a literal `${`.
 - Config: `healing.mode` (`auto | report | off`), `actionability`, `retry` (including `flakyResult: fail`), `artifacts.video`/`logs`/`videoSeconds`, `dialog`, `screenshots` (including `freezeStatusBar`), `web`, `headless`, `flutter`, `ai`, `nl` and `settings`.
 - Screenshot baselines are stored per platform and screen size (`velocity-baselines/<platform>/<W>x<H>/`), with `mask:`, `crop:`, `threshold`, `tolerance` and `comparator: strict | perceptual`.
@@ -276,6 +276,16 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- Launching an app that isn't installed on an iOS simulator is a configuration error naming it; it was reported as "App … crashed: the app's process exited unexpectedly".
+- Real iPhones: `launchApp` arguments reach the app. devicectl read `-name` arguments as its own options (they now follow `--`), and an app already running was only brought to the front, without them.
+- Android: adb losing the device during a `launchApp` with arguments is a device error (retried, moved to another device), not a configuration error. A crash of an app Velocity didn't launch (a link cold-start) is reported again, dated from Velocity's first look.
+- iOS: under a sheet, rows a list loaded since the last visibility read no longer count as visible.
+- A locked iPhone no longer fails the runner start at once (xcodebuild may wait for the unlock); it is named if the start times out.
+- `velocity history flaky` refuses a `--window` under 5 or a `--max-rate` outside 0..1, which disabled its gate.
+- MCP `observe {what: a11y}` gives one element's findings one ref; agent sessions notice a device switch even before their first snapshot.
+- GitHub masks secret-named `runFlow` parameters in the job log.
+- `velocity migrate maestro` drops a `launchApp` argument name Velocity rejects, with a warning, instead of failing the file.
+- `velocity settings` lists `nl.model`'s default as the provider's step model.
 - **`velocity devices up --ios N` counts only the caller's clones.** A `velocity-<type>-<n>` simulator another owner booted (another CI job's `--owner`) is no longer counted as up or booted again; two `up`s at once no longer pick the same clone or clone number.
 - **A cut-short `--parallel --stress` run reports on time.** After `--timeout` or a stop, the actors are stopped and every device's CPU stress turned off at once, under one 15 s limit, instead of one device after another with a 60 s limit each.
 - **Pure-YAML suites no longer build the AI client.** With a model key set, every parallel and sequential run built the planner, whose HTTP client loads the system's TLS roots (3–4 s from the macOS keychain, more under load), even with no natural-language step or `verify:`. It is now built only when the suite needs it. This made two parallel-runner timeout tests fail on loaded machines.
