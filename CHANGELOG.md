@@ -91,6 +91,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - Natural-language steps: `do:`, `act:`, `assert:`, `expect:`, or a bare string, with `data:` and `waitUntil:`. AI verification with `verify: off|final|checkpoints|strict` and per-step `checkpoint:`.
 - Selectors: `role:`/`name:`, `textMatches:`/`idMatches:`, state filters, relations (`below`, `childOf`, …), and `css:`/`xpath:` on the web. [Details](docs/research/changelog-0.2.0-details.md#selectors)
 - Step modifiers: `timeoutMs`, `settle`, `optional`, `force` and `appInFront`. Test keys: `dependsOn`, `sideEffects` and `description`.
+- `runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow (and the flows it runs), filled in when the suite loads; `velocity migrate maestro` carries Maestro's `runFlow` `env` over. ([DSL.md](docs/DSL.md#parameters))
 - `${VAR:-default}` and `${VAR:?message}`. `$${` writes a literal `${`.
 - Config: `healing.mode` (`auto | report | off`), `actionability`, `retry` (including `flakyResult: fail`), `artifacts.video`/`logs`/`videoSeconds`, `dialog`, `screenshots` (including `freezeStatusBar`), `web`, `headless`, `flutter`, `ai`, `nl` and `settings`.
 - Screenshot baselines are stored per platform and screen size (`velocity-baselines/<platform>/<W>x<H>/`), with `mask:`, `crop:`, `threshold`, `tolerance` and `comparator: strict | perceptual`.

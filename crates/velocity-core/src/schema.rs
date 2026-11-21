@@ -222,7 +222,15 @@ fn action_arg(action: &str) -> Value {
             { "type": "string" },
             {
                 "type": "object",
-                "properties": { "flowId": { "type": "string" }, "flow": { "type": "string" } },
+                "properties": {
+                    "flowId": { "type": "string" },
+                    "flow": { "type": "string" },
+                    "env": {
+                        "type": "object",
+                        "description": "Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value",
+                        "additionalProperties": { "type": ["string", "number", "boolean"] }
+                    }
+                },
                 "additionalProperties": false,
                 "anyOf": one_of_required(&["flowId", "flow"])
             }

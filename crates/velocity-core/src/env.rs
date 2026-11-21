@@ -360,11 +360,32 @@ pub fn captured_names(suite: &TestSuite) -> BTreeSet<String> {
 }
 
 /// Fill in every `${VAR}` of the suite from `overrides` and the environment,
-/// except the names `http` steps capture: those are left for the executor
-/// to fill in as the test runs ([`bind_step`]), and recorded in
-/// `config.captured_vars`.
+/// except the names `http` steps capture and the names of flow parameters:
+/// those are left for the executor to fill in as the test runs ([`bind_step`]
+/// and the flow scope stack), and recorded here so load-time interpolation
+/// neither fails on them nor empties them.
+/// Every `runFlow: { flow, env }` parameter name in the suite.
+pub fn flow_param_names(suite: &TestSuite) -> BTreeSet<String> {
+    suite
+        .flows
+        .iter()
+        .flat_map(|f| f.steps.iter())
+        .chain(suite.tests.iter().flat_map(|t| t.steps.iter()))
+        .filter_map(|s| match &s.action {
+            Action::RunFlow { env, .. } => Some(env.keys().cloned()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
 pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, String>) -> Result<()> {
     let mut deferred = captured_names(suite);
+    // `runFlow: { flow, env }` parameter names stay `${NAME}` inside
+    // `flows:` (the resolver fills them per call); tests are interpolated
+    // as before, so a parameter never hides an environment variable there.
+    let params = flow_param_names(suite);
+    let in_flow = std::cell::Cell::new(false);
     // `${totp:NAME}` is filled when its step runs (a code lasts 30 s); its
     // secret is read now, while `--env` and the keychain are at hand.
     let totp = std::cell::RefCell::new(BTreeSet::new());
@@ -385,7 +406,10 @@ pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, Stri
                 }
             }
         }
-        let skip: BTreeSet<String> = deferred.union(&totp.borrow()).cloned().collect();
+        let mut skip: BTreeSet<String> = deferred.union(&totp.borrow()).cloned().collect();
+        if in_flow.get() {
+            skip.extend(params.iter().cloned());
+        }
         interpolate_except(s, overrides, &skip)
     };
     suite.app_id = fill(&suite.app_id)?;
@@ -398,11 +422,13 @@ pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, Stri
         }
     }
 
+    in_flow.set(true);
     for flow in &mut suite.flows {
         for step in &mut flow.steps {
             interpolate_action(&mut step.action, &mut fill)?;
         }
     }
+    in_flow.set(false);
 
     for test in &mut suite.tests {
         for step in &mut test.steps {
@@ -636,7 +662,10 @@ fn interpolate_action(
                 *name = f(name)?;
             }
         }
-        Action::RunFlow { flow_id } => {
+        Action::RunFlow { flow_id, env } => {
+            for v in env.values_mut() {
+                *v = f(v)?;
+            }
             *flow_id = f(flow_id)?;
         }
         Action::InputRaw { text } => {

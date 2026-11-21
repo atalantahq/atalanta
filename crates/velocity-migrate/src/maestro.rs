@@ -2056,9 +2056,12 @@ fn when_gate(when: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
 /// be checked: the flow is attempted and any failure in it is a warning.
 fn convert_run_flow(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
     let when = arg.as_mapping().and_then(|m| m.get("when")).cloned();
+    // Maestro's `env:` becomes the call's parameters, on the outermost
+    // runFlow (a `when:` wrapper passes them on to the flow it runs).
+    let env = arg.as_mapping().and_then(|m| m.get("env")).cloned();
     let call = convert_run_flow_file(arg, line, ctx)?;
     let Some(when) = when else {
-        return Some(call);
+        return Some(with_env(call, env));
     };
     let flow_id = call
         .as_mapping()
@@ -2103,21 +2106,27 @@ fn convert_run_flow(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
     let mut m = Mapping::new();
     m.insert(Value::from("runFlow"), Value::from(gated));
     m.insert(Value::from("optional"), Value::from(true));
-    Some(Value::Mapping(m))
+    Some(with_env(Value::Mapping(m), env))
+}
+
+/// `runFlow: id` with Maestro's `env:` as `runFlow: { flow: id, env }`.
+fn with_env(mut step: Value, env: Option<Value>) -> Value {
+    let Some(env) = env else { return step };
+    if let Some(m) = step.as_mapping_mut() {
+        if let Some(Value::String(id)) = m.get("runFlow").cloned() {
+            let mut call = Mapping::new();
+            call.insert(Value::from("flow"), Value::from(id));
+            call.insert(Value::from("env"), env);
+            m.insert(Value::from("runFlow"), Value::Mapping(call));
+        }
+    }
+    step
 }
 
 fn convert_run_flow_file(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
     let file = match arg {
         Value::String(s) => Some(s.clone()),
         Value::Mapping(m) => {
-            if m.contains_key("env") {
-                ctx.issues.push(issue(
-                    line,
-                    Severity::Warning,
-                    "runFlow",
-                    "runFlow `env:` isn't carried over: the flow sees the suite's variables",
-                ));
-            }
             warn_unused(
                 arg,
                 &["file", "when", "commands", "env", "label"],
@@ -2408,6 +2417,40 @@ mod tests {
             "{:?}",
             result.issues
         );
+    }
+
+    #[test]
+    fn a_runflow_env_becomes_the_calls_parameters() {
+        let (result, suite) = migrate(
+            "flowenv",
+            &[
+                (
+                    "flow.yaml",
+                    "appId: com.shop\n---\n- runFlow:\n    file: login.yaml\n    env:\n      USER: qa@example.com\n",
+                ),
+                (
+                    "login.yaml",
+                    "appId: com.shop\n---\n- inputText: ${USER}\n",
+                ),
+            ],
+        );
+        assert!(result.success, "{:?}", result.issues);
+        assert!(
+            !result.issues.iter().any(|i| i.message.contains("env")),
+            "{:?}",
+            result.issues
+        );
+        let tests = velocity_core::resolve_flows(&suite).unwrap();
+        let typed: Vec<String> = tests[0]
+            .steps
+            .iter()
+            .filter_map(|s| match &s.action {
+                // A bare Maestro `inputText` types into what has focus.
+                velocity_common::Action::InputRaw { text } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(typed, ["qa@example.com"]);
     }
 
     #[test]

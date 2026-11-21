@@ -157,7 +157,7 @@ fn step_line(action: &Action) -> Option<String> {
         } => format!("swipe {d:?}").to_lowercase(),
         Action::PressKey { key } => format!("pressKey {key:?}"),
         Action::GoBack => "goBack".into(),
-        Action::RunFlow { flow_id } => format!("runFlow {flow_id:?}"),
+        Action::RunFlow { flow_id, .. } => format!("runFlow {flow_id:?}"),
         Action::Natural {
             intent,
             kind,
@@ -181,10 +181,12 @@ fn expanded<'a>(steps: &'a [Step], suite: &'a TestSuite) -> Vec<&'a Action> {
     let mut out = Vec::new();
     for s in steps {
         match &s.action {
-            Action::RunFlow { flow_id } => match suite.flows.iter().find(|f| &f.id == flow_id) {
-                Some(flow) => out.extend(flow.steps.iter().map(|s| &s.action)),
-                None => out.push(&s.action),
-            },
+            Action::RunFlow { flow_id, .. } => {
+                match suite.flows.iter().find(|f| &f.id == flow_id) {
+                    Some(flow) => out.extend(flow.steps.iter().map(|s| &s.action)),
+                    None => out.push(&s.action),
+                }
+            }
             a => out.push(a),
         }
     }
