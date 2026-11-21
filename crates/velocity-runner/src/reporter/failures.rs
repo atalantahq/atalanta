@@ -177,10 +177,20 @@ fn shares_a_word(
     trace: &TestTrace,
     wanted: &str,
 ) -> Option<String> {
+    // Word forms: "Gesture" and "Gestures" are one word (the only wrong
+    // report on a third held-out set called them unrelated).
     let words = |s: &str| -> std::collections::BTreeSet<String> {
         s.split(|c: char| !c.is_alphanumeric())
             .filter(|w| w.chars().count() >= 3)
-            .map(str::to_lowercase)
+            .map(|w| {
+                let w = w.to_lowercase();
+                match w.strip_suffix('s') {
+                    Some(stem) if stem.chars().count() >= 3 && !stem.ends_with('s') => {
+                        stem.to_string()
+                    }
+                    _ => w,
+                }
+            })
             .collect()
     };
     let identifier = |t: &str| t.contains('_') && !t.contains(' ');
@@ -269,7 +279,7 @@ fn seen_earlier(
             .into_iter()
             .flatten()
             .any(|t| {
-                let t = t.to_lowercase();
+                let t = velocity_common::selector_match::normalize(t).to_lowercase();
                 if contains {
                     t.contains(w)
                 } else {
@@ -278,7 +288,9 @@ fn seen_earlier(
             })
             || el.children.iter().any(|c| holds(c, w, contains))
     }
-    let w = wanted.to_lowercase();
+    // As the selector matcher compares: a non-breaking space in "Languages
+    // & input" hid it from this lookback, though the step had matched it.
+    let w = velocity_common::selector_match::normalize(wanted).to_lowercase();
     let pos = trace
         .steps
         .iter()
@@ -1336,6 +1348,69 @@ mod tests {
             Some((true, "Netwrok".to_string()))
         );
         assert_eq!(selector_text("id=\"x\""), None);
+    }
+
+    #[test]
+    fn a_plural_shares_its_word_and_a_non_breaking_space_still_matches() {
+        let tree = Element {
+            visible: true,
+            children: vec![Element {
+                text: Some("Gestures".into()),
+                visible: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let earlier = Element {
+            visible: true,
+            children: vec![Element {
+                text: Some("Languages\u{a0}& input".into()),
+                visible: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let step = |index: usize, failed: bool, tree: &str| StepTrace {
+            index,
+            label: format!("step {index}"),
+            start_ms: 0,
+            selector: None,
+            source: None,
+            status: Some(if failed {
+                StepStatus::Failed
+            } else {
+                StepStatus::Passed
+            }),
+            duration_ms: 0,
+            settle_ms: 0,
+            settle_reads: 0,
+            matched: None,
+            nearest: vec![],
+            heals: vec![],
+            warnings: vec![],
+            trees: vec![tree.to_string()],
+            error: None,
+            screenshot: None,
+        };
+        let trace = TestTrace {
+            version: 1,
+            test: "t".into(),
+            device: "d".into(),
+            platform: None,
+            attempt: 0,
+            status: TestStatus::Failed,
+            steps: vec![step(0, false, "before"), step(1, true, "now")],
+            evidence: None,
+        };
+        let trees = HashMap::from([("before".to_string(), earlier), ("now".to_string(), tree)]);
+        assert_eq!(
+            shares_a_word(&trees, &trace, "Gesture settings").as_deref(),
+            Some("Gestures")
+        );
+        assert_eq!(
+            seen_earlier(&trace, &trees, "Languages & input", false),
+            Some((1, "step 0".to_string()))
+        );
     }
 
     #[test]
