@@ -596,7 +596,7 @@ Named settings go under `config: settings:` (flat `android.scroll: semantic` or 
 | `breaker.resetMs` | ms | 30000 | `VELOCITY_BREAKER_RESET_MS` | How long an open breaker waits before restarting the session and probing |
 | `commandTimeoutMs` | ms | 60000 | `VELOCITY_COMMAND_TIMEOUT_MS` | Longest a single adb/simctl/xcrun command may run |
 | `secrets` | VAR,VAR,… | - | `VELOCITY_SECRETS` | Extra variables whose values are masked in every report and log |
-| `nl.model` | model id | claude-opus-5-5 | `VELOCITY_NL_MODEL` | Model that plans natural-language steps |
+| `nl.model` | model id | - | `VELOCITY_NL_MODEL` | Model that plans natural-language steps (default: the provider's step model, claude-haiku-5-5 for Anthropic) |
 | `nl.effort` | low\|medium\|high | low | `VELOCITY_NL_EFFORT` | Planner reasoning effort |
 | `nl.cache` | normal\|read-only\|frozen\|prune | normal | `VELOCITY_NL_CACHE` | How the natural-language plan cache is used |
 | `nl.traces` | 1\|0 | 1 | `VELOCITY_NL_TRACES` | Save planner traces for `velocity nl-eval` |

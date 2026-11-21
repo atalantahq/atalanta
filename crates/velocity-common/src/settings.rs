@@ -69,7 +69,7 @@ pub const SETTINGS: &[Setting] = &[
     Setting { key: "breaker.resetMs", env: "VELOCITY_BREAKER_RESET_MS", default: "30000", values: "ms", help: "How long an open breaker waits before restarting the session and probing" },
     Setting { key: "commandTimeoutMs", env: "VELOCITY_COMMAND_TIMEOUT_MS", default: "60000", values: "ms", help: "Longest a single adb/simctl/xcrun command may run" },
     Setting { key: "secrets", env: "VELOCITY_SECRETS", default: "", values: "VAR,VAR,…", help: "Extra variables whose values are masked in every report and log" },
-    Setting { key: "nl.model", env: "VELOCITY_NL_MODEL", default: "claude-opus-5-5", values: "model id", help: "Model that plans natural-language steps" },
+    Setting { key: "nl.model", env: "VELOCITY_NL_MODEL", default: "", values: "model id", help: "Model that plans natural-language steps (default: the provider's step model, claude-haiku-5-5 for Anthropic)" },
     Setting { key: "nl.effort", env: "VELOCITY_NL_EFFORT", default: "low", values: "low|medium|high", help: "Planner reasoning effort" },
     Setting { key: "nl.cache", env: "VELOCITY_NL_CACHE", default: "normal", values: "normal|read-only|frozen|prune", help: "How the natural-language plan cache is used" },
     Setting { key: "nl.traces", env: "VELOCITY_NL_TRACES", default: "1", values: "1|0", help: "Save planner traces for `velocity nl-eval`" },
