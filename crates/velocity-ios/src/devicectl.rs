@@ -13,6 +13,10 @@ use tracing::debug;
 use velocity_common::process::{output_with_timeout, LONG_TIMEOUT};
 use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform, Result, VelocityError};
 
+/// The word after `--` in a devicectl launch with arguments: devicectl
+/// hands the `--` to the app, and this is what Foundation pairs it with.
+const LAUNCH_ARGS_FILLER: &str = "velocity";
+
 pub struct Devicectl {
     xcrun: String,
     /// `list devices` timeouts: the first call in the process, then later
@@ -230,9 +234,13 @@ impl Devicectl {
         args.push(bundle_id);
         // Without `--`, devicectl reads `-server` as its own short options
         // (`-s -e -r ...`) and fails, or a `-j` argument as its
-        // `--json-output`.
+        // `--json-output`. But devicectl passes the `--` on to the app, where
+        // Foundation pairs it with the next word as a `-key value`: the
+        // first real argument was lost (iPhone 12, devicectl 477.30). The
+        // filler word takes that pairing instead, so every argument reaches
+        // the app and `UserDefaults`; the app also sees `-- velocity`.
         if !launch_args.is_empty() {
-            args.push("--");
+            args.extend(["--", LAUNCH_ARGS_FILLER]);
             args.extend(launch_args.iter().map(String::as_str));
         }
         self.run_json(udid, &args, Duration::from_secs(60), false)
@@ -520,7 +528,7 @@ mod tests {
         let launch = log.lines().last().unwrap();
         assert!(
             launch.contains("dev.velocity.demo --json-output ")
-                && launch.ends_with(" -- -server https://x y"),
+                && launch.ends_with(" -- velocity -server https://x y"),
             "launch arguments after `--`, past devicectl's own options: {launch}"
         );
         let _ = std::fs::remove_dir_all(&dir);

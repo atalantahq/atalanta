@@ -1466,13 +1466,13 @@ impl IosDriver {
         if wda.ensure_session(device_id, app_id).await? {
             return Ok(());
         }
-        // WDA's /wda/apps/launch only brings a running app to the front, and
-        // its arguments apply only to a cold start: stop it first so they
-        // arrive. (Not running is fine.)
-        if !argv.is_empty() {
-            if let Err(e) = wda.client().terminate_app(app_id).await {
-                debug!("terminating {app_id} before a launch with arguments: {e}");
-            }
+        // Always a cold start, as on simulators and Android: WDA's
+        // /wda/apps/launch only brings a running app to the front, so a test
+        // inherited the previous test's screen and its launch arguments
+        // never arrived (seen on an iPhone 12 with the echo app). Not
+        // running is fine.
+        if let Err(e) = wda.client().terminate_app(app_id).await {
+            debug!("terminating {app_id} before its launch: {e}");
         }
         match wda.client().launch_app(app_id).await {
             Ok(()) => Ok(()),
