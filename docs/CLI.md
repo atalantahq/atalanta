@@ -313,7 +313,7 @@ For coding agents that run shell commands, and for people at a terminal. Each co
 velocity snapshot                         # one line per element, each with a ref (@e7)
 velocity tap @e7                          # waits for the screen to settle, prints what changed
 velocity type @e3 "qa@example.com"        # or --secret NAME, or --stdin
-velocity assert "Welcome"                 # --not, --timeout 5s
+velocity assert "Welcome"                 # --not (must be absent), --timeout 5s (wait for it)
 velocity export --out velocity/flow.yaml  # the session as a test, with assertions
 ```
 

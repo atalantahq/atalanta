@@ -6,7 +6,7 @@ Read the code before trusting any doc. This file was checked against the code on
 
 ## Where things are
 
-- `velocity-cli/`: the binary. Commands are in `src/commands/*.rs`: init, doctor, run, validate, lint, schema, settings, shard-plan, device(s), inspect, baselines, heal, history, results, trace, repl, explore, verify-change, login, api, mcp, migrate, nl-eval, signing, daemon, version, and the agent commands (`agent.rs`: snapshot, tap, type, press, swipe, scroll, launch, stop, assert, wait, screenshot, export, session, skills).
+- `velocity-cli/`: the binary. Commands are in `src/commands/*.rs`: init, doctor, run, validate, lint, schema, settings, shard-plan, device(s), inspect, baselines, heal, history, results, trace, repl, explore, verify-change, gate, login, api, mcp, migrate, nl-eval, signing, daemon, version, and the agent commands (`agent.rs`: snapshot, tap, type, press, swipe, scroll, launch, stop, assert, wait, screenshot, export, session, skills).
 - `crates/velocity-common`: shared types (`Selector`, `Action`, `Element`, `Step`), the `PlatformDriver` trait, `VelocityError` with error kinds and exit codes, the settings table, resilience (retry and circuit breaker), redaction, and live events (`live_events`: with `VELOCITY_EVENTS_FILE` set, one JSON line per test and step start and end, plus explore's turns; the MCP tasks and the console read it).
 - `crates/velocity-core`:
   - parsing and checking: parser, validator, JSON Schema (`schema.rs`), the generated DSL reference (`reference.rs`);
@@ -30,7 +30,7 @@ Read the code before trusting any doc. This file was checked against the code on
 - `crates/velocity-migrate`: converts Maestro flows to Velocity.
 - `crates/velocity-api`: API testing, the `http` step. It sends a request, checks status, headers, JSONPath values (RFC 9535) and the body, and captures values as `${NAME}` for the test's later steps, UI steps included. A suite of only `http` steps runs with no device (`NoDeviceDriver`). The step types are in `velocity-common/src/http.rs`. [docs/DSL.md](docs/DSL.md#http-and-api-tests).
 - `probes/`: native code that cargo does not build: the Android tree server (Java), VelocityRunner (Swift XCUITest), and the in-app sync probes.
-- `tests/smoke/`: Settings-app smoke suites for Android and iOS. `examples/web-example/`: a web sample.
+- `tests/smoke/`: Settings-app smoke suites for Android and iOS, and a web page suite. `examples/web-example/`: a web sample.
 
 ## Rules worth knowing
 
