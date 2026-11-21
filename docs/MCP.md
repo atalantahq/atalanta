@@ -11,7 +11,7 @@ velocity mcp [-d <device>] [-p ios|android|web] [-c suite.yaml] [--profile core|
 - **Methods:** `initialize`, `server/discover`, `tools/list`, `tools/call`, `ping` and `notifications/*`.
 - **Protocol versions:** 2024-11-05, 2025-03-26, 2025-06-18 and 2025-11-25. The stateless 2026-07-28 revision is also accepted; its version comes from `_meta` (`io.modelcontextprotocol/protocolVersion`). Any other version gets error -32022.
 - **Device:** without `-d`, the server picks the first booted device.
-- **Device leases:** each tool call that drives the device holds the device's cross-process lease (`~/.velocity/leases`) for the call, so the server and a `velocity run` never drive one device at once. A device leased elsewhere is waited for up to 5 s, then the tool says who holds it. While a `run_task` runs on the device, the other device tools answer that it is busy.
+- **Device leases:** each tool call that drives the device holds the device's cross-process lease (`~/.velocity/leases`) for the call, so the server and a `velocity run` never drive one device at once. A device leased elsewhere is waited for up to 10 s (`VELOCITY_LEASE_WAIT_MS`), then the tool says who holds it. While a `run_task` runs on the device, the other device tools answer that it is busy.
 - **Suite:** `-c` loads a suite, which the flow and test tools need, and which gives `launch_app` and the exports their default app id.
 - **Profiles:** by default the server lists five tools, the **core** profile: `observe`, `act`, `run`, `artifacts` and `verify_change` ([Core tools](#core-tools)). The first four each stand for several full tools and run exactly what that tool would. `--profile full` lists the full tools instead (with `verify_change`). Every listed tool's definition is in the agent's context on every turn: the core profile's are about 3.4 KB (about 850 tokens), the full profile's about 20 KB (about 5,000). CI prints both (`core_profile_schema_budget`) and fails if the core profile passes 3.6 KB or 5 tools. Under the core profile a full tool's name gets an error naming the core call that does it.
 - **Read-only:** `--read-only` lists only the tools that don't change the device. Those are the ones marked read-only below; in the core profile, `observe` and `artifacts`.
@@ -121,7 +121,7 @@ The workflow the agent rules teach: explore a goal with `run_task`, review the Y
 The default profile. Each call expands into the full tool named in brackets and runs it the usual way: the device lease, refs, the session recording, the read-only check and redaction all apply.
 
 ### `observe`
-Read the device. `what`: `screen` (the default) [`snapshot`, with `mode: "delta"` for only the changes], `screenshot` [`screenshot`: a file path, or with `inline: true` the image, below 2,000 px], `element` [`get_element`, with `ref` or `selector`] or `devices` [`list_devices`]. Read-only.
+Read the device. `what`: `screen` (the default) [`snapshot`, with `mode: "delta"` for only the changes], `screenshot` [`screenshot`: a file path, or with `inline: true` the image, below 2,000 px], `element` [`get_element`, with `ref` or `selector`], `devices` [`list_devices`] or `a11y` [`audit_accessibility`]. Read-only.
 
 ### `act`
 Do one thing and get back what changed on screen. `action`: `tap` [`tap`], `type` [`type_text`, with `text` or `secret`], `swipe`, `scroll`, `press_key` (`key`), `launch` [`launch_app`, `app_id`], `stop` [`stop_app`], `wait` [`wait_for_element`], `assert_visible` or `assert_not_visible`; the target is a `ref` from `observe` or a `selector`. After an action that may change the screen, the server waits for the screen to settle (the device's signal on Android, else two equal reads 100 ms apart, at most 3 s), and the result has a second text block, `Screen now:` and a delta snapshot. The full tool's other arguments pass through: `clear_state` (launch), `until_visible` and `max_scrolls` (scroll), `timeout_ms` and `poll_interval_ms` (wait). A failure carries `structuredContent.error` with `retry` (`safe`, `observe_first` or `no`) and `delivered` ([Failures](#failures)).
@@ -169,7 +169,7 @@ List the elements on screen, optionally narrowed by `filter`, as `json` or `text
 Find one element by `selector`. Read-only.
 
 ### `assert_visible`
-Check that an element matching `selector` (or `ref`) is visible. Read-only.
+Check that an element matching `selector` (or `ref`) is visible, now or within `timeout_ms` (default 0: check now; max 30000). Read-only.
 
 ### `assert_not_visible`
 Check that no element matching `selector` (or `ref`) is visible, waiting up to `timeout_ms` (default 5000) for it to go, as a suite's `assertNotVisible` does. Read-only.
