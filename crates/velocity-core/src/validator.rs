@@ -642,7 +642,7 @@ fn validate_step(
                 )));
             }
         }
-        Action::RunFlow { flow_id } => {
+        Action::RunFlow { flow_id, .. } => {
             if !flow_ids.contains(flow_id.as_str()) {
                 return Err(VelocityError::UnknownFlowRef {
                     flow_id: flow_id.clone(),
@@ -1041,6 +1041,7 @@ mod tests {
                 steps: vec![
                     step(Action::RunFlow {
                         flow_id: "login".to_string(),
+                        env: Default::default(),
                     }),
                     step(Action::AssertVisible {
                         selector: Selector::Text("Welcome".to_string()),
@@ -1064,6 +1065,7 @@ mod tests {
                 depends_on: vec![],
                 steps: vec![step(Action::RunFlow {
                     flow_id: "nonexistent".to_string(),
+                    env: Default::default(),
                 })],
                 description: None,
                 verify: None,

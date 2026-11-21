@@ -737,8 +737,13 @@ pub enum Action {
     Wait {
         ms: u64,
     },
+    /// `flow_id` names a flow from `flows:`; `env` are parameters bound for
+    /// that call only (`runFlow: { flow: login, env: { USER: "qa" } }`).
+    /// The shorthand `runFlow: login` has an empty env.
     RunFlow {
         flow_id: String,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        env: BTreeMap<String, String>,
     },
     /// Tap at absolute screen coordinates (for WebView / non-accessible UI).
     TapXY {

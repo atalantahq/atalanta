@@ -1015,11 +1015,11 @@ where
         }
         "runFlow" => {
             let v: RunFlowDsl = map.next_value()?;
-            let flow_id = match v {
-                RunFlowDsl::Shorthand(id) => id,
-                RunFlowDsl::Full(fields) => run_flow_id(fields).map_err(de::Error::custom)?,
+            let (flow_id, env) = match v {
+                RunFlowDsl::Shorthand(id) => (id, BTreeMap::new()),
+                RunFlowDsl::Full(fields) => run_flow_env(fields).map_err(de::Error::custom)?,
             };
-            Ok(Action::RunFlow { flow_id })
+            Ok(Action::RunFlow { flow_id, env })
         }
         "tapXY" => {
             let v: TapXYDsl = map.next_value()?;
@@ -1485,7 +1485,7 @@ struct WaitDsl {
 }
 
 /// `runFlow` accepts both the string shorthand (`runFlow: login`) and the
-/// map form (`runFlow: { flowId: "login" }`).
+/// map form (`runFlow: { flow: login, env: { USER: "qa" } }`).
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum RunFlowDsl {
@@ -1493,18 +1493,44 @@ enum RunFlowDsl {
     Full(std::collections::BTreeMap<String, serde_yaml::Value>),
 }
 
-/// The flow a `runFlow: { flowId: … }` map names. Any other key is an
-/// error: `when:` (a Maestro condition) was dropped and the flow always ran
-/// (VEL-070), and a typo like `flowid` ran nothing.
-fn run_flow_id(
+/// The flow a `runFlow: { flow: …, env: { … } }` map names. `env` are
+/// parameters bound for that call only. Any other key is an error.
+fn run_flow_env(
     fields: std::collections::BTreeMap<String, serde_yaml::Value>,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<(String, std::collections::BTreeMap<String, String>), String> {
     let mut id = None;
+    let mut env = std::collections::BTreeMap::new();
     for (key, value) in fields {
         match key.as_str() {
             "flowId" | "flow" => match value {
                 serde_yaml::Value::String(v) => id = id.or(Some(v)),
                 other => return Err(format!("runFlow.{key} must be a flow name, got {other:?}")),
+            },
+            "env" => match value {
+                serde_yaml::Value::Mapping(m) => {
+                    for (k, v) in m {
+                        let name = match k {
+                            serde_yaml::Value::String(s) => s,
+                            other => {
+                                return Err(format!(
+                                    "runFlow.env key must be a string, got {other:?}"
+                                ))
+                            }
+                        };
+                        let val = match v {
+                            serde_yaml::Value::String(s) => s,
+                            serde_yaml::Value::Number(n) => n.to_string(),
+                            serde_yaml::Value::Bool(b) => b.to_string(),
+                            other => {
+                                return Err(format!(
+                                    "runFlow.env.{name} must be a string, got {other:?}"
+                                ))
+                            }
+                        };
+                        env.insert(name, val);
+                    }
+                }
+                other => return Err(format!("runFlow.env must be a map, got {other:?}")),
             },
             "when" => {
                 return Err(
@@ -1515,12 +1541,13 @@ fn run_flow_id(
             }
             other => {
                 return Err(format!(
-                    "runFlow: unknown field `{other}` (expected `flowId`)"
+                    "runFlow: unknown field `{other}` (expected `flow` or `env`)"
                 ))
             }
         }
     }
-    id.ok_or_else(|| "runFlow: missing `flowId`".to_string())
+    id.ok_or_else(|| "runFlow: missing `flow`".to_string())
+        .map(|id| (id, env))
 }
 
 #[derive(Deserialize)]
@@ -1631,7 +1658,10 @@ tests:
         let suite = parse_suite_from_str(yaml).expect("both runFlow forms must parse");
         for test in &suite.tests {
             match &test.steps[0].action {
-                Action::RunFlow { flow_id } => assert_eq!(flow_id, "login"),
+                Action::RunFlow { flow_id, env } => {
+                    assert_eq!(flow_id, "login");
+                    assert!(env.is_empty());
+                }
                 other => panic!("expected RunFlow, got {other:?}"),
             }
         }
@@ -1656,6 +1686,30 @@ tests:
             .to_string();
         assert!(err.contains("unknown field `flowid`"), "{err}");
         assert!(parse_suite_from_str(&suite("runFlow: { flow: login }")).is_ok());
+    }
+
+    #[test]
+    fn run_flow_map_form_carries_env() {
+        let yaml = r#"
+appId: com.test
+flows:
+  - id: login
+    steps:
+      - tap: { id: "btn" }
+tests:
+  - name: t
+    steps:
+      - runFlow: { flow: login, env: { USER: qa@example.com, PIN: "1234" } }
+"#;
+        let suite = parse_suite_from_str(yaml).unwrap();
+        match &suite.tests[0].steps[0].action {
+            Action::RunFlow { flow_id, env } => {
+                assert_eq!(flow_id, "login");
+                assert_eq!(env.get("USER"), Some(&"qa@example.com".to_string()));
+                assert_eq!(env.get("PIN"), Some(&"1234".to_string()));
+            }
+            other => panic!("expected RunFlow, got {:?}", other),
+        }
     }
 
     #[test]
@@ -1852,8 +1906,9 @@ tests:
         let suite = parse_suite_from_str(yaml).unwrap();
         assert_eq!(suite.flows.len(), 1);
         match &suite.tests[0].steps[0].action {
-            Action::RunFlow { flow_id } => {
+            Action::RunFlow { flow_id, env } => {
                 assert_eq!(flow_id, "login");
+                assert!(env.is_empty());
             }
             other => panic!("expected RunFlow, got {:?}", other),
         }
