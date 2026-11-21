@@ -177,6 +177,46 @@ fn interrupt_run() {
 /// Smallest watchdog deadline for a step (tiny in tests so hangs are quick).
 #[cfg(not(test))]
 const STEP_DEADLINE_FLOOR_MS: u64 = 30_000;
+
+/// A tap the driver refused because a bar at the bottom of the screen (a
+/// toolbar or tab bar) covers the target.
+fn under_bottom_bar(e: &VelocityError) -> bool {
+    matches!(e, VelocityError::AssertionFailed { actual, .. }
+        if actual.starts_with("covered by the toolbar")
+            || actual.starts_with("covered by the tab bar"))
+}
+
+/// The innermost scrolling container (a table, collection or scroll view)
+/// that holds `element`'s centre.
+fn scroll_container_of<'t>(tree: &'t Element, element: &Element) -> Option<&'t Element> {
+    let (cx, cy) = element.bounds.center();
+    let holds = |n: &Element| {
+        let b = n.bounds;
+        cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height
+    };
+    let scrolls = |n: &Element| {
+        matches!(
+            n.element_type.as_str(),
+            "Table"
+                | "CollectionView"
+                | "ScrollView"
+                | "XCUIElementTypeTable"
+                | "XCUIElementTypeCollectionView"
+                | "XCUIElementTypeScrollView"
+        )
+    };
+    // The deepest one: walk everything (a container's own frame may not
+    // hold its children's, e.g. a root reported with a zero frame).
+    let mut found: Option<(usize, &Element)> = None;
+    let mut stack = vec![(tree, 0usize)];
+    while let Some((n, depth)) = stack.pop() {
+        if scrolls(n) && holds(n) && found.is_none_or(|(d, _)| depth >= d) {
+            found = Some((depth, n));
+        }
+        stack.extend(n.children.iter().map(|c| (c, depth + 1)));
+    }
+    found.map(|(_, n)| n)
+}
 #[cfg(test)]
 const STEP_DEADLINE_FLOOR_MS: u64 = 300;
 const WAIT_UNTIL_ATTEMPTS: u32 = 4;
@@ -3687,6 +3727,32 @@ impl<'a> TestExecutor<'a> {
         Duration::from_millis(ms)
     }
 
+    /// Scroll the list holding `element` up by about two rows, slowly (a
+    /// drag from the middle of the list, never from the bar, and no fling),
+    /// so a row a bottom bar covers comes out from under it. False when the
+    /// element isn't in a scrolling container (nothing to scroll: a map or a
+    /// canvas would pan instead) or the drag failed.
+    async fn nudge_into_view(&mut self, device_id: &str, element: &Element) -> bool {
+        let Ok(tree) = self.driver.get_hierarchy_cached(device_id).await else {
+            return false;
+        };
+        let Some(list) = scroll_container_of(&tree, element) else {
+            return false;
+        };
+        let b = list.bounds;
+        let x = element.bounds.center().0;
+        let from_y = b.y + b.height * 45 / 100;
+        let shift = (element.bounds.height * 2 + 80).min(b.height / 3);
+        let moved = self
+            .driver
+            .drag(device_id, (x, from_y), (x, from_y - shift), 0, 600)
+            .await
+            .is_ok();
+        self.selector_engine.invalidate_cache();
+        self.driver.invalidate_hierarchy_cache().await;
+        moved
+    }
+
     /// How long element waits and assertions may take: the step's
     /// `timeoutMs`, else the sync timeout.
     fn element_timeout_ms(&self) -> u64 {
@@ -3843,7 +3909,19 @@ impl<'a> TestExecutor<'a> {
             Action::Tap { selector } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
-                self.driver.tap(device_id, &element).await
+                match self.driver.tap(device_id, &element).await {
+                    // A row under a floating bottom bar (iOS 26 Settings'
+                    // search bar) was refused with "scroll it into view
+                    // first": scroll its list once, slowly, and tap again.
+                    Err(e) if under_bottom_bar(&e) => {
+                        if !self.nudge_into_view(device_id, &element).await {
+                            return Err(e);
+                        }
+                        let element = self.find_actionable(device_id, selector, timeout).await?;
+                        self.driver.tap(device_id, &element).await
+                    }
+                    other => other,
+                }
             }
             Action::DoubleTap { selector } => {
                 let timeout = self.element_timeout_ms();

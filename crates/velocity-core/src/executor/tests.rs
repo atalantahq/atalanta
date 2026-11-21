@@ -199,6 +199,9 @@ fn take_one(a: &AtomicUsize) -> bool {
     false
 }
 
+/// A `drag`'s (from, to).
+type DragLine = ((i32, i32), (i32, i32));
+
 struct ScriptDriver {
     /// Capture video and logs: the notes its logs report.
     evidence: Option<Vec<String>>,
@@ -260,6 +263,10 @@ struct ScriptDriver {
     find_alls: AtomicUsize,
     /// Count on-screen matches in `find_element`, as the real drivers do.
     counts: bool,
+    /// Taps left that the driver refuses as covered by a bottom toolbar.
+    barred_taps: AtomicUsize,
+    /// Every `drag` (from, to).
+    drags: Mutex<Vec<DragLine>>,
     match_counts: velocity_common::selector_match::MatchCounts,
     /// Model Android's full-tree lookup cache: `find_element` and
     /// `get_hierarchy_cached` resolve against the cached tree (filled
@@ -298,6 +305,8 @@ impl ScriptDriver {
             finds: AtomicUsize::new(0),
             dumps: AtomicUsize::new(0),
             taps: Mutex::new(Vec::new()),
+            barred_taps: AtomicUsize::new(0),
+            drags: Mutex::new(Vec::new()),
             tap_ys: Mutex::new(Vec::new()),
             tap_modes: Mutex::new(Vec::new()),
             navigates: Default::default(),
@@ -559,6 +568,18 @@ impl PlatformDriver for ScriptDriver {
         ))
     }
     async fn tap(&self, _: &str, el: &Element) -> Result<()> {
+        if self
+            .barred_taps
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(VelocityError::AssertionFailed {
+                expected: "reachable".into(),
+                actual: "covered by the toolbar; scroll it into view first".into(),
+                selector: el.platform_id.clone(),
+                screenshot: None,
+            });
+        }
         if self.refuse_disabled && !el.enabled {
             return Err(VelocityError::NotActionable {
                 selector: el.platform_id.clone(),
@@ -574,6 +595,10 @@ impl PlatformDriver for ScriptDriver {
             .lock()
             .unwrap()
             .push(velocity_common::actionability::mode());
+        Ok(())
+    }
+    async fn drag(&self, _: &str, from: (i32, i32), to: (i32, i32), _: u64, _: u64) -> Result<()> {
+        self.drags.lock().unwrap().push((from, to));
         Ok(())
     }
     async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
@@ -714,6 +739,54 @@ fn tap(text: &str) -> Action {
     Action::Tap {
         selector: Selector::Text(text.into()),
     }
+}
+
+/// iPhone 12, 2026-11-21: a Settings row under iOS 26's floating search
+/// bar was refused ("covered by the toolbar; scroll it into view first")
+/// and the step failed. Now its list is dragged up once and the tap runs
+/// again; outside a scrolling list nothing is dragged.
+#[tokio::test]
+async fn a_tap_under_a_bottom_bar_scrolls_its_list_once_and_taps_again() {
+    let row = node("general", "General", 786);
+    let list = Element {
+        element_type: "Table".into(),
+        text: None,
+        bounds: Rect {
+            x: 0,
+            y: 0,
+            width: 390,
+            height: 844,
+        },
+        children: vec![row.clone()],
+        ..node("list", "", 0)
+    };
+    let driver = ScriptDriver::new(vec![list]);
+    driver.barred_taps.store(1, Ordering::SeqCst);
+    let mut ex = TestExecutor::new(&driver, config(1000), "app");
+    let r = ex
+        .execute_step(&step(tap("General")), "d", "app", 0)
+        .await
+        .unwrap();
+    assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
+    let drags = driver.drags.lock().unwrap().clone();
+    assert_eq!(drags.len(), 1, "{drags:?}");
+    let ((_, from_y), (_, to_y)) = drags[0];
+    assert!(
+        from_y < 786 && to_y < from_y,
+        "drags up from above the bar: {drags:?}"
+    );
+    assert_eq!(*driver.taps.lock().unwrap(), ["General"]);
+
+    // Not in a scrolling list: refused as before, nothing dragged.
+    let driver = ScriptDriver::new(vec![node("general", "General", 786)]);
+    driver.barred_taps.store(1, Ordering::SeqCst);
+    let mut ex = TestExecutor::new(&driver, config(1000), "app");
+    let r = ex
+        .execute_step(&step(tap("General")), "d", "app", 0)
+        .await
+        .unwrap();
+    assert_eq!(r.status, StepStatus::Failed);
+    assert!(driver.drags.lock().unwrap().is_empty());
 }
 
 /// AUT-024: a launchApp's arguments reach the driver unchanged.
