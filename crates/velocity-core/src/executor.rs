@@ -178,45 +178,6 @@ fn interrupt_run() {
 #[cfg(not(test))]
 const STEP_DEADLINE_FLOOR_MS: u64 = 30_000;
 
-/// A tap the driver refused because a bar at the bottom of the screen (a
-/// toolbar or tab bar) covers the target.
-fn under_bottom_bar(e: &VelocityError) -> bool {
-    matches!(e, VelocityError::AssertionFailed { actual, .. }
-        if actual.starts_with("covered by the toolbar")
-            || actual.starts_with("covered by the tab bar"))
-}
-
-/// The innermost scrolling container (a table, collection or scroll view)
-/// that holds `element`'s centre.
-fn scroll_container_of<'t>(tree: &'t Element, element: &Element) -> Option<&'t Element> {
-    let (cx, cy) = element.bounds.center();
-    let holds = |n: &Element| {
-        let b = n.bounds;
-        cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height
-    };
-    let scrolls = |n: &Element| {
-        matches!(
-            n.element_type.as_str(),
-            "Table"
-                | "CollectionView"
-                | "ScrollView"
-                | "XCUIElementTypeTable"
-                | "XCUIElementTypeCollectionView"
-                | "XCUIElementTypeScrollView"
-        )
-    };
-    // The deepest one: walk everything (a container's own frame may not
-    // hold its children's, e.g. a root reported with a zero frame).
-    let mut found: Option<(usize, &Element)> = None;
-    let mut stack = vec![(tree, 0usize)];
-    while let Some((n, depth)) = stack.pop() {
-        if scrolls(n) && holds(n) && found.is_none_or(|(d, _)| depth >= d) {
-            found = Some((depth, n));
-        }
-        stack.extend(n.children.iter().map(|c| (c, depth + 1)));
-    }
-    found.map(|(_, n)| n)
-}
 #[cfg(test)]
 const STEP_DEADLINE_FLOOR_MS: u64 = 300;
 const WAIT_UNTIL_ATTEMPTS: u32 = 4;
@@ -4739,6 +4700,46 @@ async fn write_artifact(path: &std::path::Path, data: Vec<u8>) -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// A tap the driver refused because a bar at the bottom of the screen (a
+/// toolbar or tab bar) covers the target.
+fn under_bottom_bar(e: &VelocityError) -> bool {
+    matches!(e, VelocityError::AssertionFailed { actual, .. }
+        if actual.starts_with("covered by the toolbar")
+            || actual.starts_with("covered by the tab bar"))
+}
+
+/// The innermost scrolling container (a table, collection or scroll view)
+/// that holds `element`'s centre.
+fn scroll_container_of<'t>(tree: &'t Element, element: &Element) -> Option<&'t Element> {
+    let (cx, cy) = element.bounds.center();
+    let holds = |n: &Element| {
+        let b = n.bounds;
+        cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height
+    };
+    let scrolls = |n: &Element| {
+        matches!(
+            n.element_type.as_str(),
+            "Table"
+                | "CollectionView"
+                | "ScrollView"
+                | "XCUIElementTypeTable"
+                | "XCUIElementTypeCollectionView"
+                | "XCUIElementTypeScrollView"
+        )
+    };
+    // The deepest one: walk everything (a container's own frame may not
+    // hold its children's, e.g. a root reported with a zero frame).
+    let mut found: Option<(usize, &Element)> = None;
+    let mut stack = vec![(tree, 0usize)];
+    while let Some((n, depth)) = stack.pop() {
+        if scrolls(n) && holds(n) && found.is_none_or(|(d, _)| depth >= d) {
+            found = Some((depth, n));
+        }
+        stack.extend(n.children.iter().map(|c| (c, depth + 1)));
+    }
+    found.map(|(_, n)| n)
 }
 
 fn action_name(action: &Action) -> String {
