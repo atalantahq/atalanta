@@ -1487,8 +1487,12 @@ impl<'a> TestExecutor<'a> {
                 // An app that crashed fails a later step with "not found" or a
                 // wrong value: say what happened instead (VelocityLab's crash
                 // button was reported as `home_title` not found after 10 s).
+                // A configuration error is the suite's, never a crash's.
                 let e = if is_infrastructure(&e)
-                    || matches!(e, VelocityError::AppCrashed { .. })
+                    || matches!(
+                        e,
+                        VelocityError::AppCrashed { .. } | VelocityError::Config(_)
+                    )
                     || matches!(step.action, Action::Http(_) | Action::Exec(_))
                 {
                     e
