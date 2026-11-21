@@ -1503,7 +1503,12 @@ fn run_flow_env(
     for (key, value) in fields {
         match key.as_str() {
             "flowId" | "flow" => match value {
-                serde_yaml::Value::String(v) => id = id.or(Some(v)),
+                serde_yaml::Value::String(v) => {
+                    if id.is_some() {
+                        return Err("runFlow: give flow or flowId, not both".into());
+                    }
+                    id = Some(v);
+                }
                 other => return Err(format!("runFlow.{key} must be a flow name, got {other:?}")),
             },
             "env" => match value {
@@ -1519,7 +1524,15 @@ fn run_flow_env(
                         };
                         let val = match v {
                             serde_yaml::Value::String(s) => s,
-                            serde_yaml::Value::Number(n) => n.to_string(),
+                            serde_yaml::Value::Number(n) if n.is_i64() || n.is_u64() => {
+                                n.to_string()
+                            }
+                            serde_yaml::Value::Number(n) => {
+                                return Err(format!(
+                                    "runFlow env {name}: write {n} in quotes (\"{n}\") so it is \
+                                     typed exactly as written"
+                                ))
+                            }
                             serde_yaml::Value::Bool(b) => b.to_string(),
                             other => {
                                 return Err(format!(
@@ -1686,6 +1699,37 @@ tests:
             .to_string();
         assert!(err.contains("unknown field `flowid`"), "{err}");
         assert!(parse_suite_from_str(&suite("runFlow: { flow: login }")).is_ok());
+    }
+
+    #[test]
+    fn run_flow_env_refuses_a_non_integer_number_and_both_flow_keys() {
+        let suite = |step: &str| {
+            format!(
+                "appId: a\nflows:\n  - id: login\n    steps:\n      - tap: {{ id: b }}\ntests:\n  - name: t\n    steps:\n      - {step}\n"
+            )
+        };
+        let err = parse_suite_from_str(&suite("runFlow: { flow: login, env: { AMOUNT: 1.50 } }"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("AMOUNT") && err.contains("in quotes"), "{err}");
+        let ok = parse_suite_from_str(&suite(
+            "runFlow: { flow: login, env: { A: \"1.50\", N: 42, B: true, PIN: 0042 } }",
+        ))
+        .unwrap();
+        match &ok.tests[0].steps[0].action {
+            Action::RunFlow { env, .. } => {
+                assert_eq!(env["A"], "1.50");
+                assert_eq!(env["N"], "42");
+                assert_eq!(env["B"], "true");
+                // serde_yaml reads a leading-zero scalar as a string, so it survives.
+                assert_eq!(env["PIN"], "0042");
+            }
+            other => panic!("expected RunFlow, got {other:?}"),
+        }
+        let err = parse_suite_from_str(&suite("runFlow: { flow: login, flowId: login }"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("give flow or flowId, not both"), "{err}");
     }
 
     #[test]

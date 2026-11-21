@@ -357,6 +357,34 @@ fn step_lines(content: &str) -> Vec<usize> {
         .collect()
 }
 
+/// `launchApp.arguments` without the names Velocity rejects (a leading `-`,
+/// characters outside `[A-Za-z0-9_.-]`): each one is dropped with a warning,
+/// so the rest of the file still converts.
+fn launch_arguments(args: Value, line: usize, ctx: &mut Ctx) -> Value {
+    let Value::Mapping(m) = args else {
+        return args;
+    };
+    let mut kept = Mapping::new();
+    for (k, v) in m {
+        let invalid = match &k {
+            Value::String(name) => velocity_common::validate_launch_arg_name(name).err(),
+            _ => None,
+        };
+        match invalid {
+            Some(why) => ctx.issues.push(issue(
+                line,
+                Severity::Warning,
+                "launchApp",
+                &format!("launchApp argument dropped: {why}"),
+            )),
+            None => {
+                kept.insert(k, v);
+            }
+        }
+    }
+    Value::Mapping(kept)
+}
+
 fn issue(line: usize, severity: Severity, construct: &str, message: &str) -> MigrationIssue {
     MigrationIssue {
         line,
@@ -897,7 +925,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                         pairs.push(("clearState", c));
                     }
                     if let Some(a) = get("arguments") {
-                        pairs.push(("arguments", a));
+                        pairs.push(("arguments", launch_arguments(a, line, ctx)));
                     }
                     warn_unused(
                         arg,
@@ -2432,6 +2460,25 @@ mod tests {
             "{:?}",
             result.issues
         );
+    }
+
+    #[test]
+    fn a_launch_argument_velocity_rejects_is_dropped_with_a_warning() {
+        let (result, suite) = migrate(
+            "badarg",
+            &[(
+                "flow.yaml",
+                "appId: com.shop\n---\n- launchApp:\n    arguments:\n      isE2E: true\n      \"-FIRDebugEnabled\": true\n- tapOn: \"Go\"\n",
+            )],
+        );
+        assert!(result.success, "{:?}", result.issues);
+        let velocity_common::Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action
+        else {
+            panic!("expected LaunchApp");
+        };
+        assert_eq!(arguments.inner.len(), 1, "{arguments:?}");
+        assert!(arguments.inner.contains_key("isE2E"), "{arguments:?}");
+        assert!(warned(&result, "-FIRDebugEnabled"), "{:?}", result.issues);
     }
 
     #[test]

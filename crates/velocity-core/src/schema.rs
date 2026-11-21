@@ -227,8 +227,8 @@ fn action_arg(action: &str) -> Value {
                     "flow": { "type": "string" },
                     "env": {
                         "type": "object",
-                        "description": "Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value",
-                        "additionalProperties": { "type": ["string", "number", "boolean"] }
+                        "description": "Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value. Values are strings, integers or booleans; quote a decimal such as \"1.50\" so it is typed exactly as written",
+                        "additionalProperties": { "type": ["string", "integer", "boolean"] }
                     }
                 },
                 "additionalProperties": false,
