@@ -1,0 +1,13 @@
+# Seeded-failure suite ios-12: expected to fail. Keep out of normal runs and CI globs.
+appId: com.apple.mobiletimer
+
+config:
+  platform: ios
+
+tests:
+  - name: seed_ios_12
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          clearState: false
+      - assertVisible: { text: "General" }

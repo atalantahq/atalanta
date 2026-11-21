@@ -1,0 +1,15 @@
+# Seeded-failure suite android-04: expected to fail. Keep out of normal runs and CI globs.
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: seed_android_04
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "Network" }
+      - tap: { text: "Airplane mode" }

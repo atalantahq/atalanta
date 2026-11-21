@@ -1,0 +1,15 @@
+# Seeded-failure suite ios-05: expected to fail. Keep out of normal runs and CI globs.
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+
+tests:
+  - name: seed_ios_05
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.apple.Preferences
+          clearState: false
+      - tap: { text: "General" }
+      - assertVisible: { textContains: "iOS Version" }
