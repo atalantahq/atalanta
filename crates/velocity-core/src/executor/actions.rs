@@ -1,5 +1,7 @@
 //! Running one action on the driver, and the exec and http steps.
 
+use super::lookup::{aim_at, under_bottom_bar, ACTED_ANYWAY};
+use super::screenshot::ScreenshotStep;
 use super::*;
 
 impl<'a> TestExecutor<'a> {

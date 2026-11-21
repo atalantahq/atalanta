@@ -1,5 +1,6 @@
 //! Finding elements: smart lookup, healing, actionability, ambiguity, scroll areas.
 
+use super::actions::to_i32;
 use super::*;
 
 impl<'a> TestExecutor<'a> {
