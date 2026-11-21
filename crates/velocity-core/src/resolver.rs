@@ -4,31 +4,36 @@ use velocity_common::{Action, Flow, Result, Step, TestCase, TestSuite, VelocityE
 
 pub fn resolve_flows(suite: &TestSuite) -> Result<Vec<TestCase>> {
     let flow_map: HashMap<&str, &Flow> = suite.flows.iter().map(|f| (f.id.as_str(), f)).collect();
-    let names = crate::env::flow_param_names(suite);
+    // Filled while inlining: every parameter name, from the call, else
+    // the environment (`flow_env`); a name an `http` step captures is left
+    // for the run unless the call passes it.
+    let mut names = crate::env::flow_param_names(suite);
+    names.extend(suite.config.flow_env.keys().cloned());
+    names.retain(|n| !suite.config.captured_vars.contains(n));
+    let params = Params {
+        values: suite.config.flow_env.clone(),
+        names,
+    };
 
     suite
         .tests
         .iter()
-        .map(|test| resolve_test_case(test, &flow_map, &names))
+        .map(|test| resolve_test_case(test, &flow_map, &params))
         .collect()
 }
 
 fn resolve_test_case(
     test: &TestCase,
     flow_map: &HashMap<&str, &Flow>,
-    names: &std::collections::BTreeSet<String>,
+    params: &Params,
 ) -> Result<TestCase> {
-    let params = Params {
-        values: HashMap::new(),
-        names: names.clone(),
-    };
     let resolved_steps = resolve_steps(
         &test.steps,
         flow_map,
         &test.name,
         &mut Vec::new(),
         &mut 0,
-        &params,
+        params,
     )?;
     Ok(TestCase {
         name: test.name.clone(),
@@ -62,9 +67,10 @@ fn missing_params(step: &Step, params: &Params) -> String {
 }
 
 /// The `runFlow: { env }` parameters in force while a flow's steps are
-/// inlined: this call's, on top of its caller's, and every parameter name
-/// the suite uses (a flow step naming one this call didn't pass is an error,
-/// never a literal `${NAME}` typed into the app).
+/// inlined: this call's, on top of its caller's, on top of the
+/// environment's; and every parameter name the suite uses (a flow step
+/// naming one with no value anywhere is an error, never a literal `${NAME}`
+/// typed into the app).
 #[derive(Default)]
 struct Params {
     values: HashMap<String, String>,
@@ -138,6 +144,7 @@ fn resolve_steps<'a>(
                         velocity_common::redact::register_secret(value);
                     }
                     call.values.insert(name.clone(), value.clone());
+                    call.names.insert(name.clone());
                 }
                 stack.push(&flow.id);
                 let mut inner =
@@ -602,16 +609,16 @@ appId: com.example
 flows:
   - id: login
     steps:
-      - inputText: { selector: { id: user }, text: "${USER}" }
+      - inputText: { selector: { id: user }, text: "${VEL_TEST_USER}" }
       - runFlow: greet
   - id: greet
     steps:
-      - inputText: { selector: { id: hi }, text: "hello ${USER}" }
+      - inputText: { selector: { id: hi }, text: "hello ${VEL_TEST_USER}" }
 "#;
 
     const WRAP: &str = r#"  - id: wrap
     steps:
-      - runFlow: { flow: login, env: { USER: "inner-${OUTER}" } }
+      - runFlow: { flow: login, env: { VEL_TEST_USER: "inner-${OUTER}" } }
 "#;
 
     #[test]
@@ -620,13 +627,13 @@ flows:
             "{FLOWS}tests:
   - name: t
     steps:
-      - runFlow: {{ flow: login, env: {{ USER: qa@example.com }} }}
-      - runFlow: {{ flow: login, env: {{ USER: 42 }} }}
-      - inputText: {{ selector: {{ id: x }}, text: \"${{USER}}\" }}
+      - runFlow: {{ flow: login, env: {{ VEL_TEST_USER: qa@example.com }} }}
+      - runFlow: {{ flow: login, env: {{ VEL_TEST_USER: 42 }} }}
+      - inputText: {{ selector: {{ id: x }}, text: \"${{VEL_TEST_USER}}\" }}
 "
         );
-        // The test's own ${{USER}} still comes from the environment.
-        let tests = resolved(&yaml, &[("USER", "from-env")]).unwrap();
+        // The test's own ${{VEL_TEST_USER}} still comes from the environment.
+        let tests = resolved(&yaml, &[("VEL_TEST_USER", "from-env")]).unwrap();
         assert_eq!(
             typed(&tests[0].steps),
             [
@@ -664,9 +671,79 @@ flows:
         );
         let e = resolved(&yaml, &[]).unwrap_err().to_string();
         assert!(
-            e.contains("flow 'greet'") && e.contains("${USER}") && e.contains("env"),
+            e.contains("flow 'greet'") && e.contains("${VEL_TEST_USER}") && e.contains("env"),
             "{e}"
         );
+    }
+
+    /// A call that doesn't pass a parameter gets the environment's value,
+    /// as any `${NAME}` would; it is an error only with no value anywhere.
+    #[test]
+    fn a_parameter_the_call_does_not_pass_comes_from_the_environment() {
+        let yaml = format!(
+            "{FLOWS}tests:
+  - name: a
+    steps:
+      - runFlow: {{ flow: login, env: {{ VEL_TEST_USER: qa }} }}
+  - name: b
+    steps:
+      - runFlow: greet
+"
+        );
+        let tests = resolved(&yaml, &[("VEL_TEST_USER", "from-env")]).unwrap();
+        assert_eq!(typed(&tests[0].steps), ["qa", "hello qa"]);
+        assert_eq!(typed(&tests[1].steps), ["hello from-env"]);
+    }
+
+    /// The names in a parameter's default are filled from the environment
+    /// too (`${P:-${ENV}}` typed `${ENV}` literally).
+    #[test]
+    fn a_parameter_default_reads_the_environment() {
+        let yaml = r#"
+appId: com.example
+flows:
+  - id: f
+    steps:
+      - inputText: { selector: { id: a }, text: "${VEL_TEST_P:-${VEL_TEST_DEFAULT}}" }
+tests:
+  - name: passes
+    steps:
+      - runFlow: { flow: f, env: { VEL_TEST_P: given } }
+  - name: falls_back
+    steps:
+      - runFlow: f
+"#;
+        let tests = resolved(yaml, &[("VEL_TEST_DEFAULT", "guest")]).unwrap();
+        assert_eq!(typed(&tests[0].steps), ["given"]);
+        assert_eq!(typed(&tests[1].steps), ["guest"]);
+    }
+
+    /// A name one call passes and another flow captures with `http`: the
+    /// capturing flow keeps its `${TOKEN}` for the run (the whole suite
+    /// failed to load).
+    #[test]
+    fn a_captured_name_is_not_a_missing_parameter() {
+        let yaml = r#"
+appId: com.example
+flows:
+  - id: login
+    steps:
+      - http: { method: POST, url: "https://example.test/login", capture: { VEL_TEST_TOKEN: "$.token" } }
+      - inputText: { selector: { id: t }, text: "${VEL_TEST_TOKEN}" }
+  - id: profile
+    steps:
+      - inputText: { selector: { id: p }, text: "${VEL_TEST_TOKEN}" }
+tests:
+  - name: a
+    steps:
+      - runFlow: { flow: profile, env: { VEL_TEST_TOKEN: given } }
+  - name: b
+    steps:
+      - runFlow: login
+"#;
+        let tests = resolved(yaml, &[]).unwrap();
+        assert_eq!(typed(&tests[0].steps), ["given"]);
+        assert_eq!(typed(&tests[1].steps), ["${VEL_TEST_TOKEN}"]);
     }
 
     #[test]
@@ -692,7 +769,7 @@ tests:
             "{FLOWS}tests:
   - name: t
     steps:
-      - runFlow: {{ flow: login, env: {{ USER: a, LOGIN_PASSWORD: s3cr3t-param-value }} }}
+      - runFlow: {{ flow: login, env: {{ VEL_TEST_USER: a, LOGIN_PASSWORD: s3cr3t-param-value }} }}
 "
         );
         resolved(&yaml, &[]).unwrap();

@@ -158,8 +158,10 @@ tests:
 ```
 
 Parameters are filled in when the suite loads, so each of the flow's steps is still its own step in reports and traces,
-with its own timeout. A flow that uses a parameter its call doesn't pass is an error then, not a literal `${NAME}` typed
-into the app. A parameter with a secret-like name (`PASSWORD`, `TOKEN`, …) is masked in reports like any secret.
+with its own timeout. A parameter the call doesn't pass comes from the environment, as any `${NAME}` does; with no value
+there either, it is an error then, not a literal `${NAME}` typed into the app. A name an `http` step captures is left for
+the run unless the call passes it. A parameter with a secret-like name (`PASSWORD`, `TOKEN`, …) is masked in reports
+like any secret. MCP's `run_flow` takes the same parameters as `env`.
 
 ## Natural-language steps
 

@@ -894,14 +894,6 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
     let (mut suite, test_positions) =
         load_suite(&args.config, &args.set, &runtime_config.env_overrides)?;
     super::validate::print_suite_warnings(&suite, &args.config);
-    // GitHub masks the run's secrets in its own log too, and in later
-    // steps' (the step summary, an upload step printing a path).
-    if velocity_runner::reporter::github::in_github_actions() {
-        velocity_runner::reporter::github::mask_secrets();
-    }
-    // App text printed during the run can't execute workflow commands;
-    // the github report (or this guard's drop) resumes them (R-3).
-    let _commands = velocity_runner::reporter::github::suspend_commands();
 
     let artifacts_dir = apply_output_flags(&args, &mut suite, &mut runtime_config);
     merge_shared_history(&args.history_from, &artifacts_dir)?;
@@ -910,6 +902,15 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
 
     // Resolve flows (inline runFlow steps)
     suite.tests = resolve_flows(&suite)?;
+    // GitHub masks the run's secrets in its own log too, and in later
+    // steps' (the step summary, an upload step printing a path). After the
+    // flows: a secret-named runFlow parameter is registered as they inline.
+    if velocity_runner::reporter::github::in_github_actions() {
+        velocity_runner::reporter::github::mask_secrets();
+    }
+    // App text printed during the run can't execute workflow commands;
+    // the github report (or this guard's drop) resumes them (R-3).
+    let _commands = velocity_runner::reporter::github::suspend_commands();
     if let Err(e) = check_selection(&suite.tests, &args.tags, args.filter.as_deref()) {
         if !args.folder_member {
             return Err(e);
