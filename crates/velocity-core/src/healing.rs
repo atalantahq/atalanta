@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use velocity_common::{Element, Platform, PlatformDriver, Rect, Result, Selector, VelocityError};
 
 /// Configuration for self-healing selectors.
@@ -575,6 +575,17 @@ impl SelectorHealer {
         // Only a selector that then singles out this element is a heal; an
         // `index:` or relation the winner doesn't satisfy is not dropped.
         let (healed, element) = match substitute(selector, &best.element, platform) {
+            // The selector already names this element: it wasn't missing but
+            // hidden or not actionable (an iPhone 12, 2026-11-21: `id="Edit"`
+            // behind a sheet "healed" to `id="Edit"`, and the step waited
+            // its timeout again under it). Nothing to heal.
+            Some(healed) if healed.to_string() == selector.to_string() => {
+                debug!(
+                    selector = %selector_str,
+                    "self-healing: the match is the selector's own element; not healing"
+                );
+                return None;
+            }
             Some(healed) => match singles_out(hierarchy, &healed, &best.element, screen) {
                 Some(found) => (healed, found),
                 None => {
@@ -1934,6 +1945,16 @@ mod tests {
         healer
             .heal_in(selector, after)
             .map(|(el, ..)| el.platform_id)
+    }
+
+    /// iPhone 12, 2026-11-21: a target hidden behind a sheet "healed" to
+    /// its own selector. A heal must change the selector.
+    #[test]
+    fn a_selector_that_already_names_the_match_is_not_healed() {
+        let sel = Selector::Id("com.app:id/sign_in".into());
+        let healer = trained(&sel, None);
+        let screen = login_screen(Some(sign_in_button()));
+        assert_eq!(healed_id(&healer, &sel, &screen), None);
     }
 
     #[test]
