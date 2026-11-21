@@ -179,7 +179,7 @@ pub fn flows_used_in(tests: &[TestCase], flows: &[Flow]) -> HashMap<String, Hash
     let by_id: HashMap<&str, &Flow> = flows.iter().map(|f| (f.id.as_str(), f)).collect();
     fn walk(steps: &[Step], by_id: &HashMap<&str, &Flow>, out: &mut HashSet<String>) {
         for s in steps {
-            if let Action::RunFlow { flow_id } = &s.action {
+            if let Action::RunFlow { flow_id, .. } = &s.action {
                 // `insert` is the cycle guard: a flow is expanded once.
                 if out.insert(flow_id.clone()) {
                     if let Some(flow) = by_id.get(flow_id.as_str()) {
@@ -236,7 +236,10 @@ mod tests {
             steps: flow
                 .map(|f| {
                     vec![Step {
-                        action: Action::RunFlow { flow_id: f.into() },
+                        action: Action::RunFlow {
+                            flow_id: f.into(),
+                            env: Default::default(),
+                        },
                         timeout_ms: None,
                         settle: None,
                         source: None,

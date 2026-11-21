@@ -4306,6 +4306,7 @@ async fn an_optional_flow_stops_at_its_first_failure_and_the_test_goes_on() {
     // "Continue" must not then run against the real screen.
     let mut run = step(Action::RunFlow {
         flow_id: "onboarding".into(),
+        env: Default::default(),
     });
     run.modifiers.optional = true;
     let suite = velocity_common::TestSuite {
