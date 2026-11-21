@@ -1,0 +1,19 @@
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+
+tests:
+  - name: holdout_ios_02
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.apple.Preferences
+          clearState: false
+      - tap: { text: "Camera" }
+      - assertVisible: { text: "Photographic Styles" }
+      - tap: { text: "Record Vidoe" }
+      - assertVisible: { text: "4K at 24 FPS" }
+      - assertVisible: { text: "720p HD at 30 FPS" }
+      - tap: { id: "BackButton" }
+      - assertVisible: { text: "Record Slo-mo" }

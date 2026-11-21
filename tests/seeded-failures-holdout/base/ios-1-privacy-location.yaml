@@ -1,0 +1,20 @@
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+
+tests:
+  - name: base_ios_1
+    tags: [holdout-base]
+    steps:
+      - launchApp:
+          appId: com.apple.Preferences
+          clearState: false
+      - assertVisible: { text: "Privacy & Security" }
+      - tap: { text: "Privacy & Security" }
+      - assertVisible: { text: "Location Services" }
+      - tap: { text: "Location Services" }
+      - assertVisible: { text: "Share My Location" }
+      - assertVisible: { text: "System Services" }
+      - tap: { id: "BackButton" }
+      - assertVisible: { text: "Tracking" }

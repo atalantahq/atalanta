@@ -1,0 +1,19 @@
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: holdout_android_05
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - tap: { text: "Sound & vibration" }
+      - assertVisible: { text: "Media volume" }
+      - tap: { text: "Do Not Disturb" }
+      - assertVisible: { text: "Schedules" }
+      - assertText: { selector: { text: "Until you turn off" }, expected: "Ask every time" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Phone ringtone" }
