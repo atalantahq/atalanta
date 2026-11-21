@@ -53,7 +53,7 @@ Each step has one action and optional modifiers:
   timeoutMs: 20000       # this step's wait
   settle: none           # act and move on; or { reactionMs, quietMs, capMs }
   optional: true         # a failure is a warning; the test goes on
-  force: true            # skip actionability checks (tap, doubleTap, longPress, inputText, clearText, do)
+  force: true            # skip actionability checks (tap, doubleTap, longPress, inputText, clearText, do, act)
 ```
 
 You rarely need `wait:`. Assertions and lookups wait up to the step timeout, and actions settle on their own (see [ARCHITECTURE.md#sync](ARCHITECTURE.md#sync)).
@@ -247,7 +247,7 @@ tests:
       - goBack: {}
 ```
 
-The web adds `goto`, `goBack`, `refresh`, `mockRequest`/`clearMocks` and `css`/`xpath` selectors.
+The web adds `goBack`, `refresh`, `mockRequest`/`clearMocks` and `css`/`xpath` selectors. `goto` navigates the page here; on a device it opens the URL as a deep link.
 
 `swipe: up` is the finger moving up, so the page scrolls down, the same as on a device.
 

@@ -36,7 +36,7 @@ Checked against the project's own market research ([landscape-market.md](researc
 | Local parallel runs | Yes (`--parallel`) | Yes (`--shard-split`, `--shard-all`) | Through the test runner or plugins (appium-device-farm) |
 | Sharding | Balanced by past durations (`--shard-timings`) | Round-robin by count | Not built in (the test runner's job) |
 | Retry on another device | Yes | Maestro Cloud | Not built in |
-| MCP server | Yes (5 core tools, 32 with `--profile full`) | Yes (Maestro MCP; open issues on reliability) | Yes (appium-mcp, a separate project) |
+| MCP server | Yes (5 core tools, 33 with `--profile full`) | Yes (Maestro MCP; open issues on reliability) | Yes (appium-mcp, a separate project) |
 | Reports | JUnit, JSON, HTML, Allure, GitHub annotations | HTML, JUnit | Through the client's test framework |
 | Device clouds | None | Maestro Cloud | Every major cloud |
 | Migrate from Maestro | Partial: scripts and `copyTextFrom` don't convert; `when:` becomes an optional block, `setLocation` an `exec` step | n/a | n/a |
