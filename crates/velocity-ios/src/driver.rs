@@ -291,6 +291,8 @@ pub struct IosDriver {
     /// When each (device, app) was last launched: a crash report older than
     /// that belongs to an earlier run.
     launched: std::sync::Mutex<HashMap<(String, String), std::time::SystemTime>>,
+    /// (simulator, app) pairs seen installed, so the check runs once.
+    installed: std::sync::Mutex<std::collections::HashSet<(String, String)>>,
     /// D-50: where a physical device's crash reports were copied after the
     /// app died, per (device, app), with the launch they were copied for;
     /// `None`: the copy failed for that launch, so it isn't tried again.
@@ -494,6 +496,7 @@ impl IosDriver {
             fixed_url,
             conns: Mutex::new(HashMap::new()),
             launched: std::sync::Mutex::new(HashMap::new()),
+            installed: std::sync::Mutex::new(std::collections::HashSet::new()),
             device_crash_logs: CrashLogDirs::default(),
             crash_watch: CrashWatch::default(),
             focus_check: velocity_common::env::var("VELOCITY_IOS_FOCUS_CHECK")
@@ -1398,6 +1401,50 @@ impl IosDriver {
 
     /// Launch on a real device. There's no data container to wipe from the
     /// host, so `clearState` there needs a reinstall (`reset.appPath`).
+    /// A simulator app that isn't installed is a config error naming it.
+    /// WDA opens a session for it, and its launch route answers OK, so the
+    /// missing app read as "crashed" (Clock on an iOS 26 simulator). Once
+    /// per (simulator, app); any other failure of the check lets the launch
+    /// go ahead and fail its own way.
+    async fn check_installed(&self, device_id: &str, app_id: &str) -> Result<()> {
+        let key = (device_id.to_string(), app_id.to_string());
+        if self
+            .installed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&key)
+        {
+            return Ok(());
+        }
+        match self
+            .simctl
+            .get_app_container(device_id, app_id, "app")
+            .await
+        {
+            Ok(_) => {
+                self.installed
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(key);
+                Ok(())
+            }
+            // simctl's own answer, not a missing xcrun (whose spawn error
+            // says the same words: Linux, a machine without Xcode).
+            Err(e)
+                if e.to_string().contains("No such file or directory")
+                    && !e.to_string().contains("Failed to execute") =>
+            {
+                Err(VelocityError::Config(format!(
+                    "{app_id} is not installed on simulator {device_id}"
+                )))
+            }
+            Err(e) => {
+                debug!(device_id, app_id, "install check failed: {e}");
+                Ok(())
+            }
+        }
+    }
+
     async fn launch_on_device(
         &self,
         device_id: &str,
@@ -2112,6 +2159,7 @@ impl PlatformDriver for IosDriver {
             self.start_crash_watch(device_id, app_id).await;
             return Ok(());
         }
+        self.check_installed(device_id, app_id).await?;
         let conn = self.running(device_id).await?;
         // Always a cold start, as on Android and in Maestro: WDA's launch
         // only brings a running app to the front, so tests inherited the
@@ -2147,21 +2195,6 @@ impl PlatformDriver for IosDriver {
         // A new session launches the app itself; launching it again through
         // simctl cost a second cold start.
         if wda.ensure_session(device_id, app_id).await? {
-            drop(wda);
-            // A session for an app the simulator doesn't have still starts
-            // (simctl and WDA's own launch refuse it), and the missing app
-            // then read as "crashed" (Clock on an iOS 26 simulator).
-            if let Err(e) = self
-                .simctl
-                .get_app_container(device_id, app_id, "app")
-                .await
-            {
-                if e.to_string().contains("No such file or directory") {
-                    return Err(VelocityError::Config(format!(
-                        "{app_id} is not installed on simulator {device_id}"
-                    )));
-                }
-            }
             return Ok(());
         }
         // Reused session: `simctl launch`, then wait for the app to be in

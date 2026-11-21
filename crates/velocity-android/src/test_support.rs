@@ -43,10 +43,15 @@ esac
         write_exec(&adb, &script);
         let me = Self { dir, adb, log };
         for tool in [
-            "input", "am", "pm", "monkey", "run-as", "dumpsys", "cmd", "logcat",
+            "input", "am", "monkey", "run-as", "dumpsys", "cmd", "logcat",
         ] {
             me.stub(tool, "");
         }
+        // Every app is installed, as `pm path` says on a device.
+        me.stub(
+            "pm",
+            "case \"$1\" in path) echo \"package:/data/app/$2/base.apk\";; esac",
+        );
         me.stub("getprop", "echo 1");
         // The tree server's token file (protocol 13), next to `$DEV` (tests
         // expect the device directory to hold only what they put there).

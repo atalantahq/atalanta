@@ -658,6 +658,23 @@ impl AndroidDriver {
                 other => debug!(?other, "am start failed; falling back to monkey"),
             }
         }
+        // No launcher activity: an app that isn't installed says so, rather
+        // than as monkey's argument dump.
+        // (`pm path` prints nothing and exits 1 for an unknown package.)
+        let missing = match self
+            .adb
+            .run_device(device_id, &["shell", &shell::cmd(&["pm", "path", package])])
+            .await
+        {
+            Ok(out) => !out.contains("package:"),
+            Err(VelocityError::CommandFailed { .. }) => true,
+            Err(_) => false,
+        };
+        if missing {
+            return Err(VelocityError::Config(format!(
+                "{package} is not installed on {device_id}"
+            )));
+        }
         // `monkey` can't carry intent extras: never drop them silently.
         if !extras.is_empty() {
             return Err(VelocityError::Config(format!(
@@ -4174,6 +4191,23 @@ mod launch_args_tests {
             .unwrap_err();
         assert!(err.to_string().contains("com.velocity.lab"), "{err}");
         assert!(matches!(err, VelocityError::Config(_)), "{err:?}");
+
+        // An app that isn't installed says so (it read as monkey's argument
+        // dump), with or without launch arguments.
+        let fake4 = FakeAdb::new("launch-not-installed");
+        fake4.stub("cmd", "echo 'No activity found'");
+        fake4.stub("pm", "exit 1");
+        let d4 = AndroidDriver::with_backend(Box::new(Adb::with_path(fake4.path())));
+        for args in [map.clone(), LaunchArgs::default()] {
+            let err = d4
+                .launch_app_with("emulator-5554", "com.velocity.lab", false, &args)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(&err, VelocityError::Config(m) if m.contains("com.velocity.lab is not installed")),
+                "{err:?}"
+            );
+        }
 
         // adb losing the device mid-launch is a device error, retried or
         // moved to another device, never a config error (exit 2).
