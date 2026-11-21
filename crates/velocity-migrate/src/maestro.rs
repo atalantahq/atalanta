@@ -426,6 +426,7 @@ fn is_back(command: &str, arg: &Value) -> bool {
 fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> {
     let mut out = Vec::new();
     let mut after_input = false;
+    let mut after_long_press = false;
     for (i, item) in steps.iter().enumerate() {
         let line = lines.get(i).copied().unwrap_or(0);
         // `- back` and `- back: {}` mean the same.
@@ -461,6 +462,20 @@ fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> 
             ));
         }
         after_input = command.starts_with("input");
+        // `longPressOn` then `swipe` is Maestro's drag-to-reorder workaround
+        // (issue #1203). Velocity's `drag` holds and moves one element onto
+        // another, which a swipe's screen points can't be turned into.
+        if after_long_press && command == "swipe" {
+            ctx.issues.push(issue(
+                line,
+                Severity::Info,
+                command,
+                "`longPressOn` then `swipe` looks like a drag-to-reorder workaround: kept as a swipe; \
+                 Velocity's `drag: { from: <row>, to: <row> }` picks the row up and drops it on another \
+                 (docs/DSL.md#reordering-drag)",
+            ));
+        }
+        after_long_press = command == "longPressOn";
         if command == "repeat" {
             if let Some(body) = unroll_repeat(&arg, line, ctx) {
                 out.extend(body);
@@ -2451,6 +2466,29 @@ mod tests {
             })
             .collect();
         assert_eq!(typed, ["qa@example.com"]);
+    }
+
+    #[test]
+    fn a_long_press_then_swipe_points_at_drag() {
+        let (result, _) = migrate(
+            "dragish",
+            &[(
+                "flow.yaml",
+                "appId: com.shop\n---\n- longPressOn: \"Milk\"\n- swipe:\n    start: 50%,30%\n    end: 50%,60%\n- swipe:\n    direction: UP\n",
+            )],
+        );
+        assert!(result.success);
+        let notes: Vec<_> = result
+            .issues
+            .iter()
+            .filter(|i| i.message.contains("drag-to-reorder"))
+            .collect();
+        assert_eq!(
+            notes.len(),
+            1,
+            "only the swipe right after the long press: {:?}",
+            result.issues
+        );
     }
 
     #[test]
