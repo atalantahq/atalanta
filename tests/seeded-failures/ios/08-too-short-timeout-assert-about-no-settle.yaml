@@ -1,0 +1,17 @@
+# Seeded-failure suite ios-08: expected to fail. Keep out of normal runs and CI globs.
+appId: com.apple.Preferences
+
+config:
+  platform: ios
+
+tests:
+  - name: seed_ios_08
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.apple.Preferences
+          clearState: false
+      - tap: { text: "General" }
+        settle: none
+      - assertVisible: { text: "About" }
+        timeoutMs: 1
