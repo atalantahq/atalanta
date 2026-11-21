@@ -86,7 +86,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 #### Suite DSL
 
-- `launchApp` takes `arguments` (Maestro's form): Android intent extras and iOS launch arguments; `velocity migrate maestro` carries them over. Driver support is in progress: until then non-empty arguments are a configuration error ([DSL.md](docs/DSL.md#launch-arguments)).
+- `launchApp` takes `arguments` (Maestro's form): Android intent extras and iOS launch arguments; `velocity migrate maestro` carries them over. ([DSL.md](docs/DSL.md#launch-arguments)).
 - Actions: `assertScreenshot`, `saveState`/`restoreState`, `setConfig`, `assertSystemState`, `tapXY`, `inputRaw`, `openLink`. Web only: `goto`, `goBack`, `refresh`, `mockRequest`, `clearMocks`.
 - Natural-language steps: `do:`, `act:`, `assert:`, `expect:`, or a bare string, with `data:` and `waitUntil:`. AI verification with `verify: off|final|checkpoints|strict` and per-step `checkpoint:`.
 - Selectors: `role:`/`name:`, `textMatches:`/`idMatches:`, state filters, relations (`below`, `childOf`, …), and `css:`/`xpath:` on the web. [Details](docs/research/changelog-0.2.0-details.md#selectors)
