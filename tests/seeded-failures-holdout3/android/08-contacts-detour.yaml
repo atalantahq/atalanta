@@ -1,0 +1,20 @@
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout3_android_08
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.android.settings }
+      - launchApp: { appId: com.android.settings, clearState: false }
+      - scrollUntilVisible: { selector: { text: "System" } }
+      - tap: { text: "System" }
+      - launchApp: { appId: com.google.android.contacts, clearState: false }
+      - tap: { text: "Languages & input" }
+      - assertVisible: { text: "Preferred Language" }
+      - assertVisible: { text: "On-screen keyboard" }
+      - pressKey: { key: back }
+      - tap: { text: "Date & time" }
+      - assertVisible: { text: "Time format" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Gestures" }

@@ -1,0 +1,170 @@
+# Held-out seeded failures, set 3. Scoring rules, written before any run:
+#  correct:      the report's own words state the planted cause (right step, true reason). Cited evidence supports
+#                but does not rescue words that do not commit.
+#  insufficient: names the failing step but commits to no cause (including a report that offers two
+#                possibilities without choosing).
+#  wrong:        states a specific cause that is not the planted one, or blames another step.
+#  healed:       the step healed and the test passed; record what it healed to and whether that was the intended element.
+#  no-failure:   passed without healing (excluded).
+# failing_step is 1-based; stopApp and launchApp count.
+seeds:
+  - id: holdout3_android_01
+    file: android/01-services-row.yaml
+    platform: android
+    category: selector-typo
+    seeded_cause: 'tap "Location servces" misspells the visible row "Location services" on the Location page.'
+    failing_step: 6
+    correct_report_says: 'The tap found no "Location servces" on the Location screen; it is a misspelling of "Location services", which is on screen.'
+    wrong_report_would_say: 'The Location screen did not open, or the app is in the wrong state.'
+  - id: holdout3_android_02
+    file: android/02-gesture-settings.yaml
+    platform: android
+    category: selector-typo
+    seeded_cause: 'tap "Gesture settings" is the wrong wording for the row "Gestures" (extra word, not a typo).'
+    failing_step: 6
+    correct_report_says: 'No row reads "Gesture settings"; the System screen has "Gestures" (wording differs).'
+    wrong_report_would_say: 'System page not loaded / app on the wrong screen.'
+  - id: holdout3_android_03
+    file: android/03-location-details.yaml
+    platform: android
+    category: wrong-screen
+    seeded_cause: 'The tap on "Location services" was removed, so the suite is still on the Location page when it asserts "Earthquake alerts".'
+    failing_step: 6
+    correct_report_says: '"Earthquake alerts" is on the Location services page; the test is still on the Location page (a navigation step is missing).'
+    wrong_report_would_say: 'Text misspelled, or a slow load / the row is missing from the app.'
+  - id: holdout3_android_04
+    file: android/04-input-options.yaml
+    platform: android
+    category: wrong-screen
+    seeded_cause: 'The tap on "Languages & input" was removed, so "Preferred Language" is asserted on the System page.'
+    failing_step: 5
+    correct_report_says: '"Preferred Language" is on the Languages & input page; the test is still on the System page (tap missing).'
+    wrong_report_would_say: 'The row text is wrong or the screen is slow.'
+  - id: holdout3_android_05
+    file: android/05-nav-style.yaml
+    platform: android
+    category: wrong-expected-value
+    seeded_cause: 'assertText expects "3-button navigation" but the System navigation row''s summary is "Gesture navigation".'
+    failing_step: 7
+    correct_report_says: 'The element was found; its text is "Gesture navigation", not the expected "3-button navigation" (wrong expected value).'
+    wrong_report_would_say: 'The element was not found / the screen is wrong.'
+  - id: holdout3_android_06
+    file: android/06-accuracy-gone.yaml
+    platform: android
+    category: wrong-expected-value
+    seeded_cause: 'assertNotVisible on "Google Location Accuracy", which is visible on the Location services page.'
+    failing_step: 8
+    correct_report_says: '"Google Location Accuracy" is visible on screen, so assertNotVisible fails (wrong expectation).'
+    wrong_report_would_say: 'Wrong app in front, or the row failed to load.'
+  - id: holdout3_android_07
+    file: android/07-clock-suite.yaml
+    platform: android
+    category: wrong-app
+    seeded_cause: 'The suite appId and its stopApp/launchApp are the Clock app (com.google.android.deskclock), so the Settings row "System" is never on screen.'
+    failing_step: 3
+    correct_report_says: 'The app in front is Clock, not Settings; the suite targets the wrong app, so "System" cannot be found.'
+    wrong_report_would_say: 'The "System" row is missing or misspelled; scrolling is broken.'
+  - id: holdout3_android_08
+    file: android/08-contacts-detour.yaml
+    platform: android
+    category: wrong-app
+    seeded_cause: 'A mid-test launchApp (step 5) opens Contacts, then the test taps the Settings row "Languages & input".'
+    failing_step: 6
+    correct_report_says: 'Contacts is in front after the launchApp at step 5; "Languages & input" is a Settings row, so it is not there.'
+    wrong_report_would_say: 'The System page lacks the row, or a typo in the text.'
+  - id: holdout3_android_09
+    file: android/09-gestures-recheck.yaml
+    platform: android
+    category: stale-state
+    seeded_cause: 'After opening Gestures, the test asserts "Languages & input", a row of the System page it already left.'
+    failing_step: 7
+    correct_report_says: '"Languages & input" belongs to the System page; the test is on Gestures (the previous screen''s row).'
+    wrong_report_would_say: 'The Gestures screen failed to open / wrong app.'
+  - id: holdout3_android_10
+    file: android/10-after-return.yaml
+    platform: android
+    category: stale-state
+    seeded_cause: 'After the back step the test asserts "Earthquake alerts", a row of the Location services page it just left.'
+    failing_step: 10
+    correct_report_says: 'After back the Location page is showing; "Earthquake alerts" is on the page that was left.'
+    wrong_report_would_say: 'The back press left Settings, or the row is not rendered.'
+  - id: holdout3_ios_11
+    file: ios/11-home-screen-row.yaml
+    platform: ios
+    category: selector-typo
+    seeded_cause: 'tap "Home Scren & App Library" misspells the visible row "Home Screen & App Library".'
+    failing_step: 4
+    correct_report_says: 'No row matches "Home Scren & App Library"; it is a misspelling of "Home Screen & App Library", which is on screen.'
+    wrong_report_would_say: 'The row is below the fold / Settings is on another screen.'
+  - id: holdout3_ios_12
+    file: ios/12-suggestions-row.yaml
+    platform: ios
+    category: selector-typo
+    seeded_cause: 'assertVisible "Search Suggestions" is the wrong wording; the Safari page row is "Search Engine Suggestions" (missing word). Possible heal to "Safari Suggestions" or "Search Engine Suggestions".'
+    failing_step: 9
+    correct_report_says: 'No "Search Suggestions" row; the page has "Search Engine Suggestions" (a word is missing from the text).'
+    wrong_report_would_say: 'The Safari page did not open.'
+  - id: holdout3_ios_13
+    file: ios/13-apps-list.yaml
+    platform: ios
+    category: wrong-screen
+    seeded_cause: 'The tap on "Apps" was removed, so "Default Apps" is asserted on the main Settings list.'
+    failing_step: 4
+    correct_report_says: '"Default Apps" is on the Apps page; the test is still on the main Settings list (the tap on Apps is missing).'
+    wrong_report_would_say: 'The text is misspelled or the row failed to render.'
+  - id: holdout3_ios_14
+    file: ios/14-dev-options.yaml
+    platform: ios
+    category: wrong-screen
+    seeded_cause: 'The tap on "Developer" was removed, so "Enable UI Automation" is asserted on the main Settings list.'
+    failing_step: 4
+    correct_report_says: '"Enable UI Automation" is on the Developer page; the test is on the main Settings list (navigation step missing).'
+    wrong_report_would_say: 'A typo, or the Developer page is slow.'
+  - id: holdout3_ios_15
+    file: ios/15-button-action.yaml
+    platform: ios
+    category: wrong-expected-value
+    seeded_cause: 'assertText expects "Vibrate Mode" but the Action Button page''s selected action reads "Silent Mode".'
+    failing_step: 10
+    correct_report_says: 'The element was found; its text is "Silent Mode", not the expected "Vibrate Mode".'
+    wrong_report_would_say: 'The element was not found / not on the Action Button page.'
+  - id: holdout3_ios_16
+    file: ios/16-zoom-gone.yaml
+    platform: ios
+    category: wrong-expected-value
+    seeded_cause: 'assertNotVisible on "Display Zoom", which is visible on the Developer View page.'
+    failing_step: 9
+    correct_report_says: '"Display Zoom" is on screen, so assertNotVisible fails (wrong expectation).'
+    wrong_report_would_say: 'Wrong page open, or the element did not load.'
+  - id: holdout3_ios_17
+    file: ios/17-files-suite.yaml
+    platform: ios
+    category: wrong-app
+    seeded_cause: 'The suite appId and its stopApp/launchApp are Files (com.apple.DocumentsApp), so the Settings row "Apps" is never on screen.'
+    failing_step: 3
+    correct_report_says: 'The app in front is Files, not Settings; the suite targets the wrong app, so "Apps" cannot be found.'
+    wrong_report_would_say: 'The "Apps" row is missing; scrolling is broken.'
+  - id: holdout3_ios_18
+    file: ios/18-contacts-detour.yaml
+    platform: ios
+    category: wrong-app
+    seeded_cause: 'A mid-test launchApp (step 3) opens Contacts, then the test asserts the Settings row "Action Button".'
+    failing_step: 4
+    correct_report_says: 'Contacts is in front after the launchApp at step 3; "Action Button" is a Settings row.'
+    wrong_report_would_say: 'The row is misspelled or Settings is slow.'
+  - id: holdout3_ios_19
+    file: ios/19-homescreen-recheck.yaml
+    platform: ios
+    category: stale-state
+    seeded_cause: 'After opening Home Screen & App Library, the test asserts "Action Button", a row of the main list it already left.'
+    failing_step: 5
+    correct_report_says: '"Action Button" is on the main Settings list; the test is on the Home Screen & App Library page.'
+    wrong_report_would_say: 'The page failed to open / wrong app.'
+  - id: holdout3_ios_20
+    file: ios/20-after-view.yaml
+    platform: ios
+    category: stale-state
+    seeded_cause: 'After the back step from the View page, the test asserts "Display Zoom", a row of the page it just left.'
+    failing_step: 11
+    correct_report_says: 'After back the Developer page is showing; "Display Zoom" is on the View page that was left.'
+    wrong_report_would_say: 'The back press failed / the row is not rendered.'

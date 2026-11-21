@@ -1,0 +1,18 @@
+appId: com.apple.DocumentsApp
+config:
+  platform: ios
+tests:
+  - name: holdout3_ios_17
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.apple.DocumentsApp }
+      - launchApp: { appId: com.apple.DocumentsApp, clearState: false }
+      - scrollUntilVisible: { selector: { text: "Apps" } }
+      - tap: { text: "Apps" }
+      - assertVisible: { text: "Default Apps" }
+      - scrollUntilVisible: { selector: { text: "Safari" } }
+      - tap: { text: "Safari" }
+      - assertVisible: { text: "Default Browser App" }
+      - assertVisible: { text: "Search Engine Suggestions" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Safari" }

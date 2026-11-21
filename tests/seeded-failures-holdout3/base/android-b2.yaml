@@ -1,0 +1,17 @@
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout3_base_android_2
+    tags: [seeded-failure-base]
+    steps:
+      - stopApp: { appId: com.android.settings }
+      - launchApp: { appId: com.android.settings, clearState: false }
+      - scrollUntilVisible: { selector: { text: "Location" } }
+      - tap: { text: "Location" }
+      - assertVisible: { text: "Recent access" }
+      - tap: { text: "Location services" }
+      - assertVisible: { text: "Earthquake alerts" }
+      - assertVisible: { text: "Google Location Accuracy" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "App location permissions" }

@@ -1,0 +1,17 @@
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout3_android_05
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.android.settings }
+      - launchApp: { appId: com.android.settings, clearState: false }
+      - scrollUntilVisible: { selector: { text: "System" } }
+      - tap: { text: "System" }
+      - assertVisible: { text: "Languages & input" }
+      - tap: { text: "Gestures" }
+      - assertText: { selector: { textContains: "Gesture navigation" }, expected: "3-button navigation" }
+      - assertVisible: { text: "Quickly open camera" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Date & time" }

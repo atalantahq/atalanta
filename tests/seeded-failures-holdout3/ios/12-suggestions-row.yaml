@@ -1,0 +1,18 @@
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout3_ios_12
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.apple.Preferences }
+      - launchApp: { appId: com.apple.Preferences, clearState: false }
+      - scrollUntilVisible: { selector: { text: "Apps" } }
+      - tap: { text: "Apps" }
+      - assertVisible: { text: "Default Apps" }
+      - scrollUntilVisible: { selector: { text: "Safari" } }
+      - tap: { text: "Safari" }
+      - assertVisible: { text: "Default Browser App" }
+      - assertVisible: { text: "Search Suggestions" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Safari" }
