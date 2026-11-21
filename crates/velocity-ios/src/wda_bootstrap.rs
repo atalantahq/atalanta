@@ -1023,7 +1023,8 @@ impl WdaBootstrap {
             // A fatal startup cause (the drain matched it in the log) wins
             // over everything else: fail fast instead of waiting out the
             // iOS automation timeout.
-            if let Some(cause) = cause_rx.borrow().clone() {
+            let fatal = cause_rx.borrow().clone().filter(|c| *c != LOCKED);
+            if let Some(cause) = fatal {
                 return Err(VelocityError::RunnerFailing {
                     device_id: device_id.to_string(),
                     detail: format!("{cause}; see {}", log_path.display()),
@@ -1058,9 +1059,14 @@ impl WdaBootstrap {
                 return Err(VelocityError::RunnerFailing {
                     device_id: device_id.to_string(),
                     detail: format!(
-                        "failed to start within {}s on port {}; see {}",
+                        "failed to start within {}s on port {}{}; see {}",
                         WDA_READY_TIMEOUT.as_secs(),
                         self.port,
+                        cause_rx
+                            .borrow()
+                            .as_ref()
+                            .map(|c| format!("; {c}"))
+                            .unwrap_or_default(),
                         log_path.display()
                     ),
                 });
@@ -1617,6 +1623,10 @@ fn spawn_drain<R>(
 /// If `line` names a known reason the runner can't start on a device,
 /// return the user-facing cause (readiness signalling stays on its own
 /// channel). Substring match, case-insensitive.
+/// Not fatal on its own: xcodebuild may wait for the unlock and go on, so
+/// it is only named when the start fails some other way.
+const LOCKED: &str = "the device is locked: unlock it and keep the screen on";
+
 fn startup_cause(line: &str) -> Option<&'static str> {
     let l = line.to_lowercase();
     if l.contains("timed out while enabling automation mode")
@@ -1644,7 +1654,7 @@ fn startup_cause(line: &str) -> Option<&'static str> {
         );
     }
     if l.contains("device is locked") || l.contains("passcode protected") {
-        return Some("the device is locked: unlock it and keep the screen on");
+        return Some(LOCKED);
     }
     None
 }
