@@ -166,7 +166,7 @@ After the merge, gate on each test's flake rate so a creeping flake fails the pi
       - run: velocity history flaky --file merged/velocity-history.json --max-rate 0.05
 ```
 
-`velocity history flaky` prints each test's rate over its last 20 runs (`--window`), sorted worst first, marks tests above `--max-rate` with `*`, and exits 1 when any test with at least 5 runs exceeds it — a CI gate without devices. Tests with fewer than 5 runs get a rate but never trip the threshold. Use `--json` to feed the result to another step.
+`velocity history flaky` prints each test's flakiness over its last 20 runs (`--window`), sorted worst first (runs that passed only on retry plus pass/fail flips between consecutive runs, the same measure `velocity run` reports), marks tests above `--max-rate` with `*`, and exits 1 when any test with at least 5 runs exceeds it — a CI gate without devices. Tests with fewer than 5 runs get a rate but never trip the threshold. The JSON output carries a `flips` field too. Exit 2 when `--window` is under 5 or `--max-rate` is outside 0..1. Use `--json` to feed the result to another step.
 
 ## Cancelled and timed-out jobs
 
