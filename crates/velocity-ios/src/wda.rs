@@ -123,6 +123,8 @@ pub struct WdaClient {
     /// capability and launch parameter): the per-simulator
     /// `VELOCITY_SYNC_PORT` for the in-app sync probe.
     app_env: Vec<(String, String)>,
+    /// Launch arguments (`launchApp: { arguments }`) for the next launch.
+    app_args: Vec<String>,
     /// The WebDriverAgent ref this device's runner was built from, when
     /// known (the bootstrap says): decides the `accessibilityDeadline`
     /// default per device.
@@ -239,6 +241,7 @@ impl WdaClient {
             no_actions: AtomicBool::new(false),
             busy_streak: AtomicU32::new(0),
             app_env: Vec::new(),
+            app_args: Vec::new(),
             wda_ref: None,
         }
     }
@@ -286,6 +289,12 @@ impl WdaClient {
     /// Launch apps with this environment from now on.
     pub fn set_app_env(&mut self, env: Vec<(String, String)>) {
         self.app_env = env;
+    }
+
+    /// Launch apps with these arguments (`-name value` words). Set on every
+    /// launch, so a launch without arguments doesn't inherit the last one's.
+    pub fn set_app_args(&mut self, args: Vec<String>) {
+        self.app_args = args;
     }
 
     /// The launch environment as a JSON object, when there is one.
@@ -524,6 +533,9 @@ impl WdaClient {
             always["waitForIdleTimeout"] = json!(0);
             if let Some(env) = self.app_env_json() {
                 always["environment"] = env;
+            }
+            if !self.app_args.is_empty() {
+                always["arguments"] = json!(self.app_args);
             }
         }
         let payload = json!({ "capabilities": { "alwaysMatch": always } });
@@ -1274,6 +1286,9 @@ impl WdaClient {
         let mut body = json!({ "bundleId": bundle_id, "shouldWaitForQuiescence": false });
         if let Some(env) = self.app_env_json() {
             body["environment"] = env;
+        }
+        if !self.app_args.is_empty() {
+            body["arguments"] = json!(self.app_args);
         }
         self.call(self.client.post(&url).json(&body), "launch app")
             .await

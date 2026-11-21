@@ -199,8 +199,15 @@ impl Devicectl {
         .map(|_| ())
     }
 
-    /// Launch (relaunching if it runs), optionally with a URL to open.
-    pub async fn launch(&self, udid: &str, bundle_id: &str, url: Option<&str>) -> Result<()> {
+    /// Launch (relaunching if it runs), optionally with a URL to open and
+    /// launch arguments (`-name value` words, after the bundle id).
+    pub async fn launch(
+        &self,
+        udid: &str,
+        bundle_id: &str,
+        url: Option<&str>,
+        launch_args: &[String],
+    ) -> Result<()> {
         check_bundle_id(bundle_id)?;
         let mut args = vec![
             "device",
@@ -217,6 +224,7 @@ impl Devicectl {
             args.extend(["--payload-url", u]);
         }
         args.push(bundle_id);
+        args.extend(launch_args.iter().map(String::as_str));
         self.run_json(udid, &args, Duration::from_secs(60), false)
             .await
             .map(|_| ())
@@ -476,19 +484,31 @@ mod tests {
         // VEL-293: `--environment-variables` became a devicectl flag.
         let (dir, d) = stub("argv", "exit 0");
         let e = d
-            .launch("UDID-1", "--environment-variables", None)
+            .launch("UDID-1", "--environment-variables", None, &[])
             .await
             .unwrap_err();
         assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
         assert!(d.uninstall("UDID-1", "-x").await.is_err());
-        assert!(d.launch("UDID-1", "a.b", Some("-x")).await.is_err());
+        assert!(d.launch("UDID-1", "a.b", Some("-x"), &[]).await.is_err());
         assert!(!dir.join("args.log").exists(), "devicectl not run");
-        d.launch("UDID-1", "dev.velocity.demo", Some("demo://x"))
+        d.launch("UDID-1", "dev.velocity.demo", Some("demo://x"), &[])
             .await
             .unwrap();
         d.install("UDID-1", "-odd.app").await.unwrap();
+        d.launch(
+            "UDID-1",
+            "dev.velocity.demo",
+            None,
+            &["-server".into(), "https://x y".into()],
+        )
+        .await
+        .unwrap();
         let log = std::fs::read_to_string(dir.join("args.log")).unwrap();
         assert!(log.contains(" ./-odd.app "), "{log}");
+        assert!(
+            log.contains("dev.velocity.demo -server https://x y"),
+            "launch arguments after the bundle id: {log}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -604,7 +624,7 @@ mod tests {
         assert!(e.to_string().contains("UDID-2"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
         let (dir, d) = stub("locked", "echo 'The device is locked.' >&2; exit 1");
-        let e = d.launch("UDID-3", "a.b", None).await.unwrap_err();
+        let e = d.launch("UDID-3", "a.b", None, &[]).await.unwrap_err();
         assert!(matches!(e, VelocityError::DeviceLocked { .. }), "{e:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -519,10 +519,20 @@ impl AndroidDriver {
     /// brings an existing task forward. 196 → 55 ms against `monkey`, which
     /// resolves the activity and injects an event on every launch.
     ///
+    /// `extras` are raw argv words from [`intent_extras`], appended to the
+    /// `am start` command as intent extras (quoted once, by `shell::cmd`). When they are
+    /// non-empty the launch must use `am start` (monkey can't carry extras);
+    /// if the launcher activity can't be resolved it's a configuration error.
+    ///
     /// Returns the app's pid when the last focus check saw one of its
     /// activities in front.
-    async fn start_app(&self, device_id: &str, package: &str) -> Result<Option<u32>> {
-        self.start_app_once(device_id, package).await?;
+    async fn start_app(
+        &self,
+        device_id: &str,
+        package: &str,
+        extras: &[String],
+    ) -> Result<Option<u32>> {
+        self.start_app_once(device_id, package, extras).await?;
         let (up, pid) = self.wait_for_activity(device_id, package).await;
         if up {
             return Ok(pid);
@@ -542,7 +552,7 @@ impl AndroidDriver {
                 &["shell", &shell::cmd(&["am", "force-stop", package])],
             )
             .await?;
-        self.start_app_once(device_id, package).await?;
+        self.start_app_once(device_id, package, extras).await?;
         let (up, pid) = self.wait_for_activity(device_id, package).await;
         if !up {
             debug!(
@@ -587,33 +597,46 @@ impl AndroidDriver {
         }
     }
 
-    async fn start_app_once(&self, device_id: &str, package: &str) -> Result<()> {
+    async fn start_app_once(
+        &self,
+        device_id: &str,
+        package: &str,
+        extras: &[String],
+    ) -> Result<()> {
         if let Some(component) = self.launcher(device_id, package).await {
+            let mut am = vec![
+                "am",
+                "start",
+                "-a",
+                "android.intent.action.MAIN",
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "-f",
+                "0x10200000",
+                "-n",
+                &component,
+            ];
+            am.extend(extras.iter().map(String::as_str));
             let out = self
                 .adb
-                .run_device(
-                    device_id,
-                    &[
-                        "shell",
-                        &shell::cmd(&[
-                            "am",
-                            "start",
-                            "-a",
-                            "android.intent.action.MAIN",
-                            "-c",
-                            "android.intent.category.LAUNCHER",
-                            "-f",
-                            "0x10200000",
-                            "-n",
-                            &component,
-                        ]),
-                    ],
-                )
+                .run_device(device_id, &["shell", &shell::cmd(&am)])
                 .await;
             match out {
                 Ok(o) if !o.contains("Error") => return Ok(()),
+                other if !extras.is_empty() => {
+                    return Err(VelocityError::Config(format!(
+                        "launching {package} with its launch arguments failed: {other:?}"
+                    )));
+                }
                 other => debug!(?other, "am start failed; falling back to monkey"),
             }
+        }
+        // `monkey` can't carry intent extras: never drop them silently.
+        if !extras.is_empty() {
+            return Err(VelocityError::Config(format!(
+                "launch arguments need am start, and the launcher activity of {package} \
+                 could not be resolved"
+            )));
         }
         self.adb.launch_app(device_id, package, false).await
     }
@@ -1322,6 +1345,19 @@ impl PlatformDriver for AndroidDriver {
     }
 
     async fn launch_app(&self, device_id: &str, app_id: &str, clear_state: bool) -> Result<()> {
+        self.launch_app_with(device_id, app_id, clear_state, &LaunchArgs::default())
+            .await
+    }
+
+    /// `launchApp` with arguments: intent extras on the same `am start`
+    /// (none: exactly the plain launch).
+    async fn launch_app_with(
+        &self,
+        device_id: &str,
+        app_id: &str,
+        clear_state: bool,
+        args: &LaunchArgs,
+    ) -> Result<()> {
         shell::validate_app_id(app_id)?;
         let ready = self.ensure_unlocked(device_id).await?;
         self.invalidate_cache(device_id).await;
@@ -1345,7 +1381,10 @@ impl PlatformDriver for AndroidDriver {
             .remove(&(device_id.to_string(), app_id.to_string()));
         // The focus check read the pid if it saw the app's activity in
         // front; else (launcher or a dialog still in front) ask after it.
-        let pid = match self.start_app(device_id, app_id).await? {
+        let pid = match self
+            .start_app(device_id, app_id, &intent_extras(args))
+            .await?
+        {
             Some(pid) => Some(pid),
             None => self.app_pid(device_id, app_id).await,
         };
@@ -2212,6 +2251,26 @@ async fn adb_feed(device_id: &str, args: &[&str], input: &[u8]) -> Result<()> {
 /// or glob the command.
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Intent extras for launch arguments, as argv words for `am start`. They
+/// are NOT quoted here: the command goes through [`shell::cmd`], which
+/// quotes every word for the device shell exactly once.
+/// string → `--es <name> <value>`, bool → `--ez <name> true|false`,
+/// integer → `--ei` (fits i32) else `--el`, float → `--ef`.
+fn intent_extras(args: &LaunchArgs) -> Vec<String> {
+    let mut out = Vec::new();
+    for (name, value) in &args.inner {
+        let (flag, text) = match value {
+            LaunchArg::Bool(b) => ("--ez", b.to_string()),
+            LaunchArg::Int(n) if i32::try_from(*n).is_ok() => ("--ei", n.to_string()),
+            LaunchArg::Int(n) => ("--el", n.to_string()),
+            LaunchArg::Float(f) => ("--ef", f.to_string()),
+            LaunchArg::Str(t) => ("--es", t.clone()),
+        };
+        out.extend([flag.to_string(), name.clone(), text]);
+    }
+    out
 }
 
 /// How long a screen size is trusted before it's read again.
@@ -3883,5 +3942,150 @@ mod differs_tests {
         let plain = Element::default();
         let d = super::differs_detail(&plain, "(555) 123", "555-123");
         assert!(d.contains("555-123"), "{d}");
+    }
+}
+
+#[cfg(test)]
+mod launch_args_tests {
+    use super::*;
+    use crate::test_support::FakeAdb;
+    use velocity_common::LaunchArgs;
+
+    fn args(map: &[(&str, LaunchArg)]) -> LaunchArgs {
+        LaunchArgs {
+            inner: map
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn intent_extras_are_raw_argv_words_by_type() {
+        let map = args(&[
+            (
+                "server",
+                LaunchArg::Str("https://staging.example.com".into()),
+            ),
+            ("isE2E", LaunchArg::Bool(true)),
+            ("off", LaunchArg::Bool(false)),
+            ("retries", LaunchArg::Int(3)),
+            ("big", LaunchArg::Int(i64::MAX)),
+            ("ratio", LaunchArg::Float(1.5)),
+        ]);
+        // BTreeMap order; quoting is shell::cmd's job, not this one's.
+        assert_eq!(
+            intent_extras(&map),
+            [
+                "--el",
+                "big",
+                "9223372036854775807",
+                "--ez",
+                "isE2E",
+                "true",
+                "--ez",
+                "off",
+                "false",
+                "--ef",
+                "ratio",
+                "1.5",
+                "--ei",
+                "retries",
+                "3",
+                "--es",
+                "server",
+                "https://staging.example.com",
+            ]
+        );
+    }
+
+    /// The device shell must see every hostile value as exactly one
+    /// argument, byte for byte: run the real command line through a POSIX
+    /// shell's `printf` and compare.
+    #[test]
+    fn hostile_values_reach_the_device_shell_as_one_word_each() {
+        let nasty = [
+            "a value with spaces",
+            "it's a quote",
+            "a;b",
+            "$(echo pwned)",
+            "`id`",
+            "a&b",
+            "-starts-with-dash",
+            "new\nline\\",
+            "",
+        ];
+        for value in nasty {
+            let map = args(&[("key", LaunchArg::Str(value.into()))]);
+            let words = intent_extras(&map);
+            let argv: Vec<&str> = words.iter().map(String::as_str).collect();
+            let line = shell::cmd(&argv);
+            let out = std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(format!("printf '%s\\0' {line}"))
+                .output()
+                .unwrap();
+            let got: Vec<String> = String::from_utf8(out.stdout)
+                .unwrap()
+                .split_terminator('\0')
+                .map(String::from)
+                .collect();
+            assert_eq!(got, ["--es", "key", value], "{value:?} via {line}");
+        }
+    }
+
+    #[tokio::test]
+    async fn launch_app_with_sends_exact_am_start_command() {
+        let fake = FakeAdb::new("launch-args");
+        fake.stub("cmd", "echo com.velocity.lab/.MainActivity");
+        fake.stub(
+            "dumpsys",
+            "case \"$1 $2\" in\n\
+             'power ') echo '  mWakefulness=Awake';;\n\
+             'window policy') echo '    mIsShowing=false';;\n\
+             'window displays') echo '  mCurrentFocus=Window{1 u0 com.velocity.lab/com.velocity.lab.MainActivity}';;\n\
+             esac",
+        );
+        fake.stub("pidof", "echo 4321");
+        fake.stub("date", "echo 1760490060 000000000 2026-10-15 01:01:00");
+        fake.stub(
+            "getprop",
+            "case \"$1\" in ro.build.version.sdk) echo 34;; *) echo 1;; esac",
+        );
+        fake.stub(
+            "adb-forward",
+            "case \"$*\" in *tcp:0*) echo 41234;; esac; exit 0",
+        );
+        let mut d = AndroidDriver::with_backend(Box::new(Adb::with_path(fake.path())));
+        d.screen_ready_ttl = Duration::from_secs(600);
+        let mut map = LaunchArgs::default();
+        map.inner.insert(
+            "server".into(),
+            LaunchArg::Str("https://staging.example.com".into()),
+        );
+        d.launch_app_with("emulator-5554", "com.velocity.lab", false, &map)
+            .await
+            .unwrap();
+        let log = fake.log();
+        // am start carries the --es extra, each value as one quoted shell word.
+        assert!(
+            log.contains(
+                "DEVICE_SH:'am' 'start' '-a' 'android.intent.action.MAIN' '-c' \
+                         'android.intent.category.LAUNCHER' '-f' '0x10200000' \
+                         '-n' 'com.velocity.lab/.MainActivity' '--es' 'server' \
+                         'https://staging.example.com'"
+            ),
+            "{log}"
+        );
+        // A monkey fallback cannot carry extras: a launch whose activity can't
+        // resolved is a configuration error naming the app.
+        let fake2 = FakeAdb::new("launch-args-no-activity");
+        fake2.stub("cmd", "exit 1");
+        let d2 = AndroidDriver::with_backend(Box::new(Adb::with_path(fake2.path())));
+        let err = d2
+            .launch_app_with("emulator-5554", "com.velocity.lab", false, &map)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("com.velocity.lab"), "{err}");
     }
 }

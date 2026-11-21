@@ -1403,6 +1403,7 @@ impl IosDriver {
         device_id: &str,
         app_id: &str,
         clear_state: bool,
+        argv: &[String],
     ) -> Result<()> {
         if clear_state {
             warn!(
@@ -1414,6 +1415,7 @@ impl IosDriver {
         conn.invalidate();
         *conn.bundle.lock().unwrap_or_else(|e| e.into_inner()) = app_id.to_string();
         let mut wda = conn.wda.lock().await;
+        wda.client_mut().set_app_args(argv.to_vec());
         if wda.ensure_session(device_id, app_id).await? {
             return Ok(());
         }
@@ -1422,7 +1424,7 @@ impl IosDriver {
             Err(e) => {
                 debug!("WDA launch failed ({e}); using devicectl");
                 drop(wda);
-                self.devicectl.launch(device_id, app_id, None).await
+                self.devicectl.launch(device_id, app_id, None, argv).await
             }
         }
     }
@@ -2073,6 +2075,20 @@ impl PlatformDriver for IosDriver {
     }
 
     async fn launch_app(&self, device_id: &str, app_id: &str, clear_state: bool) -> Result<()> {
+        self.launch_app_with(device_id, app_id, clear_state, &LaunchArgs::default())
+            .await
+    }
+
+    /// `launchApp` with arguments: `-name value` launch arguments on every
+    /// launch path (none: exactly the plain launch).
+    async fn launch_app_with(
+        &self,
+        device_id: &str,
+        app_id: &str,
+        clear_state: bool,
+        args: &LaunchArgs,
+    ) -> Result<()> {
+        let argv = launch_argv(args);
         self.launched
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -2083,7 +2099,7 @@ impl PlatformDriver for IosDriver {
         // A fresh process: an earlier crash is history.
         self.crash_watch.reset(device_id, app_id);
         if is_physical(device_id) {
-            self.launch_on_device(device_id, app_id, clear_state)
+            self.launch_on_device(device_id, app_id, clear_state, &argv)
                 .await?;
             self.start_crash_watch(device_id, app_id).await;
             return Ok(());
@@ -2119,6 +2135,7 @@ impl PlatformDriver for IosDriver {
         *conn.bundle.lock().unwrap_or_else(|e| e.into_inner()) = app_id.to_string();
         let mut wda = conn.wda.lock().await;
         wda.client_mut().set_app_env(env.clone());
+        wda.client_mut().set_app_args(argv.clone());
         // A new session launches the app itself; launching it again through
         // simctl cost a second cold start.
         if wda.ensure_session(device_id, app_id).await? {
@@ -2130,7 +2147,9 @@ impl PlatformDriver for IosDriver {
         // settle waits for the screen anyway.
         drop(wda);
         if launch_mode() == LaunchMode::Simctl {
-            self.simctl.launch_with_env(device_id, app_id, &env).await?;
+            self.simctl
+                .launch_with_env(device_id, app_id, &env, &argv)
+                .await?;
             let wda = conn.wda.lock().await;
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
@@ -2153,7 +2172,9 @@ impl PlatformDriver for IosDriver {
             Err(e) => {
                 debug!("WDA launch failed ({e}); using simctl");
                 drop(wda);
-                self.simctl.launch_with_env(device_id, app_id, &env).await
+                self.simctl
+                    .launch_with_env(device_id, app_id, &env, &argv)
+                    .await
             }
         }
     }
@@ -3408,6 +3429,23 @@ fn system_alert(screen: &Rect, text: &str, buttons: &[String]) -> Element {
     }
 }
 
+/// `launchApp` arguments as iOS launch arguments: `-name value` pairs, the
+/// form Xcode scheme arguments take and `UserDefaults` reads (booleans as
+/// YES/NO). Argv items for simctl, devicectl and WDA, never a shell line.
+fn launch_argv(args: &LaunchArgs) -> Vec<String> {
+    let mut out = Vec::new();
+    for (name, value) in &args.inner {
+        let text = match value {
+            LaunchArg::Bool(true) => "YES".to_string(),
+            LaunchArg::Bool(false) => "NO".to_string(),
+            LaunchArg::Int(n) => n.to_string(),
+            LaunchArg::Float(f) => f.to_string(),
+            LaunchArg::Str(t) => t.clone(),
+        };
+        out.extend([format!("-{name}"), text]);
+    }
+    out
+}
 #[cfg(test)]
 mod device_kind_tests {
     use super::is_physical;
@@ -4229,6 +4267,65 @@ mod sync_port_tests {
         d.launch_app(SIM, "com.example.app", false).await.unwrap();
         assert_eq!(d.sync_probe_port(SIM), Some(port));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// AUT-024: `launchApp` arguments reach `simctl launch` after the
+    /// bundle id as `-name value` argv items.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn launch_arguments_go_after_the_bundle_id_on_simctl() {
+        let f = wda(true).await;
+        let dir = std::env::temp_dir().join(format!("velocity-launchargs-{}", std::process::id()));
+        let (simctl, log) = logging_xcrun(&dir);
+        let mut d = IosDriver::with_wda_url(&f.url);
+        d.simctl = simctl;
+        let mut args = LaunchArgs::default();
+        args.inner.insert("isE2E".into(), LaunchArg::Bool(true));
+        args.inner.insert(
+            "server".into(),
+            LaunchArg::Str("https://staging.example.com".into()),
+        );
+        d.launch_app_with(SIM, "com.example.app", false, &args)
+            .await
+            .unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(
+            calls.lines().any(|l| l.starts_with(&format!(
+                "simctl launch {SIM} com.example.app -isE2E YES -server https://staging.example.com"
+            ))),
+            "{calls}"
+        );
+        // The next plain launch carries none of them.
+        d.launch_app(SIM, "com.example.app", false).await.unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        let last = calls
+            .lines()
+            .rfind(|l| l.starts_with("simctl launch"))
+            .unwrap();
+        assert!(!last.contains("-isE2E"), "{last}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn launch_argv_renders_each_type() {
+        let mut args = LaunchArgs::default();
+        args.inner.insert("a".into(), LaunchArg::Bool(false));
+        args.inner.insert("b".into(), LaunchArg::Int(-3));
+        args.inner.insert("c".into(), LaunchArg::Float(2.5));
+        args.inner
+            .insert("d".into(), LaunchArg::Str("-starts with dash".into()));
+        assert_eq!(
+            launch_argv(&args),
+            [
+                "-a",
+                "NO",
+                "-b",
+                "-3",
+                "-c",
+                "2.5",
+                "-d",
+                "-starts with dash"
+            ]
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
