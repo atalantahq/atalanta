@@ -22,6 +22,7 @@
 | `baselines accept\|reject <name\|all>` | Make the actual screen the baseline, or keep the old baseline |
 | `heal [--accept\|--discard\|--reject N]` | Review selectors that self-healing fixed during passing tests |
 | `history merge <files…>` | Merge the history files of several CI jobs |
+| `history flaky [--file FILE] [--window N] [--max-rate R] [--json]` | Each test's flake rate over its last N recorded runs; exit 1 when any test with at least 5 runs exceeds --max-rate ([below](#history-flaky)) |
 | `verify-change "<description>" --app-id <id> [--after login.yaml]` | Did the change do what it says? Replays the saved test for the description with no model, or explores and saves one that passes its trust gates; writes PR evidence (`manifest.json`, `failures.md`, `comment.md`, video) to `--bundle` (default `velocity-results/verify-change`), saved tests to `--cache` (default `.velocity/verify-cache`). Exit 0 passed, 1 failed |
 | `gate <file> --goal "<text>"` | Run the trust gates on a one-test suite YAML (hand-written or exported): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text ([below](#gate)). Exit 0 trusted, 1 not trusted |
 | `login <suite> [--test NAME] [-d DEVICE] [--env K=V]` | Run a stored login flow once (no retry, no cache) and leave the app logged in; `${NAME}`s from the environment, `${keychain:NAME}` or `${totp:NAME}`, masked everywhere ([DSL.md](DSL.md#logging-in)) |
@@ -39,6 +40,21 @@
 | `snapshot`, `tap`, `type`, `press`, `swipe`, `scroll`, `launch`, `stop`, `assert`, `wait`, `screenshot`, `export`, `session` | Drive an Android or iOS device one shell command at a time, by ref, and save the session as a test ([below](#agent-commands)) |
 | `skills [list\|get <name>\|stub]` | Print the agent guides built into this binary (`velocity skills get cli`) |
 | `version` | Print the version |
+
+## `history flaky`
+
+`velocity history flaky [--file FILE] [--window N] [--max-rate R] [--json]` prints each test's flake rate over its last `N` recorded runs (default 20), sorted worst first:
+
+| Flag | Meaning |
+|---|---|
+| `--file FILE` | History file, or a folder holding `velocity-history.json` (default `./velocity-results/velocity-history.json`, where `velocity run` writes it) |
+| `--window N` | Recent runs per test (default 20) |
+| `--max-rate R` | Fail when any test with at least 5 runs exceeds this rate (default 0.05) |
+| `--json` | Print one JSON object: `{window, maxRate, tests:[{name, runs, flaky, rate}], over:[names]}` |
+
+A test's `runs` is the window's run count, `flaky` the runs that passed only after a retry, and `rate = flaky / runs`. Infrastructure failures are not in the history, so they count in neither. The table marks each test above `--max-rate` with `*`.
+
+Exit 0 when no test with at least 5 runs exceeds `--max-rate`; exit 1 when at least one does (the names are listed under `warning:`); exit 2 when the history file is missing or unreadable. Tests with fewer than 5 runs get a rate but never trip the threshold.
 
 ## `init`
 
