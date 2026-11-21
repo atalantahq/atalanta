@@ -121,6 +121,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 #### MCP and console
 
+- MCP `observe {what: a11y}` (full profile: `audit_accessibility`) audits the current screen with the accessibility rules and names each finding's element by its snapshot ref. Read-only.
 - MCP: 32 tools with read-only/destructive annotations, `--read-only`, `--notify`, `type_text` with `secret:`, session export, protocol versions up to 2025-11-25 and 2026-07-28. [Details](docs/research/changelog-0.2.0-details.md#mcp-added)
 - Console: a mirror with input under the device's lease, an element overlay, flow recording, a Run panel, an Explore panel (steer the agent with *Inject*, then *Save to project*), task history, Diagnostics, and a `/review` page for screenshot baselines.
 

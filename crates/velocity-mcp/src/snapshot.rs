@@ -35,7 +35,7 @@ const MAX_TEXT: usize = 80;
 /// id, or, without an id, its kind, text and label; then which of its
 /// twins it is.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct Identity {
+pub(crate) struct Identity {
     kind: String,
     id: String,
     text: String,
@@ -64,7 +64,7 @@ pub struct Snapshots {
     /// working on whichever device the next command uses.
     pub device: Option<String>,
     next: u64,
-    refs: HashMap<Identity, u64>,
+    pub(crate) refs: HashMap<Identity, u64>,
     /// The last snapshot, by ref number.
     last: Option<BTreeMap<u64, Shown>>,
 }
@@ -260,7 +260,10 @@ fn shown(e: &Element, screen: Option<&Rect>) -> bool {
 }
 
 /// Every shown element with its identity, in tree order.
-fn collect<'a>(tree: &'a Element, screen: Option<&Rect>) -> Vec<(Identity, bool, &'a Element)> {
+pub(crate) fn collect<'a>(
+    tree: &'a Element,
+    screen: Option<&Rect>,
+) -> Vec<(Identity, bool, &'a Element)> {
     fn walk<'a>(e: &'a Element, screen: Option<&Rect>, out: &mut Vec<&'a Element>) {
         if shown(e, screen) {
             out.push(e);
