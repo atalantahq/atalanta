@@ -66,6 +66,7 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
   - Text goes in as `ACTION_SET_TEXT` or as key events (`android.text`).
   - Inputs check focus before typing (`android.focusCheck`).
   - `android.scroll: semantic` uses the list's own scroll action.
+- **Launch arguments** (`launchApp: arguments:`, see [DSL.md](DSL.md#launch-arguments)): intent extras on `am start` (`--es` text, `--ez` true/false, `--ei` or `--el` whole numbers, `--ef` decimals). A launch whose launcher activity can't be resolved would fall back to `monkey`, which can't carry extras, so it is a configuration error instead.
 - **Animations:** turned off on the first launch and restored afterwards, even if Velocity is killed. `android.keepAnimations: 1` leaves them on.
 - **Status bar:** `screenshots.freezeStatusBar` uses SystemUI demo mode. *(Unverified on devices.)*
 - **saveState:** `run-as … tar`, so it needs a debuggable build. Otherwise it uses an emulator snapshot.
@@ -101,6 +102,7 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
   - A target in a list that a bottom bar covers (a toolbar or tab bar, such as iOS 26 Settings' floating search bar) gets its list dragged up once, slowly from the middle of the list, and the tap runs again. Outside a scrolling list it is refused as before.
   - A target behind a sheet, popover, in-app alert or the `PopoverDismissRegion` dimming view is refused. While such a layer is up, the step's lookup tree is read once more with WebDriverAgent's `visible` (the plain read leaves it out: it costs ~10x), so what XCTest reports hidden behind the sheet no longer matches `assertVisible` or a bare selector. The settle's polls never pay for it; `VELOCITY_IOS_SHEET_VISIBILITY=off` turns it off; VelocityRunner is not asked (its `visible` is frame-only). *(Unverified on a simulator.)*
   - A switch that spans its row (a SwiftUI `Toggle` with its label) is tapped at its trailing end, where the knob is. When its value hasn't changed 0.6 s later (the row is mirrored, RTL), its leading end is tapped once. *(Unverified on a simulator.)*
+- **Launch arguments** (`launchApp: arguments:`): passed as `-name value` to `simctl launch`, `devicectl` and WebDriverAgent, booleans as `YES`/`NO`, so the app reads them with `UserDefaults` as Xcode scheme arguments.
 - **Typing:** `ios.text: auto|paste|keys`. A secret (a registered `--secret` or secret-named value) or a secure field is always typed as keys, never put on the simulator's pasteboard, which macOS shares with the Mac.
 - **WebDriverAgent ref:** a ref other than Velocity's pinned tags (`ios.wdaRef` / `VELOCITY_WDA_REF`, which a suite's `config.settings` can set) builds with a warning: its commit is not checked.
 - **`ios.verifyTap`** (opt-in; VelocityRunner only) *(run on an iOS 26 simulator; unverified on real iPhones)*:

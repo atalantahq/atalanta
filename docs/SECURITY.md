@@ -78,7 +78,7 @@ binds `127.0.0.1`.
   `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, and
   `Cache-Control: no-store` on the API. `/review` sends a strict CSP.
 - **Files.** Paths from requests are confined to their directory. Flows are
-  saved under `--flows-dir` as new `.yaml` files only, with relative,
+  saved under `--tests-dir` (once `--flows-dir`) as new `.yaml` files only, with relative,
   normal components and no `..` (`routes/recording.rs`). Suites and plan
   files resolve inside the project directory and symlinks that leave it are
   refused (`console/project.rs::confine`). Task files are confined to the

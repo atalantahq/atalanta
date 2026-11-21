@@ -20,7 +20,7 @@ velocity-cli               the `velocity` binary: argument parsing, commands, ex
 │                          quarantine, result cache, history, leases, reporters
 ├── velocity-core          parser, validator, schema, executor, selector engine, sync, dialogs,
 │                          healing, visual comparison, baselines, traces, impact selection
-│   └── velocity-nl        natural-language steps and goal turns: 19 provider presets over three
+├── velocity-nl            natural-language steps and goal turns: 19 provider presets over three
 │                          wire formats, grounding, cache, `verify:` checker, nl-eval
 ├── velocity-explore       `velocity explore`: the agent loop, the YAML writer, replay and repair
 ├── velocity-doctor        environment checks behind `velocity doctor` and the MCP `diagnose`
@@ -87,7 +87,7 @@ For each step, `TestExecutor` does the following.
    - Dismisses system dialogs, unless the step targets something inside one.
    - Waits for the app to settle. It skips this for `wait`, `screenshot`, `launchApp`/`stopApp`, navigation, `setConfig`, mocks and `settle: none`.
 2. **Find the element** (`find_element_smart`).
-   - Polls the tree with back-off (0, 20, 50, 100, 250, then 500 ms) until the step timeout (`timeoutMs`, else `sync.timeoutMs`, default 10 s).
+   - Polls the tree with back-off (0, 20, 50, 100, 100, 250, then 500 ms, each at most a fifth of the timeout) until the step timeout (`timeoutMs`, else `sync.timeoutMs`, default 10 s).
    - At the deadline it tries one loose match: one part of a merged label, with a warning.
    - Then it tries self-healing once, if healing is allowed.
 3. **Actionability** (`actionability: strict`, the default).
@@ -226,7 +226,7 @@ Heals are written to `.velocity/healed-selectors.json`. `velocity heal --accept`
 
 ## Visual assertions
 
-`assertScreenshot` (`executor.rs`, `visual.rs`, `baselines.rs`):
+`assertScreenshot` (`executor/screenshot.rs`, `visual.rs`, `baselines.rs`):
 
 - **Baselines** are kept at `<suite dir>/velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`, where W×H is the device's full capture.
 - **Capturing.** A first frame that matches passes at once. Otherwise Velocity waits for two identical frames in a row. A screen that never holds still fails and is never written as a baseline.
