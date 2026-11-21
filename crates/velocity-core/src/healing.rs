@@ -873,7 +873,10 @@ fn compute_similarity(
                     if t.to_lowercase().contains(&sub.to_lowercase()) {
                         1.0
                     } else {
-                        string_similarity(sub, t) * 0.7
+                        // A typo inside a longer text ("Netwrok" in "Network
+                        // & internet") is scored against the words it would
+                        // have matched, not the whole text (0.19 before).
+                        (string_similarity(sub, t) * 0.7).max(best_word_window(sub, t) * 0.85)
                     }
                 })
                 .fold(0.0, f64::max);
@@ -1309,6 +1312,20 @@ fn string_similarity(a: &str, b: &str) -> f64 {
     similarity.max(0.0)
 }
 
+/// The best [`string_similarity`] of `sub` with any run of as many
+/// consecutive words of `text` as `sub` has.
+fn best_word_window(sub: &str, text: &str) -> f64 {
+    let n = sub.split_whitespace().count().max(1);
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.len() <= n {
+        return 0.0;
+    }
+    words
+        .windows(n)
+        .map(|w| string_similarity(sub, &w.join(" ")))
+        .fold(0.0, f64::max)
+}
+
 /// 1.0 at the same centre, falling linearly to 0 at `within` pixels
 /// (Similo uses 100 CSS px; mobile coordinates are physical pixels, ~3x).
 fn spatial_similarity_within(a: &Rect, b: &Rect, within: f64) -> f64 {
@@ -1558,6 +1575,25 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_text_contains_typo_is_scored_against_the_words_it_meant() {
+        let row = Element {
+            text: Some("Network & internet".into()),
+            ..Default::default()
+        };
+        let other = Element {
+            text: Some("Assistant, recent apps, default apps".into()),
+            ..Default::default()
+        };
+        let sel = Selector::TextContains("Netwrok".into());
+        let typo = compute_similarity(&sel, None, &row, None, None);
+        let unrelated = compute_similarity(&sel, None, &other, None, None);
+        assert!(typo > 0.55, "{typo}");
+        assert!(unrelated < 0.4, "{unrelated}");
+        // Still far below the heal threshold: a fuzzy word never heals alone.
+        assert!(typo < 0.8, "{typo}");
+    }
 
     #[test]
     fn closest_elements_rank_the_nearest_spelling_first() {

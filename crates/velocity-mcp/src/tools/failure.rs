@@ -172,11 +172,19 @@ fn hint(d: &velocity_core::trace::FailureDescription) -> String {
             "{at}{} found {sel} ({}) but the step still failed; check the error",
             d.step, m.describe
         ),
-        (Some(sel), Some(best), None) => format!(
+        (Some(sel), Some(best), None)
+            if best.score.unwrap_or(0.0) >= velocity_core::trace::RESEMBLES =>
+        {
+            format!(
             "{at}{sel} is not on screen; the closest element is {} (score {:.2}). \
              If that is the intended target, change the selector to it",
             best.describe,
             best.score.unwrap_or(0.0)
+        )
+        }
+        (Some(sel), Some(_), None) => format!(
+            "{at}{sel} is not on screen and nothing on it resembles it closely; \
+             the step most likely ran on a different screen or app than intended"
         ),
         (Some(sel), None, None) if d.tree_elements == 0 => format!(
             "{at}{sel} was not found and no screen tree was recorded (the driver keeps no tree cache)"

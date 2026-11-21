@@ -1444,6 +1444,22 @@ impl<'a> TestExecutor<'a> {
                         None => e,
                     }
                 };
+                // Not found because another app is in front: say which (on
+                // seeded failures, Calendar in front of a Settings suite read
+                // only as "a different screen"). One liveness read, on the
+                // failure path only.
+                let in_front = if matches!(e, VelocityError::ElementNotFound { .. })
+                    && !app_id.is_empty()
+                {
+                    match self.driver.app_liveness(device_id, app_id).await {
+                        velocity_common::Liveness::Background(Some(front)) if front != app_id => {
+                            Some(front)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
                 self.last_failure_infra = is_infrastructure(&e);
                 self.last_failure_crashed = matches!(e, VelocityError::AppCrashed { .. });
                 self.last_failure_kind = Some(e.kind());
@@ -1462,7 +1478,12 @@ impl<'a> TestExecutor<'a> {
                     status: StepStatus::Failed,
                     duration: step_start.elapsed(),
                     screenshot,
-                    error_message: Some(located(step, &e)),
+                    error_message: Some(match in_front {
+                        Some(front) => {
+                            format!("{}; {front} was in front, not {app_id}", located(step, &e))
+                        }
+                        None => located(step, &e),
+                    }),
                     resource_delta: None,
                     settle_ms: Some(self.step_settle_ms),
                     source: step.source.clone(),
