@@ -2147,6 +2147,21 @@ impl PlatformDriver for IosDriver {
         // A new session launches the app itself; launching it again through
         // simctl cost a second cold start.
         if wda.ensure_session(device_id, app_id).await? {
+            drop(wda);
+            // A session for an app the simulator doesn't have still starts
+            // (simctl and WDA's own launch refuse it), and the missing app
+            // then read as "crashed" (Clock on an iOS 26 simulator).
+            if let Err(e) = self
+                .simctl
+                .get_app_container(device_id, app_id, "app")
+                .await
+            {
+                if e.to_string().contains("No such file or directory") {
+                    return Err(VelocityError::Config(format!(
+                        "{app_id} is not installed on simulator {device_id}"
+                    )));
+                }
+            }
             return Ok(());
         }
         // Reused session: `simctl launch`, then wait for the app to be in
@@ -4077,6 +4092,41 @@ mod recovery_tests {
         drop(d);
         assert!(!kept.exists(), "removed with the driver");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Clock on an iOS 26 simulator: WDA opened a session for an app the
+    /// simulator doesn't have, and the missing app then read as "crashed".
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn launching_an_app_the_simulator_does_not_have_says_so() {
+        let f = FakeWda::start(|r| {
+            if r.path == "/status" {
+                return Resp::Json(200, r#"{"value":{"ready":true}}"#.into());
+            }
+            if r.method == "POST" && r.path == "/session" {
+                return ok(r#"{"sessionId":"S1","capabilities":{}}"#);
+            }
+            ok("null")
+        })
+        .await;
+        let dir = std::env::temp_dir().join(format!("velocity-missing-app-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let xcrun = dir.join("xcrun");
+        crate::write_stub(
+            &xcrun,
+            "case \"$*\" in\n*get_app_container*com.apple.mobiletimer*) \
+             echo 'The operation couldn’t be completed. No such file or directory' >&2; exit 2;;\n\
+             *get_app_container*) echo /tmp/x.app;;\nesac\nexit 0",
+        );
+        let mut d = IosDriver::with_wda_url(&f.url);
+        d.simctl = Simctl::with_xcrun(xcrun.to_str().unwrap());
+        let e = d
+            .launch_app(SIM, "com.apple.mobiletimer", false)
+            .await
+            .unwrap_err();
+        assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+        assert!(e.to_string().contains("not installed"), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
