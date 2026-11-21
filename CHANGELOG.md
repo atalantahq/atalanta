@@ -276,6 +276,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- **`failures.md` explains failures with the evidence that shows the cause.** The "Why" quoted any line containing "error" from the whole app log (21 of 25 seeded failures). It now gives the closest element and what the screen shows for a missing element, the expected and actual values for a failed check, the configuration problem, or the error lines logged during the failed step. On 30 seeded failures the cited evidence held the cause in 22 of 25 reports, against 3 before.
 - Launching an app that isn't installed on an iOS simulator is a configuration error naming it; it was reported as "App … crashed: the app's process exited unexpectedly".
 - Real iPhones: `launchApp` arguments reach the app. devicectl read `-name` arguments as its own options (they now follow `--`), and an app already running was only brought to the front, without them.
 - Android: adb losing the device during a `launchApp` with arguments is a device error (retried, moved to another device), not a configuration error. A crash of an app Velocity didn't launch (a link cold-start) is reported again, dated from Velocity's first look.
