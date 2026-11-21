@@ -257,7 +257,7 @@ Run the steps of a flow from `flows:` (by id).
 
 Argument: string or map: `env`?, `flow`?, `flowId`?.
 
-- `env` (map of key to value) - Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value
+- `env` (map of key to value) - Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value. Values are strings, integers or booleans; quote a decimal such as "1.50" so it is typed exactly as written
 - `flow` (string)
 - `flowId` (string)
 
