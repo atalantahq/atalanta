@@ -90,6 +90,7 @@ const READ_ONLY_TOOLS: &[&str] = &[
     "export_session_flow",
     "task_status",
     "inspect_trace",
+    "audit_accessibility",
 ];
 
 /// Tools whose runs can reset app data (`clearState`), install or wipe.
@@ -1091,6 +1092,7 @@ impl McpServer {
                 }
                 "screenshot" => device::screenshot(&self.driver, &device_id, &arguments).await,
                 "snapshot" => self.snapshot(&device_id, &arguments).await,
+                "audit_accessibility" => self.audit_accessibility(&device_id).await,
                 "tap" => interaction::tap(&self.driver, &device_id, &arguments).await,
                 "type_text" => interaction::type_text(&self.driver, &device_id, &arguments).await,
                 "swipe" => interaction::swipe(&self.driver, &device_id, &arguments).await,
@@ -1431,6 +1433,96 @@ impl McpServer {
         self.snapshots.take(&tree, screen.as_ref(), opts)
     }
 
+    /// Row 1.1: an agent asks for an accessibility audit of the current screen.
+    /// Read-only: no device change, allowed under `--read-only`.
+    async fn audit_accessibility(&mut self, device_id: &str) -> Result<Value> {
+        let tree = self.driver.get_hierarchy(device_id).await?;
+        let screen = crate::refs::screen_rect(&self.driver, device_id).await;
+        let platform = self
+            .device_platform(device_id)
+            .await
+            .unwrap_or(velocity_common::Platform::Android);
+        self.recorder.observe(&tree, screen.as_ref());
+
+        let findings: Vec<velocity_common::a11y::Finding> =
+            velocity_common::a11y::audit(&tree, platform, None);
+
+        const MAX: usize = 50;
+        let truncated = findings.len() > MAX;
+        let shown: &[velocity_common::a11y::Finding] = &findings[..findings.len().min(MAX)];
+
+        let mut out = Vec::new();
+        for f in shown {
+            let element = self
+                .element_ref(&f.element, &tree, screen.as_ref())
+                .unwrap_or_else(|| selector_text(&f.element));
+            out.push(serde_json::json!({
+                "severity": f.severity,
+                "rule": f.rule,
+                "element": element,
+                "message": f.message,
+            }));
+        }
+
+        let counts = serde_json::json!({
+            "error": findings.iter().filter(|f| matches!(f.severity, velocity_common::a11y::Severity::Error)).count(),
+            "warning": findings.iter().filter(|f| matches!(f.severity, velocity_common::a11y::Severity::Warning)).count(),
+        });
+
+        let screen_summary = serde_json::json!({
+            "elements": tree.children.len(),
+            "platform": platform,
+        });
+
+        Ok(serde_json::json!({
+            "screen": screen_summary,
+            "findings": out,
+            "counts": counts,
+            "truncated": truncated,
+        }))
+    }
+
+    /// Which ref the session knows `node` under, or `None`. `node` is a clone
+    /// (a finding's element has no children), so match it against the live
+    /// tree by identity of fields rather than by pointer.
+    fn element_ref(
+        &self,
+        node: &velocity_common::Element,
+        tree: &velocity_common::Element,
+        screen: Option<&velocity_common::Rect>,
+    ) -> Option<String> {
+        let matches = |e: &velocity_common::Element| {
+            e.element_type == node.element_type
+                && e.platform_id == node.platform_id
+                && e.text == node.text
+                && e.label == node.label
+                && e.bounds == node.bounds
+        };
+        for (identity, _, e) in crate::snapshot::collect(tree, screen) {
+            if matches(e) {
+                return self.snapshots.refs.get(&identity).map(|r| format!("@e{r}"));
+            }
+        }
+        None
+    }
+}
+
+/// The selector for `node` on `tree`, as a short text: id, text, label, or
+/// element type — what an agent can act on instead of a ref.
+fn selector_text(node: &velocity_common::Element) -> String {
+    if !node.platform_id.is_empty() {
+        return format!("id={}", node.platform_id);
+    }
+    if let Some(t) = node.text.as_deref().filter(|t| !t.is_empty()) {
+        return format!("text={t}");
+    }
+    if let Some(l) = node.label.as_deref().filter(|l| !l.is_empty()) {
+        return format!("label={l}");
+    }
+    node.element_type.clone()
+}
+
+impl McpServer {
     /// The `velocity` binary tasks run (default: this executable).
     fn program(&self) -> Result<std::path::PathBuf> {
         match &self.velocity_bin {
@@ -2491,6 +2583,11 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
         "description": "Selector (e.g. {\"id\": \"login\"}, {\"text\": \"Sign in\"})"
     });
     vec![
+        def(
+            "audit_accessibility",
+            "Accessibility audit of the current screen (the rules of config.accessibility.audit): findings with severity, rule, the element's ref (or selector) and a message, at most 50, and counts. Read-only.",
+            serde_json::json!({ "type": "object", "properties": {} }),
+        ),
         def(
             "verify_change",
             "Check on the device that a change does what it says, with PR evidence: replays a saved test (no model), else explores and saves a trusted one. Background: poll run {task_id}; its summary has the verdict and evidence folder.",
@@ -3616,6 +3713,48 @@ mod t2_tests {
       <EditText android:id="@+id/email" android:layout_width="200dp" android:layout_height="48dp"/>
       <Button android:id="@+id/go" android:layout_width="200dp" android:layout_height="48dp" android:text="Continue"/>
     "#;
+
+    // An agent audits the screen it is looking at: findings point at the
+    // refs of the session's snapshot, and the core `observe {what: a11y}`
+    // runs the same audit.
+    #[tokio::test]
+    async fn the_accessibility_audit_names_the_snapshot_refs() {
+        let (mut s, _dir) = launched(FORM).await;
+        let full = text(&call(&mut s, "snapshot", serde_json::json!({})).await);
+        let email = full
+            .lines()
+            .find(|l| l.contains("#email"))
+            .and_then(|l| l.split_whitespace().next())
+            .unwrap()
+            .to_string();
+        let out = call(&mut s, "audit_accessibility", serde_json::json!({})).await;
+        assert!(out.get("isError").is_none(), "{out}");
+        let v: Value = serde_json::from_str(&text(&out)).unwrap();
+        let field = v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["rule"] == "field-unlabeled")
+            .unwrap_or_else(|| panic!("the unlabelled email field: {v}"));
+        assert_eq!(field["element"], email.as_str(), "{v}");
+        assert!(v["counts"]["error"].as_u64().unwrap() >= 1, "{v}");
+        assert_eq!(v["truncated"], false);
+        // Nothing recorded: an audit doesn't add to the exported session.
+        let flow = call(
+            &mut s,
+            "export_session_flow",
+            serde_json::json!({ "app_id": "com.app" }),
+        )
+        .await;
+        assert!(!text(&flow).contains("field-unlabeled"), "{flow}");
+
+        // The core profile's observe {what: a11y} is the same audit.
+        let (s2, _dir2) = launched(FORM).await;
+        let mut s2 = s2.profile(crate::profile::Profile::Core);
+        let core = call(&mut s2, "observe", serde_json::json!({ "what": "a11y" })).await;
+        assert!(core.get("isError").is_none(), "{core}");
+        assert!(text(&core).contains("field-unlabeled"), "{core}");
+    }
 
     // ENT-105 (row 0.5): the core profile lists five tools, four running the
     // full tool it stands for; `act` returns what changed on screen.

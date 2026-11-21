@@ -189,6 +189,9 @@ Scroll the content `direction` (`down` shows what is below; default `down`). Wit
 ### `get_screen_summary`
 A short summary of the screen: its title, visible text, interactive elements and navigation state. It uses fewer tokens than `list_elements`. Read-only.
 
+### `audit_accessibility`
+The accessibility audit (the rules `config.accessibility.audit` runs during a test) on the current screen: each finding's severity, rule, the element's ref from the session's last snapshot (else a short selector) and message, at most 50 (`truncated: true` past that), and the counts per severity. In the core profile it is `observe {what: a11y}`. Read-only.
+
 ### `wait_for_element`
 Wait until an element matching `selector` is visible, up to `timeout_ms` (checked every `poll_interval_ms`). Read-only.
 
