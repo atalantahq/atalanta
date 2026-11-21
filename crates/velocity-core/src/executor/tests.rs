@@ -3614,6 +3614,37 @@ impl PlatformDriver for StateKeeping {
     }
 }
 
+/// SUNMI tablet, 2026-11-21: a configuration error (launch arguments a
+/// driver doesn't take) was reported as "App ... crashed", because the
+/// crash lookup found an older crash. A configuration error stays one.
+#[tokio::test]
+async fn a_configuration_error_is_never_reported_as_a_crash() {
+    let driver = StateKeeping(
+        ScriptDriver::new(vec![node("p", "Pay", 0)]),
+        std::sync::atomic::AtomicBool::new(false),
+    );
+    let mut args = velocity_common::LaunchArgs::default();
+    args.inner
+        .insert("isE2E".into(), velocity_common::LaunchArg::Bool(true));
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(
+            &test_case(vec![step(Action::LaunchApp {
+                app_id: String::new(),
+                clear_state: false,
+                arguments: args,
+            })]),
+            "d",
+            "app",
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Failed);
+    let msg = r.error_message.unwrap_or_default();
+    assert!(msg.contains("not supported"), "{msg}");
+    assert!(!msg.contains("crashed"), "{msg}");
+}
+
 /// fi56 (review MINOR): after a crash, `restoreState` (which touches
 /// no UI and stops the app on purpose) failed at once with the crash,
 /// so a restore-and-relaunch recovery couldn't run.

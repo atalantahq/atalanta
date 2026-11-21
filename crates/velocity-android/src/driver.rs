@@ -1380,13 +1380,15 @@ impl PlatformDriver for AndroidDriver {
 
     async fn crash_report(&self, device_id: &str, app_id: &str) -> Option<String> {
         shell::validate_app_id(app_id).ok()?;
+        // No launch of ours to date it from: the crash buffer would hand
+        // back whatever crashed earlier (on a SUNMI tablet, 2026-11-21, a
+        // crash from an hour before turned a config error into "crashed").
         let launch = self
             .launches
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&(device_id.to_string(), app_id.to_string()))
-            .cloned()
-            .unwrap_or_default();
+            .cloned()?;
         // The crash log since the launch: one adb call, on every poll.
         if let Some(crash) = self.crash_from_logcat(device_id, app_id, &launch).await {
             return Some(crash);

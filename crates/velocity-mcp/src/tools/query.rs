@@ -148,11 +148,8 @@ pub async fn assert_visible(
     // `timeout_ms` (default 0: check now) waits for it first, as
     // `velocity assert --timeout` asks; the check below then reports it.
     if u64_arg(args, "timeout_ms")?.unwrap_or(0) > 0 {
-        match wait_for_element(driver, device_id, args).await {
-            Ok(_) => {}
-            Err(e) if e.kind() == velocity_common::ErrorKind::ElementNotFound => {}
-            Err(e) => return Err(e),
-        }
+        // Its not-found names the time it waited ("after 3000ms").
+        wait_for_element(driver, device_id, args).await?;
     }
 
     let element = super::interaction::find_live(driver, device_id, &selector).await?;
@@ -584,6 +581,7 @@ mod wait_tests {
         });
         let e = assert_visible(&d, "headless", &waits).await.unwrap_err();
         assert!(start.elapsed() >= Duration::from_millis(600), "{e}");
+        assert!(e.to_string().contains("after 600ms"), "{e}");
     }
 
     // VEL-245: a wrong-typed number is reported, not silently the default.
