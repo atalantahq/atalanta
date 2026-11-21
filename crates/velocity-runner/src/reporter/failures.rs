@@ -154,6 +154,13 @@ fn after(text: &str, marker: &str) -> Option<String> {
     Some(rest.trim_start_matches(':').trim().to_string())
 }
 
+/// The `X` and `Y` of the executor's `; X was in front, not Y` note.
+fn in_front(text: &str) -> Option<(String, String)> {
+    let (_, rest) = text.rsplit_once("; ")?;
+    let (front, ours) = rest.split_once(" was in front, not ")?;
+    (!front.is_empty() && !ours.is_empty()).then(|| (front.to_string(), ours.trim().to_string()))
+}
+
 /// The `X` and `Y` from `expected "X", got "Y"` in `text`.
 fn assertion_values(text: &str) -> Option<(String, String)> {
     let lower = text.to_ascii_lowercase();
@@ -245,9 +252,28 @@ fn explanation(ctx: &ExplanationCtx) -> (String, bool) {
     let not_found = lower.contains("not found")
         || lower.contains("not visible")
         || lower.contains("no element");
+    // The executor's note when another app was in front: "...; X was in
+    // front, not Y".
+    if let Some((front, ours)) = not_found.then(|| in_front(error)).flatten() {
+        let mut why = format!("another app was in front: {front}, not the app under test ({ours})");
+        if let Some(p) = &ctx.shot {
+            let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
+        }
+        let _ = write!(why, "; the step looked for its element in that app.");
+        if let Some((trace, trees, _)) = &ctx.description {
+            if let Some(texts) = screen_texts(trees, trace) {
+                let _ = write!(why, " The screen shows: {texts}.");
+            }
+        }
+        return (why, true);
+    }
     if let Some((trace, trees, d)) = &ctx.description {
         if not_found && d.selector.is_some() && d.matched.is_none() {
-            if let Some(best) = d.closest.first() {
+            if let Some(best) = d
+                .closest
+                .first()
+                .filter(|b| b.score.unwrap_or(0.0) >= velocity_core::trace::RESEMBLES)
+            {
                 let mut why = format!(
                     "`{}` is not on the screen it saw",
                     d.selector.as_deref().unwrap_or("")
@@ -265,7 +291,7 @@ fn explanation(ctx: &ExplanationCtx) -> (String, bool) {
                     let _ = write!(why, " The screen shows: {texts}.");
                 }
                 return (why, true);
-            } else if d.tree_elements > 0 {
+            } else if d.tree_elements > 0 || !d.closest.is_empty() {
                 let mut why = format!(
                     "`{}` is not on the screen it saw, and nothing on it resembles it",
                     d.selector.as_deref().unwrap_or("")
@@ -613,6 +639,126 @@ mod tests {
     }
 
     #[test]
+    fn a_weak_match_is_not_offered_as_the_target() {
+        let d = tempfile::tempdir().unwrap();
+        let tree = Element {
+            platform_id: "root".into(),
+            element_type: "hierarchy".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 800,
+            },
+            children: vec![
+                Element {
+                    platform_id: "wifi".into(),
+                    text: Some("Wi-Fi".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 100,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "gen".into(),
+                    text: Some("General".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 200,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "priv".into(),
+                    text: Some("Privacy".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 300,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let hash = velocity_core::trace::tree_hash(&tree);
+        let trace = TestTrace {
+            version: 1,
+            test: "traced".into(),
+            device: "d".into(),
+            platform: Some(velocity_common::Platform::Android),
+            attempt: 0,
+            status: TestStatus::Failed,
+            steps: vec![StepTrace {
+                index: 0,
+                label: "tap".into(),
+                start_ms: 1000,
+                selector: Some(Selector::Text("Airplane mode".into())),
+                source: None,
+                status: Some(StepStatus::Failed),
+                duration_ms: 200,
+                settle_ms: 0,
+                settle_reads: 0,
+                matched: None,
+                nearest: vec![],
+                heals: vec![],
+                warnings: vec![],
+                trees: vec![hash.clone()],
+                error: Some("Element not found".into()),
+                screenshot: Some(d.path().join("shots/t.png")),
+            }],
+            evidence: Some(TraceEvidence {
+                video: None,
+                video_offset_ms: None,
+                screencast: None,
+                logs: vec![],
+                log_lines: Some("logs.json".into()),
+                notes: vec![],
+            }),
+        };
+        // The step ran 1000-1200 ms. A path with `e/` (counted as an error
+        // before), an error outside the step, and one inside it from another
+        // app: none is the cause, and none is printed under this Why.
+        let logs = [
+            LogLine {
+                t: 1100,
+                level: 'I',
+                text: "constructing bundle record for file:///x/simruntime/Applications/y".into(),
+            },
+            LogLine {
+                t: 5000,
+                level: 'E',
+                text: "outside the step window".into(),
+            },
+            LogLine {
+                t: 1150,
+                level: 'F',
+                text: "another app: Fatal signal 6 (SIGABRT)".into(),
+            },
+        ];
+        let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &logs);
+        let t = trace_test_result("Element not found: text=\"Airplane mode\"", path);
+        let md = render(&suite(vec![t]), d.path());
+        // Nothing on a screen of Wi-Fi, General, Privacy resembles
+        // "Airplane mode": the report says so instead of suggesting one.
+        assert!(!md.contains("closest element"), "{md}");
+        assert!(md.contains("nothing on it resembles it"), "{md}");
+        assert!(
+            md.contains("The screen shows: `Wi-Fi`, `General`, `Privacy`."),
+            "{md}"
+        );
+    }
+
+    #[test]
     fn logged_error_inside_window_cites_the_block_only() {
         let d = tempfile::tempdir().unwrap();
         let tree = Element {
@@ -695,6 +841,23 @@ mod tests {
         let md = render(&suite(vec![t]), d.path());
         assert!(
             md.contains("the check ran and failed: expected Information, got About."),
+            "{md}"
+        );
+    }
+
+    #[test]
+    fn another_app_in_front_is_named() {
+        let d = tempfile::tempdir().unwrap();
+        let t = failed(
+            "front",
+            "assertVisible: Element not found: text=\"Network\" after 10000ms; \
+             com.google.android.calendar was in front, not com.android.settings",
+        );
+        let md = render(&suite(vec![t]), d.path());
+        assert!(
+            md.contains(
+                "another app was in front: com.google.android.calendar, not the app under test (com.android.settings)"
+            ),
             "{md}"
         );
     }

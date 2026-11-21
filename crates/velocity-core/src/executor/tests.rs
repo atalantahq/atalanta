@@ -5027,3 +5027,48 @@ async fn a_timed_out_exec_takes_its_children_down_with_it() {
     }
     assert!(!alive, "the script's child {pid} outlived the step");
 }
+
+/// Seeded failures: Calendar in front of a Settings suite read only as "not
+/// found". The failure names the app that was in front.
+#[tokio::test]
+async fn a_missing_element_names_the_app_in_front() {
+    let driver = with_liveness(
+        ScriptDriver::new(vec![node("p", "Pay", 0)]),
+        velocity_common::Liveness::Background(Some("com.google.android.calendar".into())),
+    );
+    let mut ex = TestExecutor::new(&driver, config(300), "com.android.settings");
+    let r = ex
+        .execute_test(
+            &test_case(vec![step(Action::AssertVisible {
+                selector: Selector::Text("Network".into()),
+            })]),
+            "d",
+            "com.android.settings",
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Failed);
+    let err = r.steps[0].error_message.clone().unwrap_or_default();
+    assert!(
+        err.contains("com.google.android.calendar was in front, not com.android.settings"),
+        "{err}"
+    );
+    // With the app itself in front, nothing is added.
+    let driver = with_liveness(
+        ScriptDriver::new(vec![node("p", "Pay", 0)]),
+        velocity_common::Liveness::Foreground,
+    );
+    let mut ex = TestExecutor::new(&driver, config(300), "com.android.settings");
+    let r = ex
+        .execute_test(
+            &test_case(vec![step(Action::AssertVisible {
+                selector: Selector::Text("Network".into()),
+            })]),
+            "d",
+            "com.android.settings",
+        )
+        .await
+        .unwrap();
+    let err = r.steps[0].error_message.clone().unwrap_or_default();
+    assert!(!err.contains("was in front"), "{err}");
+}

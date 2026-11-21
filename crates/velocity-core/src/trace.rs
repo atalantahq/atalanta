@@ -665,6 +665,11 @@ pub struct FailureDescription {
     pub tree_elements: usize,
 }
 
+/// Below this score a closest element is not offered as the step's
+/// intended target: on 30 seeded failures the misspelled targets scored
+/// 0.57-0.86 and the unrelated rows of a wrong screen 0.19-0.42.
+pub const RESEMBLES: f64 = 0.5;
+
 /// Describe the failed step of a trace. `None` if no step failed.
 pub fn describe_failure(
     trace: &TestTrace,
