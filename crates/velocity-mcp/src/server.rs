@@ -657,6 +657,11 @@ impl McpServer {
             self.snapshots = snaps;
             self.snapshots.platform = self.snapshots.platform.or(platform);
         }
+        // The recording belongs to the device too: steps from another one
+        // (an iPhone's, then an Android launch) would export as one suite.
+        if reset_device {
+            return;
+        }
         if let Ok(r) = serde_json::from_value(state["recorder"].clone()) {
             let platform = self.recorder.platform;
             self.recorder = Recorder::from_state(r);
@@ -3923,6 +3928,61 @@ mod t2_tests {
         let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
         velocity_core::validate_suite(&suite).unwrap();
         assert_eq!(v["steps"], 2, "{yaml}");
+    }
+
+    // SUNMI tablet, 2026-11-21: after a device switch the session still
+    // held the other device's recorded steps, so an export mixed them.
+    #[tokio::test]
+    async fn a_device_switch_starts_a_fresh_recording() {
+        let (dir, _layout) = launched_layout(FORM).await;
+        let mut a = McpServer::new(
+            launched_driver_on(&dir, "iphone").await,
+            "iphone".into(),
+            None,
+        )
+        .with_platform(velocity_common::Platform::Ios);
+        let full = text(&call(&mut a, "snapshot", serde_json::json!({})).await);
+        let email = full
+            .lines()
+            .find(|l| l.contains("#email"))
+            .and_then(|l| l.split_whitespace().next())
+            .unwrap()
+            .to_string();
+        let typed = call(
+            &mut a,
+            "type_text",
+            serde_json::json!({ "ref": email, "text": "qa@velocity.dev" }),
+        )
+        .await;
+        assert!(typed.get("isError").is_none(), "{typed}");
+        let state = a.save_state();
+
+        // Same device: the step is still there.
+        let mut same = McpServer::new(
+            launched_driver_on(&dir, "iphone").await,
+            "iphone".into(),
+            None,
+        )
+        .with_platform(velocity_common::Platform::Ios);
+        same.load_state(&state, "iphone");
+        let exp = serde_json::json!({ "app_id": "com.app" });
+        let out = call(&mut same, "export_session_flow", exp.clone()).await;
+        let v: Value = serde_json::from_str(&text(&out)).unwrap();
+        assert_eq!(v["steps"], 1, "{v}");
+        // Another device: nothing recorded there yet.
+        let mut b = McpServer::new(
+            launched_driver_on(&dir, "emulator-5554").await,
+            "emulator-5554".into(),
+            None,
+        )
+        .with_platform(velocity_common::Platform::Android);
+        b.load_state(&state, "emulator-5554");
+        let out = call(&mut b, "export_session_flow", exp).await;
+        assert!(
+            !text(&out).contains("qa@velocity.dev"),
+            "the iPhone's step is not exported from the Android session: {out}"
+        );
+        drop(dir);
     }
 
     // A session's snapshot state is keyed by device: refs and the delta
