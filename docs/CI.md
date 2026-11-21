@@ -158,6 +158,16 @@ jobs:
           path: merged/velocity-history.json
 ```
 
+### Rolling flake rate
+
+After the merge, gate on each test's flake rate so a creeping flake fails the pipeline:
+
+```yaml
+      - run: velocity history flaky --file merged/velocity-history.json --max-rate 0.05
+```
+
+`velocity history flaky` prints each test's rate over its last 20 runs (`--window`), sorted worst first, marks tests above `--max-rate` with `*`, and exits 1 when any test with at least 5 runs exceeds it — a CI gate without devices. Tests with fewer than 5 runs get a rate but never trip the threshold. Use `--json` to feed the result to another step.
+
 ## Cancelled and timed-out jobs
 
 - SIGTERM (a cancelled job) exits 143, SIGINT 130 and SIGHUP 129. The
