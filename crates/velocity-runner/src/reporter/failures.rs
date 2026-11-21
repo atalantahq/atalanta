@@ -154,6 +154,99 @@ fn after(text: &str, marker: &str) -> Option<String> {
     Some(rest.trim_start_matches(':').trim().to_string())
 }
 
+/// The text a `text=`, `textContains=` or `accessibilityId=` selector looks
+/// for, and whether it is a substring match. Other selectors: `None`.
+fn selector_text(sel: &str) -> Option<(bool, String)> {
+    let (kind, value) = sel.split_once('=')?;
+    let value = value.trim().trim_matches('"');
+    if value.is_empty() {
+        return None;
+    }
+    match kind.trim() {
+        "text" | "accessibilityId" => Some((false, value.to_string())),
+        "textContains" => Some((true, value.to_string())),
+        _ => None,
+    }
+}
+
+/// Edit distance, by characters.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut cur = vec![i + 1; b.len() + 1];
+        for (j, cb) in b.iter().enumerate() {
+            cur[j + 1] = (prev[j] + usize::from(ca != *cb))
+                .min(prev[j + 1] + 1)
+                .min(cur[j] + 1);
+        }
+        prev = cur;
+    }
+    prev[b.len()]
+}
+
+/// `wanted` is a misspelling of `shown` (or, for `contains`, of a run of its
+/// words): different, but within two edits (one under 4 characters).
+fn near_spelling(wanted: &str, shown: &str, contains: bool) -> bool {
+    let w = wanted.to_lowercase();
+    let close = |s: &str| {
+        let s = s.to_lowercase();
+        if s == w {
+            return false;
+        }
+        // At most two edits (one under 4 characters): a quarter of the
+        // length let "Battery usage" pass for "Battery Saver" (3 edits).
+        let limit = if w.chars().count() < 4 { 1 } else { 2 };
+        levenshtein(&w, &s) <= limit
+    };
+    if close(shown) {
+        return true;
+    }
+    if !contains {
+        return false;
+    }
+    let k = w.split_whitespace().count().max(1);
+    let words: Vec<&str> = shown.split_whitespace().collect();
+    words.len() > k && words.windows(k).any(|win| close(&win.join(" ")))
+}
+
+/// The latest step before the failed one whose screen held `wanted` (by
+/// text or label; a substring for `contains`), as its 1-based number and
+/// label.
+fn seen_earlier(
+    trace: &TestTrace,
+    trees: &HashMap<String, Element>,
+    wanted: &str,
+    contains: bool,
+) -> Option<(usize, String)> {
+    fn holds(el: &Element, w: &str, contains: bool) -> bool {
+        [el.text.as_deref(), el.label.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|t| {
+                let t = t.to_lowercase();
+                if contains {
+                    t.contains(w)
+                } else {
+                    t == w
+                }
+            })
+            || el.children.iter().any(|c| holds(c, w, contains))
+    }
+    let w = wanted.to_lowercase();
+    let pos = trace
+        .steps
+        .iter()
+        .rposition(|s| s.status == Some(StepStatus::Failed))?;
+    trace.steps[..pos].iter().rev().find_map(|s| {
+        s.trees
+            .iter()
+            .filter_map(|h| trees.get(h))
+            .any(|t| holds(t, &w, contains))
+            .then(|| (s.index + 1, s.label.clone()))
+    })
+}
+
 /// The `X` and `Y` of the executor's `; X was in front, not Y` note.
 fn in_front(text: &str) -> Option<(String, String)> {
     let (_, rest) = text.rsplit_once("; ")?;
@@ -269,40 +362,47 @@ fn explanation(ctx: &ExplanationCtx) -> (String, bool) {
     }
     if let Some((trace, trees, d)) = &ctx.description {
         if not_found && d.selector.is_some() && d.matched.is_none() {
-            if let Some(best) = d
-                .closest
-                .first()
-                .filter(|b| b.score.unwrap_or(0.0) >= velocity_core::trace::RESEMBLES)
-            {
-                let mut why = format!(
-                    "`{}` is not on the screen it saw",
-                    d.selector.as_deref().unwrap_or("")
-                );
-                if let Some(p) = &d.screenshot {
-                    let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
-                }
+            let sel = d.selector.as_deref().unwrap_or("");
+            let mut why = format!("`{sel}` is not on the screen it saw");
+            if let Some(p) = &d.screenshot {
+                let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
+            }
+            let wanted = selector_text(sel);
+            // 1. A near-spelling of it is on screen: a typo in the selector.
+            let typo = wanted.as_ref().and_then(|(contains, v)| {
+                d.closest.iter().find(|c| {
+                    [c.text.as_deref(), c.label.as_deref()]
+                        .into_iter()
+                        .flatten()
+                        .any(|t| near_spelling(v, t, *contains))
+                })
+            });
+            // 2. It was on an earlier step's screen: the test left that
+            // screen and still expected it.
+            let earlier = wanted
+                .as_ref()
+                .and_then(|(contains, v)| seen_earlier(trace, trees, v, *contains));
+            if let Some(best) = typo {
                 let _ = write!(
                     why,
-                    "; the closest element is {} (score {:.02}). If that is the target, change the selector to it; otherwise the step ran on a different screen than intended.",
+                    "; the selector is most likely misspelled: {} is on that screen (score {:.02}). Change the selector to it.",
                     best.describe,
                     best.score.unwrap_or(0.0)
                 );
-                if let Some(texts) = screen_texts(trees, trace) {
-                    let _ = write!(why, " The screen shows: {texts}.");
-                }
-                return (why, true);
-            } else if d.tree_elements > 0 || !d.closest.is_empty() {
-                let mut why = format!(
-                    "`{}` is not on the screen it saw, and nothing on it resembles it",
-                    d.selector.as_deref().unwrap_or("")
-                );
-                if let Some(p) = &d.screenshot {
-                    let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
-                }
+            } else if let Some((step, label)) = earlier {
                 let _ = write!(
                     why,
-                    "; the step most likely ran on a different screen or app than intended."
+                    ", but it was on the screen at step {step} (`{label}`): a later step left that screen, and this step still expected it."
                 );
+            } else if d.tree_elements > 0 || !d.closest.is_empty() {
+                let _ = write!(
+                    why,
+                    ", and nothing on it is a near-spelling of it; the step most likely ran on a different screen or app than intended."
+                );
+            } else {
+                why.clear();
+            }
+            if !why.is_empty() {
                 if let Some(texts) = screen_texts(trees, trace) {
                     let _ = write!(why, " The screen shows: {texts}.");
                 }
@@ -625,7 +725,14 @@ mod tests {
         let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &logs);
         let t = trace_test_result("Element not found: text=\"Genral\"", path);
         let md = render(&suite(vec![t]), d.path());
-        assert!(md.contains("closest element is text=\"General\""), "{md}");
+        // A near-spelling is on screen: a typo, said without hedging.
+        assert!(
+            md.contains(
+                "the selector is most likely misspelled: text=\"General\" is on that screen"
+            ),
+            "{md}"
+        );
+        assert!(!md.contains("If that is the target"), "{md}");
         assert!(
             md.contains("The screen shows: `Wi-Fi`, `General`, `Privacy`."),
             "{md}"
@@ -750,12 +857,182 @@ mod tests {
         let md = render(&suite(vec![t]), d.path());
         // Nothing on a screen of Wi-Fi, General, Privacy resembles
         // "Airplane mode": the report says so instead of suggesting one.
-        assert!(!md.contains("closest element"), "{md}");
-        assert!(md.contains("nothing on it resembles it"), "{md}");
+        assert!(!md.contains("misspelled"), "{md}");
+        assert!(!md.contains("Change the selector"), "{md}");
+        assert!(
+            md.contains("nothing on it is a near-spelling of it; the step most likely ran on a different screen"),
+            "{md}"
+        );
         assert!(
             md.contains("The screen shows: `Wi-Fi`, `General`, `Privacy`."),
             "{md}"
         );
+    }
+
+    #[test]
+    fn a_target_that_was_on_an_earlier_screen_is_said_so() {
+        let d = tempfile::tempdir().unwrap();
+        let tree = Element {
+            platform_id: "root".into(),
+            element_type: "hierarchy".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 800,
+            },
+            children: vec![
+                Element {
+                    platform_id: "wifi".into(),
+                    text: Some("Wi-Fi".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 100,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "gen".into(),
+                    text: Some("General".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 200,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "priv".into(),
+                    text: Some("Privacy".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 300,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let hash = velocity_core::trace::tree_hash(&tree);
+        let before = Element {
+            platform_id: "root".into(),
+            element_type: "hierarchy".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 800,
+            },
+            children: vec![Element {
+                platform_id: "air".into(),
+                text: Some("Airplane mode".into()),
+                visible: true,
+                bounds: Rect {
+                    x: 10,
+                    y: 100,
+                    width: 200,
+                    height: 40,
+                },
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let before_hash = velocity_core::trace::tree_hash(&before);
+        let trace = TestTrace {
+            version: 1,
+            test: "traced".into(),
+            device: "d".into(),
+            platform: Some(velocity_common::Platform::Android),
+            attempt: 0,
+            status: TestStatus::Failed,
+            steps: vec![
+                StepTrace {
+                    index: 0,
+                    label: "pressKey: back".into(),
+                    start_ms: 500,
+                    selector: None,
+                    source: None,
+                    status: Some(StepStatus::Passed),
+                    duration_ms: 100,
+                    settle_ms: 0,
+                    settle_reads: 0,
+                    matched: None,
+                    nearest: vec![],
+                    heals: vec![],
+                    warnings: vec![],
+                    trees: vec![before_hash.clone()],
+                    error: None,
+                    screenshot: None,
+                },
+                StepTrace {
+                    index: 1,
+                    label: "tap".into(),
+                    start_ms: 1000,
+                    selector: Some(Selector::Text("Airplane mode".into())),
+                    source: None,
+                    status: Some(StepStatus::Failed),
+                    duration_ms: 200,
+                    settle_ms: 0,
+                    settle_reads: 0,
+                    matched: None,
+                    nearest: vec![],
+                    heals: vec![],
+                    warnings: vec![],
+                    trees: vec![hash.clone()],
+                    error: Some("Element not found".into()),
+                    screenshot: Some(d.path().join("shots/t.png")),
+                },
+            ],
+            evidence: Some(TraceEvidence {
+                video: None,
+                video_offset_ms: None,
+                screencast: None,
+                logs: vec![],
+                log_lines: Some("logs.json".into()),
+                notes: vec![],
+            }),
+        };
+        // The step ran 1000-1200 ms. A path with `e/` (counted as an error
+        // before), an error outside the step, and one inside it from another
+        // app: none is the cause, and none is printed under this Why.
+        let logs = [
+            LogLine {
+                t: 1100,
+                level: 'I',
+                text: "constructing bundle record for file:///x/simruntime/Applications/y".into(),
+            },
+            LogLine {
+                t: 5000,
+                level: 'E',
+                text: "outside the step window".into(),
+            },
+            LogLine {
+                t: 1150,
+                level: 'F',
+                text: "another app: Fatal signal 6 (SIGABRT)".into(),
+            },
+        ];
+        let path = trace_fixture(
+            &d,
+            &trace,
+            &HashMap::from([(hash.clone(), tree), (before_hash.clone(), before)]),
+            &logs,
+        );
+        let t = trace_test_result("Element not found: text=\"Airplane mode\"", path);
+        let md = render(&suite(vec![t]), d.path());
+        assert!(
+            md.contains("but it was on the screen at step 1 (`pressKey: back`): a later step left that screen"),
+            "{md}"
+        );
+        assert!(!md.contains("different screen or app"), "{md}");
     }
 
     #[test]
@@ -843,6 +1120,30 @@ mod tests {
             md.contains("the check ran and failed: expected Information, got About."),
             "{md}"
         );
+    }
+
+    #[test]
+    fn near_spellings_are_typos_and_other_rows_are_not() {
+        assert!(near_spelling("Genral", "General", false));
+        assert!(near_spelling("Abuot", "About", false));
+        assert!(near_spelling(
+            "Share My Locaton",
+            "Share My Location",
+            false
+        ));
+        assert!(near_spelling("Netwrok", "Network & internet", true));
+        // The same text is no typo, and unrelated rows are not near.
+        assert!(!near_spelling("General", "General", false));
+        assert!(!near_spelling("Larger Text", "Hover Text", false));
+        assert!(!near_spelling("Battery usage", "Battery Saver", false));
+        assert!(!near_spelling("4K at 24 FPS", "1080p at 240 FPS", false));
+        // Short text allows one edit only.
+        assert!(near_spelling("Wi-Fy", "Wi-Fi", false));
+        assert_eq!(
+            selector_text("textContains=\"Netwrok\""),
+            Some((true, "Netwrok".to_string()))
+        );
+        assert_eq!(selector_text("id=\"x\""), None);
     }
 
     #[test]
