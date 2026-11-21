@@ -4,16 +4,32 @@ use velocity_common::{Action, Flow, Result, Step, TestCase, TestSuite, VelocityE
 
 pub fn resolve_flows(suite: &TestSuite) -> Result<Vec<TestCase>> {
     let flow_map: HashMap<&str, &Flow> = suite.flows.iter().map(|f| (f.id.as_str(), f)).collect();
+    let names = crate::env::flow_param_names(suite);
 
     suite
         .tests
         .iter()
-        .map(|test| resolve_test_case(test, &flow_map))
+        .map(|test| resolve_test_case(test, &flow_map, &names))
         .collect()
 }
 
-fn resolve_test_case(test: &TestCase, flow_map: &HashMap<&str, &Flow>) -> Result<TestCase> {
-    let resolved_steps = resolve_steps(&test.steps, flow_map, &test.name, &mut Vec::new(), &mut 0)?;
+fn resolve_test_case(
+    test: &TestCase,
+    flow_map: &HashMap<&str, &Flow>,
+    names: &std::collections::BTreeSet<String>,
+) -> Result<TestCase> {
+    let params = Params {
+        values: HashMap::new(),
+        names: names.clone(),
+    };
+    let resolved_steps = resolve_steps(
+        &test.steps,
+        flow_map,
+        &test.name,
+        &mut Vec::new(),
+        &mut 0,
+        &params,
+    )?;
     Ok(TestCase {
         name: test.name.clone(),
         tags: test.tags.clone(),
@@ -33,21 +49,62 @@ const MAX_FLOW_DEPTH: usize = 32;
 /// expanded to tens of millions and needed 1.5 GB: VEL-209).
 const MAX_EXPANDED_STEPS: usize = 100_000;
 
+/// The parameter names `step` uses that `params` has no value for.
+fn missing_params(step: &Step, params: &Params) -> String {
+    let text = format!("{:?}", step.action);
+    params
+        .names
+        .iter()
+        .filter(|n| !params.values.contains_key(*n) && text.contains(&format!("${{{n}}}")))
+        .map(|n| format!("${{{n}}}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The `runFlow: { env }` parameters in force while a flow's steps are
+/// inlined: this call's, on top of its caller's, and every parameter name
+/// the suite uses (a flow step naming one this call didn't pass is an error,
+/// never a literal `${NAME}` typed into the app).
+#[derive(Default)]
+struct Params {
+    values: HashMap<String, String>,
+    names: std::collections::BTreeSet<String>,
+}
+
 /// Inline `runFlow` steps. `stack` holds the flows being expanded: a flow
 /// that (indirectly) runs itself is an error, not a stack overflow.
-/// `blocks` numbers the test's optional `runFlow` blocks.
+/// `blocks` numbers the test's optional `runFlow` blocks. Inside a flow,
+/// each step gets `params` filled in, so a call's parameters reach its flow
+/// (and the flows it runs) and nothing else.
 fn resolve_steps<'a>(
     steps: &[Step],
     flow_map: &HashMap<&str, &'a Flow>,
     test_name: &str,
     stack: &mut Vec<&'a str>,
     blocks: &mut u32,
+    params: &Params,
 ) -> Result<Vec<Step>> {
     let mut resolved = Vec::new();
 
     for step in steps {
+        // Inside a flow: this call's parameters (the runFlow steps here too,
+        // so a nested call's values can use them).
+        let bound;
+        let step = if stack.is_empty() || params.names.is_empty() {
+            step
+        } else {
+            let flow = stack.last().copied().unwrap_or_default();
+            bound = crate::env::bind_step(step, &params.values, &params.names).map_err(|_| {
+                VelocityError::Config(format!(
+                    "flow '{flow}' in test '{test_name}' uses a runFlow parameter this call \
+                     doesn't pass ({}); add it to the runFlow's env",
+                    missing_params(step, params)
+                ))
+            })?;
+            bound.as_ref().unwrap_or(step)
+        };
         match &step.action {
-            Action::RunFlow { flow_id } => {
+            Action::RunFlow { flow_id, env } => {
                 let flow = *flow_map.get(flow_id.as_str()).ok_or_else(|| {
                     VelocityError::UnknownFlowRef {
                         flow_id: flow_id.clone(),
@@ -70,8 +127,21 @@ fn resolve_steps<'a>(
                         flow.id
                     )));
                 }
+                // This call's parameters on top of the caller's: a nested
+                // flow sees its caller's unless it passes its own.
+                let mut call = Params {
+                    values: params.values.clone(),
+                    names: params.names.clone(),
+                };
+                for (name, value) in env {
+                    if velocity_common::redact::is_secret_name(name) {
+                        velocity_common::redact::register_secret(value);
+                    }
+                    call.values.insert(name.clone(), value.clone());
+                }
                 stack.push(&flow.id);
-                let mut inner = resolve_steps(&flow.steps, flow_map, test_name, stack, blocks)?;
+                let mut inner =
+                    resolve_steps(&flow.steps, flow_map, test_name, stack, blocks, &call)?;
                 stack.pop();
                 // `optional: true` on runFlow: the inlined steps are one
                 // block, abandoned at its first failure (D-12, M2: making
@@ -162,6 +232,7 @@ mod tests {
                     }),
                     step(Action::RunFlow {
                         flow_id: "login".to_string(),
+                        env: Default::default(),
                     }),
                     step(Action::AssertVisible {
                         selector: Selector::Text("Dashboard".to_string()),
@@ -215,6 +286,7 @@ mod tests {
     fn an_optional_run_flow_makes_its_steps_one_optional_block() {
         let mut run = step(Action::RunFlow {
             flow_id: "promo".to_string(),
+            env: Default::default(),
         });
         run.modifiers.optional = true;
         let suite = TestSuite {
@@ -248,6 +320,7 @@ mod tests {
         let opt = |id: &str| {
             let mut s = step(Action::RunFlow {
                 flow_id: id.to_string(),
+                env: Default::default(),
             });
             s.modifiers.optional = true;
             s
@@ -309,6 +382,7 @@ mod tests {
                     steps: vec![
                         step(Action::RunFlow {
                             flow_id: "setup".to_string(),
+                            env: Default::default(),
                         }),
                         step(Action::Tap {
                             selector: Selector::Id("login".to_string()),
@@ -323,6 +397,7 @@ mod tests {
                 depends_on: vec![],
                 steps: vec![step(Action::RunFlow {
                     flow_id: "login".to_string(),
+                    env: Default::default(),
                 })],
                 description: None,
                 verify: None,
@@ -351,6 +426,7 @@ mod tests {
                 depends_on: vec![],
                 steps: vec![step(Action::RunFlow {
                     flow_id: "missing".to_string(),
+                    env: Default::default(),
                 })],
                 description: None,
                 verify: None,
@@ -432,6 +508,7 @@ mod tests {
         };
         let mut run = step(Action::RunFlow {
             flow_id: "f".into(),
+            env: Default::default(),
         });
         run.timeout_ms = Some(5000);
         run.settle = Some(velocity_common::StepSettle {
@@ -472,6 +549,7 @@ mod tests {
                     .map(|_| {
                         step(Action::RunFlow {
                             flow_id: format!("f{}", i - 1),
+                            env: Default::default(),
                         })
                     })
                     .collect(),
@@ -488,6 +566,7 @@ mod tests {
                 depends_on: vec![],
                 steps: vec![step(Action::RunFlow {
                     flow_id: "f6".into(),
+                    env: Default::default(),
                 })],
                 description: None,
                 verify: None,
@@ -495,5 +574,131 @@ mod tests {
         };
         let e = resolve_flows(&suite).unwrap_err();
         assert!(e.to_string().contains("100000"), "{e}");
+    }
+
+    /// Parse, interpolate with `env` as the environment, resolve.
+    fn resolved(yaml: &str, env: &[(&str, &str)]) -> Result<Vec<TestCase>> {
+        let mut suite = crate::parser::parse_suite_from_str(yaml)?;
+        let env: HashMap<String, String> = env
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        crate::env::interpolate_suite(&mut suite, &env)?;
+        resolve_flows(&suite)
+    }
+
+    fn typed(steps: &[Step]) -> Vec<String> {
+        steps
+            .iter()
+            .filter_map(|s| match &s.action {
+                Action::InputText { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    const FLOWS: &str = r#"
+appId: com.example
+flows:
+  - id: login
+    steps:
+      - inputText: { selector: { id: user }, text: "${USER}" }
+      - runFlow: greet
+  - id: greet
+    steps:
+      - inputText: { selector: { id: hi }, text: "hello ${USER}" }
+"#;
+
+    const WRAP: &str = r#"  - id: wrap
+    steps:
+      - runFlow: { flow: login, env: { USER: "inner-${OUTER}" } }
+"#;
+
+    #[test]
+    fn a_runflow_parameter_reaches_its_flow_and_the_flows_it_runs_only() {
+        let yaml = format!(
+            "{FLOWS}tests:
+  - name: t
+    steps:
+      - runFlow: {{ flow: login, env: {{ USER: qa@example.com }} }}
+      - runFlow: {{ flow: login, env: {{ USER: 42 }} }}
+      - inputText: {{ selector: {{ id: x }}, text: \"${{USER}}\" }}
+"
+        );
+        // The test's own ${{USER}} still comes from the environment.
+        let tests = resolved(&yaml, &[("USER", "from-env")]).unwrap();
+        assert_eq!(
+            typed(&tests[0].steps),
+            [
+                "qa@example.com",
+                "hello qa@example.com",
+                "42",
+                "hello 42",
+                "from-env"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_parameter_value_can_use_the_callers_parameters() {
+        let yaml = format!(
+            "{FLOWS}{WRAP}tests:
+  - name: t
+    steps:
+      - runFlow: {{ flow: wrap, env: {{ OUTER: x }} }}
+"
+        );
+        let tests = resolved(&yaml, &[]).unwrap();
+        assert_eq!(typed(&tests[0].steps), ["inner-x", "hello inner-x"]);
+    }
+
+    #[test]
+    fn a_flow_parameter_the_call_does_not_pass_is_an_error() {
+        let yaml = format!(
+            "{FLOWS}{WRAP}tests:
+  - name: t
+    steps:
+      - runFlow: {{ flow: wrap, env: {{ OUTER: x }} }}
+      - runFlow: greet
+"
+        );
+        let e = resolved(&yaml, &[]).unwrap_err().to_string();
+        assert!(
+            e.contains("flow 'greet'") && e.contains("${USER}") && e.contains("env"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn flows_without_parameters_resolve_as_before() {
+        let yaml = r#"
+appId: com.example
+flows:
+  - id: f
+    steps:
+      - inputText: { selector: { id: a }, text: "${NAME}" }
+tests:
+  - name: t
+    steps:
+      - runFlow: { flowId: f }
+"#;
+        let tests = resolved(yaml, &[("NAME", "env-value")]).unwrap();
+        assert_eq!(typed(&tests[0].steps), ["env-value"]);
+    }
+
+    #[test]
+    fn a_secret_named_parameter_value_is_masked() {
+        let yaml = format!(
+            "{FLOWS}tests:
+  - name: t
+    steps:
+      - runFlow: {{ flow: login, env: {{ USER: a, LOGIN_PASSWORD: s3cr3t-param-value }} }}
+"
+        );
+        resolved(&yaml, &[]).unwrap();
+        assert!(
+            !velocity_common::redact::redact("x s3cr3t-param-value y").contains("s3cr3t"),
+            "registered for masking"
+        );
     }
 }

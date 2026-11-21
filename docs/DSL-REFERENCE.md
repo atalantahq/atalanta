@@ -255,8 +255,9 @@ Argument: map: `ms`.
 
 Run the steps of a flow from `flows:` (by id).
 
-Argument: string or map: `flow`?, `flowId`?.
+Argument: string or map: `env`?, `flow`?, `flowId`?.
 
+- `env` (map of key to value) - Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value
 - `flow` (string)
 - `flowId` (string)
 

@@ -138,7 +138,28 @@ extras) is a configuration error rather than a launch without the arguments.
 
 `runFlow: <id>` inlines a flow's steps. Flows can call flows, but not in a cycle.
 
-The `runFlow` step's `timeoutMs` and `settle` apply to the flow's steps, unless a step sets its own. With `optional: true` the flow is one unit: its first failing step skips the rest of the flow, and the test goes on after it.
+### Parameters
+
+`runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow. Inside the flow (and the
+flows it runs), `${NAME}` takes the call's value; nowhere else does, so a test's own `${USER}` still comes from the
+environment. A nested call passes its caller's parameters on unless it sets its own, and a value can use the caller's
+parameters (`env: { GREETING: "hi ${USER}" }`).
+
+```yaml
+flows:
+  - id: login
+    steps:
+      - inputText: { selector: { id: email }, text: "${USER}" }
+      - inputText: { selector: { id: password }, text: "${PASSWORD}" }
+tests:
+  - name: admin logs in
+    steps:
+      - runFlow: { flow: login, env: { USER: admin@example.com, PASSWORD: "${ADMIN_PASSWORD}" } }
+```
+
+Parameters are filled in when the suite loads, so each of the flow's steps is still its own step in reports and traces,
+with its own timeout. A flow that uses a parameter its call doesn't pass is an error then, not a literal `${NAME}` typed
+into the app. A parameter with a secret-like name (`PASSWORD`, `TOKEN`, …) is masked in reports like any secret.
 
 ## Natural-language steps
 
