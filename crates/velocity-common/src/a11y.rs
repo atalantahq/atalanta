@@ -77,6 +77,11 @@ pub struct Finding {
     pub severity: Severity,
     /// The element, without its children.
     pub element: Element,
+    /// Address of the tree node this finding is about, for telling twin
+    /// elements apart (compare with `std::ptr::from_ref(node) as usize`).
+    /// Only meaningful while the audited tree is alive.
+    #[serde(skip)]
+    pub node: usize,
     /// What is wrong, one line.
     pub message: String,
     /// How to fix it, one line.
@@ -98,6 +103,7 @@ impl Finding {
                 children: Vec::new(),
                 ..el.clone()
             },
+            node: std::ptr::from_ref(el) as usize,
             message,
             fix: fix.to_string(),
         }
