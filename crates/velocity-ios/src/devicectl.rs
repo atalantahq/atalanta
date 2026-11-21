@@ -84,11 +84,15 @@ impl Devicectl {
             command: command.clone(),
             detail,
         };
+        // `--json-output` goes before a `--`: everything after it is the
+        // app's own command line, which devicectl must not parse.
+        let split = args.iter().position(|a| *a == "--").unwrap_or(args.len());
         let mut cmd = Command::new(&self.xcrun);
         cmd.arg("devicectl")
-            .args(args)
+            .args(&args[..split])
             .arg("--json-output")
             .arg(&out.0)
+            .args(&args[split..])
             .stdin(Stdio::null());
         debug!(?args, "devicectl");
         // Not a config error: a wedged CoreDevice is a device problem
@@ -224,7 +228,13 @@ impl Devicectl {
             args.extend(["--payload-url", u]);
         }
         args.push(bundle_id);
-        args.extend(launch_args.iter().map(String::as_str));
+        // Without `--`, devicectl reads `-server` as its own short options
+        // (`-s -e -r ...`) and fails, or a `-j` argument as its
+        // `--json-output`.
+        if !launch_args.is_empty() {
+            args.push("--");
+            args.extend(launch_args.iter().map(String::as_str));
+        }
         self.run_json(udid, &args, Duration::from_secs(60), false)
             .await
             .map(|_| ())
@@ -349,8 +359,10 @@ pub fn parse_devices(v: &serde_json::Value) -> Vec<DeviceInfo> {
             // The key means something only while the tunnel is up: an idle
             // device (`tunnelState: disconnected`, opened on first use)
             // reports `false` (seen on an iPhone 12, iOS 26.5.2, 2026-11-21).
-            let tunnel_up = str_at(conn, "tunnelState").as_deref() == Some("connected");
-            let ddi = !tunnel_up
+            // Only a tunnel known to be idle voids it: an older devicectl
+            // with no `tunnelState` still has its DDI check.
+            let idle = str_at(conn, "tunnelState").as_deref() == Some("disconnected");
+            let ddi = idle
                 || props
                     .and_then(|p| p.get("ddiServicesAvailable"))
                     .and_then(|v| v.as_bool())
@@ -505,9 +517,11 @@ mod tests {
         .unwrap();
         let log = std::fs::read_to_string(dir.join("args.log")).unwrap();
         assert!(log.contains(" ./-odd.app "), "{log}");
+        let launch = log.lines().last().unwrap();
         assert!(
-            log.contains("dev.velocity.demo -server https://x y"),
-            "launch arguments after the bundle id: {log}"
+            launch.contains("dev.velocity.demo --json-output ")
+                && launch.ends_with(" -- -server https://x y"),
+            "launch arguments after `--`, past devicectl's own options: {launch}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -1283,7 +1283,7 @@ impl IosDriver {
             .filter(|(_, at)| at.elapsed() < VISIBILITY_REUSE)
             .and_then(|(cached, _)| {
                 let mut merged = (*tree).clone();
-                crate::hit::copy_visibility(&mut merged, cached).then_some(merged)
+                crate::hit::copy_earlier_visibility(&mut merged, cached).then_some(merged)
             });
         if let Some(merged) = reused {
             debug!("reusing visibility flags read under a sheet (no new /source request)");
@@ -1418,6 +1418,14 @@ impl IosDriver {
         wda.client_mut().set_app_args(argv.to_vec());
         if wda.ensure_session(device_id, app_id).await? {
             return Ok(());
+        }
+        // WDA's /wda/apps/launch only brings a running app to the front, and
+        // its arguments apply only to a cold start: stop it first so they
+        // arrive. (Not running is fine.)
+        if !argv.is_empty() {
+            if let Err(e) = wda.client().terminate_app(app_id).await {
+                debug!("terminating {app_id} before a launch with arguments: {e}");
+            }
         }
         match wda.client().launch_app(app_id).await {
             Ok(()) => Ok(()),

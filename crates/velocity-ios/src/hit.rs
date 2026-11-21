@@ -147,6 +147,14 @@ pub fn has_modal_layer(tree: &Element) -> bool {
 /// `dst` may hold more trailing children: the system alert Velocity adds).
 /// False, with `dst` partly updated, when they differ: the caller drops it.
 pub fn copy_visibility(dst: &mut Element, src: &Element) -> bool {
+    copy_flags(dst, src, true)
+}
+
+/// [`copy_visibility`] for flags read on an earlier poll: extra children
+/// only at the root (the alert). A container that has gained children since
+/// (rows a list loaded behind a sheet) is a different screen, since the new
+/// nodes would keep the parser's `visible: true`.
+pub fn copy_earlier_visibility(dst: &mut Element, src: &Element) -> bool {
     if dst.element_type != src.element_type
         || dst.bounds != src.bounds
         || dst.children.len() < src.children.len()
@@ -157,7 +165,24 @@ pub fn copy_visibility(dst: &mut Element, src: &Element) -> bool {
     dst.children
         .iter_mut()
         .zip(&src.children)
-        .all(|(d, s)| copy_visibility(d, s))
+        .all(|(d, s)| copy_flags(d, s, false))
+}
+
+/// `extra_ok`: `dst` may hold more trailing children than `src` at any level.
+fn copy_flags(dst: &mut Element, src: &Element, extra_ok: bool) -> bool {
+    let shape = if extra_ok {
+        dst.children.len() >= src.children.len()
+    } else {
+        dst.children.len() == src.children.len()
+    };
+    if dst.element_type != src.element_type || dst.bounds != src.bounds || !shape {
+        return false;
+    }
+    dst.visible = src.visible;
+    dst.children
+        .iter_mut()
+        .zip(&src.children)
+        .all(|(d, s)| copy_flags(d, s, extra_ok))
 }
 
 /// The modal layer `target` is behind, if any: one listed after the target
@@ -856,6 +881,20 @@ mod tests {
         let mut moved = cheap.clone();
         moved.children[0].bounds.y = 650;
         assert!(!copy_visibility(&mut moved, &full));
+        // Flags from an earlier poll: the alert at the root is fine, but
+        // rows a list gained since (behind the sheet, so hidden) are not
+        // in the earlier read and would show as visible.
+        let mut with_alert = cheap.clone();
+        with_alert
+            .children
+            .push(el("XCUIElementTypeAlert", "alert", 0, 0, 402, 874));
+        assert!(copy_earlier_visibility(&mut with_alert, &full));
+        let mut more_rows = cheap.clone();
+        more_rows.children[1]
+            .children
+            .push(el("Button", "Row 21", 20, 850, 362, 44));
+        assert!(copy_visibility(&mut more_rows.clone(), &full));
+        assert!(!copy_earlier_visibility(&mut more_rows, &full));
     }
 
     #[test]

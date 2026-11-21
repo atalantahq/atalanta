@@ -474,7 +474,10 @@ impl AndroidDriver {
     }
 
     /// The package's launcher activity (`pkg/.Main`), resolved once.
-    async fn launcher(&self, device_id: &str, package: &str) -> Option<String> {
+    /// `Err` only when adb could not reach the device, so a caller can tell
+    /// that from an app with no launcher activity (a command that ran and
+    /// failed on the device counts as no activity).
+    async fn launcher(&self, device_id: &str, package: &str) -> Result<Option<String>> {
         let key = (device_id.to_string(), package.to_string());
         if let Some(c) = self
             .launchers
@@ -482,7 +485,7 @@ impl AndroidDriver {
             .unwrap_or_else(|e| e.into_inner())
             .get(&key)
         {
-            return c.clone();
+            return Ok(c.clone());
         }
         let component = self
             .adb
@@ -501,9 +504,12 @@ impl AndroidDriver {
                     ]),
                 ],
             )
-            .await
-            .ok()
-            .and_then(|out| parse_component(&out, package));
+            .await;
+        let component = match component {
+            Ok(out) => parse_component(&out, package),
+            Err(VelocityError::CommandFailed { .. }) => None,
+            Err(e) => return Err(e),
+        };
         // Only cache a hit: the app may not be installed yet.
         if component.is_some() {
             self.launchers
@@ -511,7 +517,7 @@ impl AndroidDriver {
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(key, component.clone());
         }
-        component
+        Ok(component)
     }
 
     /// Start the app the way the launcher does: `am start` on its resolved
@@ -603,7 +609,17 @@ impl AndroidDriver {
         package: &str,
         extras: &[String],
     ) -> Result<()> {
-        if let Some(component) = self.launcher(device_id, package).await {
+        // An unreachable device is a device error, never a config one: only
+        // with launch arguments, where there is no fallback, does it matter.
+        let component = match self.launcher(device_id, package).await {
+            Ok(c) => c,
+            Err(e) if !extras.is_empty() => return Err(e),
+            Err(e) => {
+                debug!(error = %e, "resolving the launcher activity failed");
+                None
+            }
+        };
+        if let Some(component) = component {
             let mut am = vec![
                 "am",
                 "start",
@@ -623,9 +639,20 @@ impl AndroidDriver {
                 .await;
             match out {
                 Ok(o) if !o.contains("Error") => return Ok(()),
+                // A lost connection stays a device error (retried, another
+                // device); `am` itself refusing the launch is the test's.
+                Err(e)
+                    if !extras.is_empty() && !matches!(e, VelocityError::CommandFailed { .. }) =>
+                {
+                    return Err(e)
+                }
                 other if !extras.is_empty() => {
+                    let detail = match other {
+                        Ok(o) => o.trim().to_string(),
+                        Err(e) => e.to_string(),
+                    };
                     return Err(VelocityError::Config(format!(
-                        "launching {package} with its launch arguments failed: {other:?}"
+                        "launching {package} with its launch arguments failed: {detail}"
                     )));
                 }
                 other => debug!(?other, "am start failed; falling back to monkey"),
@@ -1419,15 +1446,36 @@ impl PlatformDriver for AndroidDriver {
 
     async fn crash_report(&self, device_id: &str, app_id: &str) -> Option<String> {
         shell::validate_app_id(app_id).ok()?;
-        // No launch of ours to date it from: the crash buffer would hand
-        // back whatever crashed earlier (on a SUNMI tablet, 2026-11-21, a
-        // crash from an hour before turned a config error into "crashed").
-        let launch = self
+        // No launch of ours to date it from (a link cold-started the app,
+        // or it was already running): date it from the first time we look.
+        // The crash buffer alone would hand back whatever crashed earlier
+        // (on a SUNMI tablet, 2026-11-21, a crash from an hour before
+        // turned a config error into "crashed").
+        let key = (device_id.to_string(), app_id.to_string());
+        let known = self
             .launches
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .get(&(device_id.to_string(), app_id.to_string()))
-            .cloned()?;
+            .get(&key)
+            .cloned();
+        let Some(launch) = known else {
+            let out = self
+                .adb
+                .run_device(device_id, &["shell", LAUNCH_MARK])
+                .await
+                .ok()?;
+            let (since, wall) = parse_launch_mark(out.trim());
+            self.launches
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(key)
+                .or_insert(Launch {
+                    since,
+                    wall,
+                    pid: None,
+                });
+            return None;
+        };
         // The crash log since the launch: one adb call, on every poll.
         if let Some(crash) = self.crash_from_logcat(device_id, app_id, &launch).await {
             return Some(crash);
@@ -3163,6 +3211,44 @@ mod app_id_tests {
         );
     }
 
+    /// With no launch of ours (a link cold-started the app, or it was
+    /// already running), crashes are dated from the first look: an old one
+    /// is never reported, a new one still is.
+    #[tokio::test]
+    async fn without_a_launch_crashes_are_dated_from_the_first_look() {
+        let (fake, d) = api34("crash-no-launch");
+        std::fs::write(fake.dir.join("device/exit-info"), "").unwrap();
+        std::fs::write(
+            fake.dir.join("device/crash.log"),
+            "10-15 01:00:30.000 E/AndroidRuntime( 9): Process: com.velocity.lab, PID: 9\n10-15 01:00:30.000 E/AndroidRuntime( 9): java.lang.OldError: an hour ago\n",
+        )
+        .unwrap();
+        fake.stub(
+            "adb-logcat",
+            "case \"$*\" in *-T*) echo 'unknown option -T' >&2; exit 1;; esac; cat \"$DEV/crash.log\"",
+        );
+        for _ in 0..2 {
+            assert_eq!(
+                d.crash_report("emulator-5554", "com.velocity.lab").await,
+                None,
+                "a crash from before Velocity looked"
+            );
+        }
+        let new = FATAL
+            .lines()
+            .map(|l| format!("10-15 01:01:05.000 {l}\n"))
+            .collect::<String>();
+        std::fs::write(fake.dir.join("device/crash.log"), new).unwrap();
+        assert_eq!(
+            d.crash_report("emulator-5554", "com.velocity.lab")
+                .await
+                .as_deref(),
+            Some("java.lang.IllegalStateException: boom"),
+            "{}",
+            fake.log()
+        );
+    }
+
     /// N8, P3, N3 on a fake adb: a launch no longer wipes the device's crash
     /// buffer; it records the time and pid, so a crash report reads the
     /// log since the launch and (API 30+) exit-info for that pid; and the
@@ -4087,5 +4173,21 @@ mod launch_args_tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("com.velocity.lab"), "{err}");
+        assert!(matches!(err, VelocityError::Config(_)), "{err:?}");
+
+        // adb losing the device mid-launch is a device error, retried or
+        // moved to another device, never a config error (exit 2).
+        let fake3 = FakeAdb::new("launch-args-adb-lost");
+        fake3.stub("cmd", "echo com.velocity.lab/.MainActivity");
+        fake3.stub("am", "echo 'error: device offline' >&2; exit 1");
+        let d3 = AndroidDriver::with_backend(Box::new(Adb::with_path(fake3.path())));
+        let err = d3
+            .launch_app_with("emulator-5554", "com.velocity.lab", false, &map)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, VelocityError::AdbConnectionLost { .. }),
+            "{err:?}"
+        );
     }
 }
