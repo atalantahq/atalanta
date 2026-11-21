@@ -6,7 +6,7 @@ use velocity_common::{
     VelocityError,
 };
 
-pub(crate) const HISTORY_FILENAME: &str = "velocity-history.json";
+pub const HISTORY_FILENAME: &str = "velocity-history.json";
 
 /// Version of the history file this code writes.
 ///
@@ -1051,6 +1051,51 @@ pub fn note_flakiness(history: &TestHistory, results: &mut [TestResult]) {
             r.warnings.push(note);
         }
     }
+}
+
+/// One test's flake rate over its last `window` recorded runs.
+///
+/// Infrastructure failures are never recorded in history (the update skips
+/// them), so they are in neither `runs` nor `flaky`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlakyTest {
+    pub name: String,
+    pub runs: usize,
+    pub flaky: usize,
+    pub rate: f64,
+}
+
+/// The flake rate of every test in `history`, over its last `window`
+/// recorded runs each, sorted by rate (worst first, ties by name).
+///
+/// Pure: it only reads `history`. Infrastructure failures are not recorded
+/// there, so they count in neither the numerator nor the denominator.
+pub fn flaky_rate(history: &TestHistory, window: usize) -> Vec<FlakyTest> {
+    let mut out: Vec<FlakyTest> = history
+        .outcomes
+        .iter()
+        .map(|(name, runs)| {
+            let n = runs.len().min(window);
+            let window_runs = if n == 0 {
+                &[][..]
+            } else {
+                &runs[runs.len() - n..]
+            };
+            let flaky = window_runs
+                .iter()
+                .filter(|o| **o == HistoryOutcome::Flaky)
+                .count();
+            let rate = if n > 0 { flaky as f64 / n as f64 } else { 0.0 };
+            FlakyTest {
+                name: name.clone(),
+                runs: n,
+                flaky,
+                rate,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| b.rate.total_cmp(&a.rate).then_with(|| a.name.cmp(&b.name)));
+    out
 }
 
 pub(crate) fn now_secs() -> u64 {
@@ -2149,5 +2194,93 @@ mod tests {
             h.durations.insert(n.into(), ms);
         }
         assert_eq!(h.median_ms(), 11000);
+    }
+
+    #[test]
+    fn flaky_rate_cuts_the_window() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "t".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Flaky,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Flaky,
+                HistoryOutcome::Flaky,
+            ],
+        );
+        let got = flaky_rate(&h, 3);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].runs, 3);
+        assert_eq!(got[0].flaky, 2);
+        assert_eq!(got[0].rate, 2.0 / 3.0);
+    }
+
+    #[test]
+    fn flaky_rate_counts_flaky_runs_over_all_runs() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "t".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Flaky,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+            ],
+        );
+        let got = flaky_rate(&h, 20);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].rate, 0.2);
+    }
+
+    #[test]
+    fn flaky_rate_ignores_tests_with_fewer_than_five_runs() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "new".into(),
+            vec![HistoryOutcome::Flaky, HistoryOutcome::Flaky],
+        );
+        let got = flaky_rate(&h, 20);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].runs, 2);
+        assert_eq!(got[0].rate, 1.0);
+    }
+
+    #[test]
+    fn flaky_rate_sorts_worst_first() {
+        let mut h = TestHistory::default();
+        h.outcomes.insert(
+            "a".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+            ],
+        );
+        h.outcomes.insert(
+            "b".into(),
+            vec![
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Pass,
+                HistoryOutcome::Flaky,
+            ],
+        );
+        let got = flaky_rate(&h, 20);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "b");
+        assert_eq!(got[0].rate, 0.2);
+        assert_eq!(got[1].name, "a");
+        assert_eq!(got[1].rate, 0.0);
+    }
+
+    #[test]
+    fn flaky_rate_empty_history() {
+        let h = TestHistory::default();
+        assert!(flaky_rate(&h, 20).is_empty());
     }
 }
