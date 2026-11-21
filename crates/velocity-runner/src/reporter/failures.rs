@@ -169,6 +169,30 @@ fn selector_text(sel: &str) -> Option<(bool, String)> {
     }
 }
 
+/// A visible text on the failed step's screen that shares a word of three
+/// or more letters with `wanted` (ignoring case), if any.
+fn shares_a_word(
+    trees: &HashMap<String, Element>,
+    trace: &TestTrace,
+    wanted: &str,
+) -> Option<String> {
+    let words = |s: &str| -> Vec<String> {
+        s.split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.chars().count() >= 3)
+            .map(str::to_lowercase)
+            .collect()
+    };
+    let want = words(wanted);
+    if want.is_empty() {
+        return None;
+    }
+    let mut texts = Vec::new();
+    collect_texts(failed_tree(trees, trace)?, &mut texts);
+    texts
+        .into_iter()
+        .find(|t| words(t).iter().any(|w| want.contains(w)))
+}
+
 /// Edit distance, by characters.
 fn levenshtein(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();
@@ -273,15 +297,7 @@ fn assertion_values(text: &str) -> Option<(String, String)> {
 /// picks it), in depth-first order, each cut to 40 characters, quoted and
 /// comma separated. `None` when there are none.
 fn screen_texts(trees: &HashMap<String, Element>, trace: &TestTrace) -> Option<String> {
-    let pos = trace
-        .steps
-        .iter()
-        .rposition(|s| s.status == Some(StepStatus::Failed))?;
-    let tree = trace.steps[..=pos]
-        .iter()
-        .rev()
-        .find_map(|s| s.trees.last())
-        .and_then(|h| trees.get(h))?;
+    let tree = failed_tree(trees, trace)?;
     let mut texts: Vec<String> = Vec::new();
     collect_texts(tree, &mut texts);
     let mut seen = std::collections::HashSet::new();
@@ -294,9 +310,27 @@ fn screen_texts(trees: &HashMap<String, Element>, trace: &TestTrace) -> Option<S
     (!texts.is_empty()).then_some(texts.join(", "))
 }
 
+/// The failed step's last tree, else the closest earlier one (as
+/// `describe_failure` picks it).
+fn failed_tree<'a>(trees: &'a HashMap<String, Element>, trace: &TestTrace) -> Option<&'a Element> {
+    let pos = trace
+        .steps
+        .iter()
+        .rposition(|s| s.status == Some(StepStatus::Failed))?;
+    trace.steps[..=pos]
+        .iter()
+        .rev()
+        .find_map(|s| s.trees.last())
+        .and_then(|h| trees.get(h))
+}
+
+/// Visible texts in depth-first order (rows under a sheet are not shown:
+/// listing them read as if the test were still on that screen).
 fn collect_texts(el: &Element, out: &mut Vec<String>) {
+    // A container may carry no flag of its own (a test tree, a root): only
+    // the element's own text is skipped, never its children.
     let value = el.text.as_deref().or(el.label.as_deref()).unwrap_or("");
-    if !value.is_empty() {
+    if el.visible && !value.is_empty() {
         let cut: String = value.chars().take(40).collect();
         out.push(cut.to_string());
     }
@@ -382,22 +416,35 @@ fn explanation(ctx: &ExplanationCtx) -> (String, bool) {
             let earlier = wanted
                 .as_ref()
                 .and_then(|(contains, v)| seen_earlier(trace, trees, v, *contains));
-            if let Some(best) = typo {
+            // An exact match on an earlier screen is stronger evidence than a
+            // near-spelling on this one ("Voice 1" was on the screen the test
+            // had left; "Voice" here is not its typo).
+            let shared = wanted
+                .as_ref()
+                .and_then(|(_, v)| shares_a_word(trees, trace, v));
+            if let Some((step, label)) = earlier {
+                let _ = write!(
+                    why,
+                    ", but it was on the screen at step {step} (`{label}`): the test left that screen, and this step still expected it."
+                );
+            } else if let Some(best) = typo {
                 let _ = write!(
                     why,
                     "; the selector is most likely misspelled: {} is on that screen (score {:.02}). Change the selector to it.",
                     best.describe,
                     best.score.unwrap_or(0.0)
                 );
-            } else if let Some((step, label)) = earlier {
+            } else if let Some(other) = shared {
+                // Shares a word with something on screen: the wording may be
+                // wrong rather than the screen ("Siri Voice" for "Voice").
                 let _ = write!(
                     why,
-                    ", but it was on the screen at step {step} (`{label}`): a later step left that screen, and this step still expected it."
+                    "; `{other}` on that screen shares a word with it: either the selector's wording is wrong or the step ran on a different screen than intended."
                 );
             } else if d.tree_elements > 0 || !d.closest.is_empty() {
                 let _ = write!(
                     why,
-                    ", and nothing on it is a near-spelling of it; the step most likely ran on a different screen or app than intended."
+                    ", and nothing on it is a near-spelling of it or shares a word with it; the step most likely ran on a different screen or app than intended."
                 );
             } else {
                 why.clear();
@@ -860,11 +907,133 @@ mod tests {
         assert!(!md.contains("misspelled"), "{md}");
         assert!(!md.contains("Change the selector"), "{md}");
         assert!(
-            md.contains("nothing on it is a near-spelling of it; the step most likely ran on a different screen"),
+            md.contains("nothing on it is a near-spelling of it or shares a word with it; the step most likely ran on a different screen"),
             "{md}"
         );
         assert!(
             md.contains("The screen shows: `Wi-Fi`, `General`, `Privacy`."),
+            "{md}"
+        );
+    }
+
+    #[test]
+    fn a_selector_sharing_a_word_with_a_row_doubts_the_wording() {
+        let d = tempfile::tempdir().unwrap();
+        let tree = Element {
+            platform_id: "root".into(),
+            element_type: "hierarchy".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 800,
+            },
+            children: vec![
+                Element {
+                    platform_id: "wifi".into(),
+                    text: Some("Wi-Fi".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 100,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "gen".into(),
+                    text: Some("General".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 200,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "priv".into(),
+                    text: Some("Privacy".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 300,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let hash = velocity_core::trace::tree_hash(&tree);
+        let trace = TestTrace {
+            version: 1,
+            test: "traced".into(),
+            device: "d".into(),
+            platform: Some(velocity_common::Platform::Android),
+            attempt: 0,
+            status: TestStatus::Failed,
+            steps: vec![StepTrace {
+                index: 0,
+                label: "tap".into(),
+                start_ms: 1000,
+                selector: Some(Selector::Text("Privacy Settings".into())),
+                source: None,
+                status: Some(StepStatus::Failed),
+                duration_ms: 200,
+                settle_ms: 0,
+                settle_reads: 0,
+                matched: None,
+                nearest: vec![],
+                heals: vec![],
+                warnings: vec![],
+                trees: vec![hash.clone()],
+                error: Some("Element not found".into()),
+                screenshot: Some(d.path().join("shots/t.png")),
+            }],
+            evidence: Some(TraceEvidence {
+                video: None,
+                video_offset_ms: None,
+                screencast: None,
+                logs: vec![],
+                log_lines: Some("logs.json".into()),
+                notes: vec![],
+            }),
+        };
+        // The step ran 1000-1200 ms. A path with `e/` (counted as an error
+        // before), an error outside the step, and one inside it from another
+        // app: none is the cause, and none is printed under this Why.
+        let logs = [
+            LogLine {
+                t: 1100,
+                level: 'I',
+                text: "constructing bundle record for file:///x/simruntime/Applications/y".into(),
+            },
+            LogLine {
+                t: 5000,
+                level: 'E',
+                text: "outside the step window".into(),
+            },
+            LogLine {
+                t: 1150,
+                level: 'F',
+                text: "another app: Fatal signal 6 (SIGABRT)".into(),
+            },
+        ];
+        let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &logs);
+        let t = trace_test_result("Element not found: text=\"Privacy Settings\"", path);
+        let md = render(&suite(vec![t]), d.path());
+        // "Privacy Settings" isn't a near-spelling of "Privacy", but shares a
+        // word with it: the wording may be wrong, so no "different screen".
+        assert!(
+            md.contains("`Privacy` on that screen shares a word with it: either the selector's wording is wrong or the step ran on a different screen"),
+            "{md}"
+        );
+        assert!(
+            !md.contains("most likely ran on a different screen"),
             "{md}"
         );
     }
@@ -1029,7 +1198,9 @@ mod tests {
         let t = trace_test_result("Element not found: text=\"Airplane mode\"", path);
         let md = render(&suite(vec![t]), d.path());
         assert!(
-            md.contains("but it was on the screen at step 1 (`pressKey: back`): a later step left that screen"),
+            md.contains(
+                "but it was on the screen at step 1 (`pressKey: back`): the test left that screen"
+            ),
             "{md}"
         );
         assert!(!md.contains("different screen or app"), "{md}");
