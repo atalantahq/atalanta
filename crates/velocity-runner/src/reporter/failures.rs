@@ -169,28 +169,49 @@ fn selector_text(sel: &str) -> Option<(bool, String)> {
     }
 }
 
-/// A visible text on the failed step's screen that shares a word of three
-/// or more letters with `wanted` (ignoring case), if any.
+/// A visible text on the failed step's screen that shares a distinctive word
+/// (three or more letters, in at most two of the screen's texts) with
+/// `wanted`, the one sharing the most; identifiers (`AMBIENT_MODE_ENABLED`)
+/// don't count. A common word ("Text", "FPS") says nothing about wording.
 fn shares_a_word(
     trees: &HashMap<String, Element>,
     trace: &TestTrace,
     wanted: &str,
 ) -> Option<String> {
-    let words = |s: &str| -> Vec<String> {
+    let words = |s: &str| -> std::collections::BTreeSet<String> {
         s.split(|c: char| !c.is_alphanumeric())
             .filter(|w| w.chars().count() >= 3)
             .map(str::to_lowercase)
             .collect()
     };
+    let identifier = |t: &str| t.contains('_') && !t.contains(' ');
     let want = words(wanted);
     if want.is_empty() {
         return None;
     }
     let mut texts = Vec::new();
     collect_texts(failed_tree(trees, trace)?, &mut texts);
+    texts.retain(|t| !identifier(t));
+    texts.dedup();
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    for t in &texts {
+        for w in words(t) {
+            *seen.entry(w).or_default() += 1;
+        }
+    }
+    let distinctive: std::collections::BTreeSet<&String> = want
+        .iter()
+        .filter(|w| seen.get(*w).is_some_and(|n| *n <= 2))
+        .collect();
     texts
         .into_iter()
-        .find(|t| words(t).iter().any(|w| want.contains(w)))
+        .map(|t| {
+            let n = words(&t).iter().filter(|w| distinctive.contains(w)).count();
+            (n, t)
+        })
+        .filter(|(n, _)| *n > 0)
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, t)| t)
 }
 
 /// Edit distance, by characters.
