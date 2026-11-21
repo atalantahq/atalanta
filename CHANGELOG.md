@@ -276,6 +276,13 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- **A missing element's report commits only as far as the evidence goes.** In this order:
+  - **Earlier screen:** if the text was on an earlier step's screen, the report names that step.
+  - **Typo:** if a near-spelling is on screen (two edits at most), the selector is most likely misspelled.
+  - **Shared word:** if a visible row shares a word with the selector, the report names it and says the wording or the screen is wrong.
+  - **Otherwise:** the step most likely ran on a different screen.
+
+  Measured on three blind sets of seeded failures: 1 wrong cause in 17, against 3 in 19 when the report always committed.
 - `failures.md` and MCP's `describe_failure` offer a closest element as the intended target only when it resembles the selector (score 0.5 or more); otherwise they say the step most likely ran on a different screen or app. A missing element names the app that was in front when it isn't the app under test.
 - Healing no longer refuses a row whose label and cell show the same text as an ambiguous tie.
 - Android: another app's crash or ANR dialog over the app under test is closed ("Close app") by the system-dialog handler; the app under test's own crash is still reported as a crash.
