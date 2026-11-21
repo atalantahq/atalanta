@@ -547,8 +547,11 @@ impl SelectorHealer {
         // the step on the wrong element.
         if let Some(runner_up) = ranked.next() {
             // Same bounds = the same on-screen thing (e.g. a label and its
-            // clickable wrapper), not a real ambiguity.
-            let distinct = runner_up.element.bounds != best.element.bounds;
+            // clickable wrapper), not a real ambiguity. So is a row's label
+            // inside its cell with the same text (an iOS Settings row:
+            // "Genral" tied General 0.857 with General 0.857 and wasn't
+            // healed).
+            let distinct = !same_thing(&runner_up.element, &best.element);
             if distinct && best.score - runner_up.score < AMBIGUITY_MARGIN {
                 warn!(
                     selector = %selector_str,
@@ -1312,6 +1315,32 @@ fn string_similarity(a: &str, b: &str) -> f64 {
     similarity.max(0.0)
 }
 
+/// Two candidates that are one thing on screen: the same frame, or the same
+/// visible text with one frame inside the other (a label and its cell).
+fn same_thing(a: &Element, b: &Element) -> bool {
+    if a.bounds == b.bounds {
+        return true;
+    }
+    let shown = |e: &Element| {
+        e.text
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .or(e.label.as_deref())
+            .map(|t| t.trim().to_lowercase())
+            .filter(|t| !t.is_empty())
+    };
+    let inside = |inner: &Rect, outer: &Rect| {
+        inner.width > 0
+            && inner.height > 0
+            && inner.x >= outer.x
+            && inner.y >= outer.y
+            && inner.x + inner.width <= outer.x + outer.width
+            && inner.y + inner.height <= outer.y + outer.height
+    };
+    matches!((shown(a), shown(b)), (Some(x), Some(y)) if x == y)
+        && (inside(&a.bounds, &b.bounds) || inside(&b.bounds, &a.bounds))
+}
+
 /// The best [`string_similarity`] of `sub` with any run of as many
 /// consecutive words of `text` as `sub` has.
 fn best_word_window(sub: &str, text: &str) -> f64 {
@@ -1509,11 +1538,14 @@ pub fn closest_elements(
         .filter(|(_, score)| *score > 0.0)
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    // A label and its clickable wrapper share bounds: show the thing once.
-    let mut seen = Vec::new();
+    // A label and its clickable wrapper, or a row's label in its cell, are
+    // one thing on screen: show it once.
+    let mut kept: Vec<Element> = Vec::new();
     scored.retain(|(el, _)| {
-        let fresh = !seen.contains(&el.bounds);
-        seen.push(el.bounds);
+        let fresh = !kept.iter().any(|k| same_thing(k, el));
+        if fresh {
+            kept.push(el.clone());
+        }
         fresh
     });
     scored.truncate(n);
@@ -1575,6 +1607,45 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_label_inside_its_cell_is_one_candidate_not_a_tie() {
+        let rect = |x, y, width, height| Rect {
+            x,
+            y,
+            width,
+            height,
+        };
+        let cell = Element {
+            label: Some("General".into()),
+            bounds: rect(0, 300, 390, 52),
+            ..Default::default()
+        };
+        let label = Element {
+            label: Some("General".into()),
+            bounds: rect(60, 314, 120, 24),
+            ..Default::default()
+        };
+        assert!(same_thing(&label, &cell));
+        // Two separate "Add" buttons are a real tie.
+        let add1 = Element {
+            text: Some("Add".into()),
+            bounds: rect(0, 100, 80, 40),
+            ..Default::default()
+        };
+        let add2 = Element {
+            text: Some("Add".into()),
+            bounds: rect(0, 200, 80, 40),
+            ..Default::default()
+        };
+        assert!(!same_thing(&add1, &add2));
+        // A cell holding a different label is not the same thing.
+        let other = Element {
+            label: Some("About".into()),
+            ..label.clone()
+        };
+        assert!(!same_thing(&other, &cell));
+    }
 
     #[test]
     fn a_text_contains_typo_is_scored_against_the_words_it_meant() {
