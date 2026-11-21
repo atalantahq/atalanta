@@ -77,6 +77,7 @@ const OBSERVE: &[(&str, &str)] = &[
     ("screenshot", "screenshot"),
     ("element", "get_element"),
     ("devices", "list_devices"),
+    ("a11y", "audit_accessibility"),
 ];
 const ARTIFACTS: &[(&str, &str)] = &[
     ("failure", "describe_failure"),
@@ -101,7 +102,7 @@ pub fn core_definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "observe".into(),
-            description: "Read the device; changes nothing. what=screen (default): a line per element, ref like @e12; mode=delta: changes only; within/find narrow it. screenshot: a PNG path. element; devices.".into(),
+            description: "Read the device; changes nothing. what=screen (default): a line per element, ref e.g. @e12; mode=delta: changes only; within/find narrow it. screenshot: a PNG path. element; devices.".into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -117,7 +118,7 @@ pub fn core_definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "act".into(),
-            description: "Do one thing, wait (max 3 s) for the screen to settle, return what changed. Target: ref or selector. type: text or secret (env var name). launch/stop: app_id. Failure: see error.retry.".into(),
+            description: "Do one thing, wait (max 3 s) for the screen to settle, say what changed. Target: ref or selector. type: text or secret (env var name). launch/stop: app_id. Failure: see error.retry.".into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

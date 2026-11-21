@@ -44,7 +44,7 @@ velocity export --out velocity/flow.yaml      # the session as a test that repla
 - **`artifacts`** explains the last failure, shows a trace, or exports the session as a YAML suite.
 - **`verify_change`** checks that a change does what its description says and leaves PR evidence (`velocity verify-change`).
 
-`--profile full` lists all 32 individual tools instead ([MCP.md](MCP.md#full-tools)), and `--read-only` keeps only the tools that look.
+`--profile full` lists all 33 individual tools instead ([MCP.md](MCP.md#full-tools)), and `--read-only` keeps only the tools that look.
 
 ## What either path never does
 
