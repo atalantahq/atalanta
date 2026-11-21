@@ -1454,15 +1454,13 @@ impl McpServer {
         let truncated = findings.len() > MAX;
         let shown: &[velocity_common::a11y::Finding] = &findings[..findings.len().min(MAX)];
 
-        // Findings and the snapshot both follow tree order: each finding takes
-        // the first matching element not taken yet, so two identical buttons
-        // get their own refs (an iPhone's two Dictate buttons both said @e46).
+        // A finding names its tree node; every finding of one element shares
+        // that element's ref, and twin elements keep their own.
         let nodes = crate::snapshot::collect(&tree, screen.as_ref());
-        let mut taken = vec![false; nodes.len()];
         let mut out = Vec::new();
         for f in shown {
             let element = self
-                .element_ref(&f.element, &nodes, &mut taken)
+                .element_ref(f.node, &nodes)
                 .unwrap_or_else(|| selector_text(&f.element));
             out.push(serde_json::json!({
                 "severity": f.severity,
@@ -1490,28 +1488,17 @@ impl McpServer {
         }))
     }
 
-    /// Which ref the session knows `node` under, or `None`. `node` is a clone
-    /// (a finding's element has no children), so match it against the live
-    /// tree by identity of fields rather than by pointer.
+    /// Which ref the session knows the tree node at address `node` under
+    /// (a finding's `node`), or `None`.
     fn element_ref(
         &self,
-        node: &velocity_common::Element,
+        node: usize,
         nodes: &[(crate::snapshot::Identity, bool, &velocity_common::Element)],
-        taken: &mut [bool],
     ) -> Option<String> {
-        let matches = |e: &velocity_common::Element| {
-            e.element_type == node.element_type
-                && e.platform_id == node.platform_id
-                && e.text == node.text
-                && e.label == node.label
-                && e.bounds == node.bounds
-        };
-        let i = (0..nodes.len()).find(|&i| !taken[i] && matches(nodes[i].2))?;
-        taken[i] = true;
-        self.snapshots
-            .refs
-            .get(&nodes[i].0)
-            .map(|r| format!("@e{r}"))
+        let (identity, _, _) = nodes
+            .iter()
+            .find(|(_, _, e)| std::ptr::from_ref(*e) as usize == node)?;
+        self.snapshots.refs.get(identity).map(|r| format!("@e{r}"))
     }
 }
 
@@ -3771,6 +3758,30 @@ mod t2_tests {
         let core = call(&mut s2, "observe", serde_json::json!({ "what": "a11y" })).await;
         assert!(core.get("isError").is_none(), "{core}");
         assert!(text(&core).contains("field-unlabeled"), "{core}");
+    }
+
+    // One element's several findings share its ref; a twin gets the next one.
+    #[tokio::test]
+    async fn one_elements_findings_share_a_ref_and_twins_get_their_own() {
+        const TWINS: &str = r#"
+          <Button android:layout_width="20dp" android:layout_height="20dp"/>
+          <Button android:layout_width="20dp" android:layout_height="20dp"/>
+        "#;
+        let (mut s, _dir) = launched(TWINS).await;
+        call(&mut s, "snapshot", serde_json::json!({})).await;
+        let out = call(&mut s, "audit_accessibility", serde_json::json!({})).await;
+        let v: Value = serde_json::from_str(&text(&out)).unwrap();
+        let refs: Vec<&str> = v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["element"].as_str().unwrap())
+            .collect();
+        assert_eq!(refs.len(), 4, "{v}");
+        assert!(refs.iter().all(|r| r.starts_with("@e")), "{v}");
+        assert_eq!(refs[0], refs[1], "{v}");
+        assert_eq!(refs[2], refs[3], "{v}");
+        assert_ne!(refs[0], refs[2], "{v}");
     }
 
     // ENT-105 (row 0.5): the core profile lists five tools, four running the
