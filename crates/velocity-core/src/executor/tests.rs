@@ -1,3 +1,6 @@
+use super::actions::{finger_for_scroll, line_across, set_sync_field, system_state_mismatch};
+use super::lookup::{aim_at, shown_part};
+use super::screenshot::{ci_flag, has_status_bar, legacy_baseline_file, ScreenshotStep};
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

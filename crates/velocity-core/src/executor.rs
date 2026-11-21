@@ -23,16 +23,8 @@ mod failure;
 mod lookup;
 mod natural;
 mod screenshot;
-#[allow(unused_imports)]
-use actions::*;
-#[allow(unused_imports)]
-use failure::*;
-#[allow(unused_imports)]
-use lookup::*;
-#[allow(unused_imports)]
-use natural::*;
-#[allow(unused_imports)]
-use screenshot::*;
+use actions::set_sync_field;
+use screenshot::in_ci_env;
 
 /// How long an `exec` step may run without its own `timeoutMs`.
 const EXEC_TIMEOUT_MS: u64 = 60_000;
