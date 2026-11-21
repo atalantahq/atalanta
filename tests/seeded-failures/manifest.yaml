@@ -1,0 +1,286 @@
+# Seeded-failure manifest. Written BEFORE any seed was run; do not edit expected
+# causes after seeing output. Every suite listed here is EXPECTED TO FAIL.
+#
+# Scoring rules (one verdict per seed, from failures.md plus the CLI reason line):
+#   correct:      the report's stated cause or its cited evidence identifies the seeded
+#                 defect (right step, true reason).
+#   insufficient: the report names the failing step but claims no specific cause, or
+#                 says it lacks evidence.
+#   wrong:        the report states a specific cause that is not the seeded one, or
+#                 blames a different step.
+# confidently-wrong rate = wrong / total.
+# Targets from the plan: wrong <= 10%, and the cited lines contain the cause in >= 80%.
+#
+# failing_step is the 1-based index of the step that should fail (launchApp is step 1).
+# Categories: selector-typo, wrong-screen, too-short-timeout, wrong-expected-value,
+# wrong-app, stale-state. 5 seeds each; iOS 15, Android 15.
+
+- id: ios-01
+  file: ios/01-selector-typo-general.yaml
+  platform: ios
+  category: selector-typo
+  seeded_cause: "The tap targets text 'Genral'; the row is 'General' and is on the Settings home screen."
+  failing_step: 2
+  correct_report_says: "element not found for 'Genral'; ideally names 'General' as the closest element"
+  wrong_report_would_say: "timing/sync problem, app crashed, wrong app in front, wrong screen, or any cause other than the misspelled selector"
+
+- id: ios-02
+  file: ios/02-selector-typo-about.yaml
+  platform: ios
+  category: selector-typo
+  seeded_cause: "After opening General, the tap targets 'Abuot'; the row is 'About' and is on screen."
+  failing_step: 3
+  correct_report_says: "element not found for 'Abuot'; ideally names 'About'"
+  wrong_report_would_say: "timing/sync problem, app crashed, wrong app in front, wrong screen, or any cause other than the misspelled selector"
+
+- id: ios-03
+  file: ios/03-selector-typo-ios-version.yaml
+  platform: ios
+  category: selector-typo
+  seeded_cause: "On the About screen the assertion looks for textContains 'iOS Versoin'; the row text contains 'iOS Version'."
+  failing_step: 4
+  correct_report_says: "element not found for 'iOS Versoin'; ideally names the 'iOS Version' row"
+  wrong_report_would_say: "timing/sync problem, app crashed, wrong app in front, wrong screen, or any cause other than the misspelled selector"
+
+- id: ios-04
+  file: ios/04-wrong-screen-about-on-home.yaml
+  platform: ios
+  category: wrong-screen
+  seeded_cause: "The Settings home screen is showing and the test taps 'About' without opening General first; 'About' is only inside General."
+  failing_step: 2
+  correct_report_says: "'About' not found on the home screen; ideally says General has not been opened / the step is on the wrong screen"
+  wrong_report_would_say: "a misspelled selector, a timing/sync problem, app crash, wrong app in front, or a missing/renamed element in the app"
+
+- id: ios-05
+  file: ios/05-wrong-screen-ios-version-in-general.yaml
+  platform: ios
+  category: wrong-screen
+  seeded_cause: "The test is on the General screen and asserts 'iOS Version' without tapping About; that row is only on the About screen."
+  failing_step: 3
+  correct_report_says: "'iOS Version' not found on the General screen; ideally notes the About screen was never opened"
+  wrong_report_would_say: "a misspelled selector, a timing/sync problem, app crash, wrong app in front, or a missing/renamed element in the app"
+
+- id: ios-06
+  file: ios/06-wrong-screen-ios-version-on-home.yaml
+  platform: ios
+  category: wrong-screen
+  seeded_cause: "The test asserts 'iOS Version' on the Settings home screen; General > About was never opened."
+  failing_step: 2
+  correct_report_says: "'iOS Version' not found on the home screen; ideally notes the navigation into General > About is missing"
+  wrong_report_would_say: "a misspelled selector, a timing/sync problem, app crash, wrong app in front, or a missing/renamed element in the app"
+
+- id: ios-07
+  file: ios/07-too-short-timeout-assert-about.yaml
+  platform: ios
+  category: too-short-timeout
+  seeded_cause: "The assertion for 'About' on the General screen has timeoutMs: 1, far shorter than a push transition; 'About' is there once the screen settles."
+  failing_step: 3
+  correct_report_says: "assertVisible 'About' timed out after 1 ms; names the 1 ms timeout as too short"
+  wrong_report_would_say: "the element is missing from the screen, a selector typo, wrong screen, wrong app, or an app crash (the element is on screen; only the 1 ms budget is wrong)"
+
+- id: ios-08
+  file: ios/08-too-short-timeout-assert-about-no-settle.yaml
+  platform: ios
+  category: too-short-timeout
+  seeded_cause: "The General tap uses settle: none (does not wait for the transition) and the next assertion for 'About' has timeoutMs: 1. 'About' appears shortly after."
+  failing_step: 3
+  correct_report_says: "assertVisible 'About' timed out after 1 ms right after a tap that did not wait for the transition; names the 1 ms timeout"
+  wrong_report_would_say: "the element is missing from the screen, a selector typo, wrong screen, wrong app, or an app crash (the element is on screen; only the 1 ms budget is wrong)"
+
+- id: ios-09
+  file: ios/09-too-short-timeout-ios-version.yaml
+  platform: ios
+  category: too-short-timeout
+  seeded_cause: "The About tap uses settle: none and the next assertion for 'iOS Version' has timeoutMs: 1; the row appears once the About screen has loaded."
+  failing_step: 4
+  correct_report_says: "assertVisible 'iOS Version' timed out after 1 ms; names the 1 ms timeout"
+  wrong_report_would_say: "the element is missing from the screen, a selector typo, wrong screen, wrong app, or an app crash (the element is on screen; only the 1 ms budget is wrong)"
+
+- id: ios-10
+  file: ios/10-wrong-expected-value-text-about-label.yaml
+  platform: ios
+  category: wrong-expected-value
+  seeded_cause: "On the General screen the 'About' row is found, but assertText expects its text to be 'Information'."
+  failing_step: 3
+  correct_report_says: "assertText on 'About' expected 'Information' but the element text is 'About'"
+  wrong_report_would_say: "element missing, selector typo, timing/sync problem, wrong screen, wrong app, or app crash (the element is found; its text/state differs from what was asserted)"
+
+- id: ios-11
+  file: ios/11-wrong-expected-value-general-not-visible-on-home.yaml
+  platform: ios
+  category: wrong-expected-value
+  seeded_cause: "On the Settings home screen the test asserts 'General' is NOT visible; it is visible (the smoke suite asserts it is)."
+  failing_step: 2
+  correct_report_says: "assertNotVisible 'General' failed because 'General' is visible on screen"
+  wrong_report_would_say: "element missing, selector typo, timing/sync problem, wrong screen, wrong app, or app crash (the element is found; its text/state differs from what was asserted)"
+
+- id: ios-12
+  file: ios/12-wrong-app-clock-as-suite-app.yaml
+  platform: ios
+  category: wrong-app
+  seeded_cause: "The suite appId is com.apple.mobiletimer (Clock); launchApp opens Clock and the test looks for the Settings row 'General'."
+  failing_step: 2
+  correct_report_says: "'General' not found; ideally says the Clock app (not Settings) is in front / the wrong app was launched"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, missing element in the Settings app, or an app crash; the real cause is that the app in front is not Settings"
+
+- id: ios-13
+  file: ios/13-wrong-app-calendar-in-launchapp.yaml
+  platform: ios
+  category: wrong-app
+  seeded_cause: "The suite appId is Settings but launchApp opens com.apple.mobilecal (Calendar); the test looks for the Settings row 'General'."
+  failing_step: 2
+  correct_report_says: "'General' not found; ideally says Calendar (not Settings) is in front / the wrong app was launched"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, missing element in the Settings app, or an app crash; the real cause is that the app in front is not Settings"
+
+- id: ios-14
+  file: ios/14-stale-state-home-row-after-nav.yaml
+  platform: ios
+  category: stale-state
+  seeded_cause: "General has just been opened; the test then asserts the home-list row 'Wi-Fi', which is no longer on screen (no back step)."
+  failing_step: 3
+  correct_report_says: "'Wi-Fi' not found; ideally says the app is on the General screen after the previous tap, not the home list"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, wrong app in front, or app crash; the real cause is that an earlier step already moved the app off the screen the failing step assumes"
+
+- id: ios-15
+  file: ios/15-stale-state-general-row-from-about.yaml
+  platform: ios
+  category: stale-state
+  seeded_cause: "The test has moved on into About; it then asserts 'Software Update', a row of the General screen it has already left."
+  failing_step: 4
+  correct_report_says: "'Software Update' not found; ideally says the app is on the About screen after the previous tap"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, wrong app in front, or app crash; the real cause is that an earlier step already moved the app off the screen the failing step assumes"
+
+- id: android-01
+  file: android/01-selector-typo-network.yaml
+  platform: android
+  category: selector-typo
+  seeded_cause: "The tap targets textContains 'Netwrok'; the home row is 'Network & internet' and is on screen (the assert in step 2 proves it)."
+  failing_step: 3
+  correct_report_says: "element not found for 'Netwrok'; ideally names 'Network & internet' as the closest element"
+  wrong_report_would_say: "timing/sync problem, app crashed, wrong app in front, wrong screen, or any cause other than the misspelled selector"
+
+- id: android-02
+  file: android/02-selector-typo-airplane-mode.yaml
+  platform: android
+  category: selector-typo
+  seeded_cause: "On the Network & internet page the assertion looks for text 'Airplain mode'; the row is 'Airplane mode' and is on screen."
+  failing_step: 4
+  correct_report_says: "element not found for 'Airplain mode'; ideally names 'Airplane mode'"
+  wrong_report_would_say: "timing/sync problem, app crashed, wrong app in front, wrong screen, or any cause other than the misspelled selector"
+
+- id: android-03
+  file: android/03-wrong-screen-airplane-on-home.yaml
+  platform: android
+  category: wrong-screen
+  seeded_cause: "The test asserts 'Airplane mode' on the Settings home screen; it is only on the Network & internet page, which was never opened."
+  failing_step: 2
+  correct_report_says: "'Airplane mode' not found on the home screen; ideally notes Network & internet was not opened"
+  wrong_report_would_say: "a misspelled selector, a timing/sync problem, app crash, wrong app in front, or a missing/renamed element in the app"
+
+- id: android-04
+  file: android/04-wrong-screen-tap-airplane-on-home.yaml
+  platform: android
+  category: wrong-screen
+  seeded_cause: "The test taps 'Airplane mode' while on the home screen, with no tap on Network & internet first."
+  failing_step: 3
+  correct_report_says: "'Airplane mode' not found on the home screen; ideally notes the missing navigation into Network & internet"
+  wrong_report_would_say: "a misspelled selector, a timing/sync problem, app crash, wrong app in front, or a missing/renamed element in the app"
+
+- id: android-05
+  file: android/05-too-short-timeout-airplane.yaml
+  platform: android
+  category: too-short-timeout
+  seeded_cause: "The assertion for 'Airplane mode' right after the Network tap has timeoutMs: 1, far shorter than the page transition."
+  failing_step: 4
+  correct_report_says: "assertVisible 'Airplane mode' timed out after 1 ms; names the 1 ms timeout as too short"
+  wrong_report_would_say: "the element is missing from the screen, a selector typo, wrong screen, wrong app, or an app crash (the element is on screen; only the 1 ms budget is wrong)"
+
+- id: android-06
+  file: android/06-too-short-timeout-airplane-no-settle.yaml
+  platform: android
+  category: too-short-timeout
+  seeded_cause: "The Network tap uses settle: none and the next assertion for 'Airplane mode' has timeoutMs: 1; the row appears once the page has opened."
+  failing_step: 4
+  correct_report_says: "assertVisible 'Airplane mode' timed out after 1 ms right after a non-waiting tap; names the 1 ms timeout"
+  wrong_report_would_say: "the element is missing from the screen, a selector typo, wrong screen, wrong app, or an app crash (the element is on screen; only the 1 ms budget is wrong)"
+
+- id: android-07
+  file: android/07-wrong-expected-value-network-not-visible-on-home.yaml
+  platform: android
+  category: wrong-expected-value
+  seeded_cause: "On the Settings home screen the test asserts 'Network' is NOT visible; the 'Network & internet' row is visible."
+  failing_step: 2
+  correct_report_says: "assertNotVisible 'Network' failed because the 'Network & internet' row is visible"
+  wrong_report_would_say: "element missing, selector typo, timing/sync problem, wrong screen, wrong app, or app crash (the element is found; its text/state differs from what was asserted)"
+
+- id: android-08
+  file: android/08-wrong-expected-value-airplane-text.yaml
+  platform: android
+  category: wrong-expected-value
+  seeded_cause: "On the Network & internet page the 'Airplane mode' row is found but assertText expects its text to be 'Flight mode'."
+  failing_step: 4
+  correct_report_says: "assertText on 'Airplane mode' expected 'Flight mode' but the element text is 'Airplane mode'"
+  wrong_report_would_say: "element missing, selector typo, timing/sync problem, wrong screen, wrong app, or app crash (the element is found; its text/state differs from what was asserted)"
+
+- id: android-09
+  file: android/09-wrong-expected-value-airplane-not-visible-on-subpage.yaml
+  platform: android
+  category: wrong-expected-value
+  seeded_cause: "On the Network & internet page the test asserts 'Airplane mode' is NOT visible; it is visible there."
+  failing_step: 4
+  correct_report_says: "assertNotVisible 'Airplane mode' failed because the row is visible on screen"
+  wrong_report_would_say: "element missing, selector typo, timing/sync problem, wrong screen, wrong app, or app crash (the element is found; its text/state differs from what was asserted)"
+
+- id: android-10
+  file: android/10-wrong-app-clock-as-suite-app.yaml
+  platform: android
+  category: wrong-app
+  seeded_cause: "The suite appId is com.google.android.deskclock (Clock); launchApp opens Clock and the test looks for the Settings row 'Network'."
+  failing_step: 2
+  correct_report_says: "'Network' not found; ideally says Clock (not Settings) is in front / the wrong app was launched"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, missing element in the Settings app, or an app crash; the real cause is that the app in front is not Settings"
+
+- id: android-11
+  file: android/11-wrong-app-calendar-in-launchapp.yaml
+  platform: android
+  category: wrong-app
+  seeded_cause: "The suite appId is Settings but launchApp opens com.google.android.calendar (Calendar); the test looks for the Settings row 'Network'."
+  failing_step: 2
+  correct_report_says: "'Network' not found; ideally says Calendar (not Settings) is in front / the wrong app was launched"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, missing element in the Settings app, or an app crash; the real cause is that the app in front is not Settings"
+
+- id: android-12
+  file: android/12-wrong-app-calculator-in-launchapp.yaml
+  platform: android
+  category: wrong-app
+  seeded_cause: "The suite appId is Settings but launchApp opens com.google.android.calculator (Calculator); the test looks for the Settings row 'Network'."
+  failing_step: 2
+  correct_report_says: "'Network' not found; ideally says Calculator (not Settings) is in front / the wrong app was launched"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, missing element in the Settings app, or an app crash; the real cause is that the app in front is not Settings"
+
+- id: android-13
+  file: android/13-stale-state-airplane-after-back.yaml
+  platform: android
+  category: stale-state
+  seeded_cause: "The test went back to the home screen in step 5 and then asserts 'Airplane mode' is still visible; it is only on the sub-page."
+  failing_step: 6
+  correct_report_says: "'Airplane mode' not found; ideally says the back press returned to the Settings home list"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, wrong app in front, or app crash; the real cause is that an earlier step already moved the app off the screen the failing step assumes"
+
+- id: android-14
+  file: android/14-stale-state-home-row-from-subpage.yaml
+  platform: android
+  category: stale-state
+  seeded_cause: "The test is on the Network & internet page (no back step) and asserts the home-list row 'Display'."
+  failing_step: 5
+  correct_report_says: "'Display' not found; ideally says the app is on the Network & internet page, not the home list"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, wrong app in front, or app crash; the real cause is that an earlier step already moved the app off the screen the failing step assumes"
+
+- id: android-15
+  file: android/15-stale-state-tap-airplane-after-back.yaml
+  platform: android
+  category: stale-state
+  seeded_cause: "The test went back to the home screen in step 5 and then taps 'Airplane mode' (a sub-page row) as if still on the sub-page. Tap only; never toggles anything because it fails to find the row."
+  failing_step: 6
+  correct_report_says: "'Airplane mode' not found for tap; ideally says the back press returned to the home list"
+  wrong_report_would_say: "a selector typo, a timing/sync problem, wrong app in front, or app crash; the real cause is that an earlier step already moved the app off the screen the failing step assumes"

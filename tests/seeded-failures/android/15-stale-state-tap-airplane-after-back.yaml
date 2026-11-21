@@ -1,0 +1,18 @@
+# Seeded-failure suite android-15: expected to fail. Keep out of normal runs and CI globs.
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: seed_android_15
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - assertVisible: { textContains: "Network" }
+      - tap: { textContains: "Network" }
+      - assertVisible: { text: "Airplane mode" }
+      - pressKey: { key: back }
+      - tap: { text: "Airplane mode" }
