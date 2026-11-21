@@ -1,0 +1,16 @@
+# Held-out seeded failure: expected to fail. See ../manifest.yaml.
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout2_ios_04
+    tags: ["seeded-failure"]
+    steps:
+      - {"launchApp": {"appId": "com.apple.Preferences", "clearState": false}}
+      - {"assertVisible": {"text": "Apple Intelligence & Siri"}}
+      - {"assertVisible": {"text": "Language"}}
+      - {"tap": {"text": "Voice"}}
+      - {"assertVisible": {"text": "British"}}
+      - {"assertVisible": {"text": "Voice 1"}}
+      - {"tap": {"id": "BackButton"}}
+      - {"assertVisible": {"text": "Language"}}

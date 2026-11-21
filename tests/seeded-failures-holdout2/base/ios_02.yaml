@@ -1,0 +1,17 @@
+# Base suite, no defect: must pass.
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout2_base_ios_02
+    tags: ["base"]
+    steps:
+      - {"launchApp": {"appId": "com.apple.Preferences", "clearState": false}}
+      - {"assertVisible": {"text": "Apple Intelligence & Siri"}}
+      - {"tap": {"text": "Apple Intelligence & Siri"}}
+      - {"assertVisible": {"text": "Language"}}
+      - {"tap": {"text": "Voice"}}
+      - {"assertVisible": {"text": "British"}}
+      - {"assertVisible": {"text": "Voice 1"}}
+      - {"tap": {"id": "BackButton"}}
+      - {"assertVisible": {"text": "Language"}}

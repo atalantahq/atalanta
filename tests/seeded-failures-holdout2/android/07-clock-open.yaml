@@ -1,0 +1,16 @@
+# Held-out seeded failure: expected to fail. See ../manifest.yaml.
+appId: com.google.android.deskclock
+config:
+  platform: android
+tests:
+  - name: holdout2_android_07
+    tags: ["seeded-failure"]
+    steps:
+      - {"launchApp": {"appId": "com.google.android.deskclock", "clearState": false}}
+      - {"assertVisible": {"text": "Connected devices"}}
+      - {"tap": {"text": "Connected devices"}}
+      - {"assertVisible": {"text": "Connection preferences"}}
+      - {"tap": {"text": "Connection preferences"}}
+      - {"assertVisible": {"text": "Cast"}}
+      - {"assertVisible": {"text": "Printing"}}
+      - {"assertVisible": {"text": "Chromebook"}}

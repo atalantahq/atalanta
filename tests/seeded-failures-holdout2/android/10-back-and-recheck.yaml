@@ -1,0 +1,16 @@
+# Held-out seeded failure: expected to fail. See ../manifest.yaml.
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout2_android_10
+    tags: ["seeded-failure"]
+    steps:
+      - {"launchApp": {"appId": "com.android.settings", "clearState": false}}
+      - {"assertVisible": {"text": "Notifications"}}
+      - {"tap": {"text": "Notifications"}}
+      - {"assertVisible": {"text": "App settings"}}
+      - {"tap": {"text": "Device & app notifications"}}
+      - {"assertVisible": {"text": "Android Auto"}}
+      - {"pressKey": {"key": "back"}}
+      - {"assertVisible": {"text": "Android System Intelligence"}}
