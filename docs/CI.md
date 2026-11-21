@@ -231,7 +231,7 @@ is pinned to a commit SHA.
 
 | Workflow | When | Jobs |
 |---|---|---|
-| `ci.yml` | pull requests, pushes to `main`, merge queue | `Changes`, `Inspector frontend`, `Format`, `Clippy`, `Test (ubuntu, macos)`, `MSRV (1.89)`, `Release build` (push only), `Release files` (shellcheck, changelog and formula, protocol numbers, one toolchain, SHA pins, licence inventory, packaging), `Tree-server jar reproduces`, `Bench scorer tests`, `cargo-deny (licenses bans sources)`, `Workflow lint` (actionlint), and `CI OK`, the one required check |
+| `ci.yml` | pull requests, pushes to `main`, merge queue | `Changes`, `Inspector frontend`, `Format`, `Clippy`, `Rustdoc`, `Test (ubuntu, macos)`, `MSRV (1.89)`, `Release build` (push only), `Release files` (shellcheck, changelog and formula, protocol numbers, one toolchain, SHA pins, licence inventory, packaging), `Tree-server jar reproduces`, `Bench scorer tests`, `cargo-deny (licenses bans sources)`, `Workflow lint` (actionlint), and `CI OK`, the one required check |
 | `security.yml` | pull requests touching code, dependencies or workflows; pushes to `main`; Mondays; manual | `RustSec advisories (cargo-deny)`, `OSV-Scanner`, `npm audit`, `Secrets (gitleaks)`, `Workflow audit (zizmor)`, `SAST (Semgrep)`, `Unsafe code inventory`, `SBOM (CycloneDX)`; scheduled and manual runs add `Fuzz (<target>)`, a minute per cargo-fuzz target. Not part of `CI OK`. See [SECURITY.md](../SECURITY.md#automated-security-checks) |
 | `scorecard.yml` | pushes to `main`, Mondays, manual | `Scorecard analysis` (OpenSSF Scorecard; SARIF artifact and job summary, not published while the repository is private) |
 | `canary.yml` | Mondays, manual | `Clippy and tests (stable, beta)`: the toolchains after the pinned one |
@@ -248,7 +248,7 @@ ordinary push or pull request. Run them from the Actions tab
 
 | Workflow | Label | What it does |
 |---|---|---|
-| `device-smoke.yml` | `device-ci` | iOS: boots an iPhone simulator on `macos-latest` and runs `tests/smoke/ios-settings.yaml` against the Settings app. With the `app_url` input (a zipped simulator `.app`) and `suite`, it runs that suite against your build instead. Android: an API 34 emulator through `reactivecircus/android-emulator-runner`, running `tests/smoke/android-settings.yaml`. |
+| `device-smoke.yml` | `device-ci` | iOS: boots an iPhone simulator on `macos-latest` and runs `tests/smoke/ios-settings.yaml` against the Settings app. With the `app_url` input (a zipped simulator `.app`) and `suite`, it runs that suite against your build instead. Android: an API 34 emulator through `reactivecircus/android-emulator-runner`, running `tests/smoke/android-settings.yaml`. Web: headless Chrome, running `tests/smoke/web-smoke.yaml`. Nightly, Android and web run on a schedule (iOS on Mondays) and a final job checks that both reported. |
 | `flutter-bridge.yml` | `flutter-ci` | The Dart bridge package (`analyze` + `test`) on Flutter 3.19.6, the SDK floor, and on current stable. Also `cargo test -p velocity-flutter-bridge`. |
 | `probes.yml` | `probes-ci` | Android: the sync probe's host checks, the tree server's `build.sh` (host checks and the d8 jar), and a Gradle build of the sync probe (AGP 8.3 and Kotlin 1.9, through a throwaway settings file). iOS: the sync probe's swiftc host checks, an `xcodebuild` of the Swift package, and a `build-for-testing` of VelocityRunner. |
 
