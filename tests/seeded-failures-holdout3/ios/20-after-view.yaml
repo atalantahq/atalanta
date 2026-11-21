@@ -1,0 +1,20 @@
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout3_ios_20
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.apple.Preferences }
+      - launchApp: { appId: com.apple.Preferences, clearState: false }
+      - scrollUntilVisible: { selector: { text: "Developer" } }
+      - tap: { text: "Developer" }
+      - assertVisible: { text: "Enable UI Automation" }
+      - assertVisible: { text: "Fast App Termination" }
+      - tap: { text: "View" }
+      - assertVisible: { text: "Larger Text" }
+      - assertVisible: { text: "Display Zoom" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Display Zoom" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Developer" }

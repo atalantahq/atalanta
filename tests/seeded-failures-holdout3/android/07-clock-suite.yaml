@@ -1,0 +1,17 @@
+appId: com.google.android.deskclock
+config:
+  platform: android
+tests:
+  - name: holdout3_android_07
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.google.android.deskclock }
+      - launchApp: { appId: com.google.android.deskclock, clearState: false }
+      - scrollUntilVisible: { selector: { text: "System" } }
+      - tap: { text: "System" }
+      - assertVisible: { text: "Languages & input" }
+      - tap: { text: "Gestures" }
+      - assertVisible: { text: "System navigation" }
+      - assertVisible: { text: "Quickly open camera" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Date & time" }

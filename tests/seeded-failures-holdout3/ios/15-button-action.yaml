@@ -1,0 +1,19 @@
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout3_ios_15
+    tags: [seeded-failure]
+    steps:
+      - stopApp: { appId: com.apple.Preferences }
+      - launchApp: { appId: com.apple.Preferences, clearState: false }
+      - assertVisible: { text: "Action Button" }
+      - tap: { text: "Home Screen & App Library" }
+      - assertVisible: { text: "Newly Downloaded Apps" }
+      - assertVisible: { text: "Notification Badges" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Action Button" }
+      - tap: { text: "Action Button" }
+      - assertText: { selector: { text: "Silent Mode" }, expected: "Vibrate Mode" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Home Screen & App Library" }
