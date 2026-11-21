@@ -59,7 +59,10 @@ struct DeviceConn {
     runner_failing: std::sync::Mutex<Option<VelocityError>>,
     /// The tree (by address) whose `visible` flags were read under a modal
     /// layer ([`IosDriver::with_visibility`]), so it is read once.
-    visible_for: std::sync::Mutex<Option<usize>>,
+    /// Held as a `Weak`, not an address: a dropped tree's address can come
+    /// back on the next, unflagged read (seen on an iPhone 12: rows behind a
+    /// sheet counted as visible), and a `Weak` keeps it reserved.
+    visible_for: std::sync::Mutex<Option<std::sync::Weak<Element>>>,
     /// The full tree from the last successful `get_source_with_visibility`
     /// under a modal layer, and when it was read: its `visible` flags are
     /// reused onto each new poll's tree for `VISIBILITY_REUSE`, so polling an
@@ -1256,11 +1259,15 @@ impl IosDriver {
     /// action and when the screen's shape changes. Off with
     /// `VELOCITY_IOS_SHEET_VISIBILITY=off`.
     async fn with_visibility(&self, conn: &DeviceConn, tree: Arc<Element>) -> Arc<Element> {
-        let key = Arc::as_ptr(&tree) as usize;
         if !sheet_visibility()
             || (self.fixed_url.is_none() && crate::wda_bootstrap::velocity_runner())
             || velocity_common::env::var("VELOCITY_IOS_FULL_SOURCE").as_deref() == Ok("1")
-            || *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) == Some(key)
+            || conn
+                .visible_for
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some_and(|w| std::ptr::eq(w.as_ptr(), Arc::as_ptr(&tree)))
             || !crate::hit::has_modal_layer(&tree)
         {
             return tree;
@@ -1290,7 +1297,7 @@ impl IosDriver {
             }
             drop(cache);
             *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) =
-                Some(Arc::as_ptr(&merged) as usize);
+                Some(Arc::downgrade(&merged));
             return merged;
         }
         let started = Instant::now();
@@ -1329,8 +1336,7 @@ impl IosDriver {
             }
         }
         drop(cache);
-        *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Arc::as_ptr(&merged) as usize);
+        *conn.visible_for.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&merged));
         merged
     }
 
@@ -4631,6 +4637,49 @@ mod relaunch_and_typing_tests {
         d.input_text(SIM, &field, "hi").await.unwrap();
         assert_eq!(f.count("GET", "/source") - reads, 1, "one poll");
         assert_eq!(f.count("POST", "/wda/keys"), 1);
+    }
+
+    /// iPhone 12, 2026-11-21: after the read was reused, polls of an
+    /// `assertNotVisible` saw rows behind the sheet as visible, and a tap
+    /// behind it went through. A dropped tree's address came back on the
+    /// next, unflagged read, which then passed for already merged. Every
+    /// poll's tree must carry the flags.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_poll_under_a_sheet_keeps_the_hidden_flags() {
+        let plain = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="402" height="874" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Behind" x="8" y="100" width="386" height="44" enabled="true"/><XCUIElementTypeSheet type="XCUIElementTypeSheet" label="" x="0" y="60" width="402" height="814" enabled="true"><XCUIElementTypeButton type="XCUIElementTypeButton" label="Save" x="8" y="650" width="386" height="56" enabled="true"/></XCUIElementTypeSheet></XCUIElementTypeApplication>"#;
+        let flagged = plain
+            .replace(r#"label="Behind" "#, r#"label="Behind" visible="false" "#)
+            .replace(r#"label="Save" "#, r#"label="Save" visible="true" "#);
+        let f = FakeWda::start(move |r| {
+            if r.path == "/status" {
+                return Resp::Json(200, r#"{"value":{"ready":true}}"#.into());
+            }
+            if r.method == "POST" && r.path == "/session" {
+                return ok(r#"{"sessionId":"S1","capabilities":{}}"#);
+            }
+            if r.path.ends_with("/source") {
+                if r.query == "excluded_attributes=accessible" {
+                    return source(&flagged);
+                }
+                return source(plain);
+            }
+            ok("null")
+        })
+        .await;
+        let d = IosDriver::with_wda_url(&f.url);
+        fn behind(e: &Element) -> Option<&Element> {
+            if e.label.as_deref() == Some("Behind") {
+                return Some(e);
+            }
+            e.children.iter().find_map(behind)
+        }
+        for poll in 0..40 {
+            // What a polling assertVisible does between reads.
+            d.invalidate_hierarchy_cache().await;
+            let tree = d.get_hierarchy_cached(SIM).await.unwrap();
+            let b = behind(&tree).expect("the row behind the sheet");
+            assert!(!b.visible, "poll {poll}: {b:?}");
+        }
     }
 
     /// Two lookups of the same sheet screen with no action between them make
