@@ -1451,10 +1451,15 @@ impl McpServer {
         let truncated = findings.len() > MAX;
         let shown: &[velocity_common::a11y::Finding] = &findings[..findings.len().min(MAX)];
 
+        // Findings and the snapshot both follow tree order: each finding takes
+        // the first matching element not taken yet, so two identical buttons
+        // get their own refs (an iPhone's two Dictate buttons both said @e46).
+        let nodes = crate::snapshot::collect(&tree, screen.as_ref());
+        let mut taken = vec![false; nodes.len()];
         let mut out = Vec::new();
         for f in shown {
             let element = self
-                .element_ref(&f.element, &tree, screen.as_ref())
+                .element_ref(&f.element, &nodes, &mut taken)
                 .unwrap_or_else(|| selector_text(&f.element));
             out.push(serde_json::json!({
                 "severity": f.severity,
@@ -1470,7 +1475,7 @@ impl McpServer {
         });
 
         let screen_summary = serde_json::json!({
-            "elements": tree.children.len(),
+            "elements": nodes.len(),
             "platform": platform,
         });
 
@@ -1488,8 +1493,8 @@ impl McpServer {
     fn element_ref(
         &self,
         node: &velocity_common::Element,
-        tree: &velocity_common::Element,
-        screen: Option<&velocity_common::Rect>,
+        nodes: &[(crate::snapshot::Identity, bool, &velocity_common::Element)],
+        taken: &mut [bool],
     ) -> Option<String> {
         let matches = |e: &velocity_common::Element| {
             e.element_type == node.element_type
@@ -1498,12 +1503,12 @@ impl McpServer {
                 && e.label == node.label
                 && e.bounds == node.bounds
         };
-        for (identity, _, e) in crate::snapshot::collect(tree, screen) {
-            if matches(e) {
-                return self.snapshots.refs.get(&identity).map(|r| format!("@e{r}"));
-            }
-        }
-        None
+        let i = (0..nodes.len()).find(|&i| !taken[i] && matches(nodes[i].2))?;
+        taken[i] = true;
+        self.snapshots
+            .refs
+            .get(&nodes[i].0)
+            .map(|r| format!("@e{r}"))
     }
 }
 
@@ -3739,6 +3744,10 @@ mod t2_tests {
         assert_eq!(field["element"], email.as_str(), "{v}");
         assert!(v["counts"]["error"].as_u64().unwrap() >= 1, "{v}");
         assert_eq!(v["truncated"], false);
+        // Every element on screen, not the root's direct children (an
+        // iPhone's 48-element screen said 1).
+        let lines = full.lines().filter(|l| l.starts_with('@')).count() as u64;
+        assert_eq!(v["screen"]["elements"], lines, "{v}");
         // Nothing recorded: an audit doesn't add to the exported session.
         let flow = call(
             &mut s,
