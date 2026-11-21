@@ -1,0 +1,19 @@
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: holdout_android_06
+    tags: [seeded-failure]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - tap: { text: "Apps" }
+      - assertVisible: { text: "Default apps" }
+      - tap: { text: "Default apps" }
+      - assertVisible: { text: "Browser app" }
+      - assertNotVisible: { text: "SMS app" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Unused apps" }

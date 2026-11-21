@@ -1,0 +1,19 @@
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: base_android_2
+    tags: [holdout-base]
+    steps:
+      - launchApp:
+          appId: com.android.settings
+          clearState: false
+      - tap: { text: "Apps" }
+      - assertVisible: { text: "Default apps" }
+      - tap: { text: "Default apps" }
+      - assertVisible: { text: "Browser app" }
+      - assertVisible: { text: "SMS app" }
+      - pressKey: { key: back }
+      - assertVisible: { text: "Unused apps" }
