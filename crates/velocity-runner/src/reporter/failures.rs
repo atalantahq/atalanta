@@ -132,7 +132,11 @@ fn section(t: &TestResult, base: &Path) -> (String, bool) {
     if let Some(next) = try_next(&lower, t.infrastructure_failure) {
         let _ = writeln!(s, "- **Try:** {next}");
     }
-    if let Some((_, lines)) = &log_block {
+    // Only when the Why cites them: device-wide error lines under an
+    // unrelated Why read as the cause (a seeded run printed another app's
+    // 74-line crash dump under a missing-element explanation).
+    let logs_cited = why.starts_with("the app logged errors");
+    if let Some((_, lines)) = log_block.as_ref().filter(|_| logs_cited) {
         let _ = writeln!(s, "\n```text");
         for l in lines {
             let _ = writeln!(s, "{l}");
@@ -572,7 +576,27 @@ mod tests {
                 notes: vec![],
             }),
         };
-        let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &[]);
+        // The step ran 1000-1200 ms. A path with `e/` (counted as an error
+        // before), an error outside the step, and one inside it from another
+        // app: none is the cause, and none is printed under this Why.
+        let logs = [
+            LogLine {
+                t: 1100,
+                level: 'I',
+                text: "constructing bundle record for file:///x/simruntime/Applications/y".into(),
+            },
+            LogLine {
+                t: 5000,
+                level: 'E',
+                text: "outside the step window".into(),
+            },
+            LogLine {
+                t: 1150,
+                level: 'F',
+                text: "another app: Fatal signal 6 (SIGABRT)".into(),
+            },
+        ];
+        let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &logs);
         let t = trace_test_result("Element not found: text=\"Genral\"", path);
         let md = render(&suite(vec![t]), d.path());
         assert!(md.contains("closest element is text=\"General\""), "{md}");
@@ -581,6 +605,8 @@ mod tests {
             "{md}"
         );
         assert!(!md.contains("simruntime"), "{md}");
+        assert!(!md.contains("outside the step window"), "{md}");
+        assert!(!md.contains("SIGABRT"), "not cited, so not printed: {md}");
         // One line: a newline inside the Why broke the Markdown bullet.
         let why = md.lines().find(|l| l.starts_with("- **Why:**")).unwrap();
         assert!(why.contains("The screen shows:"), "{md}");
