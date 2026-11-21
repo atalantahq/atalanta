@@ -130,6 +130,15 @@ impl PlatformDriver for RoutingDriver {
     async fn launch_app(&self, id: &str, app: &str, clear: bool) -> Result<()> {
         self.of(id)?.launch_app(id, app, clear).await
     }
+    async fn launch_app_with(
+        &self,
+        id: &str,
+        app: &str,
+        clear: bool,
+        args: &velocity_common::LaunchArgs,
+    ) -> Result<()> {
+        self.of(id)?.launch_app_with(id, app, clear, args).await
+    }
     async fn stop_app(&self, id: &str, app: &str) -> Result<()> {
         self.of(id)?.stop_app(id, app).await
     }
