@@ -1,59 +1,20 @@
 //! `failures.md` (row 2.2: REP-080, VOI-007), written by every run: each
-//! failed test with the step that failed, the error, the end of its app log,
-//! and the files that show it. The explanation only says what the evidence
+//! failed test with the step that failed, the error, the errors the app
+//! logged during that step, and the files that show it. The explanation only says what the evidence
 //! shows, and cites it (a file and its lines, a screenshot); with nothing to
 //! cite it says "insufficient evidence" instead of guessing. Showing sources
 //! reduces reliance on wrong answers (CHI 2025).
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use velocity_common::evidence::AttachmentKind;
-use velocity_common::{StepStatus, SuiteResult, TestResult, TestStatus};
+use velocity_common::evidence::{AttachmentKind, LogLine};
+use velocity_common::{Element, StepStatus, SuiteResult, TestResult, TestStatus};
+use velocity_core::trace::{describe_failure, load_trace, TestTrace};
 
-/// Lines of the app log kept, at most.
-const LOG_TAIL_LINES: usize = 20;
-/// Characters of each kept line, at most.
+/// Characters of each log line shown in the error block, at most.
 const LOG_LINE_CHARS: usize = 300;
-
-/// The last lines of `path` mentioning an error, else its last lines, with
-/// their 1-based line numbers.
-fn log_tail(path: &Path) -> Option<(Vec<(usize, String)>, bool)> {
-    let text = std::fs::read_to_string(path).ok()?;
-    let lines: Vec<&str> = text.lines().collect();
-    let hot = |l: &str| {
-        let l = l.to_ascii_lowercase();
-        ["error", "exception", "fatal", "crash", " e ", "e/", "panic"]
-            .iter()
-            .any(|k| l.contains(k))
-    };
-    let errors: Vec<usize> = (0..lines.len()).filter(|&i| hot(lines[i])).collect();
-    let (picked, found_errors): (Vec<usize>, bool) = if errors.is_empty() {
-        (lines.len().saturating_sub(LOG_TAIL_LINES)..lines.len())
-            .collect::<Vec<_>>()
-            .pipe(|v| (v, false))
-    } else {
-        (
-            errors[errors.len().saturating_sub(LOG_TAIL_LINES)..].to_vec(),
-            true,
-        )
-    };
-    let out = picked
-        .into_iter()
-        .map(|i| {
-            let l: String = lines[i].chars().take(LOG_LINE_CHARS).collect();
-            (i + 1, velocity_common::redact::redact(&l).into_owned())
-        })
-        .collect::<Vec<_>>();
-    (!out.is_empty()).then_some((out, found_errors))
-}
-
-trait Pipe: Sized {
-    fn pipe<T>(self, f: impl FnOnce(Self) -> T) -> T {
-        f(self)
-    }
-}
-impl<T> Pipe for T {}
 
 fn rel(path: &Path, base: &Path) -> String {
     path.strip_prefix(base)
@@ -98,16 +59,12 @@ fn section(t: &TestResult, base: &Path) -> (String, bool) {
     if let Some(p) = &t.trace {
         evidence.push(format!("trace `{}`", rel(p, base)));
     }
-    let mut app_log = None;
     let mut crash = None;
     for a in &t.attachments {
         let what = match a.kind {
             AttachmentKind::Video => "video",
             AttachmentKind::Screencast => "screencast",
-            AttachmentKind::AppLog => {
-                app_log = Some(a.path.clone());
-                "app log"
-            }
+            AttachmentKind::AppLog => "app log",
             AttachmentKind::DeviceLog => "device log",
             AttachmentKind::Crash => {
                 crash = Some(a.path.clone());
@@ -120,63 +77,249 @@ fn section(t: &TestResult, base: &Path) -> (String, bool) {
     if !evidence.is_empty() {
         let _ = writeln!(s, "- **Evidence:** {}", evidence.join(", "));
     }
-    let tail = app_log.as_deref().and_then(log_tail);
+    // Load the trace and describe its failed step, if there is one.
+    let description = t.trace.as_ref().and_then(|trace_path| {
+        load_trace(trace_path).ok().and_then(|(trace, trees)| {
+            describe_failure(&trace, &trees, 3).map(|d| (trace, trees, d))
+        })
+    });
+    // The failed step's time window (test-time ms), from its trace.
+    let window = description.as_ref().and_then(|(trace, _, _)| {
+        trace
+            .steps
+            .iter()
+            .rev()
+            .find(|s| s.status == Some(StepStatus::Failed))
+            .map(|s| (s.start_ms, s.duration_ms))
+    });
+    // Timed log lines from the trace's evidence, filtered to the failed step's
+    // window (levels E/F only).
+    let log_block = description.as_ref().and_then(|(trace, _trees, _)| {
+        let log_name = trace.evidence.as_ref().and_then(|e| e.log_lines.as_ref())?;
+        let folder = t
+            .trace
+            .as_ref()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_default();
+        let path = folder.join(log_name);
+        let lines: Vec<LogLine> = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
+        let (start, duration) = window?;
+        let out: Vec<String> = lines
+            .iter()
+            .filter(|l| matches!(l.level, 'E' | 'F'))
+            .filter(|l| l.t >= start - 500 && l.t <= start + duration as i64)
+            .map(|l| {
+                let text: String = l.text.chars().take(LOG_LINE_CHARS).collect();
+                format!("{:>7} ms  {}", l.t, velocity_common::redact::redact(&text))
+            })
+            .collect();
+        (!out.is_empty()).then_some((log_name.clone(), out))
+    });
 
     // The explanation: only what a cited file shows.
     let lower = error.to_ascii_lowercase();
-    let (why, cited) = if let Some(c) = &crash {
-        (
-            format!(
-                "the app crashed during the test (crash report `{}`).",
-                rel(c, base)
-            ),
-            true,
-        )
-    } else if let Some((lines, true)) = &tail {
-        let (first, last) = (lines[0].0, lines[lines.len() - 1].0);
-        (
-            format!(
-                "the app logged errors while the step ran (`{}` lines {first}-{last}, below); check them against the step.",
-                rel(app_log.as_deref().unwrap_or(Path::new("app.log")), base)
-            ),
-            true,
-        )
-    } else if (lower.contains("not found")
-        || lower.contains("not visible")
-        || lower.contains("no element"))
-        && shot.is_some()
-    {
-        (
-            format!(
-                "the element the step looked for was not on the screen it saw (screenshot `{}`): the screen changed, or the selector no longer matches.",
-                rel(shot.as_deref().unwrap_or(Path::new("")), base)
-            ),
-            true,
-        )
-    } else if t.infrastructure_failure {
-        (
-            "the device or its connection failed, not the app (exit 3).".to_string(),
-            true,
-        )
-    } else {
-        (
-            "insufficient evidence: no log errors, crash report or screenshot point to a cause. Open the trace and rerun with `--video always --logs always`.".to_string(),
-            false,
-        )
-    };
+    let (why, cited) = explanation(&ExplanationCtx {
+        lower: &lower,
+        error: &error,
+        crash: &crash,
+        shot: &shot,
+        base,
+        infrastructure: t.infrastructure_failure,
+        description: &description,
+        log_block: &log_block,
+    });
     let _ = writeln!(s, "- **Why:** {why}");
     if let Some(next) = try_next(&lower, t.infrastructure_failure) {
         let _ = writeln!(s, "- **Try:** {next}");
     }
-    if let Some((lines, _)) = tail {
+    if let Some((_, lines)) = &log_block {
         let _ = writeln!(s, "\n```text");
-        for (n, l) in lines {
-            let _ = writeln!(s, "{n:>6}  {l}");
+        for l in lines {
+            let _ = writeln!(s, "{l}");
         }
         let _ = writeln!(s, "```");
     }
     s.push('\n');
     (s, cited)
+}
+
+/// Text of `marker` in `text`, trimmed, with a leading `:` removed.
+fn after(text: &str, marker: &str) -> Option<String> {
+    let start = text.find(marker)?;
+    let rest = &text[start + marker.len()..];
+    Some(rest.trim_start_matches(':').trim().to_string())
+}
+
+/// The `X` and `Y` from `expected "X", got "Y"` in `text`.
+fn assertion_values(text: &str) -> Option<(String, String)> {
+    let lower = text.to_ascii_lowercase();
+    let i = lower.find("expected \"")?;
+    let after = &text[i + "expected \"".len()..];
+    let j = after.find('"')?;
+    let x = &after[..j];
+    let k = after.find("\", got \"")?;
+    let rest = &after[k + "\", got \"".len()..];
+    let l = rest.find('"')?;
+    let y = &rest[..l];
+    Some((x.to_string(), y.to_string()))
+}
+
+/// Up to 6 distinct, non-empty `text` (else `label`) values of the failed
+/// step's last tree (else the closest earlier one, as `describe_failure`
+/// picks it), in depth-first order, each cut to 40 characters, quoted and
+/// comma separated. `None` when there are none.
+fn screen_texts(trees: &HashMap<String, Element>, trace: &TestTrace) -> Option<String> {
+    let pos = trace
+        .steps
+        .iter()
+        .rposition(|s| s.status == Some(StepStatus::Failed))?;
+    let tree = trace.steps[..=pos]
+        .iter()
+        .rev()
+        .find_map(|s| s.trees.last())
+        .and_then(|h| trees.get(h))?;
+    let mut texts: Vec<String> = Vec::new();
+    collect_texts(tree, &mut texts);
+    let mut seen = std::collections::HashSet::new();
+    let texts: Vec<String> = texts
+        .into_iter()
+        .filter(|t| seen.insert(t.clone()))
+        .take(6)
+        .map(|t| format!("`{}`", t))
+        .collect();
+    (!texts.is_empty()).then_some(texts.join(", "))
+}
+
+fn collect_texts(el: &Element, out: &mut Vec<String>) {
+    let value = el.text.as_deref().or(el.label.as_deref()).unwrap_or("");
+    if !value.is_empty() {
+        let cut: String = value.chars().take(40).collect();
+        out.push(cut.to_string());
+    }
+    for c in &el.children {
+        collect_texts(c, out);
+    }
+}
+
+/// Picks the explanation for a failed test, mirroring `velocity-mcp`'s
+/// `failure.rs` `hint` wording for not-found traces.
+fn explanation(ctx: &ExplanationCtx) -> (String, bool) {
+    let lower = ctx.lower;
+    let error = ctx.error;
+    if let Some(c) = &ctx.crash {
+        return (
+            format!(
+                "the app crashed during the test (crash report `{}`).",
+                rel(c, ctx.base)
+            ),
+            true,
+        );
+    }
+    if ctx.infrastructure {
+        return (
+            "the device or its connection failed, not the app (exit 3).".to_string(),
+            true,
+        );
+    }
+    if let Some(text) = lower
+        .find("configuration error")
+        .and_then(|i| after(&error[i..], &error[i..i + "configuration error".len()]))
+    {
+        return (
+            format!("a configuration problem, not the app: {text}."),
+            true,
+        );
+    }
+    if let Some((x, y)) = assertion_values(error) {
+        let mut why = format!("the check ran and failed: expected {x}, got {y}");
+        if let Some(p) = &ctx.shot {
+            let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
+        }
+        let _ = write!(why, ".");
+        return (why, true);
+    }
+    let not_found = lower.contains("not found")
+        || lower.contains("not visible")
+        || lower.contains("no element");
+    if let Some((trace, trees, d)) = &ctx.description {
+        if not_found && d.selector.is_some() && d.matched.is_none() {
+            if let Some(best) = d.closest.first() {
+                let mut why = format!(
+                    "`{}` is not on the screen it saw",
+                    d.selector.as_deref().unwrap_or("")
+                );
+                if let Some(p) = &d.screenshot {
+                    let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
+                }
+                let _ = write!(
+                    why,
+                    "; the closest element is {} (score {:.02}). If that is the target, change the selector to it; otherwise the step ran on a different screen than intended.",
+                    best.describe,
+                    best.score.unwrap_or(0.0)
+                );
+                if let Some(texts) = screen_texts(trees, trace) {
+                    let _ = write!(why, " The screen shows: {texts}.");
+                }
+                return (why, true);
+            } else if d.tree_elements > 0 {
+                let mut why = format!(
+                    "`{}` is not on the screen it saw, and nothing on it resembles it",
+                    d.selector.as_deref().unwrap_or("")
+                );
+                if let Some(p) = &d.screenshot {
+                    let _ = write!(why, " (screenshot `{}`)", rel(p, ctx.base));
+                }
+                let _ = write!(
+                    why,
+                    "; the step most likely ran on a different screen or app than intended."
+                );
+                if let Some(texts) = screen_texts(trees, trace) {
+                    let _ = write!(why, " The screen shows: {texts}.");
+                }
+                return (why, true);
+            }
+        }
+    }
+    // Fallback: logged errors during the step, then the old not-found-with-
+    // screenshot sentence, then insufficient evidence.
+    if let Some((name, _)) = &ctx.log_block {
+        return (
+            format!(
+                "the app logged errors during the failed step (`{}`); check them against the step.",
+                rel(Path::new(name), ctx.base)
+            ),
+            true,
+        );
+    }
+    if not_found && ctx.shot.is_some() {
+        return (
+            format!(
+                "the element the step looked for was not on the screen it saw (screenshot `{}`): the screen changed, or the selector no longer matches.",
+                rel(ctx.shot.as_deref().unwrap_or(Path::new("")), ctx.base)
+            ),
+            true,
+        );
+    }
+    (
+        "insufficient evidence: no log errors, crash report or screenshot point to a cause. Open the trace and rerun with `--video always --logs always`.".to_string(),
+        false,
+    )
+}
+
+/// The inputs to [`explanation`].
+struct ExplanationCtx<'a> {
+    lower: &'a str,
+    error: &'a str,
+    crash: &'a Option<PathBuf>,
+    shot: &'a Option<PathBuf>,
+    base: &'a Path,
+    infrastructure: bool,
+    description: &'a Option<(
+        TestTrace,
+        HashMap<String, Element>,
+        velocity_core::trace::FailureDescription,
+    )>,
+    log_block: &'a Option<(String, Vec<String>)>,
 }
 
 /// What to do next for a failure whose error reads like `lower` (review
@@ -252,8 +395,8 @@ pub fn write(result: &SuiteResult, dir: &str) -> velocity_common::Result<String>
 mod tests {
     use super::*;
     use std::time::Duration;
-    use velocity_common::evidence::Attachment;
-    use velocity_common::StepResult;
+    use velocity_common::{Rect, Selector, StepResult};
+    use velocity_core::trace::{StepTrace, TestTrace, TraceEvidence};
 
     fn failed(name: &str, err: &str) -> TestResult {
         let mut t = TestResult::failed(name, err.into(), Duration::from_secs(1));
@@ -288,32 +431,274 @@ mod tests {
     #[test]
     fn each_explanation_cites_a_file_or_says_insufficient_evidence() {
         let d = tempfile::tempdir().unwrap();
-        let log = d.path().join("traces/pay/app.log");
-        std::fs::create_dir_all(log.parent().unwrap()).unwrap();
-        std::fs::write(
-            &log,
-            "I/App: start\nI/App: cart\nE/App: PaymentException: card declined\nI/App: retry\n",
-        )
-        .unwrap();
-        let mut pay = failed("pay", "assertVisible text=Thanks: not found");
-        pay.attachments
-            .push(Attachment::new(AttachmentKind::AppLog, log.clone()));
         let mut gone = failed("search", "element not found: text=Results");
         gone.steps[0].screenshot = Some(d.path().join("shots/search-3.png"));
         let mystery = failed("odd", "assertion failed");
-        let md = render(&suite(vec![pay, gone, mystery]), d.path());
+        let md = render(&suite(vec![gone, mystery]), d.path());
         assert!(
-            md.contains("2 explanation(s) cite evidence; 1 say \"insufficient evidence\""),
-            "{md}"
-        );
-        assert!(md.contains("`traces/pay/app.log` lines 3-3"), "{md}");
-        assert!(
-            md.contains("     3  E/App: PaymentException: card declined"),
+            md.contains("1 explanation(s) cite evidence; 1 say \"insufficient evidence\""),
             "{md}"
         );
         assert!(md.contains("screenshot `shots/search-3.png`"), "{md}");
         assert!(md.contains("- **Failed step:** 3 `tap`"), "{md}");
         assert!(md.contains("insufficient evidence: no log errors"), "{md}");
+    }
+
+    /// Builds a trace folder with `steps.json`, `trees/<hash>.json` and
+    /// `logs.json`, and returns the trace path and the test dir.
+    fn trace_fixture(
+        d: &tempfile::TempDir,
+        trace: &TestTrace,
+        trees: &HashMap<String, Element>,
+        logs: &[LogLine],
+    ) -> PathBuf {
+        let folder = d.path().join("traces/t");
+        std::fs::create_dir_all(folder.join("trees")).unwrap();
+        let path = folder.join("steps.json");
+        std::fs::write(&path, serde_json::to_string(trace).unwrap()).unwrap();
+        let hashes: Vec<_> = trace.steps.iter().flat_map(|s| &s.trees).cloned().collect();
+        for h in hashes {
+            if let Some(tree) = trees.get(&h) {
+                std::fs::write(
+                    folder.join("trees").join(format!("{h}.json")),
+                    serde_json::to_string(tree).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        if !logs.is_empty() {
+            std::fs::write(
+                folder.join("logs.json"),
+                serde_json::to_string(logs).unwrap(),
+            )
+            .unwrap();
+        }
+        path
+    }
+
+    fn trace_test_result(err: &str, trace_path: PathBuf) -> TestResult {
+        let mut t = failed("traced", err);
+        t.trace = Some(trace_path);
+        if let Some(st) = t.steps.first_mut() {
+            st.screenshot = Some(PathBuf::from("shots/t.png"));
+        }
+        t
+    }
+
+    #[test]
+    fn trace_not_found_names_closest_element_and_screen_texts() {
+        let d = tempfile::tempdir().unwrap();
+        let tree = Element {
+            platform_id: "root".into(),
+            element_type: "hierarchy".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 800,
+            },
+            children: vec![
+                Element {
+                    platform_id: "wifi".into(),
+                    text: Some("Wi-Fi".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 100,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "gen".into(),
+                    text: Some("General".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 200,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+                Element {
+                    platform_id: "priv".into(),
+                    text: Some("Privacy".into()),
+                    visible: true,
+                    bounds: Rect {
+                        x: 10,
+                        y: 300,
+                        width: 100,
+                        height: 40,
+                    },
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let hash = velocity_core::trace::tree_hash(&tree);
+        let trace = TestTrace {
+            version: 1,
+            test: "traced".into(),
+            device: "d".into(),
+            platform: Some(velocity_common::Platform::Android),
+            attempt: 0,
+            status: TestStatus::Failed,
+            steps: vec![StepTrace {
+                index: 0,
+                label: "tap".into(),
+                start_ms: 1000,
+                selector: Some(Selector::Text("Genral".into())),
+                source: None,
+                status: Some(StepStatus::Failed),
+                duration_ms: 200,
+                settle_ms: 0,
+                settle_reads: 0,
+                matched: None,
+                nearest: vec![],
+                heals: vec![],
+                warnings: vec![],
+                trees: vec![hash.clone()],
+                error: Some("Element not found".into()),
+                screenshot: Some(d.path().join("shots/t.png")),
+            }],
+            evidence: Some(TraceEvidence {
+                video: None,
+                video_offset_ms: None,
+                screencast: None,
+                logs: vec![],
+                log_lines: Some("logs.json".into()),
+                notes: vec![],
+            }),
+        };
+        let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &[]);
+        let t = trace_test_result("Element not found: text=\"Genral\"", path);
+        let md = render(&suite(vec![t]), d.path());
+        assert!(md.contains("closest element is text=\"General\""), "{md}");
+        assert!(
+            md.contains("The screen shows: `Wi-Fi`, `General`, `Privacy`."),
+            "{md}"
+        );
+        assert!(!md.contains("simruntime"), "{md}");
+        // One line: a newline inside the Why broke the Markdown bullet.
+        let why = md.lines().find(|l| l.starts_with("- **Why:**")).unwrap();
+        assert!(why.contains("The screen shows:"), "{md}");
+    }
+
+    #[test]
+    fn logged_error_inside_window_cites_the_block_only() {
+        let d = tempfile::tempdir().unwrap();
+        let tree = Element {
+            platform_id: "root".into(),
+            element_type: "hierarchy".into(),
+            bounds: Rect {
+                x: 0,
+                y: 0,
+                width: 400,
+                height: 800,
+            },
+            children: vec![],
+            ..Default::default()
+        };
+        let hash = velocity_core::trace::tree_hash(&tree);
+        let trace = TestTrace {
+            version: 1,
+            test: "traced".into(),
+            device: "d".into(),
+            platform: Some(velocity_common::Platform::Android),
+            attempt: 0,
+            status: TestStatus::Failed,
+            steps: vec![StepTrace {
+                index: 0,
+                label: "tap".into(),
+                start_ms: 1000,
+                selector: None,
+                source: None,
+                status: Some(StepStatus::Failed),
+                duration_ms: 200,
+                settle_ms: 0,
+                settle_reads: 0,
+                matched: None,
+                nearest: vec![],
+                heals: vec![],
+                warnings: vec![],
+                trees: vec![hash.clone()],
+                error: Some("Step timeout".into()),
+                screenshot: None,
+            }],
+            evidence: Some(TraceEvidence {
+                video: None,
+                video_offset_ms: None,
+                screencast: None,
+                logs: vec![],
+                log_lines: Some("logs.json".into()),
+                notes: vec![],
+            }),
+        };
+        let logs = vec![
+            LogLine {
+                t: 1200,
+                level: 'E',
+                text: "E/App: something broke".into(),
+            },
+            LogLine {
+                t: 100,
+                level: 'E',
+                text: "E/App: old error".into(),
+            },
+        ];
+        let path = trace_fixture(&d, &trace, &HashMap::from([(hash.clone(), tree)]), &logs);
+        let t = trace_test_result("Step timeout", path);
+        let md = render(&suite(vec![t]), d.path());
+        assert!(
+            md.contains("the app logged errors during the failed step (`logs.json`); check them against the step."),
+            "{md}"
+        );
+        assert!(md.contains(" 1200 ms  E/App: something broke"), "{md}");
+        assert!(!md.contains("old error"), "{md}");
+    }
+
+    #[test]
+    fn assertion_failure_states_expected_and_got() {
+        let d = tempfile::tempdir().unwrap();
+        let t = failed(
+            "checked",
+            "Assertion failed: expected \"Information\", got \"About\"",
+        );
+        let md = render(&suite(vec![t]), d.path());
+        assert!(
+            md.contains("the check ran and failed: expected Information, got About."),
+            "{md}"
+        );
+    }
+
+    #[test]
+    fn configuration_error_is_restated() {
+        let d = tempfile::tempdir().unwrap();
+        let t = failed(
+            "cfg",
+            "Configuration error: com.X is not installed on simulator BD7E26D9",
+        );
+        let md = render(&suite(vec![t]), d.path());
+        assert!(
+            md.contains(
+                "a configuration problem, not the app: com.X is not installed on simulator BD7E26D9."
+            ),
+            "{md}"
+        );
+    }
+
+    #[test]
+    fn no_trace_keeps_the_old_screenshot_sentence() {
+        let d = tempfile::tempdir().unwrap();
+        let mut t = failed("gone", "element not found: text=Results");
+        t.steps[0].screenshot = Some(d.path().join("shots/x.png"));
+        let md = render(&suite(vec![t]), d.path());
+        assert!(
+            md.contains("the element the step looked for was not on the screen it saw (screenshot `shots/x.png`):"),
+            "{md}"
+        );
     }
 
     #[test]
