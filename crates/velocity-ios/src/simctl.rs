@@ -208,7 +208,7 @@ impl Simctl {
 
     /// Launch an app by bundle identifier.
     pub async fn launch(&self, device_id: &str, bundle_id: &str) -> Result<()> {
-        self.launch_with_env(device_id, bundle_id, &[]).await
+        self.launch_with_env(device_id, bundle_id, &[], &[]).await
     }
 
     /// Launch an app with `env` in its environment: simctl passes each
@@ -218,6 +218,7 @@ impl Simctl {
         device_id: &str,
         bundle_id: &str,
         env: &[(String, String)],
+        args: &[String],
     ) -> Result<()> {
         debug!(
             device = device_id,
@@ -229,12 +230,12 @@ impl Simctl {
             .iter()
             .map(|(k, v)| (format!("SIMCTL_CHILD_{k}"), v.clone()))
             .collect();
-        self.run_env(
-            &["launch", device_id, bundle_id],
-            velocity_common::process::default_timeout(),
-            &child,
-        )
-        .await?;
+        // Launch arguments go after the bundle id (`-name value`); argv
+        // items, never a shell line.
+        let mut argv = vec!["launch", device_id, bundle_id];
+        argv.extend(args.iter().map(String::as_str));
+        self.run_env(&argv, velocity_common::process::default_timeout(), &child)
+            .await?;
         Ok(())
     }
 

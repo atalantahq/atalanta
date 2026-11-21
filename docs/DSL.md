@@ -131,8 +131,8 @@ as elsewhere. Names use `[A-Za-z0-9_.-]` and can't start with `-`.
   `UserDefaults.standard.string(forKey: "server")`, as Xcode scheme arguments are.
 - **Web and headless:** a validation error.
 
-Until the Android and iOS drivers support them (in progress), a `launchApp` with arguments fails with a configuration
-error.
+On Android a launch whose launcher activity can't be resolved (it would fall back to `monkey`, which can't carry
+extras) is a configuration error rather than a launch without the arguments.
 
 ## Flows
 
