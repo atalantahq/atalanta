@@ -276,6 +276,9 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- `failures.md` and MCP's `describe_failure` offer a closest element as the intended target only when it resembles the selector (score 0.5 or more); otherwise they say the step most likely ran on a different screen or app. A missing element names the app that was in front when it isn't the app under test.
+- Healing no longer refuses a row whose label and cell show the same text as an ambiguous tie.
+- Android: another app's crash or ANR dialog over the app under test is closed ("Close app") by the system-dialog handler; the app under test's own crash is still reported as a crash.
 - **`failures.md` explains failures with the evidence that shows the cause.** The "Why" quoted any line containing "error" from the whole app log (21 of 25 seeded failures). It now gives the closest element and what the screen shows for a missing element, the expected and actual values for a failed check, the configuration problem, or the error lines logged during the failed step. On 30 seeded failures the cited evidence held the cause in 22 of 25 reports, against 3 before.
 - Launching an app that isn't installed on an iOS simulator is a configuration error naming it; it was reported as "App … crashed: the app's process exited unexpectedly".
 - Real iPhones: `launchApp` is a cold start, as on simulators and Android: a running app was only brought to the front, so a test inherited the previous test's screen and its launch arguments never arrived. On the devicectl route, arguments follow `--` (devicectl read `-name` as its own options) and a filler word (devicectl hands the `--` to the app, where it swallowed the first argument). Checked on an iPhone 12 with a test app that shows its arguments.
