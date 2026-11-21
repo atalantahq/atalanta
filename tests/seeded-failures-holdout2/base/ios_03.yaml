@@ -1,0 +1,15 @@
+# Base suite, no defect: must pass.
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout2_base_ios_03
+    tags: ["base"]
+    steps:
+      - {"launchApp": {"appId": "com.apple.Preferences", "clearState": false}}
+      - {"assertVisible": {"text": "Screen Time"}}
+      - {"tap": {"text": "Screen Time"}}
+      - {"assertVisible": {"text": "Content & Privacy Restrictions"}}
+      - {"tap": {"text": "Screen Distance"}}
+      - {"assertVisible": {"text": "Not Now"}}
+      - {"assertVisible": {"textContains": "eye strain"}}

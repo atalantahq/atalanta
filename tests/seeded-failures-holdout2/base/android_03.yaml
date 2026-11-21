@@ -1,0 +1,17 @@
+# Base suite, no defect: must pass.
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout2_base_android_03
+    tags: ["base"]
+    steps:
+      - {"launchApp": {"appId": "com.android.settings", "clearState": false}}
+      - {"tap": {"text": "Connected devices"}}
+      - {"tap": {"text": "Connection preferences"}}
+      - {"tap": {"text": "Printing"}}
+      - {"assertVisible": {"text": "Print services"}}
+      - {"assertVisible": {"text": "Default Print Service"}}
+      - {"pressKey": {"key": "back"}}
+      - {"assertVisible": {"text": "Printing"}}
+      - {"assertVisible": {"text": "Cast"}}

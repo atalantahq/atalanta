@@ -1,0 +1,15 @@
+# Base suite, no defect: must pass.
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout2_base_ios_01
+    tags: ["base"]
+    steps:
+      - {"launchApp": {"appId": "com.apple.Preferences", "clearState": false}}
+      - {"assertVisible": {"text": "StandBy"}}
+      - {"tap": {"text": "StandBy"}}
+      - {"assertVisible": {"text": "Display"}}
+      - {"tap": {"text": "Display"}}
+      - {"assertVisible": {"text": "Night Mode"}}
+      - {"assertVisible": {"text": "Motion To Wake"}}

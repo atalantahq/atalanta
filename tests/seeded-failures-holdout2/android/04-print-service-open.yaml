@@ -1,0 +1,16 @@
+# Held-out seeded failure: expected to fail. See ../manifest.yaml.
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout2_android_04
+    tags: ["seeded-failure"]
+    steps:
+      - {"launchApp": {"appId": "com.android.settings", "clearState": false}}
+      - {"tap": {"text": "Connected devices"}}
+      - {"tap": {"text": "Printing"}}
+      - {"assertVisible": {"text": "Print services"}}
+      - {"assertVisible": {"text": "Default Print Service"}}
+      - {"pressKey": {"key": "back"}}
+      - {"assertVisible": {"text": "Printing"}}
+      - {"assertVisible": {"text": "Cast"}}

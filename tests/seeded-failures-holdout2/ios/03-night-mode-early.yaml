@@ -1,0 +1,14 @@
+# Held-out seeded failure: expected to fail. See ../manifest.yaml.
+appId: com.apple.Preferences
+config:
+  platform: ios
+tests:
+  - name: holdout2_ios_03
+    tags: ["seeded-failure"]
+    steps:
+      - {"launchApp": {"appId": "com.apple.Preferences", "clearState": false}}
+      - {"assertVisible": {"text": "StandBy"}}
+      - {"tap": {"text": "StandBy"}}
+      - {"assertVisible": {"text": "Display"}}
+      - {"assertVisible": {"text": "Night Mode"}}
+      - {"assertVisible": {"text": "Motion To Wake"}}

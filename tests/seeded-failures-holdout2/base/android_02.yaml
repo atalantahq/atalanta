@@ -1,0 +1,15 @@
+# Base suite, no defect: must pass.
+appId: com.android.settings
+config:
+  platform: android
+tests:
+  - name: holdout2_base_android_02
+    tags: ["base"]
+    steps:
+      - {"launchApp": {"appId": "com.android.settings", "clearState": false}}
+      - {"assertVisible": {"text": "Notifications"}}
+      - {"tap": {"text": "Notifications"}}
+      - {"assertVisible": {"text": "App settings"}}
+      - {"tap": {"text": "Device & app notifications"}}
+      - {"assertVisible": {"text": "Android Auto"}}
+      - {"assertVisible": {"text": "Not allowed"}}

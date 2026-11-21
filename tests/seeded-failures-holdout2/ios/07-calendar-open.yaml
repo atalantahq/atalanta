@@ -1,0 +1,15 @@
+# Held-out seeded failure: expected to fail. See ../manifest.yaml.
+appId: com.apple.mobilecal
+config:
+  platform: ios
+tests:
+  - name: holdout2_ios_07
+    tags: ["seeded-failure"]
+    steps:
+      - {"launchApp": {"appId": "com.apple.mobilecal", "clearState": false}}
+      - {"assertVisible": {"text": "StandBy"}}
+      - {"tap": {"text": "StandBy"}}
+      - {"assertVisible": {"text": "Display"}}
+      - {"tap": {"text": "Display"}}
+      - {"assertVisible": {"text": "Night Mode"}}
+      - {"assertVisible": {"text": "Motion To Wake"}}
