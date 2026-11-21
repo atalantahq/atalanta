@@ -1,0 +1,25 @@
+# Verifies Velocity's launchApp arguments reach an Android app as intent extras.
+# Build: ./build.sh   Install: adb install -r build/velocity-echo.apk
+appId: dev.velocity.echo
+
+config:
+  platform: android
+
+tests:
+  - name: launch_arguments_reach_the_app
+    steps:
+      - launchApp:
+          appId: dev.velocity.echo
+          clearState: true
+          arguments:
+            isE2E: true
+            retries: 3
+            ratio: 1.5
+            server: "https://example.test/a b?x=1&y=2"
+            note: "a'b\"c;d&e"
+      - assertVisible: { text: "extras=5" }
+      - assertVisible: { text: "isE2E=true (boolean)" }
+      - assertVisible: { text: "retries=3 (int)" }
+      - assertVisible: { text: "ratio=1.5 (float)" }
+      - assertVisible: { text: "server=https://example.test/a b?x=1&y=2 (string)" }
+      - assertVisible: { text: "note=a'b\"c;d&e (string)" }
