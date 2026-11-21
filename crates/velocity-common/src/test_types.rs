@@ -934,6 +934,12 @@ pub struct SuiteConfig {
     /// (never from YAML): their `${NAME}`s are filled in as the test runs.
     #[serde(skip)]
     pub captured_vars: std::collections::BTreeSet<String>,
+    /// Environment values for the `${NAME}`s left in `flows:` at load
+    /// (runFlow parameter names, and the names in their defaults), set when
+    /// the suite is interpolated: a call that doesn't pass a parameter gets
+    /// the environment's value, as any `${NAME}` would.
+    #[serde(skip)]
+    pub flow_env: std::collections::HashMap<String, String>,
 }
 
 /// `accessibility:` in the suite config: audit each distinct screen a test

@@ -48,25 +48,55 @@ pub async fn run_flow(
         .and_then(|v| v.as_str())
         .ok_or_else(|| VelocityError::Config("Missing 'id' argument".to_string()))?;
 
+    // `env`: the runFlow parameters, as a test's `runFlow: { flow, env }`.
+    let mut env = std::collections::BTreeMap::new();
+    if let Some(map) = args.get("env") {
+        let map = map.as_object().ok_or_else(|| {
+            VelocityError::Config("'env' must be an object of strings".to_string())
+        })?;
+        for (k, v) in map {
+            let v = match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) if n.is_i64() || n.is_u64() => n.to_string(),
+                Value::Bool(b) => b.to_string(),
+                _ => {
+                    return Err(VelocityError::Config(format!(
+                        "env {k}: give a string (or a whole number, true or false)"
+                    )))
+                }
+            };
+            env.insert(k.clone(), v);
+        }
+    }
+
     let suite = load_runnable_suite(config_path)?;
-    let flow = suite
-        .flows
-        .iter()
-        .find(|f| f.id == flow_id)
-        .ok_or_else(|| VelocityError::UnknownFlowRef {
+    if !suite.flows.iter().any(|f| f.id == flow_id) {
+        return Err(VelocityError::UnknownFlowRef {
             flow_id: flow_id.to_string(),
             test_name: "<mcp>".to_string(),
-        })?;
+        });
+    }
 
-    // A flow can run other flows: inline them as a test run would (each
-    // nested `runFlow` failed "flows must be resolved before execution").
+    // Run it as a call, the way a test's `runFlow` does, so its parameters
+    // are filled (from `env`, else the environment) and the flows it runs
+    // are inlined; a parameter with no value is an error, never a literal
+    // `${NAME}` typed into the app.
     let steps = resolve_flows(&TestSuite {
         tests: vec![velocity_common::TestCase {
             name: format!("flow {flow_id}"),
             tags: vec![],
             isolated: false,
             depends_on: vec![],
-            steps: flow.steps.clone(),
+            steps: vec![velocity_common::Step {
+                action: velocity_common::Action::RunFlow {
+                    flow_id: flow_id.to_string(),
+                    env,
+                },
+                timeout_ms: None,
+                settle: None,
+                source: None,
+                modifiers: Default::default(),
+            }],
             description: None,
             verify: None,
         }],

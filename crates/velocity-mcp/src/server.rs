@@ -643,6 +643,9 @@ impl McpServer {
     /// again. State without a device id belongs to whatever device the next
     /// command uses (no forced reset).
     pub fn load_state(&mut self, state: &Value, device_id: &str) {
+        // Saved with the state from the first call on: a session whose first
+        // calls took no snapshot saved no device, so a switch went unseen.
+        self.snapshots.device = Some(device_id.to_string());
         if state.get("version").and_then(Value::as_u64) != Some(1) {
             return;
         }
@@ -2468,6 +2471,11 @@ impl McpServer {
                         "id": {
                             "type": "string",
                             "description": "Flow ID to execute"
+                        },
+                        "env": {
+                            "type": "object",
+                            "description": "The flow's runFlow parameters, {NAME: value}, as a test's runFlow env",
+                            "additionalProperties": { "type": ["string", "integer", "boolean"] }
                         }
                     },
                     "required": ["id"]
@@ -4125,10 +4133,41 @@ mod t2_tests {
         )
         .with_platform(velocity_common::Platform::Android);
         b.load_state(&state, "emulator-5554");
-        let out = call(&mut b, "export_session_flow", exp).await;
+        let out = call(&mut b, "export_session_flow", exp.clone()).await;
         assert!(
             !text(&out).contains("qa@velocity.dev"),
             "the iPhone's step is not exported from the Android session: {out}"
+        );
+
+        // A session whose first call took no snapshot (`velocity type` by
+        // selector) still knows its device, so the switch is seen.
+        let mut first = McpServer::new(
+            launched_driver_on(&dir, "iphone").await,
+            "iphone".into(),
+            None,
+        )
+        .with_platform(velocity_common::Platform::Ios);
+        first.load_state(&Value::Null, "iphone");
+        let typed = call(
+            &mut first,
+            "type_text",
+            serde_json::json!({ "selector": { "id": "email" }, "text": "qa@velocity.dev" }),
+        )
+        .await;
+        assert!(typed.get("isError").is_none(), "{typed}");
+        let state = first.save_state();
+        assert_eq!(state["snapshots"]["device"], "iphone", "{state}");
+        let mut other = McpServer::new(
+            launched_driver_on(&dir, "emulator-5554").await,
+            "emulator-5554".into(),
+            None,
+        )
+        .with_platform(velocity_common::Platform::Android);
+        other.load_state(&state, "emulator-5554");
+        let out = call(&mut other, "export_session_flow", exp).await;
+        assert!(
+            !text(&out).contains("qa@velocity.dev"),
+            "no snapshot on the iPhone, still not exported on Android: {out}"
         );
         drop(dir);
     }

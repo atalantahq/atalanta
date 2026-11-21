@@ -443,6 +443,26 @@ pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, Stri
         )));
     }
     deferred.extend(totp.into_inner());
+    // What is still `${…}` in the flows now is a parameter name (or a name
+    // in its default): read the environment for those once, here, so a call
+    // that doesn't pass one gets the value any other `${NAME}` would.
+    let mut flow_env = HashMap::new();
+    if !params.is_empty() {
+        let flows_only = TestSuite {
+            tests: Vec::new(),
+            ..suite.clone()
+        };
+        for p in placeholders(&flows_only) {
+            let name = p.name;
+            if deferred.contains(&name) || name.starts_with(TOTP) || flow_env.contains_key(&name) {
+                continue;
+            }
+            if let Some(v) = lookup_var(&name, overrides) {
+                flow_env.insert(name, v);
+            }
+        }
+    }
+    suite.config.flow_env = flow_env;
     suite.config.captured_vars = deferred;
     Ok(())
 }

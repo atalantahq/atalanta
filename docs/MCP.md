@@ -199,7 +199,7 @@ Wait until an element matching `selector` is visible, up to `timeout_ms` (checke
 The flows in the loaded suite. Read-only.
 
 ### `run_flow`
-Run a flow from the loaded suite by `id`.
+Run a flow from the loaded suite by `id`, with its runFlow parameters in `env` (`{NAME: value}`, as a test's `runFlow: { flow, env }`). A parameter it uses that neither `env` nor the environment gives is an error.
 
 ### `list_tests`
 The tests in the loaded suite. Read-only.
