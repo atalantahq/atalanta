@@ -169,10 +169,9 @@ fn selector_text(sel: &str) -> Option<(bool, String)> {
     }
 }
 
-/// A visible text on the failed step's screen that shares a distinctive word
-/// (three or more letters, in at most two of the screen's texts) with
-/// `wanted`, the one sharing the most; identifiers (`AMBIENT_MODE_ENABLED`)
-/// don't count. A common word ("Text", "FPS") says nothing about wording.
+/// A visible text on the failed step's screen that shares a word of three or
+/// more letters with `wanted`, the one sharing the most; identifiers
+/// (`AMBIENT_MODE_ENABLED`) don't count.
 fn shares_a_word(
     trees: &HashMap<String, Element>,
     trace: &TestTrace,
@@ -199,10 +198,11 @@ fn shares_a_word(
             *seen.entry(w).or_default() += 1;
         }
     }
-    let distinctive: std::collections::BTreeSet<&String> = want
-        .iter()
-        .filter(|w| seen.get(*w).is_some_and(|n| *n <= 2))
-        .collect();
+    // Any shared word counts, common ones too: a frequency cap took "Voice"
+    // (on several rows of the Siri page) for common, and "Siri Voice" was
+    // then called a different screen. Doubt costs less than a wrong cause.
+    let distinctive: std::collections::BTreeSet<&String> =
+        want.iter().filter(|w| seen.contains_key(*w)).collect();
     texts
         .into_iter()
         .map(|t| {
