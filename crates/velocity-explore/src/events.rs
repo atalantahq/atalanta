@@ -177,6 +177,220 @@ pub enum ExploreEvent {
     },
 }
 
+/// `text` with every registered secret (and secret-shaped text) masked.
+pub(crate) fn mask(text: &str) -> String {
+    velocity_common::redact::redact(text).into_owned()
+}
+
+impl ExploreEvent {
+    /// The event with every registered secret masked in its text. The loop
+    /// reads element names, labels and driver errors off the screen, and an
+    /// app can show a secret there (it echoes what was typed, a page lists a
+    /// password): the model's copy of those is masked, and so must be this
+    /// one, which the CLI prints and a supervisor logs.
+    pub(crate) fn masked(self) -> Self {
+        let opt = |s: Option<String>| s.map(|s| mask(&s));
+        match self {
+            Self::Prefix {
+                at_ms,
+                step,
+                action,
+                ok,
+                ms,
+            } => Self::Prefix {
+                at_ms,
+                step,
+                action: mask(&action),
+                ok,
+                ms,
+            },
+            Self::Observed {
+                at_ms,
+                turn,
+                title,
+                elements,
+                hash,
+                seen_at,
+                screenshot_sent,
+            } => Self::Observed {
+                at_ms,
+                turn,
+                title: mask(&title),
+                elements,
+                hash,
+                seen_at,
+                screenshot_sent,
+            },
+            Self::Planned {
+                at_ms,
+                turn,
+                op,
+                element,
+                target,
+                reason,
+                model_ms,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                memo,
+            } => Self::Planned {
+                at_ms,
+                turn,
+                op,
+                element,
+                target: opt(target),
+                reason: mask(&reason),
+                model_ms,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                memo: mask(&memo),
+            },
+            Self::Rejected { at_ms, turn, why } => Self::Rejected {
+                at_ms,
+                turn,
+                why: mask(&why),
+            },
+            Self::Acted {
+                at_ms,
+                turn,
+                action,
+                ok,
+                ms,
+                settle_ms,
+                changed,
+                error,
+                expectation,
+                typed_source,
+            } => Self::Acted {
+                at_ms,
+                turn,
+                action: mask(&action),
+                ok,
+                ms,
+                settle_ms,
+                changed,
+                error: opt(error),
+                expectation: expectation.map(|e| e.masked()),
+                typed_source,
+            },
+            Self::Asserted {
+                at_ms,
+                turn,
+                assertion,
+                ok,
+            } => Self::Asserted {
+                at_ms,
+                turn,
+                assertion: mask(&assertion),
+                ok,
+            },
+            Self::Answered {
+                at_ms,
+                turn,
+                answer,
+                sources,
+            } => Self::Answered {
+                at_ms,
+                turn,
+                answer: mask(&answer),
+                sources,
+            },
+            Self::Checked {
+                at_ms,
+                claim,
+                outcome,
+                evidence,
+                reason,
+            } => Self::Checked {
+                at_ms,
+                claim: mask(&claim),
+                outcome,
+                evidence: evidence.iter().map(|e| mask(e)).collect(),
+                reason: mask(&reason),
+            },
+            Self::Injected {
+                at_ms,
+                turn,
+                instruction,
+            } => Self::Injected {
+                at_ms,
+                turn,
+                instruction: mask(&instruction),
+            },
+            Self::Note { at_ms, turn, note } => Self::Note {
+                at_ms,
+                turn,
+                note: mask(&note),
+            },
+            Self::Notes { at_ms, turn, notes } => Self::Notes {
+                at_ms,
+                turn,
+                notes: notes.iter().map(|n| n.masked()).collect(),
+            },
+            Self::ReplayRun {
+                at_ms,
+                run,
+                passed,
+                ms,
+                steps,
+                failed_step,
+                error,
+                model_calls,
+            } => Self::ReplayRun {
+                at_ms,
+                run,
+                passed,
+                ms,
+                steps,
+                failed_step,
+                error: opt(error),
+                model_calls,
+            },
+            Self::Repair {
+                at_ms,
+                action,
+                from_step,
+                reason,
+            } => Self::Repair {
+                at_ms,
+                action,
+                from_step,
+                reason: mask(&reason),
+            },
+            Self::Finished {
+                at_ms,
+                outcome,
+                reason,
+                turns,
+                actions,
+                model_calls,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                cost_usd,
+                expectations,
+                revisit_turns,
+            } => Self::Finished {
+                at_ms,
+                outcome,
+                reason: mask(&reason),
+                turns,
+                actions,
+                model_calls,
+                input_tokens,
+                output_tokens,
+                cache_read_tokens,
+                cache_write_tokens,
+                cost_usd,
+                expectations,
+                revisit_turns,
+            },
+        }
+    }
+}
+
 /// Where events go: a callback. The CLI prints them; an MCP adapter
 /// forwards them as task progress.
 pub type EventSink = Box<dyn FnMut(&ExploreEvent) + Send>;

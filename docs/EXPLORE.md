@@ -63,6 +63,8 @@ Only the current screen is listed in full. Earlier turns are one line each, for 
 | The same loop of screens coming round 3 times with nothing changed or learned | — | `stuck` |
 | Answers code refused, 3 in a row | — | `gave up` |
 
+A repair round (below) spends what the first session left of `--max-tokens` and `--max-cost`, not a budget of its own; when nothing is left the test is kept and the repair is reported as not possible.
+
 A `wait` that changed nothing neither counts as progress nor as a no-op, so waits between no-op taps don't hide them; a third idle wait in a row counts as a no-op. An action counts as having done something when the screen's structure changed, when its pixels did (a canvas), or when a text other than a time or a percentage changed (a number a click changed; the history line then says `(text changed: "3" is now "1")`). A screen that seemed unchanged is looked at again after 0.6 s, and for up to 2 s when it holds a web view, whose accessibility tree is updated late (library callers can change these through `ExploreOptions::timing`).
 
 The model is also told when its last action worked but changed nothing on the list (elements, their states and bounds compared, so a toggled switch counts as a change; "may be at its end" for a scroll), and when it is back on a screen it saw within the last 4 turns. Both are on-demand reflection (MobileUse, arXiv 2507.16853) and are emitted as `Note` events. Every note the model gets at the start of a turn is also in a `notes` event as code decided it (`{"kind":"loopBack","turnsAgo":2,"atTurn":3}`, `noEffect`, `streak`, `backLedRound`, `rejected`, …); the prose is rendered from those.
@@ -84,6 +86,7 @@ The YAML is built as a `serde_yaml` value (no string splicing), parsed and valid
 - `appId`, then one test named after the goal (`--name` overrides it) with `description:` set to the goal, so `verify: final` can check it later.
 - `launchApp` comes first, with `clearState: true` under `--clear-state`. Under `--no-launch` there is no launch step.
 - Every action that worked, with the selector code built for it when it ran.
+- A tap that ran with `force` (a read-only field that reports itself disabled; the session says so in a `note`) is written with `force: true`, or the replay would refuse it as not actionable.
 - A run of scrolls before an action on an element becomes one `scrollUntilVisible` on that element (with `within:` when they were all inside one list), so the test doesn't depend on scroll distances. Scrolls with no target after them stay as `swipe`. A swipe keeps everything it had when explored: `within:` for a swipe inside a picker or carousel, and `from:`/`to:` for a repeated stroke inside one element.
 - After each step that changed the screen, an `assertVisible` on an element that is new to that screen. Its selector must match only that element on the new screen and nothing on the screen before; a selector that also matched before would pass without the step doing anything. The preference order:
   1. the screen's title;
@@ -106,7 +109,7 @@ The model never writes text to type. It picks a name from a list:
 | `--data EMAIL=alice@example.com` | `EMAIL (test data, 17 characters)` | `${EMAIL}` |
 | `--secret PASSWORD` (value read from `$PASSWORD`) | `PASSWORD (secret)` | `${PASSWORD}` |
 
-A secret's value is registered for redaction, never sent to a model, and never written to events, the JSON report or the YAML. The replay fills `${NAME}`s from the same values. When you run the test later, pass them with `--env NAME=…` or the environment.
+A secret's value is registered for redaction, never sent to a model, and never written to events, the JSON report or the YAML. Text the app shows (an element's name in an event, a step's label in the report) is masked the same way, so an app that echoes a secret on screen doesn't print it. A `--data` value that the model copies from a screen under `--values-from-screen` is still written as `${NAME}`. The replay fills `${NAME}`s from the same values. When you run the test later, pass them with `--env NAME=…` or the environment.
 
 #### `--values-from-goal` and `--values-from-screen` (off by default)
 

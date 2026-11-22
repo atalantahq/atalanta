@@ -39,7 +39,9 @@ pub enum Origin {
     ScreenAssert(usize),
     /// The assertion of this recorded step's met expectation.
     ExpectAssert(usize),
-    Final,
+    /// The final assertion at this index of [`ExploreReport::final_assertions`]
+    /// (not its place among the written ones: a repeat is skipped).
+    Final(usize),
 }
 
 /// A generated suite: the YAML and where each step came from.
@@ -400,7 +402,13 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
         } else {
             asserted.clear();
         }
-        steps.push(action_value(&rec.action, rec.typed.as_ref())?);
+        let mut step = action_value(&rec.action, rec.typed.as_ref())?;
+        if rec.force {
+            if let Value::Mapping(m) = &mut step {
+                m.insert(s("force"), Value::Bool(true));
+            }
+        }
+        steps.push(step);
         origins.push(Origin::Step(i));
         if let Some(sel) = &rec.screen_assertion {
             steps.push(action_value(
@@ -439,7 +447,7 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
         }
     }
     flush_scrolls(&mut scrolls, &mut steps, &mut origins)?;
-    for sel in &report.final_assertions {
+    for (n, sel) in report.final_assertions.iter().enumerate() {
         // The same element by another selector (a cell and its label
         // both named "About") proves nothing new.
         if asserted.contains(sel) || same_content(sel, &asserted) {
@@ -452,7 +460,7 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
             },
             None,
         )?);
-        origins.push(Origin::Final);
+        origins.push(Origin::Final(n));
         assertions += 1;
     }
 
@@ -478,13 +486,43 @@ pub fn generate(report: &ExploreReport, opts: &GenOptions) -> Result<Generated> 
     })
 }
 
+/// Every string in `v`, keys included.
+fn strings_of(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(t) => out.push(t.clone()),
+        Value::Sequence(items) => items.iter().for_each(|i| strings_of(i, out)),
+        Value::Mapping(m) => {
+            for (k, val) in m {
+                strings_of(k, out);
+                strings_of(val, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Parse and validate the generated YAML, and make sure no secret's value
 /// made it in.
 pub fn check(yaml: &str, report: &ExploreReport) -> Result<()> {
-    for v in &report.values {
+    // The strings of the file as the parser reads them, with the `$` the
+    // writer doubled undone: a value with a newline, a tab or a `${` is
+    // not in the written text as it is, though it is in the file.
+    let read: Vec<String> = serde_yaml::from_str::<Value>(yaml)
+        .map(|doc| {
+            let mut out = Vec::new();
+            strings_of(&doc, &mut out);
+            out.into_iter()
+                .flat_map(|t| [t.replace("$$", "$"), t])
+                .collect()
+        })
+        .unwrap_or_default();
+    // The run's own values, and the ones typed by the steps replayed before
+    // the first turn (`--after`'s login: its secrets are not in `values`).
+    let typed = report.steps.iter().filter_map(|s| s.typed.as_ref());
+    for v in report.values.iter().chain(typed) {
         if v.kind == crate::session::ValueKind::Secret
             && !v.value.is_empty()
-            && yaml.contains(&v.value)
+            && (yaml.contains(&v.value) || read.iter().any(|t| t.contains(&v.value)))
         {
             return Err(internal(format!(
                 "the generated test would contain the value of secret {}",
@@ -600,6 +638,174 @@ mod tests {
         let yaml = serde_yaml::to_string(&doc).unwrap();
         let suite = velocity_core::parse_suite_from_str(&yaml).unwrap();
         (yaml, suite.tests[0].steps[0].action.clone())
+    }
+
+    fn report_with(values: Vec<ValueSlot>) -> ExploreReport {
+        ExploreReport {
+            goal: "g".into(),
+            app_id: "a".into(),
+            platform: velocity_common::Platform::Android,
+            launch: LaunchMode::Launch,
+            outcome: crate::session::ExploreOutcome::Success,
+            reason: String::new(),
+            steps: vec![],
+            final_assertions: vec![],
+            checks: vec![],
+            turns: 0,
+            model_calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cost_usd: None,
+            elapsed_ms: 0,
+            values,
+            answer: None,
+            answer_sources: vec![],
+            prompt_version: "",
+            demos: vec![],
+            expectations: Default::default(),
+            revisit_turns: 0,
+            final_basis: None,
+        }
+    }
+
+    // The scan for a secret's value runs on the YAML as written, where the
+    // writer has quoted it (a single quote is doubled), split it over lines
+    // or doubled the `$` before a `{`: the plain text of the value is then
+    // not in the file though the value is.
+    #[test]
+    fn a_secret_the_writer_quotes_or_escapes_is_still_found() {
+        use crate::session::ValueKind;
+        for secret in [
+            "it's-a-secret",
+            "say \"hunter2\" now",
+            "line one\nline two",
+            "pa${ss}word",
+            "tab\there",
+        ] {
+            let tap = Action::Tap {
+                selector: Selector::Text(secret.into()),
+            };
+            let doc = map(vec![
+                ("appId", s("a")),
+                (
+                    "tests",
+                    Value::Sequence(vec![map(vec![
+                        ("name", s("t")),
+                        (
+                            "steps",
+                            Value::Sequence(vec![action_value(&tap, None).unwrap()]),
+                        ),
+                    ])]),
+                ),
+            ]);
+            let yaml = serde_yaml::to_string(&doc).unwrap();
+            let report = report_with(vec![ValueSlot {
+                name: "PASSWORD".into(),
+                kind: ValueKind::Secret,
+                value: secret.into(),
+            }]);
+            let err = check(&yaml, &report).expect_err(&format!("{secret:?} in\n{yaml}"));
+            assert!(err.to_string().contains("PASSWORD"), "{err}");
+            // The same suite with another secret is fine.
+            let other = report_with(vec![ValueSlot {
+                name: "PIN".into(),
+                kind: ValueKind::Secret,
+                value: "not-in-the-file".into(),
+            }]);
+            assert!(check(&yaml, &other).is_ok(), "{yaml}");
+        }
+    }
+
+    // `--after`'s login secrets are typed by replayed steps and are not among
+    // the run's values: the scan has to look at the steps too.
+    #[test]
+    fn a_secret_typed_by_a_replayed_step_is_scanned_for_too() {
+        use crate::session::ValueKind;
+        let secret = "totp-481516";
+        let typed = RecordedStep {
+            turn: 0,
+            op: GoalOp::InputText,
+            action: Action::InputText {
+                selector: Selector::Id("otp".into()),
+                text: secret.into(),
+            },
+            label: String::new(),
+            typed: Some(ValueSlot {
+                name: "totp:LOGIN".into(),
+                kind: ValueKind::Secret,
+                value: secret.into(),
+            }),
+            target: None,
+            scroll: None,
+            before_title: String::new(),
+            after_title: String::new(),
+            changed: true,
+            ms: 0,
+            screen_assertion: None,
+            expectation: None,
+            post_assertion: None,
+            force: false,
+        };
+        let mut report = report_with(vec![]);
+        report.steps = vec![typed];
+        // A test that holds the value (here as a selector's text).
+        let yaml = format!(
+            "appId: a\ntests:\n  - name: t\n    steps:\n      - tap: {{ text: \"{secret}\" }}\n"
+        );
+        let err = check(&yaml, &report).unwrap_err();
+        assert!(err.to_string().contains("totp:LOGIN"), "{err}");
+        report.steps.clear();
+        assert!(check(&yaml, &report).is_ok());
+    }
+
+    #[test]
+    fn every_action_explore_writes_parses_back_as_itself() {
+        let t = |x: &str| Selector::Text(x.into());
+        let actions = [
+            Action::Tap { selector: t("a") },
+            Action::DoubleTap { selector: t("a") },
+            Action::LongPress {
+                selector: t("a"),
+                duration_ms: Some(1500),
+            },
+            Action::LongPress {
+                selector: t("a"),
+                duration_ms: None,
+            },
+            Action::ClearText { selector: t("a") },
+            Action::AssertVisible { selector: t("a") },
+            Action::AssertNotVisible { selector: t("a") },
+            Action::PressKey { key: Key::Back },
+            Action::PressKey { key: Key::Home },
+            Action::PressKey { key: Key::Enter },
+            Action::Wait { ms: 250 },
+            Action::GoBack,
+            Action::Drag {
+                from: t("a"),
+                to: t("b"),
+                hold_ms: None,
+                move_ms: None,
+            },
+            Action::LaunchApp {
+                app_id: "a".into(),
+                clear_state: true,
+                arguments: LaunchArgs::default(),
+            },
+        ];
+        for a in &actions {
+            let (yaml, back) = round_trip(a);
+            // `launchApp` takes the suite's appId; compare the rest as written.
+            if let Action::LaunchApp { clear_state, .. } = a {
+                assert!(
+                    matches!(back, Action::LaunchApp { clear_state: c, .. } if c == *clear_state),
+                    "{yaml}"
+                );
+            } else {
+                assert_eq!(&back, a, "{yaml}");
+            }
+        }
     }
 
     #[test]
