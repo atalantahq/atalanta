@@ -131,6 +131,60 @@ fn an_agent_drives_by_ref_across_processes_and_exports_a_test() {
     );
 }
 
+/// Visible text that starts `@e` ("@everyone") is text, not a ref.
+#[test]
+fn text_starting_with_at_e_is_tapped_as_text() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("form.xml"),
+        FORM.replace("Sign in", "@everyone"),
+    )
+    .unwrap();
+    let (code, out) = velocity(dir.path(), &["tap", "@everyone"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.starts_with("ok tap"), "{out}");
+}
+
+/// Sessions hold screen text and typed values: owner-only files.
+#[cfg(unix)]
+#[test]
+fn session_files_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("form.xml"), FORM).unwrap();
+    let (code, out) = velocity(dir.path(), &["snapshot"]);
+    assert_eq!(code, 0, "{out}");
+    let mode = |p: std::path::PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    let sessions = dir.path().join("state/sessions");
+    assert_eq!(mode(sessions.clone()), 0o700);
+    assert_eq!(mode(sessions.join("t.json")), 0o600);
+}
+
+/// `session reset` on a session another command holds is the busy error
+/// every other agent command gives (exit 3, "retry it"), not an internal
+/// error (5).
+#[test]
+fn resetting_a_busy_session_exits_3() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("form.xml"), FORM).unwrap();
+    let sessions = dir.path().join("state/sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(sessions.join("t.lock"))
+        .unwrap();
+    held.lock().unwrap();
+    let (code, out) = json(dir.path(), &["session", "reset"]);
+    assert_eq!(code, 3, "{out}");
+    assert_eq!(out["error"]["code"], "SESSION_BUSY", "{out}");
+    drop(held);
+    let (code, _) = velocity(dir.path(), &["session", "reset"]);
+    assert_eq!(code, 0, "free again");
+}
+
 #[test]
 fn skills_print_the_guides_in_the_binary() {
     let run = |args: &[&str]| {

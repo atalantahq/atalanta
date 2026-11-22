@@ -236,13 +236,16 @@ impl InstructionSource for FileSource {
         }
         let mut out = Vec::new();
         let mut reader = std::io::BufReader::new(f);
-        let mut line = String::new();
-        while reader.read_line(&mut line).unwrap_or(0) > 0 {
-            if !line.ends_with('\n') {
+        // Bytes, not `read_line`: a line that is not UTF-8 is an error there
+        // that never advanced the offset, so it blocked every later line.
+        let mut line = Vec::new();
+        while reader.read_until(b'\n', &mut line).unwrap_or(0) > 0 {
+            if !line.ends_with(b"\n") {
                 break; // a line still being written
             }
             self.offset += line.len() as u64;
-            let t = line.trim();
+            let text = String::from_utf8_lossy(&line);
+            let t = text.trim();
             if !t.is_empty() {
                 out.push(t.to_string());
             }
@@ -731,12 +734,12 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
 
     let mut written = Vec::new();
     if let Some(yaml) = &result.yaml {
-        std::fs::write(&out, yaml).map_err(|e| usage_err!("writing {}: {e}", out.display()))?;
+        write_out(&out, yaml).map_err(|e| usage_err!("writing {}: {e}", out.display()))?;
         written.push(out.display().to_string());
     }
     if let Some(nl) = &result.nl_yaml {
         let nl_out = out.with_extension("nl.yaml");
-        std::fs::write(&nl_out, nl).map_err(|e| usage_err!("writing {}: {e}", nl_out.display()))?;
+        write_out(&nl_out, nl).map_err(|e| usage_err!("writing {}: {e}", nl_out.display()))?;
         written.push(nl_out.display().to_string());
     }
 
@@ -752,6 +755,16 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
         return Ok(crate::signals::exit_code());
     }
     Ok(exit_code(&result))
+}
+
+/// Write a generated test, making its folder: it is written after the whole
+/// exploration, and a missing `tests/new/` there lost the test (and the
+/// model spend) at the last step.
+fn write_out(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, text)
 }
 
 fn exit_code(r: &JobResult) -> i32 {
@@ -970,6 +983,40 @@ mod tests {
         assert!(check_name("EMAIL_2", "--data").is_ok());
         assert!(check_name("2X", "--data").is_err());
         assert!(check_name("A-B", "--data").is_err());
+    }
+
+    /// A line that is not UTF-8 (a Latin-1 editor) used to stop `drain` at
+    /// that line for good: the offset never moved past it, so no later
+    /// instruction ever reached the agent.
+    #[test]
+    fn a_line_that_is_not_utf8_does_not_block_the_lines_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("inject.txt");
+        std::fs::write(&path, b"").unwrap();
+        let mut src = FileSource {
+            path: path.clone(),
+            offset: 0,
+        };
+        std::fs::write(&path, b"caf\xe9 first\nsecond\n").unwrap();
+        let got = src.drain();
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(
+            got[0].starts_with("caf") && got[0].ends_with("first"),
+            "{got:?}"
+        );
+        assert_eq!(got[1], "second");
+        assert!(src.drain().is_empty(), "each line is given once");
+    }
+
+    /// `--out dir/new/test.yaml`: the folder is made, as `export --out`
+    /// does. The file used to be written only after the whole exploration,
+    /// and failed there when the folder was missing.
+    #[test]
+    fn the_test_is_written_into_a_folder_that_does_not_exist_yet() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("tests/new/login.yaml");
+        write_out(&out, "appId: x\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "appId: x\n");
     }
 
     #[test]

@@ -171,6 +171,70 @@ fn a_sequential_device_is_an_exact_id_or_name() {
     }
 }
 
+// A sequential run takes one device: `--device a,b` passed the check (each
+// part is a device) and then went to adb as the serial "a,b".
+#[test]
+fn a_sequential_run_refuses_a_device_list() {
+    let out = run_with_adb(
+        "seqlist",
+        TWO_EMULATORS,
+        &["--device", "emulator-5554,emulator-5556"],
+        &[],
+    );
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(text(&out).contains("--parallel"), "{}", text(&out));
+}
+
+// A sequential `--device` given by name passed the check above and then
+// went to adb as the serial (`-s pixel_8`: "device not found" on a real
+// adb). It runs on the id the listing gives that name.
+#[test]
+fn a_sequential_device_name_runs_on_its_id() {
+    let dir = scratch("byname");
+    suite(&dir);
+    let adb = dir.join("adb");
+    let log = dir.join("adb.log");
+    std::fs::write(
+        &adb,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> {}\n{TWO_EMULATORS}\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let out = Command::new(velocity())
+        .args([
+            "run",
+            "suite.yaml",
+            "--platform",
+            "android",
+            "--device",
+            "pixel_8",
+            "--timeout",
+            "20000",
+        ])
+        .current_dir(&dir)
+        .env("VELOCITY_ADB_PATH", &adb)
+        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("NO_COLOR", "1")
+        .env_remove("VELOCITY_ADB_SERVERS")
+        .env_remove("GITHUB_ACTIONS")
+        .output()
+        .unwrap();
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.contains("-s emulator-5556 "),
+        "{calls}\n{}",
+        text(&out)
+    );
+    assert!(
+        !calls.contains("-s pixel_8"),
+        "the name is never used as a serial: {calls}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // Review d4 m3/m4: a listing that fails is "don't know", not "no such
 // device"; a remote `host:port/serial` adb id can't be listed without
 // VELOCITY_ADB_SERVERS, so it isn't checked.
