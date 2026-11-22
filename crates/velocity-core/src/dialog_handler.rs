@@ -92,6 +92,10 @@ pub struct DialogHandler {
     all_dismiss_labels: Vec<String>,
     /// The app under test (its own AlertDialogs are left to the test).
     app_id: String,
+    /// What it answered since the last [`take_answered`](Self::take_answered),
+    /// for the test report: a permission granted on the test's behalf must
+    /// not be silent (a field test found location granted with no trace).
+    answered: std::sync::Mutex<Vec<String>>,
 }
 
 impl DialogHandler {
@@ -117,6 +121,7 @@ impl DialogHandler {
             config,
             all_dismiss_labels,
             app_id: String::new(),
+            answered: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -126,6 +131,19 @@ impl DialogHandler {
     pub fn for_app(mut self, app_id: &str) -> Self {
         self.app_id = app_id.to_string();
         self
+    }
+
+    fn note(&self, what: String) {
+        warn!("{what}");
+        let mut answered = self.answered.lock().unwrap_or_else(|e| e.into_inner());
+        if !answered.contains(&what) {
+            answered.push(what);
+        }
+    }
+
+    /// The dialogs answered since the last call, for the test's warnings.
+    pub fn take_answered(&self) -> Vec<String> {
+        std::mem::take(&mut *self.answered.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// Check the current hierarchy for system dialogs and dismiss them.
@@ -176,6 +194,7 @@ impl DialogHandler {
                     break;
                 }
                 info!(title = %title, "closed another app's crash dialog");
+                self.note(format!("closed another app's crash dialog: {title}"));
                 match driver.tap(device_id, close).await {
                     Ok(()) => {
                         dismissed += 1;
@@ -211,6 +230,14 @@ impl DialogHandler {
                 match driver.tap(device_id, &button).await {
                     Ok(()) => {
                         dismissed += 1;
+                        let what = button
+                            .text
+                            .as_deref()
+                            .or(button.label.as_deref())
+                            .unwrap_or(button.platform_id.as_str());
+                        self.note(format!(
+                            "answered a system dialog by tapping \"{what}\" (config.dialog; set enabled: false to answer it in the test)"
+                        ));
                         // Brief pause to let the dialog animate away
                         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                     }
@@ -1018,6 +1045,14 @@ mod tests {
         assert_eq!(n, 1);
         assert_eq!(driver.taps.lock().unwrap().len(), 1);
         assert_eq!(driver.taps.lock().unwrap()[0], "android:id/aerr_close");
+        // Said in the test's report, once, and then cleared.
+        let notes = handler.take_answered();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].contains("accessibilityforwarder keeps stopping"),
+            "{notes:?}"
+        );
+        assert!(handler.take_answered().is_empty());
     }
 
     /// The dialog over the app's screen: the step's target is on that screen

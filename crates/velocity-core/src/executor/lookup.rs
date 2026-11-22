@@ -21,6 +21,9 @@ impl<'a> TestExecutor<'a> {
         timeout_ms: u64,
         allow_healing: bool,
     ) -> Result<Element> {
+        // An optional step's miss is expected: healing it only costs time (a
+        // field test saw each optional miss pay for a heal attempt).
+        let allow_healing = allow_healing && !self.step_optional;
         let deadline = deadline_in(timeout_ms);
         let mut attempt = 0usize;
         let mut crash_checked = Instant::now();

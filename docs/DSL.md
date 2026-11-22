@@ -44,6 +44,12 @@ The test-level keys are:
 - `isolated: true`: never shares a launch with the test before it (see `batch`).
 - `sideEffects: true`: never skipped by `--cache-results`.
 
+`launchApp: { clearState: true }` wipes the app's own data: `pm clear` on Android, the app's data container on an
+iOS simulator. It does not touch data the app keeps outside itself. Examples are files in shared storage (Android
+`/sdcard/Documents`), and on iOS the system stores behind Reminders, Calendar and Contacts. On a real iPhone it
+can't wipe anything. A test that creates such data should delete it, or give it a unique name (`${RUN}` from
+`--env RUN=...`).
+
 ## Steps
 
 Each step has one action and optional modifiers:
