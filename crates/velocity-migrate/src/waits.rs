@@ -84,15 +84,18 @@ pub fn remove_redundant_waits(yaml: &str) -> (String, Vec<RemovedWait>) {
         i = end;
     }
 
+    // `lines()` drops each `\r`: keep a CRLF file CRLF, not one rewritten
+    // line by line to LF.
+    let eol = if yaml.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out: String = lines
         .iter()
         .zip(&drop)
         .filter(|(_, d)| !**d)
         .map(|(l, _)| *l)
         .collect::<Vec<_>>()
-        .join("\n");
+        .join(eol);
     if yaml.ends_with('\n') {
-        out.push('\n');
+        out.push_str(eol);
     }
     (out, removed)
 }
@@ -174,6 +177,17 @@ tests:
         assert!(!out.contains("wait"));
         assert!(out.contains("# code arrives by SMS"), "comments survive");
         assert!(out.ends_with('\n'));
+    }
+
+    #[test]
+    fn a_crlf_file_stays_crlf() {
+        let yaml = "tests:\r\n  - name: t\r\n    steps:\r\n      - wait: { ms: 500 }\r\n      - tap: { text: \"Go\" }\r\n";
+        let (out, removed) = remove_redundant_waits(yaml);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(
+            out,
+            "tests:\r\n  - name: t\r\n    steps:\r\n      - tap: { text: \"Go\" }\r\n"
+        );
     }
 
     #[test]
