@@ -58,7 +58,7 @@ BUILD_TOOLS="${BUILD_TOOLS:-$TREE_BUILD_TOOLS}"
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
 [ -f "$ANDROID_JAR" ] || die "missing $ANDROID_JAR (sdkmanager \"platforms;$PLATFORM\")"
 JDK_MAJOR=$(javac -version 2>&1 | sed -nE 's/^javac ([0-9]+).*/\1/p')
-if [ "$JDK_MAJOR" != "$TREE_JDK" ]; then
+if [ "$JDK_MAJOR" != "${TREE_JDK%%.*}" ]; then
     echo "warning: javac $JDK_MAJOR, the jar is built with JDK $TREE_JDK; class files (and so the dex) may differ" >&2
 fi
 
