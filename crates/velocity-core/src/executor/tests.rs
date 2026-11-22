@@ -5092,3 +5092,76 @@ async fn an_optional_step_does_not_heal() {
     assert_eq!(r.healed_count(), 0, "{:?}", r.warnings);
     assert!(driver.taps.lock().unwrap().is_empty(), "nothing tapped");
 }
+
+#[test]
+fn hostile_bounds_do_not_overflow_the_stillness_check() {
+    // i32::MIN - i32::MAX overflowed: a panic in a debug build, and in a
+    // release build a wrapped 1, so the two reads counted as the same box.
+    let at = |x: i32| velocity_common::Rect {
+        x,
+        y: 0,
+        width: 10,
+        height: 10,
+    };
+    assert!(!bounds_close(&at(i32::MIN), &at(i32::MAX)));
+    assert!(bounds_close(&at(5), &at(6)));
+    assert!(!bounds_close(&at(5), &at(7)));
+}
+
+#[test]
+fn a_scroll_container_with_hostile_bounds_does_not_overflow() {
+    let list = Element {
+        element_type: "ScrollView".into(),
+        bounds: velocity_common::Rect {
+            x: i32::MAX - 1,
+            y: 0,
+            width: 100,
+            height: 100,
+        },
+        ..Default::default()
+    };
+    let target = Element {
+        bounds: velocity_common::Rect {
+            x: i32::MAX - 1,
+            y: 10,
+            width: 1,
+            height: 10,
+        },
+        ..Default::default()
+    };
+    let tree = Element {
+        children: vec![list],
+        ..Default::default()
+    };
+    assert!(super::lookup::scroll_container_of(&tree, &target).is_some());
+}
+
+#[tokio::test]
+async fn a_crash_after_an_abandoned_optional_flow_still_fails_the_test() {
+    // The end-of-test liveness check ran only when every step had passed,
+    // and an abandoned optional flow's skipped steps are not passed ones.
+    let mut run = step(Action::RunFlow {
+        flow_id: "onboarding".into(),
+        env: Default::default(),
+    });
+    run.modifiers.optional = true;
+    let suite = velocity_common::TestSuite {
+        app_id: "app".into(),
+        config: SuiteConfig::default(),
+        flows: vec![velocity_common::Flow {
+            id: "onboarding".into(),
+            steps: vec![step(tap("Skip")), step(tap("Continue"))],
+        }],
+        tests: vec![test_case(vec![run, step(tap("Pay"))])],
+    };
+    let test = crate::resolve_flows(&suite).unwrap().remove(0);
+    let driver = with_liveness(
+        ScriptDriver::new(vec![node("c", "Continue", 0), node("p", "Pay", 300)]),
+        velocity_common::Liveness::Dead("killed by the low-memory killer".into()),
+    );
+    let mut ex = TestExecutor::new(&driver, config(200), "app");
+    let r = ex.execute_test(&test, "d", "app").await.unwrap();
+    assert_eq!(r.steps[1].status, StepStatus::Skipped, "{:?}", r.steps);
+    assert_eq!(r.status, TestStatus::Failed, "{:?}", r.steps);
+    assert!(r.error_message.unwrap().contains("low-memory killer"));
+}

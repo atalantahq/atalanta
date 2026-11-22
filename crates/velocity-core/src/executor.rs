@@ -260,10 +260,10 @@ fn actionable_wait() -> Duration {
 /// round either way between reads (review m1; the page's own check allows
 /// 0.5 CSS px).
 fn bounds_close(a: &velocity_common::Rect, b: &velocity_common::Rect) -> bool {
-    (a.x - b.x).abs() <= 1
-        && (a.y - b.y).abs() <= 1
-        && (a.width - b.width).abs() <= 1
-        && (a.height - b.height).abs() <= 1
+    // In i64: hostile bounds overflowed i32 (a panic in a debug build, a
+    // wrapped "close" in a release one; VEL-231's rule).
+    let near = |p: i32, q: i32| (i64::from(p) - i64::from(q)).abs() <= 1;
+    near(a.x, b.x) && near(a.y, b.y) && near(a.width, b.width) && near(a.height, b.height)
 }
 
 /// Delay before lookup retry `n` (Playwright's schedule): quick at first,
@@ -1016,7 +1016,9 @@ impl<'a> TestExecutor<'a> {
         // crash log was never read. Read it once now (afresh: a crash after
         // an earlier check counts too).
         let mut in_front = true;
-        if !step_results.is_empty() && step_results.iter().all(|r| r.status == StepStatus::Passed) {
+        // Skipped steps (an abandoned optional flow's) are no failure:
+        // `all(Passed)` left out the one test the check exists for.
+        if !step_results.is_empty() && step_results.iter().all(|r| r.status != StepStatus::Failed) {
             self.liveness_seen = None;
             let dead = self.check_alive(device_id).await;
             // Another app in front: a batched next test must launch ours.
