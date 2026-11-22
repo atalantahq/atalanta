@@ -1812,9 +1812,15 @@ impl PlatformDriver for AndroidDriver {
         // Always fetch fresh (the sync engine needs the live screen), and keep
         // the result: the element lookup that follows a settled sync can reuse
         // this tree instead of paying for another `uiautomator dump`.
+        // Hold the slot while dumping, as get_hierarchy_cached does: an
+        // action that invalidates the cache meanwhile waits, then clears this
+        // tree, instead of the pre-action tree being stored after it
+        // (second-pass review).
+        let slot = self.slot(device_id);
+        let mut cached = slot.lock().await;
         let xml = self.dump_xml(device_id).await?;
         let tree = parse_dump(device_id, &xml)?;
-        *self.slot(device_id).lock().await = Some((tree.clone(), Instant::now()));
+        *cached = Some((tree.clone(), Instant::now()));
         Ok(tree)
     }
 
@@ -2034,8 +2040,19 @@ impl PlatformDriver for AndroidDriver {
     /// The soft keyboard's frame from the window list: an input-method window
     /// (type 2) whose bounds cover the bottom of the screen.
     async fn keyboard_frame(&self, device_id: &str) -> Result<Option<velocity_common::Rect>> {
-        let Some(Ok(windows)) = self.tree.windows(device_id).await else {
-            return Ok(None);
+        // No tree server (or one too old for WINDOWS): no keyboard is known.
+        // A server that failed to answer is an error, not "no keyboard"
+        // (second-pass review: hide_keyboard took it for "gone").
+        let windows = match self.tree.windows(device_id).await {
+            None => return Ok(None),
+            Some(Err(e)) => {
+                return Err(VelocityError::CommandFailed {
+                    device_id: device_id.into(),
+                    command: "WINDOWS".into(),
+                    detail: e,
+                })
+            }
+            Some(Ok(w)) => w,
         };
         let kb = windows
             .iter()
@@ -2288,7 +2305,14 @@ fn same_but_formatting(read_back: &str, text: &str) -> bool {
             .flat_map(char::to_lowercase)
             .collect()
     };
-    norm(read_back).ends_with(&norm(text))
+    let want = norm(text);
+    if want.is_empty() {
+        // Only punctuation or spaces (`@#$%`): nothing is left to compare
+        // after normalising, and every string ends with "". Compare as typed
+        // (second-pass review).
+        return read_back.trim_end().ends_with(text.trim_end());
+    }
+    norm(read_back).ends_with(&want)
 }
 
 /// An error when a tree-server command that changes the device was sent
@@ -4007,6 +4031,78 @@ mod set_text_tests {
         s.bytes().map(|b| format!("{b:02x}")).collect()
     }
 
+    /// A text of only punctuation normalises to "", which every read-back
+    /// "ends with": any content passes as the typed text.
+    #[test]
+    fn second_pass_punctuation_text_matches_anything() {
+        assert!(
+            !same_but_formatting("completely different", "@#$%"),
+            "a read-back unrelated to the typed text was accepted"
+        );
+    }
+
+    /// `get_hierarchy` dumps without holding the cache slot, then stores
+    /// the result: an action that invalidated the cache while the dump ran
+    /// finds the pre-action tree cached again afterwards.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn second_pass_dump_in_flight_does_not_recache_after_an_action() {
+        let (port, _seen) = scripted(Arc::new(move |cmd, _| {
+            if cmd.ends_with("DUMP") {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                let xml = r#"<hierarchy rotation="0"></hierarchy>"#;
+                Act::Say(format!("OK {}\n{xml}", xml.len()).into_bytes())
+            } else {
+                Act::Say(b"OK 0\n".to_vec())
+            }
+        }))
+        .await;
+        let fake = FakeAdb::new("second-pass-race");
+        let d = Arc::new(AndroidDriver {
+            tree: crate::tree_server::attached_for_test(fake.path(), port).await,
+            ..AndroidDriver::with_backend(Box::new(Adb::with_path(fake.path())))
+        });
+        let dumping = {
+            let d = d.clone();
+            tokio::spawn(async move { d.get_hierarchy("emulator-5554").await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        d.invalidate_cache("emulator-5554").await;
+        dumping.await.unwrap().unwrap();
+        assert!(
+            d.slot("emulator-5554").lock().await.is_none(),
+            "a tree read before the action was cached after it"
+        );
+    }
+
+    /// The window list failing while the keyboard is being hidden reads as
+    /// "no keyboard", so hide_keyboard reports it gone.
+    #[tokio::test]
+    async fn second_pass_hide_keyboard_unreadable_windows_is_not_gone() {
+        let (port, _seen) = scripted(Arc::new(move |cmd, n| {
+            if cmd.ends_with("WINDOWS") {
+                if n == 0 {
+                    let body = "12 2 0,1500,1080,2400 ime 1 0 -\n3 1 0,0,1080,2400 com.app 1 1 -\n";
+                    Act::Say(format!("OK {}\n{body}", body.len()).into_bytes())
+                } else {
+                    Act::Say(b"ERR windows unavailable\n".to_vec())
+                }
+            } else {
+                Act::Say(b"OK 0\n".to_vec())
+            }
+        }))
+        .await;
+        let fake = FakeAdb::new("second-pass-kb");
+        let d = AndroidDriver {
+            tree: crate::tree_server::attached_for_test(fake.path(), port).await,
+            ..AndroidDriver::with_backend(Box::new(Adb::with_path(fake.path())))
+        };
+        let r = d.hide_keyboard("emulator-5554").await;
+        assert!(
+            !matches!(r, Ok(true)),
+            "hide_keyboard said the keyboard is gone when the window list failed: {r:?}"
+        );
+    }
+
     /// A driver whose tree server answers `SETTEXT` with `reply`; returns
     /// the result of typing `text` and the commands the server got.
     async fn type_with(name: &str, reply: &'static str, text: &str) -> (Result<()>, Vec<String>) {
@@ -4237,8 +4333,12 @@ fn drag_script(from: (i32, i32), to: (i32, i32), hold_ms: u64, move_ms: u64) -> 
         format!("sleep {}", secs(hold_ms)),
     ];
     for i in 1..=steps {
-        let x = from.0 + (to.0 - from.0) * i / steps;
-        let y = from.1 + (to.1 - from.1) * i / steps;
+        // In i64: a span times the step index overflows i32 on large
+        // coordinates (second-pass review).
+        let at = |a: i32, b: i32| -> i64 {
+            i64::from(a) + (i64::from(b) - i64::from(a)) * i64::from(i) / i64::from(steps)
+        };
+        let (x, y) = (at(from.0, to.0), at(from.1, to.1));
         parts.push(format!("input motionevent MOVE {x} {y}"));
     }
     parts.push("sleep 0.250".into());
@@ -4248,6 +4348,17 @@ fn drag_script(from: (i32, i32), to: (i32, i32), hold_ms: u64, move_ms: u64) -> 
 
 #[cfg(test)]
 mod drag_tests {
+    /// The interpolation multiplies the span by the step number in i32, so
+    /// a large coordinate from a flow overflows (a panic in debug builds,
+    /// a wrong path in release).
+    #[test]
+    fn second_pass_drag_script_large_span_does_not_overflow() {
+        let r =
+            std::panic::catch_unwind(|| super::drag_script((0, 0), (150_000_000, 0), 100, 3000));
+        let script = r.expect("drag_script panicked on a large coordinate");
+        assert!(script.contains("MOVE 150000000 0"), "{script}");
+    }
+
     // Row 3.1: one finger down across the commands, held, moved in steps,
     // rested, lifted.
     #[test]
