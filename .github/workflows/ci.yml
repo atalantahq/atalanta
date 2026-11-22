@@ -238,12 +238,46 @@ jobs:
         run: |
           test -x "$CHROME_BIN" || { echo "::error::no Chrome at '$CHROME_BIN'"; exit 1; }
           "$CHROME_BIN" --version
+          # setup-chrome leaves the SUID sandbox helper user-owned, and Chrome
+          # aborts rather than run unsandboxed: a test that can't pass
+          # --no-sandbox (the agent daemon's launch) failed on Linux. Set it
+          # up as a Chrome install does.
+          if [ "$RUNNER_OS" = Linux ]; then
+            sandbox="$(dirname "$CHROME_BIN")/chrome-sandbox"
+            if [ -f "$sandbox" ]; then
+              sudo chown root:root "$sandbox"
+              sudo chmod 4755 "$sandbox"
+            fi
+          fi
           echo "CHROME_PATH=$CHROME_BIN" >> "$GITHUB_ENV"
           echo "CHROME=$CHROME_BIN" >> "$GITHUB_ENV"
       # One process per test, the 62 test binaries in parallel instead of one
       # after another (172 s serially on a laptop). Doc tests run separately:
       # nextest doesn't run them.
       - run: cargo nextest run --workspace --locked --profile ci
+      # Temporary (PR #14): every Chrome test failed on macOS with Chrome 158
+      # ("Failed to open page: no answer in 10s") while Linux passed on the
+      # same version. Open a page by hand over the DevTools port to see
+      # whether Chrome or the client hangs.
+      - name: Chrome diagnostics (macOS, on failure)
+        if: failure() && runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          prof="$(mktemp -d)"
+          "$CHROME_PATH" --headless=new --no-first-run --no-default-browser-check \
+            --user-data-dir="$prof" --remote-debugging-port=9333 \
+            --enable-logging=stderr --v=0 about:blank > "$prof/chrome.log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 30); do curl -sf http://127.0.0.1:9333/json/version && break; sleep 1; done
+          echo; echo "== new target via HTTP"
+          time curl -s -m 20 -X PUT "http://127.0.0.1:9333/json/new?about:blank" || echo "no answer"
+          echo; echo "== targets"
+          curl -s -m 5 http://127.0.0.1:9333/json/list || true
+          echo; echo "== chrome log"
+          tail -60 "$prof/chrome.log"
+          kill "$pid" || true
+          echo "== one web test with client logs"
+          RUST_LOG=chromiumoxide=debug,velocity_web=debug cargo test -p velocity-web --test web_driver element_text_is_full_and_live -- --nocapture 2>&1 | tail -80
       # The ci profile stores passing tests' output in junit.xml: any test
       # that skipped itself for want of Chrome fails the job here.
       - name: No Chrome test skipped itself
