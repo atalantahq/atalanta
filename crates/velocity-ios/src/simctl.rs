@@ -148,6 +148,13 @@ impl Simctl {
     /// Install an app bundle onto a simulator.
     pub async fn install(&self, device_id: &str, app_path: &str) -> Result<()> {
         debug!(device = device_id, app = app_path, "installing app");
+        // A path starting with `-` would be read as an option (second-pass
+        // review, as VEL-293 for devicectl).
+        if app_path.starts_with('-') {
+            return Err(VelocityError::Config(format!(
+                "not an app path: {app_path:?}"
+            )));
+        }
         self.run_text(&["install", device_id, app_path]).await?;
         Ok(())
     }
@@ -172,6 +179,9 @@ impl Simctl {
             ?env,
             "launching app"
         );
+        // An option-like id (`--terminate-running-process`) would be a simctl
+        // flag (second-pass review; devicectl has had this since VEL-293).
+        crate::devicectl::check_bundle_id(bundle_id)?;
         let child: Vec<(String, String)> = env
             .iter()
             .map(|(k, v)| (format!("SIMCTL_CHILD_{k}"), v.clone()))
@@ -212,6 +222,7 @@ impl Simctl {
         timeout: std::time::Duration,
     ) -> Result<()> {
         debug!(device = device_id, bundle = bundle_id, "terminating app");
+        crate::devicectl::check_bundle_id(bundle_id)?;
         match self
             .run_for(&["terminate", device_id, bundle_id], timeout)
             .await
@@ -247,6 +258,7 @@ impl Simctl {
     /// Uninstall an app from the simulator, removing all its data.
     pub async fn uninstall(&self, device_id: &str, bundle_id: &str) -> Result<()> {
         debug!(device = device_id, bundle = bundle_id, "uninstalling app");
+        crate::devicectl::check_bundle_id(bundle_id)?;
         self.run_text(&["uninstall", device_id, bundle_id]).await?;
         Ok(())
     }
@@ -590,5 +602,27 @@ mod tests {
         );
         assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
         assert_eq!(e.exit_code(), 3);
+    }
+
+    #[tokio::test]
+    async fn second_pass_simctl_option_like_bundle_id_is_refused() {
+        let dir = std::env::temp_dir().join(format!("velocity-sp-simctl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("calls.log");
+        let xcrun = dir.join("xcrun");
+        crate::write_stub(
+            &xcrun,
+            &format!("echo \"$@\" >> '{}'\nexit 0", log.display()),
+        );
+        let s = Simctl::with_xcrun(xcrun.to_str().unwrap());
+        let r1 = s.launch("booted", "--terminate-running-process").await;
+        let r2 = s.uninstall("booted", "-x").await;
+        let ran = log.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            r1.is_err() && r2.is_err() && !ran,
+            "an option-like bundle id reached simctl (ran: {ran})"
+        );
     }
 }

@@ -333,7 +333,7 @@ impl AscClient {
     /// known UDID. A disabled device is enabled again: as it was, it read
     /// "already registered" and was left out of every profile (VEL-299).
     pub async fn ensure_device(&self, udid: &str, name: &str) -> Result<(AscDevice, bool)> {
-        let find = format!("/v1/devices?filter[udid]={udid}&limit=1");
+        let find = format!("/v1/devices?filter[udid]={}&limit=1", query_value(udid));
         if let Some(d) = parse_devices(&self.ok(reqwest::Method::GET, &find, None).await?).pop() {
             if d.enabled {
                 return Ok((d, false));
@@ -386,7 +386,10 @@ impl AscClient {
         // `filter[identifier]` matches prefixes too: check equality here.
         // Every page: the exact one may be past the first 200 prefix
         // matches, and creating it then fails with 409 (VEL-298).
-        let find = format!("/v1/bundleIds?filter[identifier]={identifier}&limit=200");
+        let find = format!(
+            "/v1/bundleIds?filter[identifier]={}&limit=200",
+            query_value(identifier)
+        );
         let list = self.all(&find).await?;
         if let Some(id) = exact_bundle_id(&list, identifier) {
             return Ok((id, false));
@@ -570,6 +573,21 @@ fn profile_content(v: &Value) -> Result<Vec<u8>> {
                 "App Store Connect: profile content isn't base64 ({e})"
             ))
         })
+}
+
+/// A query-string value, percent-encoded (RFC 3986 unreserved characters
+/// kept): `&` or `#` in a value must not add a filter or cut the query
+/// (second-pass review).
+fn query_value(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    for b in v.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -855,5 +873,25 @@ mod tests {
         let (d, changed) = client(&f.url).ensure_device("U7", "n").await.unwrap();
         assert!(d.enabled && changed, "{d:?}");
         assert_eq!(f.count("PATCH", "/v1/devices/D7"), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn second_pass_lookup_values_are_url_encoded() {
+        let f = FakeWda::start(|_| Resp::Json(200, r#"{"data":[]}"#.into())).await;
+        let _ = client(&f.url)
+            .ensure_bundle_id("com.a&filter[name]=x#y", "n")
+            .await;
+        let q = f
+            .log
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|r| r.method == "GET" && r.path == "/v1/bundleIds")
+            .map(|r| r.query.clone())
+            .unwrap_or_default();
+        assert!(
+            !q.contains("filter[name]=x") && q.contains("limit=200"),
+            "the identifier was spliced into the query raw: {q}"
+        );
     }
 }

@@ -107,7 +107,13 @@ impl Devicectl {
         let json = std::fs::read_to_string(&out.0).ok();
         if !output.status.success() {
             let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            if !udid.is_empty() && detail.to_ascii_lowercase().contains("locked") {
+            // "locked" as a word: "blocked" or "unlocked" is another failure,
+            // whose detail would be lost (second-pass review).
+            let locked = detail
+                .to_ascii_lowercase()
+                .split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|w| w == "locked");
+            if !udid.is_empty() && locked {
                 return Err(VelocityError::DeviceLocked {
                     id: udid.to_string(),
                 });
@@ -309,7 +315,7 @@ fn refused_source(e: &VelocityError) -> bool {
 /// accepted too), never one devicectl would read as an option (VEL-293:
 /// an app id like `--environment-variables` became a flag; there is no
 /// shell, so argv is the only way in).
-fn check_bundle_id(id: &str) -> Result<()> {
+pub(crate) fn check_bundle_id(id: &str) -> Result<()> {
     let ok = !id.is_empty()
         && !id.starts_with('-')
         && id
@@ -660,5 +666,19 @@ mod tests {
             "hardwareProperties": { "platform": "iOS", "reality": "physical", "udid": "W" }
         }]}});
         assert_eq!(parse_devices(&v)[0].state, DeviceState::Shutdown);
+    }
+
+    #[tokio::test]
+    async fn second_pass_blocked_is_not_locked() {
+        let (dir, d) = stub(
+            "sp-blocked",
+            "echo 'Connection blocked by the firewall; device is unlocked' >&2; exit 1",
+        );
+        let e = d.launch("UDID-3", "a.b", None, &[]).await.unwrap_err();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            !matches!(e, VelocityError::DeviceLocked { .. }),
+            "unrelated failure reported as a locked phone: {e:?}"
+        );
     }
 }

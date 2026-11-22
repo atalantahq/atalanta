@@ -977,10 +977,24 @@ impl WdaClient {
         }
         let url = format!("{}/window/size", self.session_url()?);
         let value = self.call(self.client.get(&url), "window size").await?;
-        let size = (
-            value["width"].as_i64().unwrap_or(390) as i32,
-            value["height"].as_i64().unwrap_or(844) as i32,
-        );
+        // WDA may send points as floats (393.0): as_i64 read those as
+        // missing and the size fell back to an iPhone 14's, for the whole
+        // session (second-pass review). A size that is really missing is an
+        // error, not a guess.
+        let dim = |k: &str| {
+            value[k]
+                .as_f64()
+                .map(|v| v.round() as i32)
+                .filter(|v| *v > 0)
+        };
+        let (Some(w), Some(h)) = (dim("width"), dim("height")) else {
+            return Err(VelocityError::CommandFailed {
+                device_id: self.device_id.clone(),
+                command: "window size".into(),
+                detail: format!("WDA gave no usable window size: {value}"),
+            });
+        };
+        let size = (w, h);
         *self.screen_size.lock().unwrap_or_else(|e| e.into_inner()) = Some(size);
         Ok(size)
     }
@@ -1807,6 +1821,44 @@ mod tests {
             "{err:?}"
         );
         assert_eq!(err.kind(), velocity_common::ErrorKind::ConnectionLost);
+    }
+}
+
+#[cfg(test)]
+mod second_pass_tests {
+    use super::*;
+
+    async fn serve(body: &'static str) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut s, _)) = l.accept().await {
+                let mut buf = vec![0u8; 4096];
+                let _ = s.read(&mut buf).await;
+                let _ = s
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await;
+            }
+        });
+        format!("http://127.0.0.1:{port}")
+    }
+
+    /// A window size WDA writes with a fractional part, or leaves out, is
+    /// not an iPhone 14 (390x844).
+    #[tokio::test]
+    async fn second_pass_screen_size_float_is_not_defaulted() {
+        let url = serve(r#"{"value":{"width":393.0,"height":852.0}}"#).await;
+        let mut c = WdaClient::new(&url);
+        c.set_session_id("s".into());
+        let size = c.get_screen_size().await;
+        assert_eq!(size.ok(), Some((393, 852)), "fell back to 390x844");
     }
 }
 
