@@ -936,6 +936,14 @@ impl Supervisor {
             let Some(a) = self.actors.remove(&id) else {
                 continue;
             };
+            // Its copy never reports `Done`, so the device would stay marked
+            // as running a copy of that test for ever, and no copy of it
+            // could be dispatched there again.
+            if let Some(device) = &a.device {
+                for running in self.running.values_mut() {
+                    running.remove(device);
+                }
+            }
             self.deaths += 1;
             let device = a.device.as_deref().unwrap_or("no device");
             cprintln!("  \x1b[31m▲ the worker for {device} stopped unexpectedly\x1b[0m");
@@ -1572,6 +1580,46 @@ mod tests {
         assert_eq!(sup.deaths, 0);
         assert_eq!(sup.results.len(), 1, "one result for one test");
         assert_eq!(sup.results[0].status, TestStatus::Passed);
+    }
+
+    // V5: an actor that dies mid-copy never sends `Done`, which is what
+    // cleared its device from `running`; copies of that test then never fit
+    // on the device again and, with nothing else queued, the run never ended.
+    #[tokio::test]
+    async fn a_dead_actor_does_not_keep_its_device_marked_as_running_a_copy() {
+        let driver = Arc::new(SplitDriver {
+            devices: vec!["d1".into()],
+            bad: "none",
+            infra: false,
+        });
+        let mut sup = bare_supervisor(driver);
+        let (tx, mut inbox) = mpsc::unbounded_channel::<Event>();
+        let (work, _work_rx) = mpsc::channel::<Work>(1);
+        let task = tokio::spawn(async {});
+        while !task.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        sup.actors.insert(
+            0,
+            ActorHandle {
+                device: Some("d1".into()),
+                busy: true,
+                in_flight: vec!["t".into()],
+                work,
+                task,
+            },
+        );
+        sup.next_actor = 1;
+        sup.running
+            .entry("t".into())
+            .or_default()
+            .insert("d1".into());
+        sup.reap_dead_actors(&mut inbox, &tx);
+        assert_eq!(sup.deaths, 1);
+        assert!(
+            !sup.running.get("t").is_some_and(|r| r.contains("d1")),
+            "d1 still marked as running a copy of t"
+        );
     }
 
     /// A supervisor over `devices`, with an idle or busy actor on each of
