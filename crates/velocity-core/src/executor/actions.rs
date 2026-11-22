@@ -891,8 +891,6 @@ impl<'a> TestExecutor<'a> {
         }
     }
 
-    /// An `http` step: sent through the test's session (its cookie jar),
-    /// and what it captured kept for the test's later steps.
     /// `exec` (row 3.2): an allowed program on the host, no shell; its exit
     /// code and output checked, its output captured. The allow-list is
     /// checked again here, whatever validated the suite.
@@ -990,6 +988,8 @@ impl<'a> TestExecutor<'a> {
         Ok(())
     }
 
+    /// An `http` step: sent through the test's session (its cookie jar),
+    /// and what it captured kept for the test's later steps.
     pub(super) async fn run_http(&mut self, req: &velocity_common::HttpRequest) -> Result<()> {
         if self.http.is_none() {
             let config = self.config.http.clone().unwrap_or_default();
