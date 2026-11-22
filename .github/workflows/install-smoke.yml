@@ -307,7 +307,7 @@ jobs:
           egress-policy: audit
       # Floating stable on purpose: what a user running `cargo install` has
       # (the release binaries themselves are built with RUST_VERSION).
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
       # `cargo publish --workspace` uploads velocity-cli last; wait for it to
