@@ -28,7 +28,10 @@ fn exit_error(args: &[&str], stderr: &str) -> VelocityError {
         "no such file",
         "unrecognized subcommand",
     ];
-    if users.iter().any(|p| lower.contains(p)) {
+    // "Invalid device: <name>" is a device the user named wrong; "Invalid
+    // device state" is a simulator that isn't booted (yet, or any more): the
+    // device's trouble, not the config's.
+    if users.iter().any(|p| lower.contains(p)) && !lower.contains("invalid device state") {
         return VelocityError::Config(format!("simctl command failed: {detail}"));
     }
     VelocityError::CommandFailed {
@@ -120,64 +123,7 @@ impl Simctl {
         let output = self.run_text(&["list", "devices", "--json"]).await?;
         let parsed: serde_json::Value = serde_json::from_str(&output)
             .map_err(|e| VelocityError::Config(format!("Failed to parse simctl JSON: {e}")))?;
-
-        let mut devices = Vec::new();
-        let devices_obj = parsed
-            .get("devices")
-            .and_then(|d| d.as_object())
-            .ok_or_else(|| {
-                VelocityError::Config("Missing 'devices' key in simctl output".to_string())
-            })?;
-
-        for (runtime, device_list) in devices_obj {
-            let os_version = parse_runtime_version(runtime);
-            let entries = match device_list.as_array() {
-                Some(arr) => arr,
-                None => continue,
-            };
-
-            for entry in entries {
-                let udid = entry
-                    .get("udid")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                let name = entry
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown")
-                    .to_string();
-                let state_str = entry
-                    .get("state")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown");
-                let is_available = entry
-                    .get("isAvailable")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                if !is_available {
-                    continue;
-                }
-
-                let state = match state_str {
-                    "Booted" => DeviceState::Booted,
-                    "Shutdown" => DeviceState::Shutdown,
-                    _ => DeviceState::Unknown,
-                };
-
-                devices.push(DeviceInfo {
-                    id: udid,
-                    name,
-                    platform: Platform::Ios,
-                    state,
-                    os_version: os_version.clone(),
-                    device_type: velocity_common::DeviceType::Simulator,
-                });
-            }
-        }
-
-        Ok(devices)
+        parse_devices(&parsed)
     }
 
     /// Boot a simulator device.
@@ -420,6 +366,80 @@ impl Simctl {
     }
 }
 
+/// A simulator runtime that is not iOS (`...SimRuntime.watchOS-10-0`): its
+/// simulators run no WebDriverAgent, so they are not iOS devices. (iPads run
+/// on the iOS runtimes.) `devicectl`'s listing skips other platforms too.
+fn other_os(runtime: &str) -> bool {
+    let os = runtime.rsplit('.').next().unwrap_or_default();
+    ["tvOS-", "watchOS-", "xrOS-", "visionOS-"]
+        .iter()
+        .any(|p| os.starts_with(p))
+}
+
+/// The available iOS simulators in `simctl list devices --json`.
+fn parse_devices(parsed: &serde_json::Value) -> Result<Vec<DeviceInfo>> {
+    let devices_obj = parsed
+        .get("devices")
+        .and_then(|d| d.as_object())
+        .ok_or_else(|| {
+            VelocityError::Config("Missing 'devices' key in simctl output".to_string())
+        })?;
+
+    let mut devices = Vec::new();
+    for (runtime, device_list) in devices_obj {
+        if other_os(runtime) {
+            continue;
+        }
+        let os_version = parse_runtime_version(runtime);
+        let entries = match device_list.as_array() {
+            Some(arr) => arr,
+            None => continue,
+        };
+
+        for entry in entries {
+            let udid = entry
+                .get("udid")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let name = entry
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown")
+                .to_string();
+            let state_str = entry
+                .get("state")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let is_available = entry
+                .get("isAvailable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if !is_available {
+                continue;
+            }
+
+            let state = match state_str {
+                "Booted" => DeviceState::Booted,
+                "Shutdown" => DeviceState::Shutdown,
+                _ => DeviceState::Unknown,
+            };
+
+            devices.push(DeviceInfo {
+                id: udid,
+                name,
+                platform: Platform::Ios,
+                state,
+                os_version: os_version.clone(),
+                device_type: velocity_common::DeviceType::Simulator,
+            });
+        }
+    }
+
+    Ok(devices)
+}
+
 /// Extract an iOS version string from a simctl runtime identifier.
 /// e.g. "com.apple.CoreSimulator.SimRuntime.iOS-17-4" -> Some("17.4")
 fn parse_runtime_version(runtime: &str) -> Option<String> {
@@ -516,30 +536,7 @@ mod tests {
         }"#;
 
         let parsed: serde_json::Value = serde_json::from_str(json).unwrap();
-        let devices_obj = parsed["devices"].as_object().unwrap();
-
-        let mut devices = Vec::new();
-        for (runtime, device_list) in devices_obj {
-            let os_version = parse_runtime_version(runtime);
-            for entry in device_list.as_array().unwrap() {
-                let is_available = entry["isAvailable"].as_bool().unwrap_or(false);
-                if !is_available {
-                    continue;
-                }
-                devices.push(DeviceInfo {
-                    id: entry["udid"].as_str().unwrap().to_string(),
-                    name: entry["name"].as_str().unwrap().to_string(),
-                    platform: Platform::Ios,
-                    state: match entry["state"].as_str().unwrap() {
-                        "Booted" => DeviceState::Booted,
-                        "Shutdown" => DeviceState::Shutdown,
-                        _ => DeviceState::Unknown,
-                    },
-                    os_version: os_version.clone(),
-                    device_type: velocity_common::DeviceType::Simulator,
-                });
-            }
-        }
+        let devices = parse_devices(&parsed).unwrap();
 
         assert_eq!(devices.len(), 2);
         assert_eq!(devices[0].name, "iPhone 15 Pro");
@@ -547,6 +544,32 @@ mod tests {
         assert_eq!(devices[0].os_version.as_deref(), Some("17.4"));
         assert_eq!(devices[1].name, "iPhone SE");
         assert_eq!(devices[1].state, DeviceState::Shutdown);
+    }
+
+    /// `simctl list` also lists Apple TV, Apple Watch and Vision Pro
+    /// simulators. They are not iOS devices: a booted one was picked as the
+    /// run's device when no `--device` was given, or counted into the farm.
+    #[test]
+    fn only_ios_runtimes_are_listed_as_ios_devices() {
+        let entry = |udid: &str, name: &str| {
+            serde_json::json!({
+                "udid": udid, "name": name, "state": "Booted", "isAvailable": true
+            })
+        };
+        let parsed = serde_json::json!({ "devices": {
+            "com.apple.CoreSimulator.SimRuntime.iOS-26-0": [entry("PHONE", "iPhone 17")],
+            "com.apple.CoreSimulator.SimRuntime.tvOS-26-0": [entry("TV", "Apple TV")],
+            "com.apple.CoreSimulator.SimRuntime.watchOS-26-0": [entry("WATCH", "Apple Watch")],
+            "com.apple.CoreSimulator.SimRuntime.xrOS-26-0": [entry("VISION", "Apple Vision Pro")],
+            "com.apple.CoreSimulator.SimRuntime.visionOS-26-0": [entry("VISION2", "Apple Vision Pro")],
+        }});
+        let ids: Vec<String> = parse_devices(&parsed)
+            .unwrap()
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(ids, ["PHONE"]);
+        assert!(parse_devices(&serde_json::json!({})).is_err());
     }
 
     #[test]
@@ -560,5 +583,12 @@ mod tests {
         assert!(e.to_string().contains("UDID"), "{e}");
         let e = super::exit_error(&["boot", "nope"], "Invalid device: nope");
         assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+        // A simulator that is not booted is not a typo in the config.
+        let e = super::exit_error(
+            &["launch", "UDID", "com.example.app"],
+            "An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nInvalid device state",
+        );
+        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+        assert_eq!(e.exit_code(), 3);
     }
 }

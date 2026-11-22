@@ -2735,13 +2735,7 @@ impl PlatformDriver for IosDriver {
                 let text = text.clone();
                 async move {
                     let wda = c.wda.lock().await;
-                    if paste {
-                        match wda.client().paste_text(&text, !primed).await {
-                            Ok(()) => return Ok(true),
-                            Err(e) => debug!("paste failed, typing instead: {e}"),
-                        }
-                    }
-                    wda.client().type_text(&text).await.map(|_| false)
+                    paste_or_type(wda.client(), &text, paste, primed).await
                 }
             })
         })
@@ -3596,6 +3590,32 @@ fn use_paste(text: &str, field_empty: bool, primed: bool) -> bool {
     }
 }
 
+/// Put `text` in the focused field: pasted when `paste`, else typed, and
+/// typed when the runner can't paste. Whether it was pasted.
+///
+/// A paste whose connection broke may have run (WDA took the keys, then
+/// the answer was lost): typing the text then would put it in twice, so
+/// those errors end the attempt (the caller's recovery decides what next).
+async fn paste_or_type(
+    client: &crate::wda::WdaClient,
+    text: &str,
+    paste: bool,
+    primed: bool,
+) -> Result<bool> {
+    if paste {
+        match client.paste_text(text, !primed).await {
+            Ok(()) => return Ok(true),
+            Err(
+                e @ (VelocityError::WdaLost { .. }
+                | VelocityError::WdaUnreachable { .. }
+                | VelocityError::WdaSessionLost { .. }),
+            ) => return Err(e),
+            Err(e) => debug!("paste failed, typing instead: {e}"),
+        }
+    }
+    client.type_text(text).await.map(|_| false)
+}
+
 /// Whether `clearText` selects all rather than backspacing: long text, or
 /// text likely wider than the field (~8 pt a character).
 fn select_to_clear(len: usize, field_width: i32) -> bool {
@@ -3605,6 +3625,47 @@ fn select_to_clear(len: usize, field_width: i32) -> bool {
 #[cfg(test)]
 mod paste_tests {
     use super::*;
+
+    /// A WDA with a session `S` whose `keyboardInput` (the paste) answers as
+    /// `paste_reply` says; the typed keys are counted.
+    async fn wda_with_paste(
+        paste_reply: fn() -> crate::driver::fake_wda::Resp,
+    ) -> (crate::driver::fake_wda::FakeWda, crate::wda::WdaClient) {
+        use crate::driver::fake_wda::*;
+        let fake = FakeWda::start(move |r| {
+            if r.path.ends_with("/keyboardInput") {
+                return paste_reply();
+            }
+            ok("null")
+        })
+        .await;
+        let mut client = crate::wda::WdaClient::with_timeout(&fake.url, Duration::from_millis(500));
+        client.set_session_id("S".into());
+        (fake, client)
+    }
+
+    /// The paste's answer was lost after WDA may have pasted: typing the
+    /// text as well would put it in the field twice.
+    #[tokio::test]
+    async fn a_paste_that_may_have_run_is_not_typed_again() {
+        let (f, c) = wda_with_paste(|| crate::driver::fake_wda::Resp::Close).await;
+        let e = paste_or_type(&c, "hello", true, true).await.unwrap_err();
+        assert!(matches!(e, VelocityError::WdaLost { .. }), "{e:?}");
+        assert_eq!(f.count("POST", "/wda/keys"), 0, "typed after a lost paste");
+    }
+
+    /// A runner that refuses the paste (no keyboard-input route, an older
+    /// Xcode) still gets the text typed.
+    #[tokio::test]
+    async fn a_refused_paste_is_typed_instead() {
+        let (f, c) =
+            wda_with_paste(|| crate::driver::fake_wda::w3c(500, "unknown error", "no paste")).await;
+        assert!(!paste_or_type(&c, "hello", true, true).await.unwrap());
+        assert_eq!(f.count("POST", "/wda/keys"), 1);
+        // Not pasting at all types.
+        assert!(!paste_or_type(&c, "hi", false, true).await.unwrap());
+        assert_eq!(f.count("POST", "/wda/keys"), 2);
+    }
 
     #[test]
     fn auto_pastes_long_text_into_empty_fields_only() {
