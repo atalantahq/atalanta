@@ -515,65 +515,68 @@ impl VideoStream {
             .trim()
             .parse()
             .map_err(|e| format!("unexpected forward output {out:?}: {e}"))?;
-        // The server's token, from the file only shell or root can read.
-        let token_file = format!("/data/local/tmp/{socket}.token");
-        let token = crate::tree_server::run_adb(
-            adb_path,
-            device_id,
-            &["shell", &format!("cat {token_file}")],
-        )
-        .await
-        .map(|t| t.trim().to_string())
-        .ok()
-        .filter(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit()));
-        let Some(token) = token else {
-            let _ = crate::tree_server::run_adb(
+        // From here on the forward is ours to remove on every way out: a
+        // connect that timed out or a stream header that never came used to
+        // leave one more listening port in the adb server per failed start.
+        let connected = async {
+            // The server's token, from the file only shell or root can read.
+            let token_file = format!("/data/local/tmp/{socket}.token");
+            let token = crate::tree_server::run_adb(
                 adb_path,
                 device_id,
-                &["forward", "--remove", &format!("tcp:{port}")],
+                &["shell", &format!("cat {token_file}")],
             )
-            .await;
-            return Err(format!("no video server token in {token_file}"));
-        };
-        let host = crate::adb::server_host(device_id);
-        let mut stream = tokio::time::timeout(
-            Duration::from_secs(3),
-            TcpStream::connect((host.as_str(), port)),
-        )
-        .await
-        .map_err(|_| format!("video connect to {host}:{port} timed out"))?
-        .map_err(|e| format!("video connect: {e}"))?;
-        let _ = stream.set_nodelay(true);
-        if let Err(e) = authenticate(&mut stream, &token).await {
-            let _ = crate::tree_server::run_adb(
-                adb_path,
-                device_id,
-                &["forward", "--remove", &format!("tcp:{port}")],
-            )
-            .await;
-            return Err(e);
-        }
-        let (read, write) = stream.into_split();
-        let mut read = BufReader::with_capacity(256 << 10, read);
-        let codec = tokio::time::timeout(Duration::from_secs(5), read_codec(&mut read))
             .await
-            .map_err(|_| {
-                let err = stderr_lines
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .join(" | ");
-                format!("no stream header from the video server in 5s {err}")
-            })?
-            .map_err(|e| {
-                let err = stderr_lines
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .join(" | ");
-                format!("video stream: {e} {err}")
-            })?;
-        if codec != CODEC_H264 {
-            return Err(format!("unexpected video codec {codec:#x}"));
+            .map(|t| t.trim().to_string())
+            .ok()
+            .filter(|t| t.len() == 32 && t.bytes().all(|b| b.is_ascii_hexdigit()))
+            .ok_or_else(|| format!("no video server token in {token_file}"))?;
+            let host = crate::adb::server_host(device_id);
+            let mut stream = tokio::time::timeout(
+                Duration::from_secs(3),
+                TcpStream::connect((host.as_str(), port)),
+            )
+            .await
+            .map_err(|_| format!("video connect to {host}:{port} timed out"))?
+            .map_err(|e| format!("video connect: {e}"))?;
+            let _ = stream.set_nodelay(true);
+            authenticate(&mut stream, &token).await?;
+            let (read, write) = stream.into_split();
+            let mut read = BufReader::with_capacity(256 << 10, read);
+            let codec = tokio::time::timeout(Duration::from_secs(5), read_codec(&mut read))
+                .await
+                .map_err(|_| {
+                    let err = stderr_lines
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .join(" | ");
+                    format!("no stream header from the video server in 5s {err}")
+                })?
+                .map_err(|e| {
+                    let err = stderr_lines
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .join(" | ");
+                    format!("video stream: {e} {err}")
+                })?;
+            if codec != CODEC_H264 {
+                return Err(format!("unexpected video codec {codec:#x}"));
+            }
+            Ok::<_, String>((read, write))
         }
+        .await;
+        let (read, write) = match connected {
+            Ok(rw) => rw,
+            Err(e) => {
+                let _ = crate::tree_server::run_adb(
+                    adb_path,
+                    device_id,
+                    &["forward", "--remove", &format!("tcp:{port}")],
+                )
+                .await;
+                return Err(e);
+            }
+        };
         let me = Self::from_parts(
             device_id,
             read,
@@ -932,6 +935,47 @@ impl ScreenRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A start that fails after `adb forward` (nothing listens on the
+    /// forwarded port) removes that forward again, instead of leaving one
+    /// more listening port in the adb server per failed start.
+    #[tokio::test]
+    async fn a_failed_start_removes_its_forward() {
+        let fake = crate::test_support::FakeAdb::new("video-forward-leak");
+        // A port nothing listens on.
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        fake.stub(
+            "app_process",
+            "echo 'velocity-video 2 listening on @test'; sleep 30",
+        );
+        fake.stub(
+            "adb-forward",
+            &format!("case \"$*\" in *tcp:0*) echo {port};; esac; exit 0"),
+        );
+        fake.stub(
+            "cat",
+            "case \"$1\" in /data/local/tmp/velocity_video_*.token) echo 0123456789abcdef0123456789abcdef;; *) exec /bin/cat \"$@\";; esac",
+        );
+        let started = VideoStream::start(
+            &fake.path(),
+            "emulator-5554",
+            VideoOptions::default(),
+            Duration::from_secs(5),
+        )
+        .await;
+        let e = started
+            .map(|_| ())
+            .expect_err("nothing listens on the forwarded port");
+        assert!(e.contains("video connect"), "{e}");
+        let log = fake.log();
+        assert!(
+            log.contains(&format!("[forward][--remove][tcp:{port}]")),
+            "the forward was left behind:\n{log}"
+        );
+    }
 
     fn frame(at: Instant, key: bool, pts: u64) -> VideoEvent {
         VideoEvent::Frame(VideoFrame {

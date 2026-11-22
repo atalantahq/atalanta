@@ -447,7 +447,7 @@ impl TreeServer {
         match self.call(device_id, cmd, true, DUMP_TIMEOUT).await? {
             Ok((_, bytes)) => String::from_utf8(bytes).ok(),
             Err(e) => {
-                debug!(device_id, "tree server {cmd}: {e}");
+                debug!(device_id, "tree server {}: {e}", verb(cmd));
                 None
             }
         }
@@ -754,9 +754,11 @@ impl TreeServer {
             let sent = Instant::now();
             let outcome =
                 tokio::time::timeout(timeout, request(&mut session.stream, &line, payload)).await;
+            // The verb only: `TEXT` and `SETTEXT` carry the typed text (a
+            // password), hex-encoded, which redaction doesn't know.
             debug!(
                 device_id,
-                cmd,
+                cmd = verb(cmd),
                 ms = sent.elapsed().as_millis() as u64,
                 "tree server reply"
             );
@@ -856,7 +858,10 @@ impl TreeServer {
                         )) => e,
                         _ => "timed out".to_string(),
                     };
-                    state.failed(device_id, &format!("{cmd:?} failed ({why}); falling back"));
+                    state.failed(
+                        device_id,
+                        &format!("{:?} failed ({why}); falling back", verb(cmd)),
+                    );
                     if let Some(s) = state.session.take() {
                         self.shutdown(device_id, s).await;
                     }
@@ -2141,6 +2146,40 @@ pub(crate) mod tests {
             .iter()
             .filter(|c| verb(c) == verb_)
             .count()
+    }
+
+    /// Typed text (a password) travels as `TEXT <hex>` / `SETTEXT <mode>
+    /// <hex>`; the debug log of every reply named the whole command, hex
+    /// included, which secret redaction (exact values) can't recognise.
+    #[test]
+    fn typed_text_never_reaches_the_log() {
+        let secret = "hunter2-Zq9-not-a-real-password";
+        let ((seen, typed), logs) = crate::test_support::capture_logs(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                let (port, seen) = scripted(Arc::new(|_, _| Act::Say(b"OK 1\n".to_vec()))).await;
+                let (ts, _fake) = attached("ts-log-secret", port).await;
+                let a = ts.text("dev", secret).await;
+                let b = ts.set_text("dev", secret, true).await;
+                (seen, (a.is_some(), b.is_some()))
+            })
+        });
+        assert_eq!(typed, (true, true));
+        let wire = hex(secret.as_bytes());
+        let sent = seen.lock().unwrap().join("\n");
+        assert!(
+            sent.contains(&wire),
+            "the server never got the text: {sent}"
+        );
+        assert!(
+            logs.contains("tree server reply"),
+            "nothing was logged: {logs}"
+        );
+        assert!(logs.contains("TEXT"), "{logs}");
+        assert!(!logs.contains(&wire) && !logs.contains(secret), "{logs}");
     }
 
     /// VEL-158: a reply lost after the tap was sent was taken for a stale
