@@ -283,6 +283,10 @@ struct ScriptDriver {
     pending_after: AtomicUsize,
     /// Recorded launches: `(device_id, app_id, clear_state, arguments)`.
     launches: Mutex<Vec<(String, String, bool, velocity_common::LaunchArgs)>>,
+    /// The soft keyboard's frame, if one is showing.
+    keyboard: Mutex<Option<velocity_common::Rect>>,
+    /// How often `hide_keyboard` was called.
+    hide_keyboard_calls: AtomicUsize,
 }
 
 type Stroke = ((i32, i32), (i32, i32));
@@ -340,6 +344,8 @@ impl ScriptDriver {
             pending: Mutex::new(None),
             pending_after: AtomicUsize::new(0),
             launches: Mutex::new(Vec::new()),
+            keyboard: Mutex::new(None),
+            hide_keyboard_calls: AtomicUsize::new(0),
             evidence: None,
             evidence_finished: Default::default(),
         }
@@ -644,6 +650,14 @@ impl PlatformDriver for ScriptDriver {
     }
     async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
         Ok((1080, 1920))
+    }
+    async fn keyboard_frame(&self, _: &str) -> Result<Option<velocity_common::Rect>> {
+        Ok(*self.keyboard.lock().unwrap())
+    }
+    async fn hide_keyboard(&self, _: &str) -> Result<bool> {
+        self.hide_keyboard_calls.fetch_add(1, Ordering::SeqCst);
+        *self.keyboard.lock().unwrap() = None;
+        Ok(true)
     }
     async fn app_liveness(&self, d: &str, a: &str) -> velocity_common::Liveness {
         self.liveness_reads.fetch_add(1, Ordering::SeqCst);
@@ -1120,6 +1134,12 @@ impl PlatformDriver for HangingTap {
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
     }
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+        self.0.keyboard_frame(d).await
+    }
+    async fn hide_keyboard(&self, d: &str) -> Result<bool> {
+        self.0.hide_keyboard(d).await
+    }
     async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
         std::future::pending().await
     }
@@ -1191,6 +1211,12 @@ impl PlatformDriver for CrashingTap {
     }
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
+    }
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+        self.0.keyboard_frame(d).await
+    }
+    async fn hide_keyboard(&self, d: &str) -> Result<bool> {
+        self.0.hide_keyboard(d).await
     }
     async fn screenshot(&self, d: &str) -> Result<Vec<u8>> {
         self.0.screenshot(d).await
@@ -1699,6 +1725,12 @@ impl PlatformDriver for CoveredUnlessForced {
     }
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
+    }
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+        self.0.keyboard_frame(d).await
+    }
+    async fn hide_keyboard(&self, d: &str) -> Result<bool> {
+        self.0.hide_keyboard(d).await
     }
     async fn screenshot(&self, d: &str) -> Result<Vec<u8>> {
         self.0.screenshot(d).await
@@ -3784,6 +3816,12 @@ impl PlatformDriver for StateKeeping {
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
     }
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+        self.0.keyboard_frame(d).await
+    }
+    async fn hide_keyboard(&self, d: &str) -> Result<bool> {
+        self.0.hide_keyboard(d).await
+    }
     async fn screenshot(&self, d: &str) -> Result<Vec<u8>> {
         self.0.screenshot(d).await
     }
@@ -5287,4 +5325,174 @@ async fn a_crash_after_an_abandoned_optional_flow_still_fails_the_test() {
     assert_eq!(r.steps[1].status, StepStatus::Skipped, "{:?}", r.steps);
     assert_eq!(r.status, TestStatus::Failed, "{:?}", r.steps);
     assert!(r.error_message.unwrap().contains("low-memory killer"));
+}
+
+/// A fake driver where the keyboard covers the "Save" button: tap Save
+/// hides the keyboard once, then taps the fresh element, and records the
+/// warning. Without a keyboard, no hide is called.
+#[tokio::test]
+async fn tap_under_keyboard_hides_it_first() {
+    let mut save = node("save", "Save", 1500);
+    save.bounds = velocity_common::Rect {
+        x: 400,
+        y: 1500,
+        width: 280,
+        height: 80,
+    };
+    let driver = ScriptDriver::new(vec![save]);
+    driver
+        .keyboard
+        .lock()
+        .unwrap()
+        .replace(velocity_common::Rect {
+            x: 0,
+            y: 1200,
+            width: 1080,
+            height: 720,
+        });
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(&test_case(vec![step(tap("Save"))]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
+    assert_eq!(
+        driver.hide_keyboard_calls.load(Ordering::SeqCst),
+        1,
+        "hide_keyboard called once"
+    );
+    assert!(
+        r.warnings
+            .iter()
+            .any(|w| w.contains("the keyboard covered")),
+        "warning should mention the keyboard, got {r:?}"
+    );
+    assert_eq!(driver.taps.lock().unwrap().len(), 1, "Save tapped once");
+}
+
+/// A target above the keyboard is tapped without hiding anything.
+#[tokio::test]
+async fn tap_without_keyboard_does_not_hide() {
+    let driver = ScriptDriver::new(vec![node("save", "Save", 100)]);
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(&test_case(vec![step(tap("Save"))]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
+    assert_eq!(driver.hide_keyboard_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(driver.taps.lock().unwrap().len(), 1);
+}
+
+/// `hideKeyboard` hides when a keyboard is showing, passes with none, and
+/// fails with Unsupported on a driver that keeps the trait default.
+#[tokio::test]
+async fn hide_keyboard_step() {
+    let driver = ScriptDriver::new(vec![]);
+    driver
+        .keyboard
+        .lock()
+        .unwrap()
+        .replace(velocity_common::Rect {
+            x: 0,
+            y: 1200,
+            width: 1080,
+            height: 720,
+        });
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(&test_case(vec![step(Action::HideKeyboard)]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
+    assert_eq!(driver.hide_keyboard_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(*driver.keyboard.lock().unwrap(), None);
+
+    // No keyboard: passes, hide is still invoked (driver is a no-op).
+    let driver = ScriptDriver::new(vec![]);
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(&test_case(vec![step(Action::HideKeyboard)]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
+    assert_eq!(driver.hide_keyboard_calls.load(Ordering::SeqCst), 1);
+}
+
+/// Scroll strokes stay above the keyboard (both points have y < keyboard top).
+#[tokio::test]
+async fn scroll_strokes_stay_above_keyboard() {
+    // Row 1 is below the fold (keyboard covers the bottom), so the scroll
+    // drags in the free area above the keyboard.
+    let mut row = node("row", "Row 1", 2000);
+    row.bounds.height = 80;
+    let driver = ScriptDriver::new(vec![row]);
+    driver
+        .keyboard
+        .lock()
+        .unwrap()
+        .replace(velocity_common::Rect {
+            x: 0,
+            y: 1440,
+            width: 1080,
+            height: 480,
+        });
+    let mut ex = TestExecutor::new(&driver, config(2000), "app");
+    let scroll = Action::ScrollUntilVisible {
+        selector: Selector::Text("Row 1".into()),
+        direction: Direction::Down,
+        max_scrolls: 3,
+        within: None,
+    };
+    let r = ex
+        .execute_test(&test_case(vec![step(scroll)]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
+    let strokes = driver.strokes.lock().unwrap().clone();
+    assert!(!strokes.is_empty(), "a scroll stroke was issued");
+    let (a, b) = &strokes[0];
+    assert!(a.1 < 1440, "drag starts above the keyboard: {a:?}");
+    assert!(b.1 < 1440, "drag ends above the keyboard: {b:?}");
+}
+
+/// Keyboard covers the whole screen: `hide_keyboard` is called once and the
+/// scroll continues with the full screen instead of failing fast on the
+/// keyboard.
+#[tokio::test]
+async fn scroll_with_keyboard_covering_all_hides_keyboard() {
+    // Nothing matches, so the step reaches the drag section (not an early
+    // "visible" return). The keyboard leaves no room above it, so hide is
+    // called once and the drag uses the full screen.
+    let driver = ScriptDriver::new(vec![]);
+    driver
+        .keyboard
+        .lock()
+        .unwrap()
+        .replace(velocity_common::Rect {
+            x: 0,
+            y: 0,
+            width: 1080,
+            height: 1920,
+        });
+    let mut ex = TestExecutor::new(&driver, config(2000), "app");
+    let scroll = Action::ScrollUntilVisible {
+        selector: Selector::Text("Row 1".into()),
+        direction: Direction::Down,
+        max_scrolls: 2,
+        within: None,
+    };
+    let r = ex
+        .execute_test(&test_case(vec![step(scroll)]), "d", "app")
+        .await
+        .unwrap();
+    // hide was called once instead of failing fast on the keyboard.
+    assert_eq!(driver.hide_keyboard_calls.load(Ordering::SeqCst), 1);
+    // The element is genuinely absent: fail with ElementNotFound, not a
+    // keyboard error.
+    let msg = r.error_message.unwrap_or_default();
+    assert!(
+        !msg.contains("keyboard covers the screen"),
+        "should not fail fast on the keyboard: {msg}"
+    );
 }

@@ -311,6 +311,12 @@ impl PlatformDriver for RoutingDriver {
     async fn press_key(&self, id: &str, key: Key) -> Result<()> {
         self.of(id)?.press_key(id, key).await
     }
+    async fn keyboard_frame(&self, id: &str) -> Result<Option<Rect>> {
+        self.of(id)?.keyboard_frame(id).await
+    }
+    async fn hide_keyboard(&self, id: &str) -> Result<bool> {
+        self.of(id)?.hide_keyboard(id).await
+    }
     async fn tap_xy(&self, id: &str, x: i32, y: i32) -> Result<()> {
         self.of(id)?.tap_xy(id, x, y).await
     }

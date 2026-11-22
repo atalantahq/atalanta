@@ -352,6 +352,22 @@ pub trait PlatformDriver: Send + Sync {
     }
     async fn press_key(&self, device_id: &str, key: Key) -> Result<()>;
 
+    /// The soft keyboard's on-screen frame, if one is showing. The frame is
+    /// in screen coordinates, as read from the platform's own window list
+    /// (Android: the input-method window; iOS: the `XCUIElementTypeKeyboard`
+    /// node in the source tree). `None` means no keyboard is up.
+    async fn keyboard_frame(&self, _device_id: &str) -> Result<Option<crate::types::Rect>> {
+        Ok(None)
+    }
+
+    /// Hide the soft keyboard without navigating. A no-op when nothing is
+    /// shown. Returns whether a keyboard was dismissed.
+    async fn hide_keyboard(&self, _device_id: &str) -> Result<bool> {
+        Err(VelocityError::Unsupported(
+            "hideKeyboard is not supported on this platform yet".into(),
+        ))
+    }
+
     // Raw actions (for WebView / non-accessible UI)
     async fn tap_xy(&self, _device_id: &str, _x: i32, _y: i32) -> Result<()> {
         Err(VelocityError::Unsupported(

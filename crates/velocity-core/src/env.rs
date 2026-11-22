@@ -722,7 +722,8 @@ fn interpolate_action(
         | Action::Wait { .. }
         | Action::TapXY { .. }
         | Action::GoBack
-        | Action::Refresh => {}
+        | Action::Refresh
+        | Action::HideKeyboard => {}
         Action::Goto { url } => *url = f(url)?,
         Action::SaveState { name } | Action::RestoreState { name } => *name = f(name)?,
         Action::AssertScreenshot {

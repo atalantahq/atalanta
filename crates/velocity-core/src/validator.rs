@@ -701,7 +701,8 @@ fn validate_step(
         | Action::InputRaw { .. }
         | Action::Goto { .. }
         | Action::GoBack
-        | Action::Refresh => {}
+        | Action::Refresh
+        | Action::HideKeyboard => {}
     }
     Ok(())
 }

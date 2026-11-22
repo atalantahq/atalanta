@@ -156,6 +156,15 @@ impl Rect {
     pub fn is_empty(&self) -> bool {
         self.width <= 0 || self.height <= 0
     }
+
+    /// Whether `(x, y)` lies inside this rect (left and top edges inside,
+    /// right and bottom outside).
+    pub fn contains_point(&self, x: i32, y: i32) -> bool {
+        i64::from(x) >= i64::from(self.x)
+            && i64::from(x) < i64::from(self.x) + i64::from(self.width)
+            && i64::from(y) >= i64::from(self.y)
+            && i64::from(y) < i64::from(self.y) + i64::from(self.height)
+    }
 }
 
 /// A UI element from the accessibility tree.
@@ -734,6 +743,10 @@ pub enum Action {
     PressKey {
         key: Key,
     },
+    /// Hide the soft keyboard (Android: `input keyevent 111` / ESCAPE only when
+    /// a keyboard is showing; iOS: tap a point above the keyboard). A no-op
+    /// when nothing is shown.
+    HideKeyboard,
     Wait {
         ms: u64,
     },

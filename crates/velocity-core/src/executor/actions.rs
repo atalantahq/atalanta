@@ -28,6 +28,7 @@ impl<'a> TestExecutor<'a> {
                 | Action::ClearMocks
                 | Action::Http(_)
                 | Action::Exec(_)
+                | Action::HideKeyboard
         );
         let settle_off = self.step_settle.as_ref().is_some_and(|s| s.skip);
         self.settled_for_lookup = false;
@@ -250,6 +251,37 @@ impl<'a> TestExecutor<'a> {
         (Ok(()), resource_delta)
     }
 
+    /// After `find_actionable`: if the keyboard frame covers the target's
+    /// center, dismiss the keyboard once and re-find the same selector so the
+    /// tap lands on a fresh element (`find_actionable` may have healed the
+    /// first one and the bounds changed). Skips entirely when the keyboard
+    /// frame is `None` or errors. Returns the warning pushed when it hid.
+    pub(super) async fn keyboard_aware_target(
+        &mut self,
+        device_id: &str,
+        selector: &velocity_common::Selector,
+        element: &velocity_common::Element,
+        timeout_ms: u64,
+    ) -> Result<velocity_common::Element> {
+        let Some(kb) = self.driver.keyboard_frame(device_id).await.ok().flatten() else {
+            return Ok(element.clone());
+        };
+        let (cx, cy) = element.bounds.center();
+        if !kb.contains_point(cx, cy) {
+            return Ok(element.clone());
+        }
+        match self.driver.hide_keyboard(device_id).await {
+            Ok(_) => {
+                let note = format!("the keyboard covered {selector}; hid it first");
+                if !self.warnings.contains(&note) {
+                    self.warnings.push(note);
+                }
+                self.find_actionable(device_id, selector, timeout_ms).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     pub(super) async fn execute_action(
         &mut self,
         action: &Action,
@@ -396,6 +428,9 @@ impl<'a> TestExecutor<'a> {
             Action::Tap { selector } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                let element = self
+                    .keyboard_aware_target(device_id, selector, &element, timeout)
+                    .await?;
                 if self.step_force {
                     return self
                         .driver
@@ -419,6 +454,9 @@ impl<'a> TestExecutor<'a> {
             Action::DoubleTap { selector } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                let element = self
+                    .keyboard_aware_target(device_id, selector, &element, timeout)
+                    .await?;
                 if self.step_force {
                     return self
                         .driver
@@ -433,6 +471,9 @@ impl<'a> TestExecutor<'a> {
             } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                let element = self
+                    .keyboard_aware_target(device_id, selector, &element, timeout)
+                    .await?;
                 let ms = duration_ms.unwrap_or(1000);
                 if self.step_force {
                     return self
@@ -464,6 +505,9 @@ impl<'a> TestExecutor<'a> {
             Action::InputText { selector, text } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                let element = self
+                    .keyboard_aware_target(device_id, selector, &element, timeout)
+                    .await?;
                 self.driver.input_text(device_id, &element, text).await
             }
             Action::ClearText { selector } => {
@@ -471,6 +515,9 @@ impl<'a> TestExecutor<'a> {
                 // must be actionable, not just present (review MINOR 11).
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                let element = self
+                    .keyboard_aware_target(device_id, selector, &element, timeout)
+                    .await?;
                 self.driver.clear_text(device_id, &element).await
             }
             Action::AssertVisible { selector } => {
@@ -714,7 +761,7 @@ impl<'a> TestExecutor<'a> {
                         // row_150 to the end).
                         let area = match within_area {
                             Some(area) => Some(area),
-                            None => self.screen_rect(device_id).await,
+                            None => self.keyboard_aware_screen_rect(device_id).await,
                         };
                         aimed = area.and_then(|a| aim_at(&a, &element.bounds, *direction, visible));
                         if visible && aimed.is_none() {
@@ -745,7 +792,21 @@ impl<'a> TestExecutor<'a> {
                             let (a, b) = line_across(&area, finger);
                             self.driver.scroll_coords(device_id, a, b).await?;
                         }
-                        None => self.driver.scroll(device_id, finger).await?,
+                        None => match self.keyboard_aware_screen_rect(device_id).await {
+                            // A keyboard up: drag above it so the stroke
+                            // doesn't land on a key and scroll nothing.
+                            Some(area) => {
+                                let (a, b) = line_across(&area, finger);
+                                self.driver.scroll_coords(device_id, a, b).await?;
+                            }
+                            // The keyboard leaves no room above it: dismiss it
+                            // once and fall back to the full screen instead of
+                            // burning scrolls on the keys.
+                            None => {
+                                let _ = self.driver.hide_keyboard(device_id).await;
+                                self.driver.scroll(device_id, finger).await?;
+                            }
+                        },
                     }
                     let _ = self
                         .sync_manager
@@ -885,6 +946,7 @@ impl<'a> TestExecutor<'a> {
                 self.assert_screenshot(device_id, name, shot).await
             }
             Action::PressKey { key } => self.driver.press_key(device_id, key.clone()).await,
+            Action::HideKeyboard => self.driver.hide_keyboard(device_id).await.map(|_| ()),
             Action::Wait { ms } => {
                 tokio::time::sleep(Duration::from_millis(*ms)).await;
                 Ok(())
