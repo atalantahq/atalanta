@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
 /// A scripted reply: status, extra header lines (`name: value\r\n`), body.
+/// The extra line `x-truncate: 1` cuts the body short (see [`serve`]).
 pub(crate) type Reply = (u16, &'static str, String);
 
 /// One request as the server saw it.
@@ -88,9 +89,16 @@ pub(crate) async fn serve(script: Vec<Reply>) -> (String, Arc<Mutex<Vec<Captured
                     raw_body,
                 });
             }
+            // `x-truncate` in the extra headers: promise more body than is
+            // sent, then hang up (a connection dropped mid-reply).
+            let declared = body.len()
+                + if extra.contains("x-truncate") {
+                    1000
+                } else {
+                    0
+                };
             let resp = format!(
-                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\n{extra}content-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\n{extra}content-length: {declared}\r\nconnection: close\r\n\r\n{body}"
             );
             let _ = sock.write_all(resp.as_bytes()).await;
             let _ = sock.shutdown().await;

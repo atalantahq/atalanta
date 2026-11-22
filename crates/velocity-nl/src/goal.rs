@@ -26,7 +26,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
 use velocity_common::{Platform, Result, VelocityError};
 
-use crate::planner::{de_element, json_spans, UNPARSEABLE_REPLY};
+use crate::planner::{de_element, de_or_default, json_spans, UNPARSEABLE_REPLY};
 
 /// One planning turn of a goal.
 pub struct GoalRequest<'a> {
@@ -148,18 +148,18 @@ pub struct GoalStep {
     /// For inputText: the *name* of a value from the list (or, when the
     /// run allows it, text copied from the goal or the screen, which code
     /// checks). For openApp: an app's name. For answer: the answer.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub value: String,
     /// up / down / left / right for scroll and swipe; none otherwise.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub direction: String,
     /// Milliseconds for wait and longPress; 0 otherwise.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub ms: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub outcome: GoalOutcome,
     /// Why (for done) or what this does, one sentence. Logs only.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub reason: String,
     /// What should hold right after this turn's action, for code to check
     /// on the next screen. `None` when the model names nothing (or answers
@@ -168,7 +168,7 @@ pub struct GoalStep {
     pub expect: Option<Expectation>,
     /// A note the model keeps for its next turns (facts gathered, what is
     /// left). Shown back to the model only; code never acts on it.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub memo: String,
 }
 

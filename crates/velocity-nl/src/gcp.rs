@@ -19,6 +19,8 @@ use velocity_common::{Result, VelocityError};
 /// The OAuth scope Vertex needs.
 pub const SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const DEFAULT_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
+/// How long `gcloud auth print-access-token` may run.
+const GCLOUD_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A bearer token, fetched (and refreshed) on demand.
 #[async_trait]
@@ -135,22 +137,17 @@ impl GoogleToken {
             }
             Source::Gcloud { program } => {
                 // A blocking run on the blocking pool: it works on any
-                // runtime flavour, without a child-reaping driver.
+                // runtime flavour, without a child-reaping driver. The
+                // deadline is inside it, so a hung gcloud is killed, not
+                // left running (and holding a pool thread) behind an
+                // abandoned future.
                 let program = program.clone();
-                let run = tokio::task::spawn_blocking(move || {
-                    std::process::Command::new(&program)
-                        .args(["auth", "print-access-token"])
-                        .stdin(std::process::Stdio::null())
-                        .output()
-                        .map_err(|e| format!("can't run {}: {e}", program.display()))
-                });
-                let out = tokio::time::timeout(Duration::from_secs(30), run)
-                    .await
-                    .map_err(|_| {
-                        VelocityError::Config("gcloud auth print-access-token timed out".into())
-                    })?
-                    .map_err(|e| VelocityError::Internal(anyhow::anyhow!("gcloud task: {e}")))?
-                    .map_err(VelocityError::Config)?;
+                let out = tokio::task::spawn_blocking(move || {
+                    run_with_deadline(&program, &["auth", "print-access-token"], GCLOUD_TIMEOUT)
+                })
+                .await
+                .map_err(|e| VelocityError::Internal(anyhow::anyhow!("gcloud task: {e}")))?
+                .map_err(VelocityError::Config)?;
                 let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !out.status.success() || token.is_empty() {
                     return Err(VelocityError::Config(format!(
@@ -223,6 +220,59 @@ impl TokenSource for GoogleToken {
         *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((token.clone(), until));
         Ok(token)
     }
+}
+
+/// Run `program args` with no stdin and collect its output, killing it when
+/// it is still running after `deadline`.
+fn run_with_deadline(
+    program: &Path,
+    args: &[&str],
+    deadline: Duration,
+) -> std::result::Result<std::process::Output, String> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    let name = program.display();
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("can't run {name}: {e}"))?;
+    // Read both pipes while waiting, so a chatty child can't fill one and
+    // stall.
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let out = drain(child.stdout.take().map(|p| Box::new(p) as _));
+    let err = drain(child.stderr.take().map(|p| Box::new(p) as _));
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "{name} timed out after {}s and was stopped",
+                    deadline.as_secs_f32()
+                ));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(format!("can't wait for {name}: {e}")),
+        }
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+    })
 }
 
 /// A credentials file: the token source and the project it names.
@@ -427,6 +477,40 @@ pub(crate) mod tests {
         };
         assert_eq!(GoogleToken::discover(&none).err().unwrap().exit_code(), 2);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    // `tokio::time::timeout` around a blocking `Command::output` abandoned
+    // the wait and left the hung gcloud running (one more per step).
+    #[cfg(unix)]
+    #[test]
+    fn a_hung_gcloud_is_killed_at_the_deadline() {
+        // A sleep length no other process has.
+        let secs = format!("31.{}", std::process::id());
+        let running = || {
+            let ps = std::process::Command::new("ps")
+                .args(["-A", "-o", "command"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&ps.stdout)
+                .lines()
+                .filter(|l| l.starts_with("/bin/sleep") && l.contains(&secs))
+                .count()
+        };
+        let started = Instant::now();
+        let err = run_with_deadline(
+            Path::new("/bin/sleep"),
+            &[&secs],
+            Duration::from_millis(300),
+        )
+        .unwrap_err();
+        assert!(err.contains("timed out"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert_eq!(running(), 0, "the hung command is still running");
+        // A command that finishes is returned whole.
+        let ok =
+            run_with_deadline(Path::new("/bin/echo"), &["hi"], Duration::from_secs(10)).unwrap();
+        assert_eq!(String::from_utf8_lossy(&ok.stdout).trim(), "hi");
+        assert!(ok.status.success());
     }
 
     #[test]

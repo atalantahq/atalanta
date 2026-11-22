@@ -16,7 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use velocity_common::{Element, Platform, Rect, Result, VelocityError, VerifyCheck, VerifyOutcome};
 
-use crate::planner::{json_spans, ScreenIndex, Usage, UNPARSEABLE_REPLY};
+use crate::planner::{de_or_default, json_spans, ScreenIndex, Usage, UNPARSEABLE_REPLY};
 
 /// One check: the claim, the numbered screen list, and optionally a
 /// screenshot for models that take images.
@@ -35,13 +35,13 @@ pub struct CheckRequest<'a> {
 pub struct CheckAnswer {
     pub holds: bool,
     /// Numbers from the screen list that show the claim holds (or not).
-    #[serde(default, alias = "evidence")]
+    #[serde(default, alias = "evidence", deserialize_with = "de_or_default")]
     pub evidence_element_ids: Vec<i64>,
     /// For a claim with a run log: the turn numbers (`#n`) of the log lines
     /// that show a part done. Code keeps only turns the log has.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub evidence_turns: Vec<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub reason: String,
 }
 
