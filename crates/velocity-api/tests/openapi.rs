@@ -90,17 +90,17 @@ fn a_created_id_is_captured_and_used_by_name() {
     assert_eq!(stores[0].label, "POST /pets (createPet)");
     assert!(stores[0].notes[0].starts_with("setup:"));
     let order = &stores[1].request;
-    assert_eq!(order.url, "/stores/${STORE_ID}/orders");
+    assert_eq!(order.url, "/stores/${API_STORE_ID}/orders");
     assert_eq!(
         order.json,
         Some(json!({ "petId": "${PET_ID}", "quantity": 2 }))
     );
     assert_eq!(
         order.headers,
-        vec![("X-Request-Id".into(), "${X_REQUEST_ID}".into())]
+        vec![("X-Request-Id".into(), "${API_X_REQUEST_ID}".into())]
     );
     let vars: Vec<&str> = s.variables.iter().map(|(n, _)| n.as_str()).collect();
-    assert_eq!(vars, ["API_TOKEN", "STORE_ID", "X_REQUEST_ID"]);
+    assert_eq!(vars, ["API_TOKEN", "API_STORE_ID", "API_X_REQUEST_ID"]);
 }
 
 #[test]
