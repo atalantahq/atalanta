@@ -66,7 +66,8 @@ pub fn execute(args: HealArgs) -> anyhow::Result<i32> {
         return Ok(0);
     }
 
-    let mut yaml = std::fs::read_to_string(&args.config)?;
+    let mut yaml =
+        std::fs::read_to_string(&args.config).map_err(|e| usage_err!("{}: {e}", args.config))?;
     // Only the lines of steps are edited: a flow `id:`, a test name or any
     // other `key: value` equal to the old value stays as it is (VEL-032).
     let in_steps = step_lines(&yaml)?;
@@ -327,6 +328,24 @@ fn quote(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `--config` naming a suite that is not there is a usage error (2),
+    /// not an internal one (5).
+    #[test]
+    fn a_missing_suite_is_a_usage_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("healed.json");
+        std::fs::write(&log, "[]").unwrap();
+        let e = execute(HealArgs {
+            config: dir.path().join("nope.yaml").display().to_string(),
+            accept: false,
+            discard: false,
+            reject: None,
+            file: log.display().to_string(),
+        })
+        .unwrap_err();
+        assert_eq!(super::super::exit_code_for(&e), 2, "{e}");
+    }
 
     #[test]
     fn replaces_quoted_and_bare_forms_only_as_whole_values() {

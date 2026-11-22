@@ -39,7 +39,7 @@ pub enum MigrateCommand {
 pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
     match command {
         MigrateCommand::Waits { file, write } => {
-            let yaml = std::fs::read_to_string(&file)?;
+            let yaml = std::fs::read_to_string(&file).map_err(|e| usage_err!("{file}: {e}"))?;
             let (out, removed) = velocity_migrate::waits::remove_redundant_waits(&yaml);
             if removed.is_empty() {
                 println!("{} No redundant waits in {file}", "=>".cyan().bold());
@@ -200,5 +200,23 @@ pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
             println!();
             Ok(if report.files_failed > 0 { 1 } else { 0 })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A suite file that is not there is a usage error (2) like everywhere
+    /// else a file is named, not an internal one (5).
+    #[test]
+    fn a_missing_suite_is_a_usage_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = execute(MigrateCommand::Waits {
+            file: dir.path().join("nope.yaml").display().to_string(),
+            write: false,
+        })
+        .unwrap_err();
+        assert_eq!(super::super::exit_code_for(&e), 2, "{e}");
     }
 }
