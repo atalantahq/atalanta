@@ -112,11 +112,15 @@ impl SimEvidence {
             );
             tokio::spawn(async move {
                 // The app's executable name, for the predicate: one simctl call.
-                let info = Command::new(&xcrun)
-                    .args(["simctl", "appinfo", &udid, &app])
-                    .stdin(Stdio::null())
-                    .output()
-                    .await;
+                // Bounded, and killed with the task: a wedged simctl would
+                // otherwise outlive the test that aborted this task.
+                let mut appinfo = Command::new(&xcrun);
+                appinfo.args(["simctl", "appinfo", &udid, &app]);
+                let info = velocity_common::process::output_with_timeout(
+                    &mut appinfo,
+                    velocity_common::process::default_timeout(),
+                )
+                .await;
                 let exe = info
                     .ok()
                     .and_then(|o| executable_from_appinfo(&String::from_utf8_lossy(&o.stdout)));
@@ -342,6 +346,75 @@ mod tests {
             ' '
         );
         assert!(is_preamble("Filtering the log data using \"x\""));
+    }
+
+    /// `simctl appinfo` ran with no deadline and no kill: a wedged one kept
+    /// running after the test ended and aborted the task waiting on it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_wedged_appinfo_does_not_outlive_the_test() {
+        let dir = std::env::temp_dir().join(format!("velocity-appinfo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (stub, pidfile) = (dir.join("xcrun"), dir.join("pid"));
+        crate::write_stub(
+            &stub,
+            &format!("echo $$ > '{}'\nexec sleep 300", pidfile.display()),
+        );
+        let req = EvidenceRequest {
+            test: "t".into(),
+            app_id: "com.example.app".into(),
+            video: velocity_common::evidence::CaptureMode::Off,
+            video_seconds: 0,
+            logs: velocity_common::evidence::CaptureMode::Always,
+            started: Instant::now(),
+        };
+        let session = SimEvidence::start(stub.to_str().unwrap(), "UDID", &req)
+            .await
+            .expect("logs are on");
+        let mut pid = None;
+        for _ in 0..100 {
+            pid = std::fs::read_to_string(&pidfile)
+                .ok()
+                .and_then(|t| t.trim().parse::<i32>().ok());
+            if pid.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let pid = pid.expect("the stub ran");
+        Box::new(session)
+            .finish(EvidenceOut {
+                dir: &dir,
+                suffix: "",
+                keep_video: false,
+                keep_logs: false,
+            })
+            .await;
+        // Gone, or a zombie waiting to be reaped.
+        let running = || {
+            std::process::Command::new("ps")
+                .args(["-o", "stat=", "-p", &pid.to_string()])
+                .output()
+                .map(|o| {
+                    let stat = String::from_utf8_lossy(&o.stdout);
+                    !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+                })
+                .unwrap_or(false)
+        };
+        for _ in 0..60 {
+            if !running() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let alive = running();
+        if alive {
+            // Don't leave the stub behind when the assertion fails.
+            // SAFETY: plain kill(2) on the stub this test started.
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!alive, "simctl appinfo (pid {pid}) is still running");
     }
 
     #[test]
