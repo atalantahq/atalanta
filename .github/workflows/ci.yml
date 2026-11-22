@@ -236,6 +236,20 @@ jobs:
         env:
           CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
         run: |
+          # macOS: setup-chrome's copy of Chrome 158 can't start its helper
+          # processes (bootstrap_look_up of the MachPortRendezvousServer:
+          # Permission denied; the network service crash-loops and no page
+          # finishes opening). Use the image's installed, signed Chrome when
+          # its signature verifies; log the copy's check for the record.
+          if [ "$RUNNER_OS" = macOS ]; then
+            app="$(cd "$(dirname "$CHROME_BIN")/../.." && pwd)"
+            codesign --verify --deep --strict "$app" && echo "setup-chrome copy: signature ok" || echo "setup-chrome copy: signature check failed"
+            installed="/Applications/Google Chrome.app"
+            if codesign --verify --deep --strict "$installed" 2>/dev/null; then
+              CHROME_BIN="$installed/Contents/MacOS/Google Chrome"
+              echo "using the installed Chrome"
+            fi
+          fi
           test -x "$CHROME_BIN" || { echo "::error::no Chrome at '$CHROME_BIN'"; exit 1; }
           "$CHROME_BIN" --version
           # setup-chrome leaves the SUID sandbox helper user-owned, and Chrome
