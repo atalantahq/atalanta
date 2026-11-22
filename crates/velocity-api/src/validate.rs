@@ -15,7 +15,9 @@ pub fn validate(req: &HttpRequest) -> Result<(), String> {
         return Err("needs a url".into());
     }
     if let Some(m) = req.method.as_deref().filter(|m| fixed(m)) {
-        let ok = !m.is_empty() && m.bytes().all(|b| b.is_ascii_alphabetic());
+        // A method is a token (RFC 9110), as the client takes it: `M-SEARCH`
+        // and `VERSION-CONTROL` are methods.
+        let ok = !m.is_empty() && m.bytes().all(is_token_byte);
         if !ok {
             return Err(format!(
                 "`{m}` is not an HTTP method (GET, POST, PUT, PATCH, DELETE, …)"
@@ -102,6 +104,10 @@ mod tests {
         assert!(v(r#"{"url": "/x", "method": "GE T"}"#)
             .unwrap_err()
             .contains("not an HTTP method"));
+        // Any token is a method, as the client sends it.
+        assert!(v(r#"{"url": "/x", "method": "M-SEARCH"}"#).is_ok());
+        assert!(v(r#"{"url": "/x", "method": "m-search"}"#).is_ok());
+        assert!(v(r#"{"url": "/x", "method": "GET /"}"#).is_err());
         assert!(v(r#"{"url": "/x", "json": {}, "body": "a"}"#)
             .unwrap_err()
             .contains("one body"));

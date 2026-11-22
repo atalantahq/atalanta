@@ -10,6 +10,9 @@ static NOTHING: Value = Value::Null;
 /// refers to itself stops here.
 const MAX_DEPTH: usize = 16;
 
+/// Most `allOf` schemas merged for one [`Spec::flatten`] call.
+const MAX_PARTS: usize = 2_000;
+
 pub struct Spec {
     doc: Value,
 }
@@ -137,17 +140,21 @@ impl Spec {
     /// Property schemas are left as written: callers flatten them as they
     /// go down.
     pub fn flatten(&self, schema: &Value) -> Value {
-        self.flatten_at(schema, 0)
+        let mut budget = MAX_PARTS;
+        self.flatten_at(schema, 0, &mut budget)
     }
 
-    fn flatten_at(&self, schema: &Value, depth: usize) -> Value {
+    fn flatten_at(&self, schema: &Value, depth: usize, budget: &mut usize) -> Value {
         let s = self.deref(schema);
         let Some(parts) = s.get("allOf").and_then(Value::as_array) else {
             return s.clone();
         };
-        if depth >= MAX_DEPTH {
+        // `allOf` of eight refs to a schema whose `allOf` is eight refs to
+        // the next, sixteen deep, is 8^16 parts: the budget ends it.
+        if depth >= MAX_DEPTH || *budget == 0 {
             return Value::Null;
         }
+        *budget -= 1;
         let mut out: Map<String, Value> = s
             .as_object()
             .map(|o| {
@@ -158,7 +165,7 @@ impl Spec {
             })
             .unwrap_or_default();
         for part in parts {
-            let Value::Object(p) = self.flatten_at(part, depth + 1) else {
+            let Value::Object(p) = self.flatten_at(part, depth + 1, budget) else {
                 continue;
             };
             for (k, v) in p {
@@ -384,6 +391,24 @@ mod tests {
             .flatten(&serde_json::json!({ "$ref": "other.yaml#/X" }))
             .is_null());
         assert_eq!(spec.title(), "T 1");
+    }
+
+    #[test]
+    fn an_all_of_that_fans_out_is_cut_off_not_run_forever() {
+        // nine levels of `allOf` over eight refs to the next: 8^9 merges.
+        let mut text = String::from(
+            "openapi: 3.0.3\ninfo: { title: T, version: 1 }\npaths: {}\ncomponents:\n  schemas:\n",
+        );
+        let next = |i: usize| format!("{{ $ref: '#/components/schemas/L{i}' }}");
+        for i in 0..9 {
+            let refs = vec![next(i + 1); 8].join(", ");
+            text.push_str(&format!("    L{i}: {{ allOf: [ {refs} ] }}\n"));
+        }
+        text.push_str("    L9: { type: object, properties: { id: { type: string } } }\n");
+        let spec = Spec::parse(&text).unwrap();
+        let started = std::time::Instant::now();
+        let _ = spec.flatten(&serde_json::json!({ "$ref": "#/components/schemas/L0" }));
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]

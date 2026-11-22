@@ -49,6 +49,9 @@ impl HttpSession {
             let mut b = reqwest::Client::builder()
                 .cookie_provider(jar.clone())
                 .redirect(policy)
+                // An API client has no page to refer from: the default sends the
+                // previous url (query string and all) to the redirect's host.
+                .referer(false)
                 .danger_accept_invalid_certs(config.insecure)
                 .user_agent(concat!("velocity/", env!("CARGO_PKG_VERSION")));
             if block {
@@ -264,6 +267,15 @@ impl Exchange {
                 Err(e) => failures.push(format!("capture {name}: {e}")),
             }
         }
+        // A token taken from a login response is as secret as one from
+        // the environment. Registered before a failure is reported too: its
+        // message quotes the start of this very body.
+        for (name, value) in &captured {
+            if velocity_common::redact::is_secret_name(name) {
+                velocity_common::redact::register_secret(value);
+                velocity_common::redact::register_secret_name(name);
+            }
+        }
         if !failures.is_empty() {
             return Err(VelocityError::HttpCheckFailed {
                 request: label,
@@ -271,14 +283,6 @@ impl Exchange {
                 failures,
                 body: excerpt(&self.body),
             });
-        }
-        // A token taken from a login response is as secret as one from
-        // the environment.
-        for (name, value) in &captured {
-            if velocity_common::redact::is_secret_name(name) {
-                velocity_common::redact::register_secret(value);
-                velocity_common::redact::register_secret_name(name);
-            }
         }
         Ok(Passed {
             captured,
@@ -378,7 +382,9 @@ impl Exchange {
     }
 
     fn doc(&mut self) -> std::result::Result<&Value, String> {
-        let body = &self.body;
+        // A byte order mark ahead of the JSON (some servers write one) is
+        // allowed by RFC 8259 §8.1 but is no JSON text for serde_json.
+        let body = self.body.strip_prefix('\u{feff}').unwrap_or(&self.body);
         self.json
             .get_or_insert_with(|| {
                 serde_json::from_str(body).map_err(|e| {

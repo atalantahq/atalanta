@@ -140,6 +140,12 @@ fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
             std::thread::sleep(Duration::from_millis(400));
             json_reply(200, json!({}))
         }
+        ("GET", "/bom") => (
+            200,
+            vec![("content-type", "application/json".into())],
+            "\u{feff}{\"id\": 7}".into(),
+        ),
+        ("POST", "/session") => json_reply(200, json!({ "sid": "zq9-sid-5f3a7c1e8b2d4096" })),
         ("GET", "/text") => (
             200,
             vec![("content-type", "text/plain".into())],
@@ -153,6 +159,7 @@ fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
                 "contentType": req.header("content-type"),
                 "auth": req.header("authorization"),
                 "client": req.header("x-client"),
+                "referer": req.header("referer"),
                 "body": req.body,
             }),
         ),
@@ -443,4 +450,50 @@ async fn no_answer_is_a_test_failure_not_the_devices() {
         .await
         .unwrap_err();
     assert_eq!(e.exit_code(), 2, "{e}");
+}
+
+#[tokio::test]
+async fn a_json_body_with_a_byte_order_mark_is_json() {
+    let s = session(&serve());
+    let p = s
+        .run(
+            &step("url: /bom\nexpect: { json: { id: 7 } }\ncapture: { ID: id }"),
+            T,
+        )
+        .await
+        .unwrap();
+    assert_eq!(p.captured, vec![("ID".to_string(), "7".to_string())]);
+}
+
+#[tokio::test]
+async fn a_failed_step_does_not_print_the_secret_it_captured() {
+    // The failure message quotes the start of the body: the token that
+    // `capture` took from it must be masked there too.
+    let s = session(&serve());
+    let e = s
+        .run(
+            &step("method: POST\nurl: /session\nexpect: { status: 201 }\ncapture: { SESSION_TOKEN: sid }"),
+            T,
+        )
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("zq9-sid-5f3a7c1e8b2d4096"), "{e}");
+    let shown = velocity_common::redact::redact(&e.to_string()).into_owned();
+    assert!(!shown.contains("zq9-sid-5f3a7c1e8b2d4096"), "{shown}");
+}
+
+#[tokio::test]
+async fn a_redirect_carries_no_referer() {
+    let a = serve();
+    let bare = HttpSession::new(&HttpConfig {
+        base_url: Some(a.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    bare.run(
+        &step("url: '/hop?to=/echo'\nexpect: { status: 200, json: { referer: null } }"),
+        T,
+    )
+    .await
+    .unwrap();
 }

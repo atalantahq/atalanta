@@ -7,6 +7,9 @@ use serde_json::{Map, Value};
 use super::spec::Spec;
 
 const MAX_DEPTH: usize = 8;
+/// Most items or characters made to reach a `minItems` or `minLength`: a
+/// spec's bound can be any number (`minLength: 1e12` would fill the memory).
+const MAX_GENERATED: u64 = 4096;
 
 /// For a request: `readOnly` fields are the server's, so never sent.
 pub fn example(spec: &Spec, schema: &Value) -> Value {
@@ -52,10 +55,11 @@ fn value_at(spec: &Spec, schema: &Value, depth: usize) -> Value {
         Some("object") => Value::Object(Map::new()),
         Some("array") => {
             let n = s.get("minItems").and_then(Value::as_u64).unwrap_or(0);
+            // As many as `minItems` asks: fewer is an example the spec rejects.
             let item = s
                 .get("items")
                 .map_or(Value::Null, |i| value_at(spec, i, depth + 1));
-            Value::Array((0..n.min(3)).map(|_| item.clone()).collect())
+            Value::Array((0..n.min(MAX_GENERATED)).map(|_| item.clone()).collect())
         }
         Some("integer") | Some("number") => number(&s),
         Some("boolean") => Value::Bool(false),
@@ -134,7 +138,11 @@ fn string(s: &Value) -> Value {
     if let Some(f) = fixed {
         return Value::String(f.into());
     }
-    let min = s.get("minLength").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let min = s
+        .get("minLength")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(MAX_GENERATED) as usize;
     let max = s
         .get("maxLength")
         .and_then(Value::as_u64)
@@ -191,5 +199,27 @@ mod tests {
             example(&spec(), &json!({ "type": "integer", "example": 7 })),
             json!(7)
         );
+    }
+
+    #[test]
+    fn a_lower_bound_is_met_and_a_silly_one_is_capped() {
+        let spec = spec();
+        // `minItems: 5` is five items, not three.
+        let five = example(
+            &spec,
+            &json!({ "type": "array", "minItems": 5, "items": { "type": "integer" } }),
+        );
+        assert_eq!(five, json!([1, 1, 1, 1, 1]));
+        // A bound no one could mean doesn't fill the memory.
+        let long = example(
+            &spec,
+            &json!({ "type": "string", "minLength": 1_000_000_000_000u64 }),
+        );
+        assert_eq!(long.as_str().map(str::len), Some(MAX_GENERATED as usize));
+        let many = example(
+            &spec,
+            &json!({ "type": "array", "minItems": 1_000_000_000_000u64 }),
+        );
+        assert_eq!(many.as_array().map(Vec::len), Some(MAX_GENERATED as usize));
     }
 }
