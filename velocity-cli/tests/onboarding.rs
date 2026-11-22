@@ -145,7 +145,10 @@ fn doctor_blocks_with_2_on_a_broken_suite_and_3_on_a_missing_toolchain() {
 }
 
 #[test]
-fn doctor_fix_clears_stale_leases_and_checks_again() {
+fn doctor_leaves_stale_leases_alone_and_reports_them_harmless() {
+    // A lease left by an exited process blocks nobody (lease.rs): the
+    // doctor reports it as fine instead of warning after every run, and
+    // --fix has nothing to clear.
     let s = Sandbox::new("fix");
     s.tool("adb", ADB);
     let leases = s.dir.join("home/.velocity/leases");
@@ -157,17 +160,11 @@ fn doctor_fix_clears_stale_leases_and_checks_again() {
     .unwrap();
     let out = s.run(&["doctor", "--fix"]);
     let t = text(&out);
-    assert!(
-        t.contains("✓ host.leases: cleared 1 of 1 stale lease file"),
-        "{t}"
-    );
+    assert!(t.contains("blocks nothing"), "{t}");
+    assert!(!t.contains("cleared 1 of 1 stale lease file"), "{t}");
     assert_eq!(
         std::fs::read_to_string(leases.join("emulator-5556.lock")).unwrap(),
-        ""
-    );
-    assert!(
-        t.contains("1 lease file") || t.contains("0 lease files"),
-        "{t}"
+        "pid=999999996 cmd=velocity run\n"
     );
 }
 
