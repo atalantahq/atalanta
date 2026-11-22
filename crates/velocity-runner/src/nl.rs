@@ -279,22 +279,24 @@ mod tests {
         assert!(needs_checker(&yaml("off"), Some(VerifyLevel::Strict)));
     }
 
+    // The settings are passed as "no key" directly: reading them from the
+    // environment made this test return early (and assert nothing) on any
+    // machine or CI job that has a model key set.
     #[test]
     fn without_a_key_a_cache_on_disk_still_replays() {
-        if AiSettings::from_env().ok().flatten().is_some() {
-            return; // the key path is the other branch
-        }
+        let ok = || -> velocity_common::Result<Built> { Ok((Box::new(NoPlanner), None)) };
         let dir = std::env::temp_dir().join(format!("vel-nl-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("nl-cache.json");
+        let _ = std::fs::remove_file(&path);
         let p = path.to_string_lossy().to_string();
         assert!(
-            build_resolver_at(&p).unwrap().is_none(),
+            build_with(false, &p, true, false, ok).unwrap().is_none(),
             "no key, no cache: no resolver"
         );
         std::fs::write(&path, "{}").unwrap();
         assert!(
-            build_resolver_at(&p).unwrap().is_some(),
+            build_with(false, &p, true, false, ok).unwrap().is_some(),
             "no key, a cache: replay it"
         );
         let _ = std::fs::remove_dir_all(&dir);
