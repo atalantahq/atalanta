@@ -78,12 +78,24 @@ fn run_with_deadline(
         .map_err(|e| format!("can't run {program}: {e}"))?;
     let mut pipe = child.stdout.take();
     // Read on a thread: a command that fills the pipe must not block here.
-    let reader = std::thread::spawn(move || {
-        let mut out = Vec::new();
-        if let Some(p) = pipe.as_mut() {
-            let _ = p.read_to_end(&mut out);
+    // Chunks go over a channel, so the output can be taken once the command
+    // has exited even if a process it left behind keeps the pipe open.
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let Some(p) = pipe.as_mut() else {
+            return;
+        };
+        let mut buf = [0u8; 4096];
+        loop {
+            match p.read(&mut buf) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        return;
+                    }
+                }
+            }
         }
-        out
     });
     let started = std::time::Instant::now();
     let status = loop {
@@ -104,7 +116,18 @@ fn run_with_deadline(
             Err(e) => return Err(format!("waiting for {program}: {e}")),
         }
     };
-    let out = reader.join().unwrap_or_default();
+    // The command has exited. Take what it wrote: until the pipe closes, or
+    // it has been quiet for a moment (a daemon it started can hold the pipe
+    // open for good, second-pass review), and never past the deadline.
+    let mut out = Vec::new();
+    loop {
+        let left = timeout.saturating_sub(started.elapsed());
+        let wait = left.min(std::time::Duration::from_millis(200));
+        match rx.recv_timeout(wait) {
+            Ok(chunk) => out.extend_from_slice(&chunk),
+            Err(_) => break,
+        }
+    }
     Ok((status.success(), out))
 }
 
@@ -246,5 +269,28 @@ mod tests {
             "{err}"
         );
         assert!(err.contains("gave no answer within"), "{err}");
+    }
+
+    /// The deadline covers waiting for output too: a wrapper that exits but
+    /// leaves a daemon holding its stdout must not hang the suite load.
+    #[cfg(unix)]
+    #[test]
+    fn second_pass_keychain_wrapper_leaving_a_daemon_is_not_waited_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = dir.path().join("wrapper");
+        std::fs::write(&cmd, "#!/bin/sh\necho secret-value\nsleep 6 &\nexit 0\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cmd, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let started = std::time::Instant::now();
+        let _ = run_with_deadline(
+            &cmd.to_string_lossy(),
+            &[],
+            std::time::Duration::from_millis(500),
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "returned after {:?}, past the 500ms deadline",
+            started.elapsed()
+        );
     }
 }
