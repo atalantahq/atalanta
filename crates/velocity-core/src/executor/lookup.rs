@@ -762,7 +762,12 @@ pub(super) fn scroll_container_of<'t>(tree: &'t Element, element: &Element) -> O
     let (cx, cy) = element.bounds.center();
     let holds = |n: &Element| {
         let b = n.bounds;
-        cx >= b.x && cx < b.x + b.width && cy >= b.y && cy < b.y + b.height
+        // Wide: `x + width` of hostile bounds overflowed i32.
+        let end = |o: i32, len: i32| i64::from(o) + i64::from(len);
+        cx >= b.x
+            && i64::from(cx) < end(b.x, b.width)
+            && cy >= b.y
+            && i64::from(cy) < end(b.y, b.height)
     };
     let scrolls = |n: &Element| {
         matches!(

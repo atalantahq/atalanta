@@ -33,6 +33,7 @@ fn resolve_test_case(
         &test.name,
         &mut Vec::new(),
         &mut 0,
+        &mut 0,
         params,
     )?;
     Ok(TestCase {
@@ -88,6 +89,7 @@ fn resolve_steps<'a>(
     test_name: &str,
     stack: &mut Vec<&'a str>,
     blocks: &mut u32,
+    calls: &mut usize,
     params: &Params,
 ) -> Result<Vec<Step>> {
     let mut resolved = Vec::new();
@@ -146,9 +148,26 @@ fn resolve_steps<'a>(
                     call.values.insert(name.clone(), value.clone());
                     call.names.insert(name.clone());
                 }
+                // Flows with no steps add nothing to the step count, so
+                // nested calls of them were never stopped by the step cap
+                // below and multiplied into hours of work: count the calls.
+                *calls += 1;
+                if *calls > MAX_EXPANDED_STEPS {
+                    return Err(VelocityError::Config(format!(
+                        "test '{test_name}' makes more than {MAX_EXPANDED_STEPS} runFlow \
+                         calls (nested flows that each run the next several times multiply)"
+                    )));
+                }
                 stack.push(&flow.id);
-                let mut inner =
-                    resolve_steps(&flow.steps, flow_map, test_name, stack, blocks, &call)?;
+                let mut inner = resolve_steps(
+                    &flow.steps,
+                    flow_map,
+                    test_name,
+                    stack,
+                    blocks,
+                    calls,
+                    &call,
+                )?;
                 stack.pop();
                 // `optional: true` on runFlow: the inlined steps are one
                 // block, abandoned at its first failure (D-12, M2: making
@@ -581,6 +600,48 @@ mod tests {
         };
         let e = resolve_flows(&suite).unwrap_err();
         assert!(e.to_string().contains("100000"), "{e}");
+    }
+
+    #[test]
+    fn nested_calls_of_empty_flows_are_an_error_too() {
+        // Six levels of ten calls each is 10^6 calls of a flow with no
+        // steps: no step to count, so the step cap never fired.
+        let mut flows = vec![Flow {
+            id: "f0".into(),
+            steps: vec![],
+        }];
+        for i in 1..7 {
+            flows.push(Flow {
+                id: format!("f{i}"),
+                steps: (0..10)
+                    .map(|_| {
+                        step(Action::RunFlow {
+                            flow_id: format!("f{}", i - 1),
+                            env: Default::default(),
+                        })
+                    })
+                    .collect(),
+            });
+        }
+        let suite = TestSuite {
+            app_id: "a".into(),
+            config: SuiteConfig::default(),
+            flows,
+            tests: vec![TestCase {
+                name: "t".into(),
+                tags: vec![],
+                isolated: false,
+                depends_on: vec![],
+                steps: vec![step(Action::RunFlow {
+                    flow_id: "f6".into(),
+                    env: Default::default(),
+                })],
+                description: None,
+                verify: None,
+            }],
+        };
+        let e = resolve_flows(&suite).unwrap_err();
+        assert!(e.to_string().contains("runFlow calls"), "{e}");
     }
 
     /// Parse, interpolate with `env` as the environment, resolve.
