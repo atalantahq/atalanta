@@ -2186,7 +2186,7 @@ impl McpServer {
         // The same checks as `velocity doctor`; `probe_device` is its `--deep`
         // (tree-server handshake, which takes the device's lease only when free).
         let opts = Options {
-            deep: probe_device,
+            deep: diagnose_is_deep(probe_device, self.read_only),
             platforms: platform.into_iter().collect(),
             ..Options::default()
         };
@@ -2872,8 +2872,23 @@ fn write_response(stdout: &mut dyn Write, resp: &JsonRpcResponse) -> Result<()> 
     Ok(())
 }
 
+/// Whether `diagnose` runs the doctor's deep probe, which pushes the tree
+/// server's jar to the device and starts and stops the server. A
+/// `--read-only` server changes nothing on a device, so never there.
+fn diagnose_is_deep(probe_device: bool, read_only: bool) -> bool {
+    probe_device && !read_only
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_read_only_server_never_runs_the_deep_device_probe() {
+        assert!(diagnose_is_deep(true, false));
+        assert!(!diagnose_is_deep(true, true));
+        assert!(!diagnose_is_deep(false, false));
+        assert!(!diagnose_is_deep(false, true));
+    }
+
     use super::*;
 
     async fn server() -> McpServer {
