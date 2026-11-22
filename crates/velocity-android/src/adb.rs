@@ -182,15 +182,13 @@ impl Adb {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        // Typed text may be a password: keep it out of the log.
-        if args.iter().any(|a| a.contains("input text")) {
-            debug!(
-                device = device_id,
-                "adb command: shell input text <redacted>"
-            );
-        } else {
-            debug!(device = device_id, args = ?args, "adb command");
-        }
+        // Typed text may be a password, and a launch argument or a link a
+        // token: neither goes to the log, as it doesn't to an error.
+        debug!(
+            device = device_id,
+            command = %velocity_common::redact::redact(&redact_typed_text(args)),
+            "adb command"
+        );
 
         let timeout = match args.first() {
             Some(&"install") | Some(&"install-multiple") | Some(&"push") | Some(&"pull") => {
@@ -200,10 +198,7 @@ impl Adb {
         };
         let output = velocity_common::process::output_with_timeout(&mut cmd, timeout)
             .await
-            .map_err(|e| VelocityError::AdbConnectionLost {
-                device_id: device_id.to_string(),
-                reason: format!("Failed to execute adb: {e}"),
-            })?;
+            .map_err(|e| exec_failed(device_id, "Failed to execute adb", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -575,10 +570,7 @@ impl Adb {
             velocity_common::process::default_timeout(),
         )
         .await
-        .map_err(|e| VelocityError::AdbConnectionLost {
-            device_id: device_id.to_string(),
-            reason: format!("Failed to take screenshot: {e}"),
-        })?;
+        .map_err(|e| exec_failed(device_id, "Failed to take screenshot", e))?;
 
         screencap_result(
             device_id,
@@ -761,6 +753,25 @@ pub(crate) fn monkey_launch(package: &str) -> String {
     ])
 }
 
+/// `adb` could not be run for `device_id`. An adb that is missing or not
+/// executable (`VELOCITY_ADB_PATH` wrong, adb removed mid-run) is the
+/// user's setup, a config error (exit 2) that no retry fixes; it used to be
+/// reported as a lost connection (exit 3, transient), which the runner
+/// retried and counted against the device. A timeout or any other failure is
+/// still a lost connection.
+pub(crate) fn exec_failed(device_id: &str, what: &str, e: std::io::Error) -> VelocityError {
+    use std::io::ErrorKind;
+    if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::PermissionDenied) {
+        return VelocityError::Config(format!(
+            "{what}: {e} (is adb installed? see VELOCITY_ADB_PATH)"
+        ));
+    }
+    VelocityError::AdbConnectionLost {
+        device_id: device_id.to_string(),
+        reason: format!("{what}: {e}"),
+    }
+}
+
 /// `e` with `device_id` filled in where it was built without one.
 pub(crate) fn on_device(e: VelocityError, device_id: &str) -> VelocityError {
     match e {
@@ -927,6 +938,63 @@ mod tests {
             );
             assert!(e.kind().is_transient());
         }
+    }
+
+    /// A launch argument or a link's token is a secret too: the debug log
+    /// of an adb command masks registered secrets and typed text.
+    #[test]
+    fn adb_commands_are_logged_without_secrets() {
+        use crate::test_support::{capture_logs, FakeAdb};
+        velocity_common::redact::register_secret("adb-log-secret-4f81c9");
+        let fake = FakeAdb::new("adb-log-secret");
+        let (_, logs) = capture_logs(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                let adb = Adb::with_path(fake.path());
+                adb.run_device(
+                    "emulator-5554",
+                    &[
+                        "shell",
+                        "am start -n com.x/.A --es token adb-log-secret-4f81c9",
+                    ],
+                )
+                .await
+                .unwrap();
+                adb.input_text("emulator-5554", "typed-pass-77")
+                    .await
+                    .unwrap();
+            })
+        });
+        assert!(logs.contains("adb command"), "{logs}");
+        assert!(logs.contains("com.x/.A"), "{logs}");
+        assert!(!logs.contains("adb-log-secret-4f81c9"), "{logs}");
+        assert!(!logs.contains("typed-pass-77"), "{logs}");
+    }
+
+    /// A missing adb is the user's setup (exit 2), not a lost connection
+    /// (exit 3, retried): `VELOCITY_ADB_PATH` pointing nowhere.
+    #[tokio::test]
+    async fn a_missing_adb_binary_is_a_config_error() {
+        let adb = Adb::with_path("/nonexistent/velocity-test-adb");
+        let e = adb
+            .run_device("emulator-5554", &["shell", "true"])
+            .await
+            .unwrap_err();
+        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        assert_eq!(e.exit_code(), 2);
+        assert!(!e.is_transient(), "{e}");
+        let e = adb.screenshot("emulator-5554").await.unwrap_err();
+        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        // A timeout stays a lost connection.
+        let t = exec_failed(
+            "d",
+            "Failed to execute adb",
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out after 60.0s"),
+        );
+        assert!(matches!(t, VelocityError::AdbConnectionLost { .. }), "{t}");
     }
 
     /// VEL-055: a serial adb doesn't know was a lost connection, and an
