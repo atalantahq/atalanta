@@ -436,13 +436,18 @@ mod tests {
         let (mut client, s) = pair().await;
         // The server never reads, so the socket buffers fill and write blocks.
         let big = "y".repeat(32 * 1024 * 1024);
+        let body = serde_json::json!({"cmd": "upload", "blob": big});
         let started = std::time::Instant::now();
-        let err = client
-            .request(&serde_json::json!({"cmd": "upload", "blob": big}))
-            .await
-            .unwrap_err();
+        let err = client.request(&body).await.unwrap_err();
         assert!(err.to_string().contains("timed out"), "{err}");
-        assert!(started.elapsed() < Duration::from_secs(5));
+        // The timeout is 300 ms; the bound only has to tell "gave up" from
+        // "hung". Serialising 32 MB in a debug build on a loaded CI runner
+        // took over 5 s (macOS, 2026-11-22), so leave it room.
+        assert!(
+            started.elapsed() < Duration::from_secs(15),
+            "{:?}",
+            started.elapsed()
+        );
         assert!(!client.is_connected());
         drop(s);
     }
