@@ -181,7 +181,18 @@ fn fill(
     let mut out = String::new();
     let mut rest = text;
     while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
+        // A run of `$` right before the `{`: each `$$` is one literal `$`,
+        // so `$${X}` is the text `${X}` (the suite loader's rule, D-13,
+        // which the scaffold uses to keep a spec's own `${...}` inert).
+        let before = &rest[..start];
+        let k = before.len() - before.trim_end_matches('$').len();
+        out.push_str(&before[..before.len() - k]);
+        out.push_str(&"$".repeat(k.div_ceil(2)));
+        if (k + 1).is_multiple_of(2) {
+            out.push('{');
+            rest = &rest[start + 2..];
+            continue;
+        }
         let after = &rest[start + 2..];
         let Some(end) = after.find('}') else {
             out.push_str(&rest[start..]);
@@ -226,5 +237,10 @@ mod tests {
             Err("${ORDER_ID}".into())
         );
         assert_eq!(fill("a ${ b", &captured, &env), Ok("a ${ b".into()));
+        // `$${X}` is the text `${X}`, never X's value; `$$${X}` is `$` and the value.
+        assert_eq!(
+            fill("$${API_TOKEN}/$$${API_TOKEN}/$5", &captured, &env),
+            Ok("${API_TOKEN}/$t/$5".into())
+        );
     }
 }
