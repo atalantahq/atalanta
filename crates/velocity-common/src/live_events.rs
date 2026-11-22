@@ -62,10 +62,14 @@ pub fn line(mut event: Value) -> String {
 }
 
 /// Append `event` to the events file, if there is one.
-pub fn emit(event: Value) {
+pub fn emit(mut event: Value) {
     let Some(path) = path() else {
         return;
     };
+    // Every writer goes through here, an exploration's own events included:
+    // mask registered secrets and secret shapes in every string field, not
+    // only in the typed test and step helpers (second-pass review).
+    crate::redact::redact_value(&mut event);
     let mut sink = SINK.lock().unwrap_or_else(|e| e.into_inner());
     if sink.as_ref().is_none_or(|(p, _)| *p != path) {
         let Ok(f) = std::fs::OpenOptions::new()
@@ -330,5 +334,20 @@ mod tests {
             LiveEvent::parse(l),
             Some(LiveEvent::TestStarted { steps: 2, .. })
         ));
+    }
+
+    #[test]
+    fn second_pass_emit_masks_secrets_in_explore_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("events.jsonl");
+        let mut env = crate::env::settings_snapshot();
+        env.insert(EVENTS_FILE_ENV.into(), file.to_string_lossy().into_owned());
+        let before = crate::env::settings_snapshot();
+        crate::env::set_settings(env);
+        crate::redact::register_secret("sp-live-secret-9917");
+        emit(json!({"event":"planned","turn":1,"op":"type","element":"field sp-live-secret-9917"}));
+        crate::env::set_settings(before);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("sp-live-secret-9917"), "{text}");
     }
 }
