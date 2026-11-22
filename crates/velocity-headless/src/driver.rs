@@ -1088,4 +1088,38 @@ mod tests {
             .unwrap();
         assert_eq!(field.text.as_deref(), Some("ab"));
     }
+
+    #[tokio::test]
+    async fn frame_layout_children_overlap_instead_of_stacking() {
+        let dir = tempfile::tempdir().unwrap();
+        let xml = dir.path().join("layout.xml");
+        std::fs::write(
+            &xml,
+            r#"<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent">
+                <LinearLayout android:id="@+id/content" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                <TextView android:id="@+id/overlay" android:text="Loading" android:layout_width="match_parent" android:layout_height="match_parent"/>
+                <Button android:id="@+id/fab" android:text="FAB" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="bottom|end"/>
+            </FrameLayout>"#,
+        )
+        .unwrap();
+        let driver = driver_for(Platform::Android, &xml.display().to_string());
+        driver.launch_app("headless-0", "app", false).await.unwrap();
+        let find = |id: &'static str| {
+            let driver = &driver;
+            async move {
+                driver
+                    .find_element("headless-0", &Selector::Id(id.into()))
+                    .await
+                    .unwrap()
+            }
+        };
+        let content = find("content").await;
+        let overlay = find("overlay").await;
+        assert_eq!(overlay.bounds, content.bounds);
+        assert_eq!((overlay.bounds.y, overlay.bounds.height), (0, 1920));
+        assert!(overlay.visible);
+        let fab = find("fab").await;
+        assert_eq!(fab.bounds.x + fab.bounds.width, 1080, "{:?}", fab.bounds);
+        assert_eq!(fab.bounds.y + fab.bounds.height, 1920, "{:?}", fab.bounds);
+    }
 }
