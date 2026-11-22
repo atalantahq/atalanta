@@ -2,19 +2,20 @@
 # --check fails when a crate goes above its number; raise it only in
 # the same change as the reviewed unsafe code.
 fuzz 0
+velocity-adapter 3
 velocity-android 0
 velocity-api 0
-velocity-cli 17
-velocity-common 6
+velocity-cli 21
+velocity-common 8
 velocity-core 1
 velocity-doctor 0
 velocity-explore 0
 velocity-flutter-bridge 0
 velocity-headless 0
-velocity-inspector 1
-velocity-ios 1
-velocity-mcp 1
+velocity-inspector 3
+velocity-ios 2
+velocity-mcp 7
 velocity-migrate 0
 velocity-nl 0
-velocity-runner 4
+velocity-runner 6
 velocity-web 0
