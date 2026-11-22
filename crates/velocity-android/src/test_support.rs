@@ -125,3 +125,43 @@ pub(crate) fn device_under_test() -> Option<String> {
         }
     }
 }
+
+/// Everything `tracing` events say while `f` runs on this thread, one line
+/// per event (`field=value` pairs), at every level. For checking what the
+/// crate logs; build the runtime inside `f` so its tasks run here too.
+pub(crate) fn capture_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
+    use std::fmt::Write;
+    use std::sync::{Arc, Mutex};
+    use tracing::field::{Field, Visit};
+
+    struct Lines(Arc<Mutex<String>>);
+    struct Fields<'a>(&'a mut String);
+    impl Visit for Fields<'_> {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            let _ = write!(self.0, "{}={value:?} ", field.name());
+        }
+    }
+    impl tracing::Subscriber for Lines {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut line = String::new();
+            event.record(&mut Fields(&mut line));
+            let mut all = self.0.lock().unwrap_or_else(|e| e.into_inner());
+            all.push_str(&line);
+            all.push('\n');
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+    let sink = Arc::new(Mutex::new(String::new()));
+    let out = tracing::subscriber::with_default(Lines(sink.clone()), f);
+    let text = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    (out, text)
+}

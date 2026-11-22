@@ -638,7 +638,7 @@ impl AndroidDriver {
                 .run_device(device_id, &["shell", &shell::cmd(&am)])
                 .await;
             match out {
-                Ok(o) if !o.contains("Error") => return Ok(()),
+                Ok(o) if !am_reported_error(&o) => return Ok(()),
                 // A lost connection stays a device error (retried, another
                 // device); `am` itself refusing the launch is the test's.
                 Err(e)
@@ -1691,7 +1691,7 @@ impl PlatformDriver for AndroidDriver {
                 ],
             )
             .await?;
-        if out.contains("Error") {
+        if am_reported_error(&out) {
             return Err(VelocityError::CommandFailed {
                 device_id: device_id.to_string(),
                 command: format!("openLink {url}"),
@@ -2316,6 +2316,15 @@ async fn adb_feed(device_id: &str, args: &[&str], input: &[u8]) -> Result<()> {
 /// or glob the command.
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
+}
+
+/// Whether `am start` printed an error: a line that begins with `Error`
+/// (`Error: Activity not started, unable to resolve Intent {...}`, `Error
+/// type 3`). Not any line that contains the word: the `Starting: Intent {
+/// ... dat=app://ErrorPage }` line echoes the link and the component, and a
+/// link or activity with "Error" in its name failed every launch of it.
+fn am_reported_error(out: &str) -> bool {
+    out.lines().any(|l| l.trim_start().starts_with("Error"))
 }
 
 /// Intent extras for launch arguments, as argv words for `am start`. They
@@ -2983,6 +2992,21 @@ E/AndroidRuntime( 4321): \tat com.velocity.lab.MainActivity.crash(MainActivity.k
     }
 
     #[test]
+    fn am_errors_are_lines_that_start_with_error() {
+        assert!(super::am_reported_error(
+            "Error: Activity not started, unable to resolve Intent { act=android.intent.action.VIEW dat=app://x }\n"
+        ));
+        assert!(super::am_reported_error(
+            "Starting: Intent { }\nError type 3\n"
+        ));
+        // The echoed intent names the link and the component.
+        assert!(!super::am_reported_error(
+            "Starting: Intent { act=android.intent.action.VIEW dat=app://ErrorPage cmp=com.x/.ErrorActivity }\n"
+        ));
+        assert!(!super::am_reported_error(""));
+    }
+
+    #[test]
     fn urls_are_quoted_for_the_device_shell() {
         assert_eq!(super::shell_quote("app://x?a=1&b=2"), "'app://x?a=1&b=2'");
         assert_eq!(super::shell_quote("it's"), r"'it'\''s'");
@@ -3603,6 +3627,37 @@ mod app_id_tests {
         assert!(check_snapshot_name("velocity-clean").is_ok());
         assert!(check_snapshot_name("x\nkill").is_err());
         assert!(check_snapshot_name("a b").is_err());
+    }
+}
+
+#[cfg(test)]
+mod open_link_tests {
+    use super::*;
+    use crate::test_support::FakeAdb;
+
+    /// A deep link with "Error" in it (`app://ErrorPage`) opened fine, and
+    /// `am start` echoed it back; the step failed as "openLink ... Error".
+    #[tokio::test]
+    async fn a_link_with_error_in_its_name_opens() {
+        let fake = FakeAdb::new("open-link-error-word");
+        fake.stub(
+            "am",
+            "echo \"Starting: Intent { act=android.intent.action.VIEW dat=$5 }\"",
+        );
+        let d = AndroidDriver::with_backend(Box::new(Adb::with_path(fake.path())));
+        d.navigate("emulator-5554", "app://ErrorPage?a=1&b=2")
+            .await
+            .unwrap();
+        // A real refusal still fails.
+        fake.stub(
+            "am",
+            "echo 'Error: Activity not started, unable to resolve Intent { }'",
+        );
+        let e = d
+            .navigate("emulator-5554", "app://ErrorPage")
+            .await
+            .unwrap_err();
+        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e}");
     }
 }
 
