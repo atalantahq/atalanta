@@ -72,6 +72,13 @@ impl XibParser {
                     match tag.as_str() {
                         "view" | "label" | "imageView" | "stackView" | "scrollView" | "button"
                         | "textField" | "switch" | "slider" | "tableView" => {
+                            // Dropped recursively: refuse a nesting that would
+                            // overflow the stack before it is built.
+                            if stack.len() >= crate::android::inflate::MAX_VIEW_DEPTH {
+                                return Err(XibError::TooDeep(
+                                    crate::android::inflate::MAX_VIEW_DEPTH,
+                                ));
+                            }
                             let obj = Self::create_object(&tag, &attrs);
                             stack.push(obj);
                         }
@@ -492,6 +499,8 @@ pub enum XibError {
     ParseError(String),
     #[error("No views found in XIB")]
     NoViews,
+    #[error("XIB nests views deeper than {0} levels")]
+    TooDeep(usize),
 }
 
 #[cfg(test)]
@@ -565,5 +574,12 @@ mod tests {
         let button = &content.subviews[1];
         assert_eq!(button.class, "UIButton");
         assert_eq!(button.properties.get("title"), Some(&"Tap".to_string()));
+    }
+
+    #[test]
+    fn xib_nested_past_the_limit_is_an_error_not_a_crash() {
+        let n = 100_000;
+        let xml = format!("{}{}", "<view>".repeat(n), "</view>".repeat(n));
+        assert!(matches!(XibParser::parse(&xml), Err(XibError::TooDeep(_))));
     }
 }

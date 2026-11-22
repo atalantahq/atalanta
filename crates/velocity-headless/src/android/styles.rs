@@ -41,7 +41,13 @@ impl AndroidStyleMapper {
 
         // Layout weight -> flex_grow
         if let Some(val) = attrs.get("layout_weight") {
-            if let Ok(weight) = val.parse::<f32>() {
+            // `layout_weight="0"` is the default (no share): the view keeps its
+            // own size. Only a positive, finite weight shares the space.
+            if let Some(weight) = val
+                .parse::<f32>()
+                .ok()
+                .filter(|w| w.is_finite() && *w > 0.0)
+            {
                 style.flex_grow = weight;
                 // When using weight, the basis dimension should be 0
                 if matches!(
@@ -187,7 +193,17 @@ impl AndroidStyleMapper {
 
     /// Apply gravity to justify_content and align_items.
     fn apply_gravity(gravity: &str, style: &mut NodeStyle) {
-        let gravity = gravity.to_lowercase();
+        // A bare `center` flag is `center_vertical|center_horizontal`: it
+        // centres whichever axis the other flags (`center|top`) leave alone.
+        let gravity = gravity
+            .to_lowercase()
+            .split('|')
+            .map(|flag| match flag.trim() {
+                "center" => "center_vertical|center_horizontal",
+                other => other,
+            })
+            .collect::<Vec<_>>()
+            .join("|");
 
         let is_row = matches!(
             style.flex_direction,
@@ -249,12 +265,6 @@ impl AndroidStyleMapper {
                 }
             }
         };
-
-        if gravity == "center" {
-            style.justify_content = Some(JustifyContent::Center);
-            style.align_items = Some(AlignItems::Center);
-            return;
-        }
 
         if is_row {
             set_horizontal(style, true, &gravity);
@@ -338,5 +348,32 @@ mod tests {
 
         assert_eq!(style.padding.top, 16.0); // 8dp * 2.0
         assert_eq!(style.margin.left, 32.0); // 16dp * 2.0
+    }
+
+    #[test]
+    fn zero_weight_keeps_the_view_size() {
+        for weight in ["0", "-1", "NaN", "inf"] {
+            let attrs = make_attrs(&[("layout_weight", weight), ("layout_height", "wrap_content")]);
+            let style = AndroidStyleMapper::map_attributes(
+                &attrs,
+                &ResourceTable::empty(),
+                Some(FlexDirection::Column),
+            );
+            assert_eq!(style.flex_grow, 0.0, "{weight}");
+            assert!(style.height.is_auto(), "{weight}");
+        }
+    }
+
+    #[test]
+    fn center_with_another_flag_centres_the_other_axis() {
+        // `center|top` in a column: top on the main axis, centred across.
+        let attrs = make_attrs(&[("gravity", "center|top")]);
+        let style = AndroidStyleMapper::map_attributes(&attrs, &ResourceTable::empty(), None);
+        assert_eq!(style.justify_content, Some(JustifyContent::FlexStart));
+        assert_eq!(style.align_items, Some(AlignItems::Center));
+        let attrs = make_attrs(&[("gravity", "center")]);
+        let style = AndroidStyleMapper::map_attributes(&attrs, &ResourceTable::empty(), None);
+        assert_eq!(style.justify_content, Some(JustifyContent::Center));
+        assert_eq!(style.align_items, Some(AlignItems::Center));
     }
 }

@@ -28,6 +28,11 @@ fn default_font_scale() -> f32 {
     1.0
 }
 
+/// The longest side the surface may have (no device screen is near it).
+const MAX_SIDE_PX: u64 = 16_384;
+/// The most pixels the surface may hold: 100 million is 400 MB of RGBA.
+const MAX_PIXELS: u64 = 100_000_000;
+
 impl HeadlessConfig {
     /// The config a suite's `headless:` block asks for.
     /// `devicePixelRatio` (D-46) is the same thing as `density` here; both
@@ -47,6 +52,18 @@ impl HeadlessConfig {
         }
         if let Some(h) = hc.height {
             c.height = h;
+        }
+        // The surface is `width x height` RGBA pixels, allocated and filled
+        // for every session: a zero side can't be created, and an absurd one
+        // would try to allocate gigabytes.
+        let (w, h) = (u64::from(c.width), u64::from(c.height));
+        if !(1..=MAX_SIDE_PX).contains(&w) || !(1..=MAX_SIDE_PX).contains(&h) || w * h > MAX_PIXELS
+        {
+            return Err(VelocityError::Config(format!(
+                "headless.width and headless.height must each be 1 to {MAX_SIDE_PX} \
+                 pixels and together at most {MAX_PIXELS} pixels, got {}x{}",
+                c.width, c.height
+            )));
         }
         match (hc.density, hc.device_pixel_ratio) {
             (Some(d), Some(r)) if (f64::from(d) - r).abs() > 1e-6 => {
@@ -139,5 +156,35 @@ mod tests {
         };
         assert!(HeadlessConfig::from_yaml(Some(&zero)).is_err());
         assert_eq!(HeadlessConfig::from_yaml(None).unwrap().font_scale, 1.0);
+    }
+
+    #[test]
+    fn a_zero_or_absurd_screen_size_is_a_config_error() {
+        for (w, h) in [
+            (0, 100),
+            (100, 0),
+            (100_000, 100_000),
+            (16_385, 10),
+            (50_000, 3_000),
+        ] {
+            let y = HeadlessYamlConfig {
+                width: Some(w),
+                height: Some(h),
+                ..Default::default()
+            };
+            assert!(
+                matches!(
+                    HeadlessConfig::from_yaml(Some(&y)),
+                    Err(velocity_common::VelocityError::Config(_))
+                ),
+                "{w}x{h}"
+            );
+        }
+        let ok = HeadlessYamlConfig {
+            width: Some(1280),
+            height: Some(800),
+            ..Default::default()
+        };
+        assert!(HeadlessConfig::from_yaml(Some(&ok)).is_ok());
     }
 }
