@@ -21,6 +21,12 @@ regexes = [
     # bearer tokens a local fake HTTP server hands out.
     '''^tok-5ecret-0123456789$''',
     '''^tok-0123456789abcdef$''',
+    # velocity-cli/tests/settings.rs: a runner token `velocity settings`
+    # must mask (November review).
+    '''^tok-0123456789abcdef-sekret$''',
+    # crates/velocity-common/src/redact.rs: an `Authorization: Token` value
+    # the masking tests expect hidden (November review).
+    '''^abcdef0123456789$''',
     # The Sec-WebSocket-Key sample nonce from RFC 6455 section 1.3
     # (crates/velocity-inspector/tests/{server,console}.rs).
     '''^dGhlIHNhbXBsZSBub25jZQ==$''',
