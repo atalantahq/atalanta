@@ -133,13 +133,66 @@ pub fn scaffold(spec: &Spec, opts: &Options) -> Result<Scaffold, String> {
             steps: plan_test(spec, &ops, members, &auth, &mut vars, opts),
         })
         .collect();
-    Ok(Scaffold {
+    let mut scaffold = Scaffold {
         title: spec.title(),
         source: opts.source.clone(),
         config,
         tests,
         variables: vars.list,
-    })
+    };
+    defuse(&mut scaffold);
+    Ok(scaffold)
+}
+
+/// Make every `${...}` the spec wrote inert. A spec is someone else's text:
+/// a server url, a path, a default or an enum value of
+/// `${AWS_SECRET_ACCESS_KEY}` would be filled in from the environment when
+/// the suite runs (or at once, under `--confirm`) and sent to the spec's
+/// server. Only the placeholders this module wrote (`${API_TOKEN}`,
+/// `${PET_ID}`, ...) stay live; any other run of `$` before a `{` is
+/// doubled, which the loader reads back as the text the spec had (D-13).
+fn defuse(s: &mut Scaffold) {
+    let mut ours: Vec<String> = s.variables.iter().map(|(n, _)| n.clone()).collect();
+    for step in s.tests.iter().flat_map(|t| &t.steps) {
+        ours.extend(step.request.capture.iter().map(|(n, _)| n.clone()));
+    }
+    let mut inert = |t: &str| -> velocity_common::Result<String> { Ok(defuse_text(t, &ours)) };
+    if let Some(base) = s.config.base_url.as_mut() {
+        *base = defuse_text(base, &ours);
+    }
+    for (_, v) in s.config.headers.iter_mut() {
+        *v = defuse_text(v, &ours);
+    }
+    for step in s.tests.iter_mut().flat_map(|t| &mut t.steps) {
+        // The closure never fails.
+        let _ = step.request.map_strings(&mut inert);
+    }
+}
+
+fn defuse_text(text: &str, ours: &[String]) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut run = 0usize;
+    for (i, c) in text.char_indices() {
+        if c == '$' {
+            run += 1;
+            continue;
+        }
+        let mut dollars = run;
+        if c == '{' && run > 0 {
+            let rest = &text[i + 1..];
+            let name = rest.split(['}', ':']).next().unwrap_or("");
+            let live =
+                run == 1 && rest[name.len()..].starts_with('}') && ours.iter().any(|n| n == name);
+            if !live {
+                dollars = run * 2;
+            }
+        }
+        out.extend(std::iter::repeat_n('$', dollars));
+        run = 0;
+        out.push(c);
+    }
+    out.extend(std::iter::repeat_n('$', run));
+    out
 }
 
 /// An operation with what linking needs to know about it.
@@ -812,6 +865,23 @@ fn pointer_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_our_own_placeholders_stay_live() {
+        let ours = ["API_TOKEN".to_string()];
+        assert_eq!(
+            defuse_text("Bearer ${API_TOKEN}", &ours),
+            "Bearer ${API_TOKEN}"
+        );
+        assert_eq!(defuse_text("/a/${HOME}/b", &ours), "/a/$${HOME}/b");
+        assert_eq!(defuse_text("${API_TOKEN:-x}", &ours), "$${API_TOKEN:-x}");
+        assert_eq!(defuse_text("$${API_TOKEN}", &ours), "$$$${API_TOKEN}");
+        assert_eq!(
+            defuse_text("cost $5, $$ and ${", &ours),
+            "cost $5, $$ and $${"
+        );
+        assert_eq!(defuse_text("e$${e}$", &ours), "e$$$${e}$");
+    }
 
     #[test]
     fn names_become_variables() {

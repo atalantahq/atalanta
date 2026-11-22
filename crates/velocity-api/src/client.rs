@@ -49,6 +49,9 @@ impl HttpSession {
             let mut b = reqwest::Client::builder()
                 .cookie_provider(jar.clone())
                 .redirect(policy)
+                // An API client has no page to refer from: the default sends the
+                // previous url (query string and all) to the redirect's host.
+                .referer(false)
                 .danger_accept_invalid_certs(config.insecure)
                 .user_agent(concat!("velocity/", env!("CARGO_PKG_VERSION")));
             if block {
@@ -120,7 +123,14 @@ impl HttpSession {
             ))
         })?;
         let url = resolve_url(self.config.base_url.as_deref(), &req.url)?;
-        let own_headers = !self.config.headers.is_empty() || !req.headers.is_empty();
+        // Headers of its own, or a body, may hold a secret (an API key, a
+        // login's password): such a request follows redirects on its own
+        // origin only (a 307/308 would replay the body elsewhere).
+        let own_headers = !self.config.headers.is_empty()
+            || !req.headers.is_empty()
+            || req.json.is_some()
+            || req.body.is_some()
+            || !req.form.is_empty();
         let client = if req.follow_redirects == Some(false) {
             &self.no_follow
         } else if own_headers {
@@ -146,6 +156,8 @@ impl HttpSession {
             .build()
             .map_err(|e| VelocityError::Config(format!("http: {method} {url}: {}", chain(&e))))?;
         let label = format!("{method} {}", request.url());
+        let sent_to = request.url().clone();
+        let follows = !std::ptr::eq(client, &self.no_follow);
         if let Some(why) = crate::guard::refused_url(request.url()) {
             return Err(VelocityError::Config(why));
         }
@@ -163,6 +175,14 @@ impl HttpSession {
         let response = client.execute(request).await.map_err(unreachable)?;
         let status = response.status().as_u16();
         let headers = response.headers().clone();
+        // A redirect that came back as the answer of a client that follows
+        // them was stopped by the guard (`crate::guard`).
+        let stopped = (follows && matches!(status, 301 | 302 | 303 | 307 | 308))
+            .then(|| headers.get(reqwest::header::LOCATION))
+            .flatten()
+            .and_then(|l| l.to_str().ok())
+            .and_then(|l| sent_to.join(l).ok())
+            .map(|to| format!("from {} to {}", origin(&sent_to), origin(&to)));
         let mut response = response;
         let mut bytes: Vec<u8> = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
@@ -182,6 +202,7 @@ impl HttpSession {
             headers,
             body: String::from_utf8_lossy(&bytes).into_owned(),
             elapsed_ms: started.elapsed().as_millis() as u64,
+            stopped,
             json: None,
         };
         tracing::debug!(
@@ -213,6 +234,11 @@ impl HttpSession {
         }
         Ok(map)
     }
+}
+
+/// `scheme://host[:port]` of a url.
+fn origin(u: &reqwest::Url) -> String {
+    u.origin().ascii_serialization()
 }
 
 /// A url with a scheme as written; any other appended to `base` (one `/`
@@ -250,6 +276,8 @@ pub(crate) struct Exchange {
     headers: HeaderMap,
     pub(crate) body: String,
     elapsed_ms: u64,
+    /// `A to B` (origins) for a redirect the guard did not follow.
+    stopped: Option<String>,
     /// The body parsed as JSON, once something asks.
     json: Option<std::result::Result<Value, String>>,
 }
@@ -264,6 +292,15 @@ impl Exchange {
                 Err(e) => failures.push(format!("capture {name}: {e}")),
             }
         }
+        // A token taken from a login response is as secret as one from
+        // the environment. Registered before a failure is reported too: its
+        // message quotes the start of this very body.
+        for (name, value) in &captured {
+            if velocity_common::redact::is_secret_name(name) {
+                velocity_common::redact::register_secret(value);
+                velocity_common::redact::register_secret_name(name);
+            }
+        }
         if !failures.is_empty() {
             return Err(VelocityError::HttpCheckFailed {
                 request: label,
@@ -271,14 +308,6 @@ impl Exchange {
                 failures,
                 body: excerpt(&self.body),
             });
-        }
-        // A token taken from a login response is as secret as one from
-        // the environment.
-        for (name, value) in &captured {
-            if velocity_common::redact::is_secret_name(name) {
-                velocity_common::redact::register_secret(value);
-                velocity_common::redact::register_secret_name(name);
-            }
         }
         Ok(Passed {
             captured,
@@ -295,6 +324,14 @@ impl Exchange {
             None if self.status >= 400 => out.push(format!(
                 "status: expected below 400 (no expect.status), got {}",
                 self.status
+            )),
+            // Not a pass: the request never reached what it was written for.
+            None if self.stopped.is_some() => out.push(format!(
+                "status: got {}, a redirect {} that was not followed (a request with headers \
+                 or a body follows redirects on its own origin only, and https never to http); \
+                 give expect.status to check it",
+                self.status,
+                self.stopped.as_deref().unwrap_or_default(),
             )),
             _ => {}
         }
@@ -355,7 +392,20 @@ impl Exchange {
             Capture::Json(written) => {
                 let path = Path::parse(written)?;
                 let doc = self.doc()?;
-                Ok(text_of(path.select_one(doc)?))
+                let v = path.select_one(doc)?;
+                // serde_json reads an integer beyond u64 as a float, and
+                // `${NAME}` would insert its rounded form: say so instead.
+                if v.as_f64().is_some_and(|f| {
+                    v.is_f64()
+                        && f.is_finite()
+                        && f.fract() == 0.0
+                        && f.abs() >= 18446744073709551616.0
+                }) {
+                    return Err(format!(
+                        "`{written}` is a number too large to capture exactly ({v}); have the API send it as a string"
+                    ));
+                }
+                Ok(text_of(v))
             }
             Capture::Header(name) => self
                 .headers
@@ -378,7 +428,9 @@ impl Exchange {
     }
 
     fn doc(&mut self) -> std::result::Result<&Value, String> {
-        let body = &self.body;
+        // A byte order mark ahead of the JSON (some servers write one) is
+        // allowed by RFC 8259 §8.1 but is no JSON text for serde_json.
+        let body = self.body.strip_prefix('\u{feff}').unwrap_or(&self.body);
         self.json
             .get_or_insert_with(|| {
                 serde_json::from_str(body).map_err(|e| {

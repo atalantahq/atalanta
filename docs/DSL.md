@@ -300,7 +300,7 @@ tests:
       - assertVisible: { text: "${ORDER_ID}" }
 ```
 
-A request has `method` (default `GET`), `url`, `headers`, `query`, and at most one body: `json`, `body` (text) or `form`. `followRedirects: false` lets a step check a 3xx itself.
+A request has `method` (default `GET`), `url`, `headers`, `query`, and at most one body: `json`, `body` (text) or `form`. `followRedirects: false` lets a step check a 3xx itself. A request that carries headers (its own or `config.http.headers`) or a body follows redirects on its own origin only, and `https` never goes to `http`: at any other hop it stops, and the step fails naming both origins unless `expect.status` asks for that 3xx. A bare GET follows any redirect.
 
 `expect:` checks the response. Every check runs, and a failure lists each one that failed with the start of the body.
 

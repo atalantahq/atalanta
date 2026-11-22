@@ -67,7 +67,12 @@ fn field(s: &Value, is_required: bool) -> Option<Matcher> {
         exists: is_required.then_some(true),
         ..Default::default()
     };
-    let kind = type_of(s).and_then(|t| json_type(&t));
+    // `type: [string, integer]` promises neither: only a single type is a check.
+    let one_type = s
+        .get("type")
+        .and_then(Value::as_array)
+        .is_none_or(|ts| ts.iter().filter(|t| *t != "null").count() <= 1);
+    let kind = type_of(s).filter(|_| one_type).and_then(|t| json_type(&t));
     if !null_ok {
         c.kind = kind;
     }
@@ -227,6 +232,17 @@ mod tests {
         // Nullable: no type and no format, only that it is there.
         assert_eq!(yaml(6), json!({ "exists": true }));
         assert_eq!(yaml(7), json!({ "exists": true }));
+        // A union of types promises no one of them.
+        let union = mine(
+            &spec,
+            &json!({ "type": "object", "required": ["v"], "properties": { "v": { "type": ["string", "integer"] } } }),
+            100,
+        );
+        let v = union.checks.iter().find(|(p, _)| p == "$.v").unwrap();
+        assert_eq!(
+            serde_json::to_value(&v.1).unwrap(),
+            json!({ "exists": true })
+        );
         let capped = mine(&spec, &schema, 3);
         assert_eq!((capped.checks.len(), capped.left_out), (3, 5));
     }

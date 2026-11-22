@@ -109,3 +109,35 @@ impl PlatformDriver for NoDeviceDriver {
         Err(refuse("checking visibility"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn stand_ins_are_listed_and_everything_else_is_refused() {
+        let d = NoDeviceDriver::new(0, Platform::Android);
+        let devices = d.list_devices().await.unwrap();
+        assert_eq!(devices.len(), 1, "at least one slot");
+        assert!(velocity_common::is_no_device(&devices[0].id));
+        let d = NoDeviceDriver::new(3, Platform::Ios);
+        let ids: Vec<String> = d
+            .list_devices()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|x| x.id)
+            .collect();
+        assert_eq!(ids, ["http-0", "http-1", "http-2"]);
+        d.boot_device("http-0").await.unwrap();
+        for e in [
+            d.launch_app("http-0", "a", false).await.unwrap_err(),
+            d.screenshot("http-0").await.unwrap_err(),
+            d.press_key("http-0", Key::Back).await.unwrap_err(),
+        ] {
+            assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+            assert_eq!(e.exit_code(), 2);
+            assert!(e.to_string().contains("this run has none"), "{e}");
+        }
+    }
+}

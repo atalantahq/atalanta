@@ -97,6 +97,17 @@ fn json_reply(status: u16, v: Value) -> Reply {
     )
 }
 
+trait TapBody {
+    fn tap_body(self, body: &str) -> Self;
+}
+
+impl TapBody for Reply {
+    fn tap_body(mut self, body: &str) -> Self {
+        self.2 = body.to_string();
+        self
+    }
+}
+
 fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
     let path = req.target.split('?').next().unwrap();
     match (req.method.as_str(), path) {
@@ -132,7 +143,7 @@ fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
             }
         }
         ("GET", "/redirect") => (302, vec![("location", "/me".into())], String::new()),
-        ("GET", "/hop") => {
+        (_, "/hop") => {
             let to = req.target.split_once("to=").map_or("/", |(_, t)| t);
             (307, vec![("location", to.to_string())], String::new())
         }
@@ -140,6 +151,14 @@ fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
             std::thread::sleep(Duration::from_millis(400));
             json_reply(200, json!({}))
         }
+        ("GET", "/bom") => (
+            200,
+            vec![("content-type", "application/json".into())],
+            "\u{feff}{\"id\": 7}".into(),
+        ),
+        ("POST", "/session") => json_reply(200, json!({ "sid": "zq9-sid-5f3a7c1e8b2d4096" })),
+        ("GET", "/big") => json_reply(200, json!({ "ok": true }))
+            .tap_body(r#"{"id": 12345678901234567890123, "small": 9007199254740993}"#),
         ("GET", "/text") => (
             200,
             vec![("content-type", "text/plain".into())],
@@ -153,6 +172,7 @@ fn route(req: &Request, flaky: &AtomicUsize) -> Reply {
                 "contentType": req.header("content-type"),
                 "auth": req.header("authorization"),
                 "client": req.header("x-client"),
+                "referer": req.header("referer"),
                 "body": req.body,
             }),
         ),
@@ -443,4 +463,162 @@ async fn no_answer_is_a_test_failure_not_the_devices() {
         .await
         .unwrap_err();
     assert_eq!(e.exit_code(), 2, "{e}");
+}
+
+#[tokio::test]
+async fn a_json_body_with_a_byte_order_mark_is_json() {
+    let s = session(&serve());
+    let p = s
+        .run(
+            &step("url: /bom\nexpect: { json: { id: 7 } }\ncapture: { ID: id }"),
+            T,
+        )
+        .await
+        .unwrap();
+    assert_eq!(p.captured, vec![("ID".to_string(), "7".to_string())]);
+}
+
+#[tokio::test]
+async fn a_failed_step_does_not_print_the_secret_it_captured() {
+    // The failure message quotes the start of the body: the token that
+    // `capture` took from it must be masked there too.
+    let s = session(&serve());
+    let e = s
+        .run(
+            &step("method: POST\nurl: /session\nexpect: { status: 201 }\ncapture: { SESSION_TOKEN: sid }"),
+            T,
+        )
+        .await
+        .unwrap_err();
+    assert!(e.to_string().contains("zq9-sid-5f3a7c1e8b2d4096"), "{e}");
+    let shown = velocity_common::redact::redact(&e.to_string()).into_owned();
+    assert!(!shown.contains("zq9-sid-5f3a7c1e8b2d4096"), "{shown}");
+}
+
+#[tokio::test]
+async fn a_redirect_carries_no_referer() {
+    let a = serve();
+    let bare = HttpSession::new(&HttpConfig {
+        base_url: Some(a.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    bare.run(
+        &step("url: '/hop?to=/echo'\nexpect: { status: 200, json: { referer: null } }"),
+        T,
+    )
+    .await
+    .unwrap();
+}
+
+/// A server that counts its connections and answers 200.
+fn counting() -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let hits = Arc::new(AtomicUsize::new(0));
+    let n = hits.clone();
+    std::thread::spawn(move || {
+        for mut conn in listener.incoming().flatten() {
+            n.fetch_add(1, Ordering::SeqCst);
+            let mut reader = BufReader::new(conn.try_clone().unwrap());
+            loop {
+                let mut h = String::new();
+                if reader.read_line(&mut h).unwrap_or(0) == 0 || h.trim_end().is_empty() {
+                    break;
+                }
+            }
+            let _ =
+                conn.write_all(b"HTTP/1.1 200 X\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+        }
+    });
+    (format!("http://{addr}"), hits)
+}
+
+#[tokio::test]
+async fn a_login_body_is_not_replayed_to_another_origin() {
+    // A 307 replays its body: a login's password with no headers at all.
+    let (elsewhere, hits) = counting();
+    let a = serve();
+    let bare = HttpSession::new(&HttpConfig {
+        base_url: Some(a.clone()),
+        ..Default::default()
+    })
+    .unwrap();
+    let hop = format!(
+        "method: POST\nurl: '/hop?to={elsewhere}/steal'\njson: {{ user: ada, password: pw }}\n"
+    );
+    let e = bare.run(&step(&hop), T).await.unwrap_err().to_string();
+    assert!(e.contains("not followed"), "{e}");
+    assert!(e.contains(&format!("from {a} to {elsewhere}")), "{e}");
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "the body reached the other origin"
+    );
+    // A step that tests the redirect itself passes; so does a bare GET that
+    // carries nothing to protect.
+    bare.run(&step(&format!("{hop}expect: {{ status: 307 }}")), T)
+        .await
+        .unwrap();
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    bare.run(&step(&format!("url: '/hop?to={elsewhere}/x'")), T)
+        .await
+        .unwrap();
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_redirect_the_guard_stopped_is_not_a_pass() {
+    let (elsewhere, hits) = counting();
+    let s = session(&serve());
+    let e = s
+        .run(&step(&format!("url: '/hop?to={elsewhere}/x'")), T)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        e.contains("answered 307") && e.contains("not followed"),
+        "{e}"
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    // `followRedirects: false` asks for the 3xx: that one passes.
+    s.run(
+        &step(&format!(
+            "url: '/hop?to={elsewhere}/x'\nfollowRedirects: false"
+        )),
+        T,
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn a_number_beyond_u64_is_refused_not_rounded() {
+    let s = session(&serve());
+    let e = s
+        .run(&step("url: /big\ncapture: { ID: id }"), T)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("too large to capture exactly"), "{e}");
+    let p = s
+        .run(&step("url: /big\ncapture: { N: small }"), T)
+        .await
+        .unwrap();
+    assert_eq!(p.captured[0].1, "9007199254740993");
+}
+
+#[tokio::test]
+async fn max_ms_fails_a_slow_answer_and_passes_a_fast_one() {
+    // `every_failed_check_is_listed_with_the_body` only gives it room.
+    let s = session(&serve());
+    let e = s
+        .run(&step("url: /slow\nexpect: { maxMs: 50 }"), T)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("more than maxMs 50"), "{e}");
+    s.run(&step("url: /slow\nexpect: { maxMs: 5000 }"), T)
+        .await
+        .unwrap();
 }
