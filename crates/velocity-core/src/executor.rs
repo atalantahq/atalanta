@@ -92,6 +92,9 @@ pub struct TestExecutor<'a> {
     step_settle: Option<velocity_common::StepSettle>,
     /// The running step's `force: true` (D-3).
     step_force: bool,
+    /// The running step's `optional: true`: a miss there is expected, so it
+    /// doesn't heal (real apps: each optional miss also paid for a heal).
+    step_optional: bool,
     /// What a heal does here: `healing.mode`, resolved (D-7).
     heal_mode: velocity_common::HealingMode,
     /// The suite file of the running step (for the `velocity heal` hint).
@@ -366,6 +369,7 @@ impl<'a> TestExecutor<'a> {
             config_before: None,
             step_settle: None,
             step_force: false,
+            step_optional: false,
             heal_mode,
             suite_file: None,
             step_app_in_front: None,
@@ -695,6 +699,7 @@ impl<'a> TestExecutor<'a> {
         // Nothing found by an earlier test describes this one's screen.
         self.selector_engine.invalidate_cache();
         let _ = self.selector_engine.take_heal_notes();
+        let _ = self.dialog_handler.take_answered();
         self.trace.begin_test();
         if let Some(run) = self.a11y.as_mut() {
             run.begin_test();
@@ -1208,6 +1213,7 @@ impl<'a> TestExecutor<'a> {
         self.selector_engine.persist();
         let mut warnings = std::mem::take(&mut self.warnings);
         warnings.extend(self.selector_engine.take_heal_notes());
+        warnings.extend(self.dialog_handler.take_answered());
         let trace = self.trace.finish(
             std::path::Path::new(&self.config.artifacts.output_dir),
             &test.name,
@@ -1316,6 +1322,7 @@ impl<'a> TestExecutor<'a> {
         self.selector_engine.invalidate_cache();
         self.step_timeout_ms = step.timeout_ms;
         self.step_force = step.modifiers.force;
+        self.step_optional = step.modifiers.optional;
         if let Some(src) = step.source.as_ref().filter(|s| !s.file.is_empty()) {
             self.suite_file = Some(src.file.clone());
         }
@@ -1358,6 +1365,7 @@ impl<'a> TestExecutor<'a> {
         }
         self.step_settle = None;
         self.step_force = false;
+        self.step_optional = false;
         self.step_app_in_front = None;
     }
 

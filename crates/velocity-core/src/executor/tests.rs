@@ -5072,3 +5072,23 @@ async fn a_missing_element_names_the_app_in_front() {
     let err = r.steps[0].error_message.clone().unwrap_or_default();
     assert!(!err.contains("was in front"), "{err}");
 }
+
+/// Real apps: an optional step that misses is expected to miss; healing it
+/// onto a look-alike only cost time (and could tap the wrong element).
+#[tokio::test]
+async fn an_optional_step_does_not_heal() {
+    let driver = ScriptDriver::new(vec![node("submit", "Submit orders", 0)]);
+    let mut cfg = config(300);
+    cfg.healing.enabled = true;
+    cfg.healing.mode = Some(velocity_common::HealingMode::Auto);
+    cfg.healing.persist_healed = false;
+    let mut ex = TestExecutor::new(&driver, cfg, "app");
+    let mut t = step(tap("Submit order"));
+    t.modifiers.optional = true;
+    let r = ex
+        .execute_test(&test_case(vec![t]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.healed_count(), 0, "{:?}", r.warnings);
+    assert!(driver.taps.lock().unwrap().is_empty(), "nothing tapped");
+}
