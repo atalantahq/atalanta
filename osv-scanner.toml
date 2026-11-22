@@ -21,6 +21,13 @@ id = "RUSTSEC-2026-0192"
 ignoreUntil = 2027-05-11
 reason = "ttf-parser unmaintained via cosmic-text (no CVE); no upgrade yet, mirrored in deny.toml"
 
+# chrono: an "unmaintained" notice (2026-11-20) with no safe upgrade, used for
+# timestamps in core, ios and the reporters. Same as deny.toml.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2027-05-20
+reason = "chrono unmaintained (no CVE); no upgrade yet, migration not started, mirrored in deny.toml"
+
 # minimatch 10 (globparts amplification DoS) in the inspector frontend's
 # lint tooling only: typescript-eslint 8.72.2 (latest) pins minimatch ^10 and
 # the fix is minimatch 11. eslint runs on the developer's own source globs,
