@@ -125,7 +125,7 @@ Crates listed: 363 (excluding the 16 workspace crates).
 | font-types | 0.10.1 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
 | fontconfig-parser | 0.5.8 | `MIT` | https://github.com/Riey/fontconfig-parser |
 | fontdb | 0.23.0 | `MIT` | https://github.com/RazrFalcon/fontdb |
-| form_urlencoded | 1.2.2 | `MIT OR Apache-2.0` | https://github.com/servo/rust-url |
+| form_urlencoded | 1.2.3 | `MIT OR Apache-2.0` | https://github.com/servo/rust-url |
 | futures | 0.3.32 | `MIT OR Apache-2.0` | https://github.com/rust-lang/futures-rs |
 | futures-channel | 0.3.32 | `MIT OR Apache-2.0` | https://github.com/rust-lang/futures-rs |
 | futures-core | 0.3.32 | `MIT OR Apache-2.0` | https://github.com/rust-lang/futures-rs |
@@ -248,7 +248,7 @@ Crates listed: 363 (excluding the 16 workspace crates).
 | rust-embed-utils | 8.11.0 | `MIT` | https://pyrossh.dev/repos/rust-embed |
 | rustc-hash | 1.1.0 | `Apache-2.0/MIT` | https://github.com/rust-lang-nursery/rustc-hash |
 | rustc-hash | 2.1.3 | `Apache-2.0 OR MIT` | https://github.com/rust-lang/rustc-hash |
-| rustix | 1.1.4 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | https://github.com/bytecodealliance/rustix |
+| rustix | 1.1.6 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | https://github.com/bytecodealliance/rustix |
 | rustls | 0.23.46 | `Apache-2.0 OR ISC OR MIT` | https://github.com/rustls/rustls |
 | rustls-native-certs | 0.8.5 | `Apache-2.0 OR ISC OR MIT` | https://github.com/rustls/rustls-native-certs |
 | rustls-pki-types | 1.14.0 | `MIT OR Apache-2.0` | https://github.com/rustls/pki-types |
@@ -344,7 +344,7 @@ Crates listed: 363 (excluding the 16 workspace crates).
 | unicode-xid | 0.2.6 | `MIT OR Apache-2.0` | https://github.com/unicode-rs/unicode-xid |
 | unsafe-libyaml | 0.2.11 | `MIT` | https://github.com/dtolnay/unsafe-libyaml |
 | untrusted | 0.9.0 | `ISC` | https://github.com/briansmith/untrusted |
-| url | 2.5.8 | `MIT OR Apache-2.0` | https://github.com/servo/rust-url |
+| url | 2.5.9 | `MIT OR Apache-2.0` | https://github.com/servo/rust-url |
 | utf-8 | 0.7.6 | `MIT OR Apache-2.0` | https://github.com/SimonSapin/rust-utf8 |
 | utf8_iter | 1.0.4 | `Apache-2.0 OR MIT` | https://github.com/hsivonen/utf8_iter |
 | utf8parse | 0.2.2 | `Apache-2.0 OR MIT` | https://github.com/alacritty/vte |
