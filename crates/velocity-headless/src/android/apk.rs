@@ -51,18 +51,25 @@ impl ApkLoader {
 
             // Extract layout XMLs from res/layout/ directories
             if name.starts_with("res/layout") && name.ends_with(".xml") {
-                let mut entry = archive
-                    .by_name(name)
-                    .map_err(|e| ApkError::ZipError(e.to_string()))?;
-                let data = read_capped(&mut entry, &mut budget)?;
-
-                // Extract layout name from path: res/layout/activity_main.xml -> activity_main
+                // `res/layout/` is the default; `res/layout-land/`, `-v26`,
+                // `-sw600dp`... are variants. Zip order is not a priority, so a
+                // variant never replaces the default whichever comes first.
+                let is_default = name.starts_with("res/layout/");
                 let layout_name = Path::new(name)
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("unknown")
                     .to_string();
+                if !is_default && layouts.contains_key(&layout_name) {
+                    continue;
+                }
 
+                let mut entry = archive
+                    .by_name(name)
+                    .map_err(|e| ApkError::ZipError(e.to_string()))?;
+                let data = read_capped(&mut entry, &mut budget)?;
+
+                // Layout name from the path: res/layout/activity_main.xml -> activity_main
                 layouts.insert(layout_name, data);
             }
 
@@ -148,5 +155,31 @@ mod tests {
         let mut tight = 5;
         let mut over = std::io::repeat(0).take(6);
         assert!(read_capped(&mut over, &mut tight).is_err());
+    }
+
+    #[test]
+    fn a_layout_variant_never_replaces_the_default() {
+        use std::io::Write;
+        for order in [
+            ["res/layout-land/main.xml", "res/layout/main.xml"],
+            ["res/layout/main.xml", "res/layout-land/main.xml"],
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("a.apk");
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            for name in order {
+                zip.start_file(name, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                zip.write_all(if name.contains("land") {
+                    b"land"
+                } else {
+                    b"default"
+                })
+                .unwrap();
+            }
+            zip.finish().unwrap();
+            let loader = ApkLoader::from_path(&path).unwrap();
+            assert_eq!(loader.get_layout("main").unwrap(), b"default", "{order:?}");
+        }
     }
 }
