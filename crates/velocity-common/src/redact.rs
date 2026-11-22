@@ -350,6 +350,12 @@ fn lowercase_hex(url: &str) -> String {
 }
 
 /// `s` with every registered secret and secret-shaped string masked.
+/// `NAME=value` with an environment-style name, at the start or after a
+/// space, quote or `;`.
+static ENV_ASSIGNMENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(^|[\s"';,(])([A-Z][A-Z0-9_]*)=([^\s"';,&#)]+)"#).expect("env assignment shape")
+});
+
 pub fn redact(s: &str) -> Cow<'_, str> {
     let mut out = Cow::Borrowed(s);
     {
@@ -363,6 +369,25 @@ pub fn redact(s: &str) -> Cow<'_, str> {
         if re.is_match(&out) {
             out = Cow::Owned(re.replace_all(&out, *rep).into_owned());
             shaped = true;
+        }
+    }
+    // `DB_PASSWORD=…`, `AWS_SECRET_ACCESS_KEY=…`: an environment-style
+    // (upper-case) name that `is_secret_name` calls secret, in an env dump or
+    // a command's output. The shapes above know only the bare names
+    // (second-pass review). Lower-case `key=` in prose is left alone.
+    if ENV_ASSIGNMENT.is_match(&out) {
+        let replaced = ENV_ASSIGNMENT.replace_all(&out, |c: &regex::Captures| {
+            if is_secret_name(&c[2]) && &c[3] != "[redacted]" {
+                format!("{}{}=[redacted]", &c[1], &c[2])
+            } else {
+                c[0].to_string()
+            }
+        });
+        if let Cow::Owned(r) = replaced {
+            if r != *out {
+                out = Cow::Owned(r);
+                shaped = true;
+            }
         }
     }
     // A short secret glued to a masked shape ("sk-…pin") is a whole token
@@ -1048,6 +1073,20 @@ mod tests {
                     prop_assert_eq!(&once, &twice, "input {:?}", text);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn second_pass_prefixed_secret_name_assignment_is_masked() {
+        assert!(is_secret_name("DB_PASSWORD"));
+        // The name counts as secret, but the shape that masks a
+        // `NAME=value` assignment only matches the bare names.
+        for line in [
+            "DB_PASSWORD=sp-Zk3jq9xw1",
+            "env: AWS_SECRET_ACCESS_KEY=sp-Zk3jq9xw1 PATH=/bin",
+        ] {
+            let out = redact(line);
+            assert!(!out.contains("sp-Zk3jq9xw1"), "{line} -> {out}");
         }
     }
 }
