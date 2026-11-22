@@ -1613,12 +1613,11 @@ impl McpServer {
                 // started (an inline suite, an explore test, the lines
                 // task_inject appends), not saved by the user: it gets the
                 // checks an inline `yaml` gets (review 05 #4).
-                let in_tasks = std::fs::canonicalize(self.tasks.root())
-                    .is_ok_and(|root| path.starts_with(root));
+                let in_tasks = self.tasks.agent_written(&path);
                 if in_tasks && self.profile != crate::profile::Profile::Full {
                     if has_exec(&suite) {
                         return Err(VelocityError::Config(
-                            "this suite in the tasks folder has exec steps (host programs); outside --profile full only a suite the user saved in the project may run them".into(),
+                            "this suite was written by an agent task (in the tasks folder, or an explore `out`) and has exec steps (host programs); outside --profile full only a suite the user saved in the project may run them".into(),
                         ));
                     }
                     if let Some(why) = crate::authored::refusal(&suite) {
@@ -1861,6 +1860,9 @@ impl McpServer {
             Some(o) => confine("out", o, false)?,
             None => dir.join("explore.yaml"),
         };
+        // The agent picked this file's steps (and its `data` names): a later
+        // run of it is checked as the agent's, not run as the user's (V12).
+        self.tasks.mark_agent_written(&out)?;
         let script = match args.get("script").and_then(Value::as_str) {
             Some(p) => Some(confine("script", p, true)?),
             None => None,
@@ -1878,7 +1880,7 @@ impl McpServer {
                     true,
                 )
                 .map_err(bad)?;
-                child_env = gate_task_file(self.profile, &tasks_root, "after", &checked)?;
+                child_env = gate_task_file(self.profile, &self.tasks, "after", &checked)?;
                 Some(checked)
             }
             None => None,
@@ -2097,7 +2099,7 @@ impl McpServer {
                 true,
             )
             .map_err(bad)?;
-            child_env = gate_task_file(self.profile, &tasks_root, "after", &checked)?;
+            child_env = gate_task_file(self.profile, &self.tasks, "after", &checked)?;
             argv.extend(["--after".into(), checked.to_string_lossy().into_owned()]);
         }
         // The description is model text: after `--`, so it can't be a flag.
@@ -2843,7 +2845,7 @@ fn tool_failure(f: &agent_error::Failure) -> Value {
 
 /// The checks an inline `yaml` suite gets (exec steps, `authored::refusal`),
 /// for a suite file outside `--profile full` that a task the agent started
-/// wrote: one under the tasks folder (its lines can come from
+/// wrote: one under the tasks folder or an explore `out` (its lines can come from
 /// `task_inject`). `Ok(Some(env))` is the environment its child gets;
 /// `Ok(None)` means the file is the user's and runs as written (audit
 /// 2026-11 MCP-1: explore and verify_change's `after` skipped these).
@@ -2852,21 +2854,20 @@ type ChildEnv = Vec<(std::ffi::OsString, std::ffi::OsString)>;
 
 fn gate_task_file(
     profile: crate::profile::Profile,
-    tasks_root: &std::path::Path,
+    tasks: &crate::tasks::TaskManager,
     what: &str,
     path: &std::path::Path,
 ) -> Result<Option<ChildEnv>> {
     if profile == crate::profile::Profile::Full {
         return Ok(None);
     }
-    let in_tasks = std::fs::canonicalize(tasks_root).is_ok_and(|root| path.starts_with(root));
-    if !in_tasks {
+    if !tasks.agent_written(path) {
         return Ok(None);
     }
     let suite = velocity_core::parse_suite(&path.to_string_lossy())?;
     if has_exec(&suite) {
         return Err(VelocityError::Config(format!(
-            "the {what} suite in the tasks folder has exec steps (host programs); outside \
+            "the {what} suite was written by an agent task (in the tasks folder, or an explore `out`) and has exec steps (host programs); outside \
              --profile full only a suite the user saved in the project may run them"
         )));
     }
@@ -4612,6 +4613,48 @@ mod t2_tests {
             .to_string();
             assert!(err.contains("GITHUB_TOKEN_AUDIT_X"), "{tool}: {err}");
         }
+    }
+
+    /// Review V12: an explore task writes its test to `out` in the project,
+    /// with the `data` names the agent chose. Running that file afterwards
+    /// gets the checks an agent's suite gets, even from a new server on the
+    /// same tasks folder, instead of the server's whole environment.
+    #[tokio::test]
+    async fn an_explore_out_in_the_project_is_still_the_agents_suite() {
+        let (s, _dir) = launched(FORM).await;
+        let tasks = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
+        let mut s = s
+            .with_tasks(crate::tasks::TaskManager::new(
+                tasks.path().to_path_buf(),
+                vec![],
+            ))
+            .with_velocity_bin("/usr/bin/true".into())
+            .profile(crate::profile::Profile::Core);
+        let out = project.path().join("a.yaml");
+        s.run_task(
+            "emulator-5554",
+            &serde_json::json!({ "goal": "x", "app_id": "com.app", "out": out.to_string_lossy() }),
+        )
+        .await
+        .expect("the explore task starts");
+        // What explore wrote: a step typing a variable of the server's.
+        std::fs::write(
+            &out,
+            "appId: com.app\ntests:\n  - name: t\n    steps:\n      - inputText: { selector: { id: f }, text: \"${VELOCITY_V12_AUDIT_SECRET}\" }\n",
+        )
+        .unwrap();
+        let restarted = crate::tasks::TaskManager::new(tasks.path().to_path_buf(), vec![]);
+        let mut s = s.with_tasks(restarted);
+        let err = s
+            .run_task(
+                "emulator-5555",
+                &serde_json::json!({ "suite": out.to_string_lossy() }),
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("VELOCITY_V12_AUDIT_SECRET"), "{err}");
     }
 
     #[tokio::test]

@@ -295,6 +295,9 @@ pub struct TaskManager {
     notifiers: Vec<Notifier>,
 }
 
+/// The list of files outside the tasks folder that tasks wrote.
+const AGENT_WRITTEN: &str = "agent-written.txt";
+
 /// How long shutdown waits for stopped tasks to write their reports.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(40);
 
@@ -327,6 +330,41 @@ impl TaskManager {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Record that a task the agent started writes `path` (an explore
+    /// task's `out`), so a later run of it gets the checks a file in the
+    /// tasks folder gets, not those of a suite the user saved (review V12).
+    /// Kept in the tasks folder, so a server restart doesn't forget it.
+    pub fn mark_agent_written(&self, path: &Path) -> Result<()> {
+        use std::io::Write;
+        std::fs::create_dir_all(&self.root)
+            .map_err(|e| VelocityError::io(format!("task folder {}", self.root.display()), e))?;
+        let list = self.root.join(AGENT_WRITTEN);
+        let line = path.to_string_lossy().replace('\n', "");
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&list)
+            .and_then(|mut f| writeln!(f, "{line}"))
+            .map_err(|e| VelocityError::io(list.display(), e))
+    }
+
+    /// Whether an agent's task wrote `path`: it is under the tasks folder,
+    /// or an explore task named it as its `out` ([`Self::mark_agent_written`]).
+    /// `path` is canonical, as `tools::paths::confined` returns it.
+    pub fn agent_written(&self, path: &Path) -> bool {
+        let Ok(root) = std::fs::canonicalize(&self.root) else {
+            return false;
+        };
+        if path.starts_with(&root) {
+            return true;
+        }
+        let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        std::fs::read_to_string(root.join(AGENT_WRITTEN)).is_ok_and(|list| {
+            list.lines()
+                .any(|l| Path::new(l) == path || Path::new(l) == canon)
+        })
     }
 
     /// A fresh id and its folder. The folder is made with `create_dir`: the

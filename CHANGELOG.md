@@ -421,6 +421,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 ### Security
 
 - **The Rule of Two for agent sessions**: the default and read-only MCP profiles list no tool that changes the machine ([SECURITY.md](docs/SECURITY.md#9-agents-the-rule-of-two)). [Details](docs/research/changelog-0.2.0-details.md#rule-of-two)
+- **An explore task's `out` stays the agent's suite.** Running it later (`run_task suite`, or as an `after`) gets the checks an agent-written suite gets, so its `${…}` can't read the server's environment; the list of such files lives in the tasks folder (`agent-written.txt`) and survives a restart. Outside `--profile full`, an explored test that types `${EMAIL}` now needs `EMAIL` in `VELOCITY_SECRETS`, as a suite in the tasks folder already did.
 - **MCP `run_task` keeps model-chosen `out`/`script` paths inside the project.** [Details](docs/research/changelog-0.2.0-details.md#run-task-paths)
 - **VelocityRunner refuses cross-site and unauthenticated requests**: a per-launch token, and 403 for an `Origin`, cross-site fetch or foreign `Host`. [Details](docs/research/changelog-0.2.0-details.md#runner-auth)
 - **A cabled iPhone's runner binds the phone's loopback (R-4)**, which the USB (usbmux) forward reaches, instead of every interface, Wi-Fi included.
