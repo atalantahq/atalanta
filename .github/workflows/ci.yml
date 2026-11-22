@@ -243,11 +243,16 @@ jobs:
           # the MachPortRendezvousServer: Permission denied); the network
           # service crash-loops and no page finishes opening. Strip them and
           # check the signature.
+          # The copy is on a read-only volume, so copy it out first.
           if [ "$RUNNER_OS" = macOS ]; then
             app="$(cd "$(dirname "$CHROME_BIN")/../.." && pwd)"
-            xattr -cr "$app"
-            codesign --verify --deep --strict "$app" \
-              || { echo "::error::Chrome's signature does not verify at $app"; exit 1; }
+            dest="$RUNNER_TEMP/chrome/Google Chrome.app"
+            mkdir -p "$RUNNER_TEMP/chrome"
+            ditto "$app" "$dest"
+            xattr -cr "$dest"
+            codesign --verify --deep --strict "$dest" \
+              || { echo "::error::Chrome's signature does not verify at $dest"; exit 1; }
+            CHROME_BIN="$dest/Contents/MacOS/$(basename "$CHROME_BIN")"
           fi
           test -x "$CHROME_BIN" || { echo "::error::no Chrome at '$CHROME_BIN'"; exit 1; }
           "$CHROME_BIN" --version
