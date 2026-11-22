@@ -136,15 +136,47 @@ impl InspectorServer {
         self.start_with_listener(listener).await
     }
 
-    pub async fn start_with_listener(mut self, listener: TcpListener) -> anyhow::Result<()> {
+    pub async fn start_with_listener(self, listener: TcpListener) -> anyhow::Result<()> {
+        self.start_with_listener_until(listener, std::future::pending())
+            .await
+    }
+
+    /// Serve until `shutdown` resolves, then stop gracefully: stop
+    /// accepting, Ctrl-C the console's running tasks (and cancel the queued
+    /// ones), wait up to [`SHUTDOWN_GRACE`] for their children to end, and
+    /// release the console's device leases. Children still alive after that
+    /// are killed with their process groups as the runtime drops.
+    pub async fn start_with_listener_until(
+        mut self,
+        listener: TcpListener,
+        shutdown: impl std::future::Future<Output = ()> + Send,
+    ) -> anyhow::Result<()> {
         let addr = listener.local_addr()?;
         self.state.host_policy = HostPolicy::for_bind_addr(addr.ip());
-        let router = server::build_router(Arc::new(self.state));
+        let state = Arc::new(self.state);
+        let router = server::build_router(state.clone());
 
         tracing::info!("Inspector server listening on {addr}");
 
-        axum::serve(listener, router).await?;
-
+        let served = tokio::select! {
+            r = axum::serve(listener, router) => Some(r),
+            _ = shutdown => None,
+        };
+        // The listener went with the serve future: nothing new arrives.
+        if served.is_none() {
+            tracing::info!("Inspector shutting down");
+        }
+        if !state.tasks.shutdown(SHUTDOWN_GRACE).await {
+            tracing::warn!("console tasks still running after {SHUTDOWN_GRACE:?}; killing them");
+            velocity_common::process::kill_all_groups();
+        }
+        state.control.release_all().await;
+        if let Some(r) = served {
+            r?;
+        }
         Ok(())
     }
 }
+
+/// How long a shutdown waits for console tasks to stop after Ctrl-C.
+pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(25);
