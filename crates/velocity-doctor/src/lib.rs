@@ -650,6 +650,46 @@ mod tests {
         assert!(app_lookup(Ok(None), Duration::ZERO).is_none());
     }
 
+    /// F11 at the call site: `run_checks` itself must keep the app check
+    /// when the lookup outruns its budget (budget = 4 x timeout + 3 s; each
+    /// `pm path` is cut at `timeout`, so enough devices make the sum exceed it).
+    #[tokio::test]
+    async fn run_checks_reports_a_skip_when_the_app_lookup_outruns_its_budget() {
+        use crate::env::fake::Tools;
+        let t = Tools::new();
+        let mut devices = String::from("List of devices attached\\n");
+        for i in 0..20 {
+            devices.push_str(&format!("emulator-{}\\tdevice\\n", 5554 + 2 * i));
+        }
+        t.tool(
+            "adb",
+            &format!(
+                "while [ \"$1\" = \"-s\" ]; do shift 2; done\n\
+                 case \"$1\" in\n  devices) printf '{devices}';;\n  shell) sleep 30;;\nesac"
+            ),
+        );
+        let proj = t.path("proj/velocity");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(
+            proj.join("app.yaml"),
+            "appId: com.example.app\nconfig:\n  platform: android\ntests:\n  - name: opens\n    steps:\n      - launchApp: {}\n",
+        )
+        .unwrap();
+        let opts = Options {
+            env: t.env(),
+            cwd: t.path("proj"),
+            timeout: Duration::from_millis(250),
+            areas: vec![Area::Project],
+            ..Options::default()
+        };
+        let report = run_checks(&opts).await;
+        let c = report
+            .get("project.app_installed")
+            .unwrap_or_else(|| panic!("the app check vanished: {report:?}"));
+        assert_eq!(c.status, Status::Skip, "{c:?}");
+        assert!(c.summary.contains("did not finish in"), "{c:?}");
+    }
+
     /// The wedged-adb diagnosis (and its restart fix) must survive a short
     /// `--timeout`: the area budget has to outlast `adb devices`' slack.
     #[tokio::test]
