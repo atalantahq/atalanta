@@ -561,7 +561,7 @@ fn plan_test(
             match need.location {
                 Location::Path => {
                     let name = var.unwrap_or_else(|| {
-                        let v = screaming(&need.name);
+                        let v = env_name(&need.name);
                         vars.add(
                             &v,
                             &format!("{}: path parameter `{}`", op.label(), need.name),
@@ -582,7 +582,7 @@ fn plan_test(
                         (Some(v), _) => format!("${{{v}}}"),
                         (None, Some(g)) if need.location == Location::Query => spec::text_of(&g),
                         (None, _) => {
-                            let v = screaming(&need.name);
+                            let v = env_name(&need.name);
                             let what = if need.location == Location::Query {
                                 "query"
                             } else {
@@ -708,7 +708,7 @@ impl Auth {
                 if single {
                     format!("API_{suffix}")
                 } else {
-                    let base = screaming(name);
+                    let base = env_name(name);
                     if base.ends_with(suffix) {
                         base
                     } else {
@@ -834,6 +834,20 @@ fn jaccard(a: &[String], b: &[String]) -> f64 {
 
 /// `petId`, `pet-id`, `line-item_id` → `PET_ID`, `LINE_ITEM_ID`: a name
 /// `${…}` takes.
+/// The variable a placeholder named after the spec (a parameter, a security
+/// scheme) reads: always under `API_`. A spec could otherwise name a parameter
+/// `aws_secret_access_key`, and `--confirm` would read that variable from the
+/// environment and send it to the spec's server.
+fn env_name(s: &str) -> String {
+    let name = screaming(s);
+    let name = name.trim_start_matches('_');
+    if name.starts_with("API_") {
+        name.to_string()
+    } else {
+        format!("API_{name}")
+    }
+}
+
 fn screaming(s: &str) -> String {
     let mut out = String::new();
     let mut prev: Option<char> = None;
