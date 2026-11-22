@@ -2404,6 +2404,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // F28 at the call site: three attempts on one device (the run and two
+    // retries) each keep their own trace files. With the old
+    // `failed_on.len().max(1)` both retries were "retry 1" and the second
+    // overwrote the first.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn same_device_retries_keep_a_trace_each() {
+        let dir = scratch("retrytrace");
+        let driver = Arc::new(SplitDriver {
+            devices: vec!["par-retrytrace-bad".into()],
+            bad: "par-retrytrace-bad",
+            infra: false,
+        });
+        let cfg = RuntimeConfig {
+            trace: velocity_common::TraceMode::Always,
+            ..config(&dir)
+        };
+        let mut s = suite(1, 2);
+        s.config.artifacts.output_dir = dir.to_string_lossy().into_owned();
+        let result = ParallelRunner::run(s, cfg, driver, 1).await.unwrap();
+        assert_eq!(result.tests[0].failed_attempts.len(), 2);
+        let trace_dir = dir.join("traces").join("t0");
+        let mut steps: Vec<String> = std::fs::read_dir(&trace_dir)
+            .unwrap_or_else(|e| panic!("{}: {e}", trace_dir.display()))
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("steps") && n.ends_with(".json"))
+            .collect();
+        steps.sort();
+        // Each attempt has its own numbered file, none shared.
+        assert_eq!(steps.len(), 3, "{steps:?}");
+        assert!(
+            steps.iter().any(|n| n.contains("-retry2")),
+            "no file for the second retry: {steps:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // m-5: the per-test retry cap applied to sequential runs only.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn parallel_retries_are_capped_per_test() {
