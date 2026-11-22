@@ -257,6 +257,14 @@ impl PlatformDriver for RoutingDriver {
     async fn long_press(&self, id: &str, e: &Element, ms: u64) -> Result<()> {
         self.of(id)?.long_press(id, e, ms).await
     }
+    async fn touch_forced(
+        &self,
+        id: &str,
+        e: &Element,
+        touch: velocity_common::Touch,
+    ) -> Result<()> {
+        self.of(id)?.touch_forced(id, e, touch).await
+    }
     async fn input_text(&self, id: &str, e: &Element, text: &str) -> Result<()> {
         self.of(id)?.input_text(id, e, text).await
     }

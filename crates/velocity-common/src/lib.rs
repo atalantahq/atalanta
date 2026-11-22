@@ -41,7 +41,7 @@ pub use install::InstallOutcome;
 pub use resilience::{CircuitBreaker, ProbePermit, ResilientDriver, RetryPolicy};
 pub use result::*;
 pub use test_types::*;
-pub use traits::{HealthStatus, Liveness, PlatformDriver};
+pub use traits::{HealthStatus, Liveness, PlatformDriver, Touch};
 pub use types::*;
 
 /// Where `saveState` keeps app data: `~/.velocity/state/<device>/<app>/<name>`

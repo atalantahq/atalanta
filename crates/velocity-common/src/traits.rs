@@ -2,6 +2,15 @@ use crate::error::Result;
 use crate::types::{DeviceInfo, Direction, Element, Key, LaunchArgs, Selector};
 use crate::VelocityError;
 
+/// Which touch [`PlatformDriver::touch_forced`] makes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Touch {
+    Tap,
+    DoubleTap,
+    /// A long press held this many milliseconds.
+    LongPress(u64),
+}
+
 /// Health status of a platform driver connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HealthStatus {
@@ -273,6 +282,18 @@ pub trait PlatformDriver: Send + Sync {
     async fn tap(&self, device_id: &str, element: &Element) -> Result<()>;
     async fn double_tap(&self, device_id: &str, element: &Element) -> Result<()>;
     async fn long_press(&self, device_id: &str, element: &Element, duration_ms: u64) -> Result<()>;
+    /// A tap, double tap or long press from a step with `force: true`
+    /// (D-3): touch the element even where the driver's own checks would
+    /// refuse (Android: a window it reads as covering the target). A driver
+    /// with no such check keeps this default, the ordinary touch. A driver
+    /// that wraps another must forward it, or `force` is dropped.
+    async fn touch_forced(&self, device_id: &str, element: &Element, touch: Touch) -> Result<()> {
+        match touch {
+            Touch::Tap => self.tap(device_id, element).await,
+            Touch::DoubleTap => self.double_tap(device_id, element).await,
+            Touch::LongPress(ms) => self.long_press(device_id, element, ms).await,
+        }
+    }
     async fn input_text(&self, device_id: &str, element: &Element, text: &str) -> Result<()>;
     async fn clear_text(&self, device_id: &str, element: &Element) -> Result<()>;
     async fn swipe(&self, device_id: &str, direction: Direction) -> Result<()>;

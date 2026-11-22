@@ -1019,6 +1019,23 @@ impl AndroidDriver {
         }
     }
 
+    /// Touch the screen at `(x, y)`: the one place tap, double tap and long
+    /// press go, forced or not.
+    async fn touch_at(&self, device_id: &str, (x, y): (i32, i32), touch: Touch) -> Result<()> {
+        self.invalidate_cache(device_id).await;
+        match touch {
+            Touch::Tap => self.tap_point(device_id, x, y, 1).await,
+            Touch::DoubleTap => self.tap_point(device_id, x, y, 2).await,
+            Touch::LongPress(ms) => {
+                let pressed = self.tree.long_press(device_id, x, y, ms).await;
+                if let Some(r) = Self::server(device_id, "long press", pressed) {
+                    return r;
+                }
+                self.adb.long_press(device_id, x, y, ms).await
+            }
+        }
+    }
+
     /// Whether `run-as` works for the package (a debuggable build).
     async fn debuggable(&self, device_id: &str, app_id: &str) -> bool {
         self.adb
@@ -1814,25 +1831,26 @@ impl PlatformDriver for AndroidDriver {
     }
 
     async fn tap(&self, device_id: &str, element: &Element) -> Result<()> {
-        let (x, y) = self.touch_point(device_id, &element.bounds).await?;
-        self.invalidate_cache(device_id).await;
-        self.tap_point(device_id, x, y, 1).await
+        let at = self.touch_point(device_id, &element.bounds).await?;
+        self.touch_at(device_id, at, Touch::Tap).await
     }
 
     async fn double_tap(&self, device_id: &str, element: &Element) -> Result<()> {
-        let (x, y) = self.touch_point(device_id, &element.bounds).await?;
-        self.invalidate_cache(device_id).await;
-        self.tap_point(device_id, x, y, 2).await
+        let at = self.touch_point(device_id, &element.bounds).await?;
+        self.touch_at(device_id, at, Touch::DoubleTap).await
     }
 
     async fn long_press(&self, device_id: &str, element: &Element, duration_ms: u64) -> Result<()> {
-        let (x, y) = self.touch_point(device_id, &element.bounds).await?;
-        self.invalidate_cache(device_id).await;
-        let pressed = self.tree.long_press(device_id, x, y, duration_ms).await;
-        if let Some(r) = Self::server(device_id, "long press", pressed) {
-            return r;
-        }
-        self.adb.long_press(device_id, x, y, duration_ms).await
+        let at = self.touch_point(device_id, &element.bounds).await?;
+        self.touch_at(device_id, at, Touch::LongPress(duration_ms))
+            .await
+    }
+
+    /// `force: true`: the element's center, with no cover check (the
+    /// window list can be stale or wrong about what is in front).
+    async fn touch_forced(&self, device_id: &str, element: &Element, touch: Touch) -> Result<()> {
+        self.touch_at(device_id, element.bounds.center(), touch)
+            .await
     }
 
     async fn input_text(&self, device_id: &str, element: &Element, text: &str) -> Result<()> {

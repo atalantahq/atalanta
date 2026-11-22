@@ -276,6 +276,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- **`force: true` reaches the Android driver.** A forced `tap`, `doubleTap` or `longPress` touches the element's center without the covering-window check; before, the driver still refused it as covered. `inputText` and `clearText` keep the check. Not yet run on a device.
 - **`velocity api scaffold` names every placeholder taken from the spec under `API_`** (a parameter `storeId` becomes `${API_STORE_ID}`). A spec could name a parameter `aws_secret_access_key`, and `--confirm` read that variable from your environment and sent it to the spec's server.
 - **A missing element's report commits only as far as the evidence goes.** In this order:
   - **Earlier screen:** if the text was on an earlier step's screen, the report names that step.
