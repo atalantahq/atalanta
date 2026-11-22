@@ -41,6 +41,9 @@ pub type ApiError = (StatusCode, String);
 
 /// Events a task keeps for viewers that join late.
 const MAX_EVENTS: usize = 20_000;
+/// How long a cancelled task's child gets to stop after Ctrl-C before it
+/// is killed.
+pub const STOP_GRACE: Duration = Duration::from_secs(20);
 /// The longest log line kept.
 const MAX_LINE: usize = 2000;
 
@@ -293,6 +296,29 @@ impl Tasks {
             .clone()
     }
 
+    /// Stop every task that hasn't finished (queued ones never start; a
+    /// running child gets Ctrl-C) and wait up to `grace` for them to end.
+    /// Returns whether all did. What is left is killed when the runtime
+    /// drops their children's process-group guards.
+    pub async fn shutdown(&self, grace: Duration) -> bool {
+        let live: Vec<_> = self
+            .all()
+            .into_iter()
+            .filter(|r| !r.status().finished())
+            .collect();
+        for r in &live {
+            let _ = r.cancel.send(true);
+        }
+        let deadline = tokio::time::Instant::now() + grace;
+        while live.iter().any(|r| !r.status().finished()) {
+            if tokio::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        true
+    }
+
     fn device_lock(&self, device_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         self.devices
             .lock()
@@ -375,12 +401,18 @@ impl Tasks {
                     rec.set_status(TaskStatus::Error, Some(e));
                     return;
                 }
-            } else if st.control.release(&device).await {
-                // A child `velocity run` takes the lease itself.
-                rec.push(
-                    "log",
-                    json!({"stream": "console", "line": "released the console's control of the device for the run"}),
-                );
+            } else {
+                // Mark the device busy before letting go of the lease: in
+                // between, an input request would take it again and the
+                // child would find it held.
+                st.control.set_task(&device, Some(rec.id));
+                if st.control.release(&device).await {
+                    // A child `velocity run` takes the lease itself.
+                    rec.push(
+                        "log",
+                        json!({"stream": "console", "line": "released the console's control of the device for the run"}),
+                    );
+                }
             }
             st.control.set_task(&device, Some(rec.id));
             rec.set_status(TaskStatus::Running, None);
@@ -593,15 +625,19 @@ impl ConsoleTask for SuiteRun {
         let mut partial = String::new();
         let mut tick = tokio::time::interval(Duration::from_millis(100));
         let mut cancelled = false;
+        let mut kill_at: Option<tokio::time::Instant> = None;
         let mut lines_open = true;
         let status = loop {
             tokio::select! {
                 st = child.wait() => break st.ok(),
-                _ = ctx.cancel.changed() => {
+                // Ctrl-C first, like explore: the runner stops, finalizes
+                // its video and restores the device. Killed only if it
+                // hasn't ended within `STOP_GRACE`.
+                _ = ctx.cancel.changed(), if !cancelled => {
                     if *ctx.cancel.borrow() {
                         cancelled = true;
-                        let _ = child.start_kill();
-                        break None;
+                        interrupt(&child);
+                        kill_at = Some(tokio::time::Instant::now() + STOP_GRACE);
                     }
                 }
                 l = lines.recv(), if lines_open => match l {
@@ -612,6 +648,9 @@ impl ConsoleTask for SuiteRun {
                     for v in tail(&events_file, &mut offset, &mut partial).await {
                         let kind = v.get("event").and_then(Value::as_str).unwrap_or("event").to_string();
                         ctx.emit(&kind, v);
+                    }
+                    if kill_at.is_some_and(|t| tokio::time::Instant::now() >= t) {
+                        let _ = child.start_kill();
                     }
                 }
             }
@@ -878,7 +917,7 @@ impl ConsoleTask for ExploreTask {
                     if *ctx.cancel.borrow() {
                         cancelled = true;
                         interrupt(&child);
-                        kill_at = Some(tokio::time::Instant::now() + Duration::from_secs(20));
+                        kill_at = Some(tokio::time::Instant::now() + STOP_GRACE);
                     }
                 }
                 Some(text) = ctx.instructions.recv() => {
@@ -1433,5 +1472,96 @@ mod tests {
     fn log_lines_lose_colours_and_length() {
         assert_eq!(clean_line("\x1b[32m✓\x1b[0m login"), "✓ login");
         assert!(clean_line(&"x".repeat(5000)).len() <= MAX_LINE + 3);
+    }
+
+    /// A suite run that stops cleanly on Ctrl-C and says so in a file.
+    struct TrapLauncher;
+    impl SuiteLauncher for TrapLauncher {
+        fn command(
+            &self,
+            _: &Path,
+            _: &RunRequest,
+            out_dir: &Path,
+            _: &Path,
+        ) -> tokio::process::Command {
+            let mut c = tokio::process::Command::new("/bin/sh");
+            c.arg("-c")
+                .arg(
+                    "trap 'echo stopped > \"$1/stopped.txt\"; exit 130' INT; \
+                     echo $$ > \"$1/pid.txt\"; echo ready; \
+                     while true; do sleep 0.05; done",
+                )
+                .arg("sh")
+                .arg(out_dir);
+            c
+        }
+    }
+
+    async fn trap_run(tag: &str) -> (Arc<AppState>, Arc<TaskRecord>, PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "vel-trap-{tag}-{}-{}",
+            std::process::id(),
+            crate::security::new_token()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = AppState::new(Arc::new(crate::no_device::NoDevice), None, None);
+        state.console.runs_dir = dir.join("runs");
+        state.console.project_dir = dir.clone();
+        let state = Arc::new(state);
+        let task = SuiteRun {
+            suite: dir.join("s.yaml"),
+            req: RunRequest {
+                suite: "s.yaml".into(),
+                device_id: "dev".into(),
+                filter: None,
+            },
+            launcher: Arc::new(TrapLauncher),
+        };
+        let rec = state.tasks.submit(&state, Box::new(task), "dev").unwrap();
+        // The script has installed its trap once it has written its pid.
+        for _ in 0..200 {
+            if rec.out_dir.join("pid.txt").is_file() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        (state, rec, dir)
+    }
+
+    /// V6: cancelling a run is Ctrl-C to the child first, so its own
+    /// cleanup runs (it used to be SIGKILL).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelling_a_run_interrupts_it_before_killing() {
+        let (_state, rec, dir) = trap_run("cancel").await;
+        rec.cancel.send(true).unwrap();
+        for _ in 0..200 {
+            if rec.status().finished() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert_eq!(rec.status(), TaskStatus::Cancelled);
+        assert!(rec.out_dir.join("stopped.txt").is_file(), "no cleanup ran");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// V5: shutting the console down stops its running children.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn shutdown_stops_running_children() {
+        let (state, rec, dir) = trap_run("shutdown").await;
+        let pid: i32 = std::fs::read_to_string(rec.out_dir.join("pid.txt"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(state.tasks.shutdown(Duration::from_secs(10)).await);
+        assert!(rec.status().finished());
+        // SAFETY: signal 0 only checks that the process exists.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        assert!(!alive, "the child outlived the shutdown");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
