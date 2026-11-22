@@ -141,7 +141,7 @@ pub struct TestCase {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum SyncMode {
-    /// v1 polling-based sync (default).
+    /// v1 polling-based sync.
     Polling,
     /// v2 native probe sync (requires probe embedded in app).
     Native,
@@ -597,7 +597,8 @@ impl std::str::FromStr for VerifyLevel {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AiConfig {
-    /// `anthropic` or `openai` (any OpenAI-compatible endpoint).
+    /// A preset name ([`crate::natural::AI_PROVIDER_PRESETS`]: `anthropic`,
+    /// `openai`, `gemini`, `bedrock`, `ollama`, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     /// The model for single steps and checks.

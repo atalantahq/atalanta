@@ -40,15 +40,12 @@ pub fn keychain(account: &str) -> Result<String, String> {
                 .to_vec(),
         ),
     };
-    let out = Command::new(&program)
-        .args(&args)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|e| format!("keychain: can't run {program}: {e}"))?;
-    let value = String::from_utf8_lossy(&out.stdout)
+    let (ok, stdout) = run_with_deadline(&program, &args, crate::process::default_timeout())
+        .map_err(|e| format!("keychain: {e}"))?;
+    let value = String::from_utf8_lossy(&stdout)
         .trim_end_matches(['\r', '\n'])
         .to_string();
-    if !out.status.success() || value.is_empty() {
+    if !ok || value.is_empty() {
         return Err(format!(
             "keychain: no secret for account {account:?} under service {service:?} \
              (store it with: security add-generic-password -s {service} -a {account} -w, \
@@ -57,6 +54,58 @@ pub fn keychain(account: &str) -> Result<String, String> {
     }
     crate::redact::register_secret(&value);
     Ok(value)
+}
+
+/// Run `program` with `args` and no stdin, and give back whether it
+/// succeeded and what it printed. A keychain command can wait for ever: macOS
+/// `security` blocks on a locked keychain's unlock prompt (nobody to answer it
+/// in CI or over SSH), and a password-manager wrapper on a login. So the
+/// command is killed once `timeout` passes and the secret reported missing,
+/// instead of the whole run hanging while the suite loads (V5).
+fn run_with_deadline(
+    program: &str,
+    args: &[String],
+    timeout: std::time::Duration,
+) -> Result<(bool, Vec<u8>), String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("can't run {program}: {e}"))?;
+    let mut pipe = child.stdout.take();
+    // Read on a thread: a command that fills the pipe must not block here.
+    let reader = std::thread::spawn(move || {
+        let mut out = Vec::new();
+        if let Some(p) = pipe.as_mut() {
+            let _ = p.read_to_end(&mut out);
+        }
+        out
+    });
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                // The reader is left to end on its own: a grandchild that
+                // inherited the pipe could keep it open.
+                return Err(format!(
+                    "{program} gave no answer within {:.0}s (a locked keychain waiting for a \
+                     prompt?); VELOCITY_COMMAND_TIMEOUT_MS sets how long to wait",
+                    timeout.as_secs_f32()
+                ));
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Err(e) => return Err(format!("waiting for {program}: {e}")),
+        }
+    };
+    let out = reader.join().unwrap_or_default();
+    Ok((status.success(), out))
 }
 
 /// RFC 4648 base32 (the alphabet authenticator apps use), case and spaces
@@ -137,9 +186,14 @@ mod tests {
         assert!(totp_at("not base32!", 59).is_err());
     }
 
+    /// The tests that install settings share the process-wide settings.
+    #[cfg(unix)]
+    static SETTINGS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[cfg(unix)]
     #[test]
     fn a_custom_keychain_command_is_called_with_service_and_account() {
+        let _serial = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
         let dir = tempfile::tempdir().unwrap();
         let cmd = dir.path().join("fake-keychain");
         std::fs::write(
@@ -162,5 +216,35 @@ mod tests {
         let mut env = crate::env::settings_snapshot();
         env.remove("VELOCITY_KEYCHAIN_CMD");
         crate::env::set_settings(env);
+    }
+
+    // V5: the keychain command had no deadline, so a `security` waiting on a
+    // locked keychain's prompt (or a wrapper waiting on a login) hung the
+    // run as the suite loaded.
+    #[cfg(unix)]
+    #[test]
+    fn a_keychain_command_that_never_answers_is_killed_at_the_deadline() {
+        let _serial = SETTINGS.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = tempfile::tempdir().unwrap();
+        let cmd = dir.path().join("hung-keychain");
+        std::fs::write(&cmd, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cmd, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let before = crate::env::settings_snapshot();
+        let mut env = before.clone();
+        env.insert(
+            "VELOCITY_KEYCHAIN_CMD".into(),
+            cmd.to_string_lossy().into_owned(),
+        );
+        env.insert("VELOCITY_COMMAND_TIMEOUT_MS".into(), "300".into());
+        crate::env::set_settings(env);
+        let started = std::time::Instant::now();
+        let err = keychain("HUNG").unwrap_err();
+        crate::env::set_settings(before);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "{err}"
+        );
+        assert!(err.contains("gave no answer within"), "{err}");
     }
 }
