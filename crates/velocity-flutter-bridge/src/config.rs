@@ -68,6 +68,25 @@ impl std::str::FromStr for HierarchyMode {
     }
 }
 
+/// `VELOCITY_FLUTTER_HIERARCHY` read like the suite's `flutter.hierarchy`
+/// (any case, spaces trimmed), with a warning for a value that is neither
+/// mode: it used to select semantics silently, so `Widgets` or `widget`
+/// opted nothing out.
+fn mode_from_env(value: Option<&str>) -> (HierarchyMode, Option<String>) {
+    let Some(v) = value.filter(|v| !v.trim().is_empty()) else {
+        return (HierarchyMode::Semantics, None);
+    };
+    match v.parse::<HierarchyMode>() {
+        Ok(mode) => (mode, None),
+        Err(_) => (
+            HierarchyMode::Semantics,
+            Some(format!(
+                "VELOCITY_FLUTTER_HIERARCHY={v:?} is neither `semantics` nor `widgets`; semantics is used"
+            )),
+        ),
+    }
+}
+
 /// The oldest Flutter the headless bridge supports (D-41): `Semantics(
 /// identifier:)`, which `id:` matches in the default semantics tree,
 /// arrived in 3.19. On an older SDK the app compiles but no `id:` ever
@@ -91,10 +110,12 @@ impl FlutterBridgeConfig {
         if let Some(mode) = self.hierarchy {
             return mode;
         }
-        match velocity_common::env::var("VELOCITY_FLUTTER_HIERARCHY").as_deref() {
-            Ok("widgets") => HierarchyMode::Widgets,
-            _ => HierarchyMode::Semantics,
-        }
+        mode_from_env(
+            velocity_common::env::var("VELOCITY_FLUTTER_HIERARCHY")
+                .ok()
+                .as_deref(),
+        )
+        .0
     }
 
     /// The bridge config a suite asks for: `headless.width/height/
@@ -148,8 +169,27 @@ impl FlutterBridgeConfig {
                 config.hierarchy = Some(h.parse().map_err(VelocityError::Config)?);
             }
         }
+        if config.hierarchy.is_none() {
+            warnings.extend(
+                mode_from_env(
+                    velocity_common::env::var("VELOCITY_FLUTTER_HIERARCHY")
+                        .ok()
+                        .as_deref(),
+                )
+                .1,
+            );
+        }
         if config.hierarchy_mode() == HierarchyMode::Widgets {
             warnings.push(WIDGETS_DEPRECATED.into());
+        }
+        if config.golden_dir.is_some() {
+            // Read from the suite but used by nothing: a golden comparison
+            // here is `assertScreenshot`, with Velocity's own baselines.
+            warnings.push(
+                "flutter.goldenDir has no effect: the Flutter bridge compares nothing against \
+                 golden files (use `assertScreenshot`)"
+                    .into(),
+            );
         }
         let project = std::path::Path::new(&config.project_path);
         if let Some(version) = detect_flutter_version(project) {
@@ -354,6 +394,34 @@ mod tests {
         assert_eq!(c.device_pixel_ratio, Some(2.625));
         s.headless.as_mut().unwrap().device_pixel_ratio = Some(0.0);
         assert!(FlutterBridgeConfig::from_suite(&s).is_err());
+    }
+
+    #[test]
+    fn the_hierarchy_variable_reads_like_the_suite_key_and_typos_warn() {
+        assert_eq!(mode_from_env(None), (HierarchyMode::Semantics, None));
+        assert_eq!(mode_from_env(Some("")), (HierarchyMode::Semantics, None));
+        assert_eq!(
+            mode_from_env(Some(" Widgets ")),
+            (HierarchyMode::Widgets, None)
+        );
+        assert_eq!(
+            mode_from_env(Some("semantics")),
+            (HierarchyMode::Semantics, None)
+        );
+        let (mode, warning) = mode_from_env(Some("widget"));
+        assert_eq!(mode, HierarchyMode::Semantics);
+        assert!(warning.unwrap().contains("widget"));
+    }
+
+    #[test]
+    fn a_golden_dir_is_reported_as_unused() {
+        let mut s = suite(&std::env::temp_dir(), None);
+        s.flutter.as_mut().unwrap().golden_dir = Some("goldens".into());
+        let (_, warnings) = FlutterBridgeConfig::from_suite(&s).unwrap();
+        assert!(
+            warnings.iter().any(|w| w.contains("goldenDir")),
+            "{warnings:?}"
+        );
     }
 
     fn tempfile_dir(tag: &str) -> std::path::PathBuf {
