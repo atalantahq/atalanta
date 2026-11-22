@@ -121,6 +121,28 @@ where
     false
 }
 
+/// Polls `check` (every 50 ms) until it holds or `limit` of wall-clock
+/// time has passed; whether it did. For waits on something outside the
+/// test's own process (a killed Chrome going away, a garbage collection),
+/// where a loaded machine stretches the wait: [`eventually`] counts tries,
+/// not time.
+pub async fn eventually_for<F, Fut>(limit: std::time::Duration, mut check: F) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let end = std::time::Instant::now() + limit;
+    loop {
+        if check().await {
+            return true;
+        }
+        if std::time::Instant::now() >= end {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 /// Waits (as [`eventually`]) until `s` is found, in the page or one of
 /// its frames: a frame that is still loading, instead of a fixed sleep
 /// (review 07 M9). Whether it was.
@@ -191,15 +213,33 @@ pub async fn text(d: &WebDriver, s: &str) -> String {
     d.get_element_text("web", &el).await.unwrap()
 }
 
-/// Polls `s`'s text until it equals `want` (pages update asynchronously).
+/// Polls `s`'s text until it equals `want` (pages update asynchronously,
+/// and a page still being replaced has no `s` for a moment: that is waited
+/// out, not a failure). The last text read; a lookup that never worked
+/// panics with its error.
 pub async fn wait_text(d: &WebDriver, s: &str, want: &str) -> String {
-    let mut got = String::new();
+    let mut got = None;
+    let mut last_err = None;
     for _ in 0..60 {
-        got = text(d, s).await;
-        if got == want {
-            break;
+        let read = match d.find_element("web", &css(s)).await {
+            Ok(el) => d.get_element_text("web", &el).await,
+            Err(e) => Err(e),
+        };
+        match read {
+            Ok(t) => {
+                let done = t == want;
+                got = Some(t);
+                if done {
+                    break;
+                }
+            }
+            Err(e) => last_err = Some(e),
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
-    got
+    match (got, last_err) {
+        (Some(t), _) => t,
+        (None, Some(e)) => panic!("find {s}: {e}"),
+        (None, None) => String::new(),
+    }
 }

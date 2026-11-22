@@ -19,6 +19,10 @@ fn my_profiles() -> Vec<std::path::PathBuf> {
 /// These tests count this process's profile dirs: one at a time.
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// How long a killed Chrome gets to leave the process table: SIGKILL is
+/// immediate but the exit is the kernel's, and a loaded machine is slow.
+const GONE: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// Alive and not a zombie waiting to be reaped.
 fn running(pid: u32) -> bool {
     std::process::Command::new("ps")
@@ -81,7 +85,7 @@ async fn the_second_signal_kills_every_chrome_and_removes_its_profile() {
     for pid in &pids {
         let pid = *pid;
         assert!(
-            common::eventually(|| async move { !running(pid) }).await,
+            common::eventually_for(GONE, || async move { !running(pid) }).await,
             "Chrome {pid} survived the second signal"
         );
     }
@@ -135,7 +139,7 @@ async fn the_second_signal_kills_the_shared_chrome_and_removes_its_profile() {
     velocity_common::process::kill_all_groups();
     let pid = pids[0];
     assert!(
-        common::eventually(|| async move { !running(pid) }).await,
+        common::eventually_for(GONE, || async move { !running(pid) }).await,
         "Chrome {pid} survived the second signal"
     );
     assert!(
@@ -163,7 +167,7 @@ async fn context_mode_leaves_no_profile_or_chrome_behind() {
     d.cleanup().await;
     assert!(my_profiles().is_empty(), "{:?}", my_profiles());
     let pid = pid[0];
-    assert!(common::eventually(|| async move { !running(pid) }).await);
+    assert!(common::eventually_for(GONE, || async move { !running(pid) }).await);
 
     let d = context_driver();
     d.prepare("web-0").await.unwrap();

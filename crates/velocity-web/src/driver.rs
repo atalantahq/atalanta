@@ -644,9 +644,13 @@ impl WebDriver {
                         && e.visible_bounds.is_none_or(|v| !v.is_empty())
                 };
                 let n = all.iter().filter(|e| on_screen(e)).count();
+                // On screen first, then merely rendered, as `pick` does in
+                // the page: a first match scrolled out of the viewport
+                // took the pick from the one the user sees.
                 let shown = all
                     .iter()
-                    .position(|e| e.visible && !e.bounds.is_empty())
+                    .position(on_screen)
+                    .or_else(|| all.iter().position(|e| e.visible && !e.bounds.is_empty()))
                     .unwrap_or(0);
                 all.into_iter()
                     .nth(shown)
@@ -874,9 +878,28 @@ impl WebDriver {
         // text never reached a date picker's `.value` (NB-2).
         // In the element's own document: a field in a cross-origin frame
         // has its focus there (W4).
-        let focus = page
+        let mut focus = page
             .call_near(id, cdp::CDP_TIMEOUT, "caretToEnd", vec![text.into()])
             .await?;
+        // A click that landed on an <iframe> moves the focus into it, but
+        // the page's own `activeElement` follows the browser's focus
+        // change a moment later: asked at once (a loaded machine), it
+        // still said <body> and the step failed as "focus is on <body>"
+        // with the text about to go into the frame's field. Ask again
+        // for a while, but only when the click was over a frame.
+        if !in_frame
+            && focus["editable"] == false
+            && focus_check_enabled()
+            && Self::over_a_frame(page, x, y).await
+        {
+            let end = Instant::now() + FOCUS_SETTLE;
+            while focus["editable"] == false && Instant::now() < end {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                focus = page
+                    .call_near(id, cdp::CDP_TIMEOUT, "caretToEnd", vec![text.into()])
+                    .await?;
+            }
+        }
         if let Some(err) = focus["error"].as_str() {
             return Err(VelocityError::CommandFailed {
                 device_id: device_id.into(),
@@ -901,6 +924,16 @@ impl WebDriver {
         // Key by key, as a user types (React's controlled inputs see that
         // too), so `keydown`/`keyup` handlers run (review 10 #7).
         page.type_text(text).await
+    }
+
+    /// Whether the page point (`x`, `y`) is over an `<iframe>` of the top
+    /// document: a click there went into that frame.
+    async fn over_a_frame(page: &dyn BrowserProtocol, x: f64, y: f64) -> bool {
+        page.call("frameAt", vec![x.into(), y.into()])
+            .await
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     /// `inputText` on a file input: the paths in `text` (one per line,
@@ -2558,6 +2591,10 @@ fn has_text_matches(selector: &Selector) -> bool {
         _ => false,
     }
 }
+/// How long `inputText` waits for the focus a click moved into an
+/// `<iframe>` to show on the page (see `type_into`).
+const FOCUS_SETTLE: Duration = Duration::from_millis(1500);
+
 /// How long a tap waits for its target to become actionable.
 const ACTIONABLE_WAIT: Duration = Duration::from_millis(1000);
 
@@ -3075,6 +3112,35 @@ mod fake_protocol {
         assert!(WebDriver::resolve_element(&shown, &sel).await.is_ok());
     }
 
+    /// A match the tree path (`textMatches`, relations) finds: the one
+    /// on screen is picked over an earlier one clipped out of the
+    /// viewport, as the page's own `pick` does, and `n` counts it.
+    #[tokio::test]
+    async fn the_tree_path_picks_an_on_screen_match_first() {
+        let walk = vec![
+            json!({"velId": "b", "tag": "body", "p": -1, "x": 0, "y": 0, "w": 800, "h": 3000}),
+            // Rendered with a box, but its visible part is empty.
+            json!({"velId": "far", "tag": "button", "p": 0, "text": "Buy",
+                   "x": 0, "y": 2000, "w": 50, "h": 20, "vb": [0, 2000, 0, 0]}),
+            json!({"velId": "near", "tag": "button", "p": 0, "text": "Buy",
+                   "x": 0, "y": 10, "w": 50, "h": 20}),
+        ];
+        let fake = Fake::default().answer("walk", vec![Value::Array(walk)]);
+        let sel = Selector::TextMatches("^Buy$".into());
+        let (el, n) = WebDriver::resolve_element(&fake, &sel).await.unwrap();
+        assert_eq!(el.platform_id, "near");
+        assert_eq!(n, Some(1));
+        // Nothing on screen: the first rendered match, as before.
+        let walk = vec![
+            json!({"velId": "b", "tag": "body", "p": -1, "x": 0, "y": 0, "w": 800, "h": 3000}),
+            json!({"velId": "far", "tag": "button", "p": 0, "text": "Buy",
+                   "x": 0, "y": 2000, "w": 50, "h": 20, "vb": [0, 2000, 0, 0]}),
+        ];
+        let fake = Fake::default().answer("walk", vec![Value::Array(walk)]);
+        let (el, n) = WebDriver::resolve_element(&fake, &sel).await.unwrap();
+        assert_eq!((el.platform_id.as_str(), n), ("far", Some(0)));
+    }
+
     fn in_frame(kind: &str) -> Element {
         Element {
             platform_id: "@1/9.x".into(),
@@ -3188,6 +3254,65 @@ mod fake_protocol {
         assert!(none.ops("focusWithin").is_empty());
     }
 
+    /// A click on an `<iframe>` moves the focus into it, but the page's
+    /// `activeElement` follows a moment later: `inputText` asked at once
+    /// (a loaded machine) read `<body>` and failed with the text about to
+    /// go into the frame. Over a frame it asks again; elsewhere a focus
+    /// that takes no text still fails at once, with no wait.
+    #[tokio::test]
+    async fn a_click_into_a_frame_waits_for_the_focus_to_show() {
+        let script = |over_frame: bool| {
+            Fake::default()
+                .answer("isSelect", vec![json!(false)])
+                .answer("act", vec![json!({"ok": true, "x": 5, "y": 5})])
+                .answer("arm", vec![json!(false)])
+                .answer("frameAt", vec![json!(over_frame)])
+                .answer(
+                    "caretToEnd",
+                    vec![
+                        json!({"editable": false, "tag": "body", "mode": "type"}),
+                        json!({"editable": false, "tag": "body", "mode": "type"}),
+                        json!({"editable": null, "tag": "iframe", "mode": "type"}),
+                    ],
+                )
+        };
+        let label = Element {
+            element_type: "div".into(),
+            ..button()
+        };
+        let frame = script(true);
+        WebDriver::type_into(&frame, "web", &label, "4242")
+            .await
+            .unwrap();
+        assert_eq!(*frame.typed.lock().unwrap(), ["4242"]);
+        assert_eq!(frame.ops("caretToEnd").len(), 3);
+        // Not over a frame: the first answer stands, at once.
+        let plain = script(false);
+        let start = std::time::Instant::now();
+        let e = WebDriver::type_into(&plain, "web", &label, "x")
+            .await
+            .unwrap_err();
+        assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e}");
+        assert_eq!(plain.ops("caretToEnd").len(), 1);
+        assert!(start.elapsed() < Duration::from_millis(500));
+        // Over a frame whose focus never shows: refused after the wait,
+        // not forever.
+        let never = Fake::default()
+            .answer("isSelect", vec![json!(false)])
+            .answer("act", vec![json!({"ok": true, "x": 5, "y": 5})])
+            .answer("arm", vec![json!(false)])
+            .answer("frameAt", vec![json!(true)])
+            .answer(
+                "caretToEnd",
+                vec![json!({"editable": false, "tag": "body", "mode": "type"})],
+            );
+        let e = WebDriver::type_into(&never, "web", &label, "x")
+            .await
+            .unwrap_err();
+        assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e}");
+        assert!(never.typed.lock().unwrap().is_empty());
+    }
+
     /// `inputText`: typed in one go when the focus takes text, refused
     /// (D-5) when it doesn't.
     #[tokio::test]
@@ -3265,7 +3390,9 @@ mod tests {
         remove_profile_dir(&dir).await;
         writer.join().unwrap();
         assert!(!dir.exists(), "the profile dir survived");
-        assert!(start.elapsed() < std::time::Duration::from_millis(1_500));
+        // `remove_profile_dir` gives up after about a second; this is "it
+        // didn't spin forever", with room for a loaded machine's sleeps.
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]

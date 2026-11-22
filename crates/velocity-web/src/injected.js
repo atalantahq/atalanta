@@ -1130,6 +1130,14 @@
     return x >= r.left + o[0] && x <= r.right + o[0] && y >= r.top + o[1] && y <= r.bottom + o[1];
   }
 
+  // Whether the point (`x`, `y`, top-page px) is over an <iframe> of this
+  // document: a click there went into the frame, and the page's own
+  // `activeElement` follows that focus change a moment later.
+  function frameAt(x, y) {
+    var e = document.elementFromPoint(x, y);
+    return !!e && isFrame(e);
+  }
+
   // ── <select> (D-14) ───────────────────────────────────────────────────
   // `inputText` on a <select>, or on the <label> of one, chooses an option
   // instead of typing: typed text never reached a select and the step
@@ -1480,6 +1488,7 @@
     flutterSemantics: flutterSemantics,
     caretToEnd: caretToEnd,
     focusWithin: focusWithin,
+    frameAt: frameAt,
     isSelect: function (id) { return !!selectOf(byVid(id)); },
     tapOption: tapOption,
     fileInput: fileInput,

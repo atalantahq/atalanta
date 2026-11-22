@@ -167,16 +167,22 @@ fn kill_all_pids() {
     // moment: retry until the dirs stay gone. 500 ms left profiles behind
     // on a loaded Linux CI runner, where the helpers outlive the browser
     // longer; this returns as soon as they are gone.
+    // Gone once is not gone: a helper still dying can recreate the dir
+    // right after it was removed, so the dirs must still be absent after
+    // a short grace, or the profile was left behind by the second signal.
     let dirs: Vec<_> = entries.into_iter().filter_map(|(_, _, d)| d).collect();
+    if dirs.is_empty() {
+        return;
+    }
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     loop {
         for d in &dirs {
             let _ = std::fs::remove_dir_all(d);
         }
+        std::thread::sleep(Duration::from_millis(50));
         if dirs.iter().all(|d| !d.exists()) || std::time::Instant::now() >= deadline {
             return;
         }
-        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
@@ -521,6 +527,36 @@ mod tests {
         );
         kept.kill().unwrap();
         let _ = kept.wait();
+    }
+
+    // A dying Chrome's helpers write into the profile for a moment after
+    // the dir was removed: the second signal must not return the first
+    // time the dir is absent, or the helper's next write brings it back.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_dir_a_dying_helper_recreates_is_removed_again() {
+        let _serial = SERIAL.lock().await;
+        let dir = std::env::temp_dir().join(format!("velocity-pid-redo-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let _guard = register_pid(child.id(), Some(dir.clone()));
+        let writer_dir = dir.clone();
+        let writer = std::thread::spawn(move || {
+            let end = std::time::Instant::now() + Duration::from_millis(300);
+            while std::time::Instant::now() < end {
+                let _ = std::fs::create_dir_all(writer_dir.join("Default"));
+                let _ = std::fs::write(writer_dir.join("Default/Preferences"), b"{}");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        kill_all_groups();
+        writer.join().unwrap();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(!dir.exists(), "the helper's write brought the dir back");
     }
 
     // review-d7 m11: a GroupChild whose process already exited no longer

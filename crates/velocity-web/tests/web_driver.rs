@@ -278,11 +278,14 @@ async fn clear_state_clears_cookies() {
     let base = serve(&[("/c.html", COOKIE)]);
     let url = format!("{base}/c.html");
     let d = driver(vec![]).await;
+    // Each read waits for the page it expects: a lookup right after a
+    // launch can still be served by the document being replaced (or find
+    // none yet) on a loaded machine; the cookie it reports is the page's.
     d.launch_app("web", &url, false).await.unwrap();
-    assert_eq!(text(&d, "#c").await, "none");
+    assert_eq!(wait_text(&d, "#c", "none").await, "none");
     d.launch_app("web", &url, false).await.unwrap();
     assert_eq!(
-        text(&d, "#c").await,
+        wait_text(&d, "#c", "seen=1").await,
         "seen=1",
         "the cookie stays without it"
     );
@@ -290,7 +293,7 @@ async fn clear_state_clears_cookies() {
     d.stop_app("web", &url).await.unwrap();
     d.launch_app("web", &url, true).await.unwrap();
     assert_eq!(
-        text(&d, "#c").await,
+        wait_text(&d, "#c", "none").await,
         "none",
         "clearState cleared the cookie"
     );
