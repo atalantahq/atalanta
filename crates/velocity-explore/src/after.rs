@@ -92,6 +92,9 @@ pub fn login_prefix(
             screen_assertion: None,
             expectation: None,
             post_assertion: None,
+            // A login step that needs `force: true` needs it again in the
+            // test explore writes.
+            force: step.modifiers.force,
         });
     }
     Ok(out)

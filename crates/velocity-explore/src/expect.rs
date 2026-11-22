@@ -62,6 +62,18 @@ pub struct ExpectCheck {
     pub assertion: Option<PostAssertion>,
 }
 
+impl ExpectCheck {
+    /// The check with every registered secret masked in its text.
+    pub(crate) fn masked(&self) -> Self {
+        Self {
+            expected: crate::events::mask(&self.expected),
+            outcome: self.outcome,
+            detail: self.detail.as_ref().map(|d| crate::events::mask(d)),
+            assertion: self.assertion.clone(),
+        }
+    }
+}
+
 /// Expectations over a run, for the report.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]

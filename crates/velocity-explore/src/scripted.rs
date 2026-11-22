@@ -153,6 +153,8 @@ pub struct ScriptedPlanner {
     pub seen_demos: Mutex<Vec<String>>,
     /// Whether each goal request asked for the benchmark instructions.
     pub seen_benchmark: Mutex<Vec<bool>>,
+    /// Every goal request's screen list, for tests.
+    pub seen_screens: Mutex<Vec<String>>,
 }
 
 impl ScriptedPlanner {
@@ -168,6 +170,7 @@ impl ScriptedPlanner {
             seen_values: Mutex::new(vec![]),
             seen_demos: Mutex::new(vec![]),
             seen_benchmark: Mutex::new(vec![]),
+            seen_screens: Mutex::new(vec![]),
         }
     }
 }
@@ -224,6 +227,10 @@ impl NaturalPlanner for ScriptedPlanner {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(req.demos.to_string());
+        self.seen_screens
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(req.screen.to_string());
         let mut next = self.next.lock().unwrap_or_else(|e| e.into_inner());
         let Some(s) = self.steps.get(next.0).cloned() else {
             return Ok(GoalStep {

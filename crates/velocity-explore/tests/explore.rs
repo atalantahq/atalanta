@@ -1756,3 +1756,458 @@ async fn a_screen_answer_still_on_the_final_screen_is_asserted() {
         report.final_assertions
     );
 }
+
+// Second pass (November 2026).
+
+// A tap on a read-only field runs with `force` while exploring. The written
+// test must say so, or it fails on replay with "not actionable".
+#[tokio::test(start_paused = true)]
+async fn a_forced_tap_is_written_with_force() {
+    let app = FakeApp::new()
+        .screen(
+            "form",
+            vec![
+                Node::text(TV, "Booking"),
+                Node::text("android.widget.EditText", "Pick a date")
+                    .id("date")
+                    .disabled(),
+            ],
+        )
+        .screen(
+            "picker",
+            vec![Node::text(TV, "Select date"), Node::text(TV, "Tuesday")],
+        )
+        .link("form", "date", "picker");
+    let r = rig(
+        app,
+        r#"{
+          "steps": [
+            { "op": "tap", "target": "Pick a date" },
+            { "op": "done", "outcome": "success", "reason": "the picker is open" }
+          ],
+          "check": { "holds": true, "evidence": ["Tuesday"], "reason": "picker shown" }
+        }"#,
+    );
+    let mut job = r.job(opts("open the date picker"));
+    job.replays = 1;
+    job.repair = false;
+    let result = job.run().await.unwrap();
+    assert_eq!(
+        result.report.outcome,
+        Outcome::Success,
+        "{}",
+        result.report.reason
+    );
+    let yaml = result.yaml.clone().unwrap();
+    assert!(yaml.contains("force: true"), "{yaml}");
+    let replay = result.replay.unwrap();
+    assert!(replay.all_passed(), "{replay:?}\n{yaml}");
+}
+
+// The repair drops the final assertion that failed, not another one. A final
+// assertion the writer skips as a repeat (the checker cites the entry the
+// screen assertion already checks) must not shift which one is dropped.
+#[tokio::test(start_paused = true)]
+async fn the_repair_drops_the_final_assertion_that_failed() {
+    let page = |rows: &[&str]| rows.iter().map(|t| Node::text(TV, t)).collect::<Vec<_>>();
+    let app = FakeApp::new()
+        .screen("home", page(&["Settings", "Network & internet", "Battery"]))
+        .screen("network", page(&["Internet", "SIMs", "Airplane mode"]))
+        .link("home", "Network & internet", "network")
+        // The app "ships an update": from the second launch on (the first
+        // replay) the page has no SIMs row.
+        .change_after_launches(2, "network", page(&["Internet", "Airplane mode"]));
+    let r = rig(
+        app,
+        r#"{
+          "steps": [
+            { "op": "tap", "target": "Network & internet" },
+            { "op": "done", "outcome": "success", "reason": "open" }
+          ],
+          "check": { "holds": true, "evidence": ["Internet", "SIMs"], "reason": "listed" }
+        }"#,
+    );
+    let mut job = r.job(opts("open Network & internet"));
+    job.replays = 1;
+    let result = job.run().await.unwrap();
+    // `Internet` is the screen assertion, so as a final one it is a repeat
+    // the writer skips: `SIMs` is the first final assertion written, and
+    // the second in the report's list.
+    let before = result.replay_before_repair.as_ref().expect("a repair ran");
+    assert!(!before.all_passed(), "{before:?}");
+    let yaml = result.yaml.clone().unwrap();
+    assert!(!yaml.contains("SIMs"), "{yaml}\n{:?}", result.repair);
+    assert!(yaml.contains("Internet"), "{yaml}");
+    let replay = result.replay.as_ref().unwrap();
+    assert!(replay.all_passed(), "{replay:?}\n{yaml}");
+    assert!(result.ok());
+}
+
+/// A planner that plays a script and reports 100 prompt tokens a call.
+struct Metered {
+    inner: ScriptedPlanner,
+    usage: velocity_nl::planner::UsageMeter,
+}
+
+#[async_trait::async_trait]
+impl NaturalPlanner for Metered {
+    async fn plan(
+        &self,
+        req: &velocity_nl::planner::PlanRequest<'_>,
+    ) -> velocity_common::Result<velocity_nl::planner::PlannedStep> {
+        self.inner.plan(req).await
+    }
+
+    async fn plan_goal(
+        &self,
+        req: &velocity_nl::GoalRequest<'_>,
+    ) -> velocity_common::Result<velocity_nl::GoalStep> {
+        self.usage.record(100, 0);
+        self.inner.plan_goal(req).await
+    }
+
+    fn usage(&self) -> velocity_nl::planner::Usage {
+        self.usage.get()
+    }
+}
+
+/// A run whose first replay fails on the tap (the home row is renamed from
+/// the second launch on), so a repair re-explores; the script has the second
+/// session's two turns ready.
+fn repair_run(opts: ExploreOptions) -> (Arc<Metered>, ExploreJob) {
+    let home = |row: &str| {
+        ["Settings", row, "Battery"]
+            .iter()
+            .map(|t| Node::text(TV, t))
+            .collect::<Vec<_>>()
+    };
+    let app = FakeApp::new()
+        .screen("home", home("Network & internet"))
+        .screen("network", vec![Node::text(TV, "Internet")])
+        .link("home", "Network & internet", "network")
+        .link("home", "Network and internet", "network")
+        .change_after_launches(2, "home", home("Network and internet"));
+    let script = Script::from_json(
+        r#"{
+          "steps": [
+            { "op": "tap", "target": "Network & internet" },
+            { "op": "done", "outcome": "success", "reason": "open" },
+            { "op": "tap", "target": "Network and internet" },
+            { "op": "done", "outcome": "success", "reason": "open" }
+          ],
+          "check": { "holds": true, "evidence": ["Internet"], "reason": "listed" }
+        }"#,
+    )
+    .unwrap();
+    let planner = Arc::new(Metered {
+        inner: ScriptedPlanner::new(&script),
+        usage: Default::default(),
+    });
+    let checker: Arc<dyn velocity_nl::ScreenChecker> =
+        Arc::new(ScriptedChecker::new(script.check.clone().unwrap()));
+    let mut job = ExploreJob::new(Arc::new(app), planner.clone(), Some(checker), opts);
+    job.replays = 1;
+    (planner, job)
+}
+
+// `--max-tokens` and `--max-cost` bound the whole job: the repair session
+// spends what the first one left, not a budget of its own.
+#[tokio::test(start_paused = true)]
+async fn a_repair_spends_what_is_left_of_the_token_and_cost_budgets() {
+    for (tokens, cost) in [(Some(250), None), (None, Some(2.5))] {
+        let mut o = opts("open Network & internet");
+        o.max_tokens = tokens;
+        o.max_cost_usd = cost;
+        // $10,000 per million tokens: 100 tokens cost $1.
+        o.price = Some(velocity_nl::Price::new(10_000.0, 10_000.0));
+        let (planner, job) = repair_run(o);
+        let result = job.run().await.unwrap();
+        assert!(result.first_report.is_some(), "a repair ran");
+        assert_eq!(
+            result.report.outcome,
+            Outcome::BudgetExhausted,
+            "{tokens:?} {cost:?}: {}",
+            result.report.reason
+        );
+        // Two turns in the first session, one in the repair's.
+        assert_eq!(planner.usage().input_tokens, 300, "{tokens:?} {cost:?}");
+    }
+}
+
+// When the first session already used the budget there is nothing to repair
+// with: the failed test is kept and the report says why.
+#[tokio::test(start_paused = true)]
+async fn a_spent_budget_leaves_the_test_unrepaired_not_unwritten() {
+    let mut o = opts("open Network & internet");
+    o.max_tokens = Some(200);
+    let (planner, job) = repair_run(o);
+    let result = job.run().await.unwrap();
+    assert!(
+        result.repair.as_deref().unwrap_or("").contains("budget"),
+        "{:?}",
+        result.repair
+    );
+    assert!(result.yaml.is_some());
+    assert!(!result.ok());
+    assert_eq!(planner.usage().input_tokens, 200);
+}
+
+// The wrong-path gate wants the test's assertions to fail when the app goes
+// the wrong way. A neighbour that can't even be tapped (here a bar covers
+// it) makes the replay fail at the tap, which says nothing about the
+// assertions: that is not a rejection.
+#[tokio::test(start_paused = true)]
+async fn a_neighbour_that_cannot_be_tapped_is_not_a_wrong_path_rejection() {
+    let app = FakeApp::new()
+        .screen(
+            "home",
+            vec![
+                Node::text(TV, "Alpha"),
+                Node::text(TV, "Beta"),
+                Node::text(TV, "Gamma"),
+            ],
+        )
+        .screen(
+            "alpha",
+            vec![
+                Node::text(TV, "Alpha page"),
+                Node::text(TV, "Alpha details"),
+            ],
+        )
+        .link("home", "Alpha", "alpha")
+        // Everything below the first row is under the bar.
+        .overlay("home", Node::text("android.widget.Button", "Accept"), 1620);
+    let r = rig(
+        app,
+        r#"{
+          "steps": [
+            { "op": "tap", "target": "Alpha" },
+            { "op": "done", "outcome": "success", "reason": "open" }
+          ],
+          "check": { "holds": true, "evidence": ["Alpha details"], "reason": "shown" }
+        }"#,
+    );
+    let mut job = r.job(opts("open Alpha details"));
+    job.replays = 1;
+    job.gates = true;
+    job.replay_jitter_ms = 0;
+    let result = job.run().await.unwrap();
+    assert_eq!(
+        result.report.outcome,
+        Outcome::Success,
+        "{}",
+        result.report.reason
+    );
+    let g = result.gates.clone().expect("gates ran");
+    assert!(
+        matches!(&g.wrong_path, gates::WrongPath::Skipped { why } if why.contains("neighbour")),
+        "{g:?}"
+    );
+}
+
+// A screen can show a secret (an app echoing what was typed, a page listing
+// a password). The model must never read it: not in the screen list, not in
+// the turn history, which quotes the element a tap named by its text.
+#[tokio::test(start_paused = true)]
+async fn a_secret_shown_on_screen_never_reaches_the_model() {
+    const SECRET: &str = "wifi-Pa55-9z3q-explore";
+    let app = FakeApp::new().screen(
+        "wifi",
+        vec![
+            Node::text(TV, "Wi-Fi password"),
+            Node::text(TV, SECRET),
+            Node::text(TV, "Share"),
+        ],
+    );
+    let r = rig(
+        app,
+        r#"{ "steps": [
+            { "op": "tap", "target": "redacted" },
+            { "op": "tap", "target": "Share" },
+            { "op": "done", "outcome": "giveUp", "reason": "x" }
+        ] }"#,
+    );
+    let mut o = opts("share the wifi password");
+    o.verify = VerifyLevel::Off;
+    o.secrets = vec![("WIFI_PASSWORD".into(), SECRET.into())];
+    let report = r.session(o).run().await.unwrap();
+    assert_eq!(report.outcome, Outcome::GaveUp, "{}", report.reason);
+    // The script found the secret's line by its mask, so the tap happened.
+    assert_eq!(r.app.taps(), [SECRET.to_string(), "Share".to_string()]);
+    for (what, seen) in [
+        ("screens", r.planner.seen_screens.lock().unwrap().join("\n")),
+        ("history", r.planner.seen_history.lock().unwrap().join("\n")),
+        ("notes", r.planner.seen_notes.lock().unwrap().join("\n")),
+        ("memos", r.planner.seen_memos.lock().unwrap().join("\n")),
+    ] {
+        assert!(!seen.contains(SECRET), "{what}: {seen}");
+    }
+    assert!(!r.event_json().contains(SECRET), "{}", r.event_json());
+    assert!(!serde_json::to_string(&report).unwrap().contains(SECRET));
+}
+
+// `ExploreTiming` is the library's: a first look of 0 ms (skip the short
+// second look) with a web wait must still end. The wait loop's first step
+// was `min(late, limit)` = 0 ms, which never advanced it.
+#[test]
+fn a_zero_first_look_with_a_web_wait_does_not_spin() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .start_paused(true)
+            .build()
+            .unwrap();
+        let outcome = rt.block_on(async {
+            let app = FakeApp::new().screen(
+                "page",
+                vec![
+                    Node::text("android.webkit.WebView", "Memory Task"),
+                    Node::text("android.widget.Button", "Click Me").id("button"),
+                ],
+            );
+            let r = rig(
+                app,
+                r#"{ "steps": [
+                    { "op": "tap", "target": "Click Me" },
+                    { "op": "done", "outcome": "giveUp", "reason": "x" }
+                ] }"#,
+            );
+            let mut o = opts("click it");
+            o.verify = VerifyLevel::Off;
+            o.timing = ExploreTiming {
+                late_change_ms: 0,
+                web_late_change_ms: 2000,
+                web_poll_ms: 300,
+            };
+            r.session(o).run().await.unwrap().outcome
+        });
+        let _ = tx.send(outcome);
+    });
+    let outcome = rx
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("the session spun in its wait for a late screen");
+    assert_eq!(outcome, Outcome::GaveUp);
+}
+
+// Under `--values-from-screen` the model may copy text shown on a screen. A
+// `--data` value shown there (an address the app echoes) is still data: the
+// written test types `${EMAIL}`, as when the model names it, not the value.
+#[tokio::test(start_paused = true)]
+async fn copied_text_equal_to_a_data_value_is_written_by_name() {
+    let app = FakeApp::new().screen(
+        "profile",
+        vec![
+            Node::text(TV, "alice@example.com"),
+            Node::text("android.widget.EditText", "")
+                .id("email")
+                .label("Email"),
+            Node::text("android.widget.Button", "Save").id("save"),
+        ],
+    );
+    let r = rig(
+        app,
+        r#"{ "steps": [
+            { "op": "inputText", "target": "Email", "value": "alice@example.com" },
+            { "op": "done", "outcome": "success", "reason": "typed" }
+        ],
+        "check": { "holds": true, "evidence": ["Save"], "reason": "form" } }"#,
+    );
+    let mut o = opts("fill in the email");
+    o.values_from_screen = true;
+    o.data = vec![("EMAIL".into(), "alice@example.com".into())];
+    let mut job = r.job(o);
+    job.replays = 1;
+    let result = job.run().await.unwrap();
+    assert_eq!(
+        result.report.outcome,
+        Outcome::Success,
+        "{}",
+        result.report.reason
+    );
+    // The value was typed as it is…
+    assert_eq!(
+        r.app.typed()[0],
+        ("email".to_string(), "alice@example.com".to_string())
+    );
+    // …and written by name.
+    let yaml = result.yaml.unwrap();
+    assert!(yaml.contains("${EMAIL}"), "{yaml}");
+    assert!(!yaml.contains("alice@example.com"), "{yaml}");
+}
+
+// The values `--after`'s login typed are user data like `--data`: a screen
+// text that holds one (the app greets the account by its address) is never
+// asserted, or the committed test would hold the address.
+#[tokio::test(start_paused = true)]
+async fn text_holding_a_value_the_login_typed_is_never_asserted() {
+    const EMAIL: &str = "vel15c-alice@example.com";
+    let mut env = velocity_common::env::settings_snapshot();
+    env.insert("VEL15C_EMAIL".into(), EMAIL.into());
+    velocity_common::env::set_settings(env);
+    let login = r#"
+appId: com.android.settings
+tests:
+  - name: login
+    steps:
+      - inputText: { selector: { id: email }, text: "${VEL15C_EMAIL}" }
+      - tap: { id: submit }
+"#;
+    let prefix =
+        velocity_explore::after::login_prefix(login, None, &std::collections::HashMap::new())
+            .unwrap();
+    let app = FakeApp::new()
+        .screen(
+            "login",
+            vec![
+                Node::text(TV, "Sign in"),
+                Node::text("android.widget.EditText", "")
+                    .id("email")
+                    .label("Email"),
+                Node::text("android.widget.Button", "Go").id("submit"),
+            ],
+        )
+        .screen(
+            "welcome",
+            vec![
+                Node::text(TV, "Welcome back"),
+                Node::text(TV, &format!("Signed in as {EMAIL}")),
+            ],
+        )
+        .link("login", "submit", "welcome");
+    let r = rig(
+        app,
+        &format!(
+            r#"{{ "steps": [
+                {{ "op": "done", "outcome": "success", "reason": "signed in" }}
+            ],
+            "check": {{ "holds": true, "evidence": ["Signed in as {EMAIL}", "Welcome back"], "reason": "welcome" }} }}"#
+        ),
+    );
+    let mut job = r.job(opts("check that I am signed in"));
+    job.after = prefix;
+    job.replays = 1;
+    let result = job.run().await.unwrap();
+    assert_eq!(
+        result.report.outcome,
+        Outcome::Success,
+        "{}",
+        result.report.reason
+    );
+    let yaml = result.yaml.unwrap();
+    assert!(yaml.contains("${VEL15C_EMAIL}"), "{yaml}");
+    assert!(!yaml.contains(EMAIL), "{yaml}");
+    assert!(yaml.contains("Welcome back"), "{yaml}");
+}
+
+// `--timeout` (exit 4) ends the run at the next turn; nothing tested it:
+// removing the check left every test green.
+#[tokio::test(start_paused = true)]
+async fn a_run_past_its_timeout_ends_as_timed_out() {
+    let r = rig(settings_app(), NETWORK);
+    let mut o = opts("open Network & internet");
+    o.timeout = std::time::Duration::ZERO;
+    let report = r.session(o).run().await.unwrap();
+    assert_eq!(report.outcome, Outcome::TimedOut, "{}", report.reason);
+    assert_eq!(r.planner.usage().calls, 0);
+}
