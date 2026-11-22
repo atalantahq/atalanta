@@ -179,6 +179,12 @@ impl AndroidInflater {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(e)) => {
+                    // Built iteratively but dropped recursively: a file nested
+                    // past the inflate limit is refused before the tree gets
+                    // deep enough to overflow the stack when it is dropped.
+                    if stack.len() >= MAX_VIEW_DEPTH {
+                        return Err(InflateError::TooDeep(MAX_VIEW_DEPTH));
+                    }
                     let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                     let mut attributes = std::collections::HashMap::new();
 
@@ -369,5 +375,22 @@ mod tests {
         assert_eq!(root.node_type, "FrameLayout");
         assert_eq!(root.children.len(), 1);
         assert_eq!(root.children[0].children.len(), 2);
+    }
+
+    /// A file nested far past the limit used to overflow the stack when its
+    /// parsed tree was dropped, aborting the process.
+    #[test]
+    fn plain_xml_nested_past_the_limit_is_an_error_not_a_crash() {
+        let n = 100_000;
+        let xml = format!(
+            "{}{}",
+            "<LinearLayout>".repeat(n),
+            "</LinearLayout>".repeat(n)
+        );
+        let inflater = AndroidInflater::new(ResourceTable::empty());
+        assert!(matches!(
+            inflater.inflate_xml(&xml),
+            Err(InflateError::TooDeep(MAX_VIEW_DEPTH))
+        ));
     }
 }

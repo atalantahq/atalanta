@@ -38,14 +38,10 @@ fn not_launched() -> VelocityError {
     VelocityError::Config("No app launched on the headless device; add a launchApp step".into())
 }
 
-/// A layout that can't be inflated because of what it contains is a config error.
+/// A layout that can't be parsed or inflated is the user's input being wrong,
+/// a config error (exit 2), not an internal one (exit 5).
 fn android_inflate_error(e: crate::android::inflate::InflateError) -> VelocityError {
-    match e {
-        crate::android::inflate::InflateError::TooDeep(_) => {
-            VelocityError::Config(format!("Layout inflate failed: {e}"))
-        }
-        e => VelocityError::Internal(anyhow::anyhow!("Layout inflate failed: {}", e)),
-    }
+    VelocityError::Config(format!("Layout inflate failed: {e}"))
 }
 
 /// Log what the layout holds that headless renders empty (N7).
@@ -56,12 +52,7 @@ fn warn_all(inflater: &AndroidInflater) {
 }
 
 fn ios_inflate_error(e: crate::ios::inflate::IosInflateError) -> VelocityError {
-    match e {
-        crate::ios::inflate::IosInflateError::TooDeep(_) => {
-            VelocityError::Config(format!("XIB inflate failed: {e}"))
-        }
-        e => VelocityError::Internal(anyhow::anyhow!("XIB inflate failed: {}", e)),
-    }
+    VelocityError::Config(format!("XIB inflate failed: {e}"))
 }
 
 /// Headless rendering driver implementing PlatformDriver.
@@ -131,9 +122,8 @@ impl HeadlessDriver {
         if let Some(apk_path) = app_path {
             let path = Path::new(apk_path);
             if lower_ext(path).as_deref() == Some("apk") {
-                let loader = crate::android::apk::ApkLoader::from_path(path).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("APK load failed: {}", e))
-                })?;
+                let loader = crate::android::apk::ApkLoader::from_path(path)
+                    .map_err(|e| VelocityError::Config(format!("APK load failed: {e}")))?;
 
                 let layout_name = initial_layout.unwrap_or("activity_main");
                 let layout_data = loader.get_layout(layout_name).ok_or_else(|| {
@@ -220,9 +210,8 @@ impl HeadlessDriver {
 
                 match lower_ext(&layout_path).as_deref() {
                     Some("xib") => {
-                        let doc = XibParser::parse(&xml).map_err(|e| {
-                            VelocityError::Internal(anyhow::anyhow!("XIB parse failed: {}", e))
-                        })?;
+                        let doc = XibParser::parse(&xml)
+                            .map_err(|e| VelocityError::Config(format!("XIB parse failed: {e}")))?;
 
                         let inflater = IosInflater::new(IosResourceLoader::empty());
                         let tree = inflater.inflate(&doc).map_err(ios_inflate_error)?;
@@ -237,10 +226,7 @@ impl HeadlessDriver {
                     Some("storyboard") => {
                         let doc =
                             crate::ios::storyboard::StoryboardParser::parse(&xml).map_err(|e| {
-                                VelocityError::Internal(anyhow::anyhow!(
-                                    "Storyboard parse failed: {}",
-                                    e
-                                ))
+                                VelocityError::Config(format!("Storyboard parse failed: {e}"))
                             })?;
 
                         let inflater = IosInflater::new(IosResourceLoader::empty());
@@ -268,9 +254,8 @@ impl HeadlessDriver {
                     VelocityError::Internal(anyhow::anyhow!("Failed to read XIB: {}", e))
                 })?;
 
-                let doc = XibParser::parse(&xml).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("XIB parse failed: {}", e))
-                })?;
+                let doc = XibParser::parse(&xml)
+                    .map_err(|e| VelocityError::Config(format!("XIB parse failed: {e}")))?;
 
                 let inflater = IosInflater::new(IosResourceLoader::empty());
                 let tree = inflater.inflate(&doc).map_err(ios_inflate_error)?;
@@ -289,9 +274,8 @@ impl HeadlessDriver {
                     VelocityError::Internal(anyhow::anyhow!("Failed to read storyboard: {}", e))
                 })?;
 
-                let doc = crate::ios::storyboard::StoryboardParser::parse(&xml).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Storyboard parse failed: {}", e))
-                })?;
+                let doc = crate::ios::storyboard::StoryboardParser::parse(&xml)
+                    .map_err(|e| VelocityError::Config(format!("Storyboard parse failed: {e}")))?;
 
                 let inflater = IosInflater::new(IosResourceLoader::empty());
                 let tree = inflater.inflate(&doc).map_err(ios_inflate_error)?;
@@ -451,9 +435,7 @@ impl PlatformDriver for HeadlessDriver {
 
     async fn boot_device(&self, device_id: &str) -> velocity_common::Result<()> {
         let session = HeadlessSession::new(self.config.clone(), self.text_measurer.clone())
-            .map_err(|e| {
-                VelocityError::Internal(anyhow::anyhow!("Session creation failed: {}", e))
-            })?;
+            .map_err(|e| VelocityError::Config(format!("Session creation failed: {e}")))?;
 
         self.sessions
             .write()
@@ -743,14 +725,14 @@ impl PlatformDriver for HeadlessDriver {
             height: self.config.height as i32,
         };
         let sessions = self.sessions.read().await;
-        let now = sessions
+        // An element that is no longer in the tree (after `stopApp` or a
+        // relaunch) is not visible, as on the Android driver; its own stale
+        // bounds say nothing about what is on screen now.
+        Ok(sessions
             .get(device_id)
             .and_then(|s| s.get_hierarchy())
-            .and_then(|tree| velocity_common::selector_match::locate(tree, element));
-        Ok(velocity_common::selector_match::shown_on(
-            now.unwrap_or(element),
-            &screen,
-        ))
+            .and_then(|tree| velocity_common::selector_match::locate(tree, element))
+            .is_some_and(|now| velocity_common::selector_match::shown_on(now, &screen)))
     }
 
     async fn collect_resource_metrics(
@@ -1026,5 +1008,84 @@ mod tests {
         driver.launch_app("headless-0", "app", false).await.unwrap();
         let tree = driver.get_hierarchy("headless-0").await.unwrap();
         assert_eq!(tree.children[0].text.as_deref(), Some("Go"));
+    }
+
+    #[tokio::test]
+    async fn an_element_gone_from_the_screen_is_not_visible() {
+        let dir = tempfile::tempdir().unwrap();
+        let xml = dir.path().join("layout.xml");
+        std::fs::write(
+            &xml,
+            r#"<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent"><Button android:id="@+id/go" android:text="Go"/></LinearLayout>"#,
+        )
+        .unwrap();
+        let driver = driver_for(Platform::Android, &xml.display().to_string());
+        driver.launch_app("headless-0", "app", false).await.unwrap();
+        let go = driver
+            .find_element("headless-0", &Selector::Id("go".into()))
+            .await
+            .unwrap();
+        assert!(driver.is_element_visible("headless-0", &go).await.unwrap());
+        driver.stop_app("headless-0", "app").await.unwrap();
+        assert!(!driver.is_element_visible("headless-0", &go).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_unparseable_layout_or_screen_size_is_a_config_error() {
+        let dir = tempfile::tempdir().unwrap();
+        for (platform, name, body) in [
+            (
+                Platform::Android,
+                "bad.xml",
+                "<LinearLayout><TextView></LinearLayout>",
+            ),
+            (Platform::Android, "empty.xml", "<!-- nothing -->"),
+            (Platform::Ios, "bad.xib", "<view><label></view>"),
+            (Platform::Android, "bad.apk", "not a zip"),
+        ] {
+            let path = dir.path().join(name);
+            std::fs::write(&path, body).unwrap();
+            let err = driver_for(platform, &path.display().to_string())
+                .launch_app("headless-0", "app", false)
+                .await
+                .expect_err(name);
+            assert!(matches!(err, VelocityError::Config(_)), "{name}: {err:?}");
+        }
+        let zero = HeadlessDriver::new(
+            Platform::Android,
+            HeadlessConfig {
+                width: 0,
+                ..Default::default()
+            },
+        );
+        let err = zero
+            .launch_app("headless-0", "app", false)
+            .await
+            .unwrap_err();
+        assert_eq!(err.exit_code(), 2, "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn the_same_element_can_be_typed_into_twice() {
+        let dir = tempfile::tempdir().unwrap();
+        let xml = dir.path().join("layout.xml");
+        std::fs::write(
+            &xml,
+            r#"<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent"><EditText android:id="@+id/name" android:layout_width="match_parent" android:layout_height="48dp"/></LinearLayout>"#,
+        )
+        .unwrap();
+        let driver = driver_for(Platform::Android, &xml.display().to_string());
+        driver.launch_app("headless-0", "app", false).await.unwrap();
+        let name = driver
+            .find_element("headless-0", &Selector::Id("name".into()))
+            .await
+            .unwrap();
+        driver.input_text("headless-0", &name, "a").await.unwrap();
+        driver.input_text("headless-0", &name, "b").await.unwrap();
+        let field = driver
+            .find_element("headless-0", &Selector::Id("name".into()))
+            .await
+            .unwrap();
+        assert_eq!(field.text.as_deref(), Some("ab"));
     }
 }
