@@ -307,7 +307,7 @@ pub const DEFAULT_JITTER_MS: u64 = 150;
 /// Gate `yaml`'s one test against `goal`: replay it `replays` times (the
 /// later ones with jitter, stopping at the first that fails), then the
 /// wrong-path replay, then the goal-text rule. Explore's job decides with
-/// the same [`decide_gates`] after its own replays.
+/// the same `decide_gates` after its own replays.
 pub async fn check(
     driver: &dyn PlatformDriver,
     yaml: &str,

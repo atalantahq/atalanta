@@ -459,7 +459,17 @@ pub(crate) mod tests {
         let dir = std::env::temp_dir().join(format!("velnl-gcloud-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        // Linux runners with the multi-call (uutils) coreutils refuse to run
+        // `echo` under another name, so there it is a two-line script.
+        #[cfg(target_os = "macos")]
         std::os::unix::fs::symlink("/bin/echo", dir.join("gcloud")).unwrap();
+        #[cfg(not(target_os = "macos"))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let fake = dir.join("gcloud");
+            std::fs::write(&fake, "#!/bin/sh\necho \"$@\"\n").unwrap();
+            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         let path = format!("/nonexistent:{}", dir.display());
         let env = move |k: &str| match k {
             "PATH" => Some(path.clone()),
