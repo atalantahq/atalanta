@@ -258,6 +258,9 @@ fn matches_in(
     }
 
     match (selector, want) {
+        // An empty id names nothing, whatever an element's own label, DOM
+        // id or test id says (V6).
+        (Selector::Id(id), _) if id.is_empty() => false,
         (Selector::Id(id), _) => {
             id_matches(element, id)
                 || element.dom_id.as_deref() == Some(id)
@@ -277,7 +280,11 @@ fn matches_in(
                 && (text_contains(&element.text, lower) || text_contains(&element.label, lower))
         }
         (Selector::AccessibilityId(aid), Want::Text(text)) => {
-            !aid.is_empty() && (text_eq(&element.label, text, false) || element.platform_id == *aid)
+            // Blanks and zero-width characters alone name nothing either:
+            // they normalise to "", which a blank label also is (V6).
+            !aid.is_empty()
+                && !text.norm.is_empty()
+                && (text_eq(&element.label, text, false) || element.platform_id == *aid)
         }
         (Selector::TextMatches(pattern), Want::Pattern(compiled)) => {
             [&element.text, &element.label, &element.hint]
@@ -1487,6 +1494,29 @@ mod tests {
             Selector::Id(String::new()),
             Selector::ClassName(String::new()),
             Selector::Compound(vec![Selector::TextContains(String::new())]),
+        ] {
+            assert!(find_in_tree(&root, &sel, None).is_none(), "{sel}");
+            assert_eq!(match_count(&root, &sel, None), 0, "{sel}");
+        }
+    }
+
+    // V6: VEL-236's rule ("an empty value matches nothing") held for the
+    // value, not for an element that carries an empty one: `id: ""` matched
+    // an element whose label, DOM id or test id was `""`, and an
+    // `accessibilityId` of only blanks matched any element with a blank label.
+    #[test]
+    fn empty_selector_values_do_not_match_elements_carrying_empty_ones() {
+        let mut blank = el("com.app:id/x", None, 0, 0, vec![]);
+        blank.label = Some(String::new());
+        blank.dom_id = Some(String::new());
+        blank.test_id = Some(String::new());
+        let mut spaced = el("com.app:id/y", None, 0, 50, vec![]);
+        spaced.label = Some("  ".into());
+        let root = el("", None, 0, 0, vec![blank, spaced]);
+        for sel in [
+            Selector::Id(String::new()),
+            Selector::AccessibilityId("  ".into()),
+            Selector::AccessibilityId("\u{200b}".into()),
         ] {
             assert!(find_in_tree(&root, &sel, None).is_none(), "{sel}");
             assert_eq!(match_count(&root, &sel, None), 0, "{sel}");
