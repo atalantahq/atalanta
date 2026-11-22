@@ -76,9 +76,8 @@ impl AndroidInflater {
         // Apply view-type-specific defaults
         match view_name.as_str() {
             "FrameLayout" => {
-                // FrameLayout children are positioned absolutely (stacked)
-                // We model this with relative positioning on the container
-                // and children default to top-left
+                // Children are made absolute below, once they are inflated
+                // (stacked at top-left, or right/bottom by `layout_gravity`).
             }
             "LinearLayout" => {
                 // orientation already handled in style mapper
@@ -154,6 +153,30 @@ impl AndroidInflater {
                 //   wrap_content one at most that (it wraps), so those still shrink
                 //   (review MAJOR-3). Taffy keeps a shrinking wrap_content child at
                 //   least min-content, so it is not squashed to nothing.
+                // FrameLayout stacks its children on top of each other, each
+                // at its `layout_gravity`; a column would push an overlay off
+                // screen (and an `assertNotVisible` on it would pass). Only
+                // when the frame has a definite size: absolute children add
+                // nothing to a wrap_content one, which would collapse.
+                if view_name == "FrameLayout"
+                    && !node.style.width.is_auto()
+                    && !node.style.height.is_auto()
+                {
+                    child_node.style.position = crate::render_tree::Position::Absolute;
+                    let gravity = child
+                        .attributes
+                        .get("layout_gravity")
+                        .map(|g| g.to_lowercase())
+                        .unwrap_or_default();
+                    let has =
+                        |flags: &[&str]| gravity.split('|').any(|f| flags.contains(&f.trim()));
+                    if has(&["right", "end"]) {
+                        child_node.style.inset.right = Some(0.0);
+                    }
+                    if has(&["bottom"]) {
+                        child_node.style.inset.bottom = Some(0.0);
+                    }
+                }
                 if keeps_child_size(&view_name)
                     || (view_name == "LinearLayout"
                         && fixed_main_size(&child_node, node.style.flex_direction))
@@ -179,6 +202,12 @@ impl AndroidInflater {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(e)) => {
+                    // Built iteratively but dropped recursively: a file nested
+                    // past the inflate limit is refused before the tree gets
+                    // deep enough to overflow the stack when it is dropped.
+                    if stack.len() >= MAX_VIEW_DEPTH {
+                        return Err(InflateError::TooDeep(MAX_VIEW_DEPTH));
+                    }
                     let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                     let mut attributes = std::collections::HashMap::new();
 
@@ -369,5 +398,22 @@ mod tests {
         assert_eq!(root.node_type, "FrameLayout");
         assert_eq!(root.children.len(), 1);
         assert_eq!(root.children[0].children.len(), 2);
+    }
+
+    /// A file nested far past the limit used to overflow the stack when its
+    /// parsed tree was dropped, aborting the process.
+    #[test]
+    fn plain_xml_nested_past_the_limit_is_an_error_not_a_crash() {
+        let n = 100_000;
+        let xml = format!(
+            "{}{}",
+            "<LinearLayout>".repeat(n),
+            "</LinearLayout>".repeat(n)
+        );
+        let inflater = AndroidInflater::new(ResourceTable::empty());
+        assert!(matches!(
+            inflater.inflate_xml(&xml),
+            Err(InflateError::TooDeep(MAX_VIEW_DEPTH))
+        ));
     }
 }

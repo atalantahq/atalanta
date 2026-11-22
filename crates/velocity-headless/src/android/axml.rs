@@ -100,6 +100,11 @@ fn framework_attr_name(id: u32) -> Option<&'static str> {
         0x01010220 => "inputType",
         0x01010273 => "contentDescription",
         0x0101031f => "alpha",
+        // API 17 start/end forms, which the style mapper reads too.
+        0x010103b3 => "paddingStart",
+        0x010103b4 => "paddingEnd",
+        0x010103b5 => "layout_marginStart",
+        0x010103b6 => "layout_marginEnd",
         _ => return None,
     })
 }
@@ -995,5 +1000,13 @@ mod tests {
             AxmlParser::parse(&d),
             Err(AxmlError::TooDeep(MAX_DEPTH))
         ));
+    }
+
+    #[test]
+    fn start_end_padding_and_margin_resolve_by_resource_id() {
+        assert_eq!(framework_attr_name(0x010103b3), Some("paddingStart"));
+        assert_eq!(framework_attr_name(0x010103b4), Some("paddingEnd"));
+        assert_eq!(framework_attr_name(0x010103b5), Some("layout_marginStart"));
+        assert_eq!(framework_attr_name(0x010103b6), Some("layout_marginEnd"));
     }
 }

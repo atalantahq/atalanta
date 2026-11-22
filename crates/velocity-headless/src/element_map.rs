@@ -59,29 +59,34 @@ fn synthetic_id(path: &[usize]) -> String {
 /// render tree (so the same path addresses the render node). Elements are told
 /// apart by id, type, bounds, text and label, so two fields sharing an id are
 /// two different targets (VEL-339).
+///
+/// An element whose text changed since it was read (typed into) is found again
+/// by everything but its text, so the same element can be typed into twice.
 pub fn element_path(root: &Element, target: &Element) -> Option<Vec<usize>> {
-    fn same(a: &Element, b: &Element) -> bool {
+    fn same(a: &Element, b: &Element, with_text: bool) -> bool {
         a.platform_id == b.platform_id
             && a.element_type == b.element_type
             && a.bounds == b.bounds
-            && a.text == b.text
+            && (!with_text || a.text == b.text)
             && a.label == b.label
     }
-    fn walk(node: &Element, target: &Element, path: &mut Vec<usize>) -> bool {
-        if same(node, target) {
+    fn walk(node: &Element, target: &Element, with_text: bool, path: &mut Vec<usize>) -> bool {
+        if same(node, target, with_text) {
             return true;
         }
         for (i, child) in node.children.iter().enumerate() {
             path.push(i);
-            if walk(child, target, path) {
+            if walk(child, target, with_text, path) {
                 return true;
             }
             path.pop();
         }
         false
     }
-    let mut path = Vec::new();
-    walk(root, target, &mut path).then_some(path)
+    [true, false].into_iter().find_map(|with_text| {
+        let mut path = Vec::new();
+        walk(root, target, with_text, &mut path).then_some(path)
+    })
 }
 
 fn render_node_to_element(
