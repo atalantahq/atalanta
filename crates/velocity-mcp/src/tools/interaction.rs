@@ -38,6 +38,33 @@ pub(crate) async fn find_live(
     driver.find_element(device_id, selector).await
 }
 
+/// [`find_live`] for an action (`tap`, `type_text`), retrying a miss for up
+/// to [`FIND_GRACE`]: field tests on real apps saw them fail "after 0ms"
+/// right after a screen change, where a suite step would have waited.
+/// Assertions keep their own `timeout_ms` (none: check now).
+pub(crate) async fn find_live_for_action(
+    driver: &Arc<dyn PlatformDriver>,
+    device_id: &str,
+    selector: &Selector,
+) -> Result<Element> {
+    let deadline = std::time::Instant::now() + FIND_GRACE;
+    loop {
+        match find_live(driver, device_id, selector).await {
+            Err(velocity_common::VelocityError::ElementNotFound { .. })
+                if std::time::Instant::now() + FIND_POLL < deadline =>
+            {
+                tokio::time::sleep(FIND_POLL).await;
+            }
+            other => return other,
+        }
+    }
+}
+
+/// How long a tool's lookup keeps trying a selector that isn't there yet.
+const FIND_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
+/// How often it looks again in that time.
+const FIND_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// An unknown `role:` anywhere in `selector` (S1): it would never match.
 fn role_problem(selector: &Selector) -> Option<String> {
     match selector {
@@ -53,7 +80,7 @@ fn role_problem(selector: &Selector) -> Option<String> {
 
 pub async fn tap(driver: &Arc<dyn PlatformDriver>, device_id: &str, args: &Value) -> Result<Value> {
     let selector = parse_selector(args)?;
-    let element = find_live(driver, device_id, &selector).await?;
+    let element = find_live_for_action(driver, device_id, &selector).await?;
     driver.tap(device_id, &element).await?;
     Ok(serde_json::json!({
         "action": "tap",
@@ -73,7 +100,7 @@ pub async fn type_text(
 ) -> Result<Value> {
     let selector = parse_selector(args)?;
     let input = typed_input(args)?;
-    let element = find_live(driver, device_id, &selector).await?;
+    let element = find_live_for_action(driver, device_id, &selector).await?;
     driver
         .input_text(device_id, &element, input.value())
         .await?;
