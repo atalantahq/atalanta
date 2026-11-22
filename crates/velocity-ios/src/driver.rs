@@ -693,6 +693,15 @@ impl IosDriver {
             .get_app_container(device_id, app_id, "data")
             .await
             .map_err(|e| failed(format!("could not resolve {app_id}'s data container: {e}")))?;
+        // The subdirectories below are deleted: an empty or relative path
+        // from simctl would point them at the host's own `/Library`, `/tmp`
+        // (second-pass review). Only an absolute app data container is used.
+        let data_path = data_path.trim().to_string();
+        if !data_container_ok(&data_path) {
+            return Err(failed(format!(
+                "simctl gave an unexpected data container for {app_id}: {data_path:?}"
+            )));
+        }
         debug!(path = %data_path, "clearing app data container");
         // UserDefaults go through cfprefsd, which caches them and
         // wrote them back after the plist was deleted ("Launches:
@@ -3496,6 +3505,41 @@ fn launch_argv(args: &LaunchArgs) -> Vec<String> {
     }
     out
 }
+
+/// Whether `path` looks like a simulator app's data container: absolute,
+/// and under `.../Containers/Data/Application/<uuid>`. `clear_sim_data`
+/// deletes inside it.
+fn data_container_ok(path: &str) -> bool {
+    path.starts_with('/')
+        && path
+            .split("/Containers/Data/Application/")
+            .nth(1)
+            .is_some_and(|rest| !rest.trim_matches('/').is_empty())
+}
+
+#[cfg(test)]
+mod data_container_tests {
+    use super::data_container_ok;
+
+    /// Second-pass review: an empty path from simctl made clearState delete
+    /// the host's /Library, /Documents and /tmp.
+    #[test]
+    fn only_an_app_data_container_is_cleared() {
+        assert!(data_container_ok(
+            "/Users/me/Library/Developer/CoreSimulator/Devices/ABC/data/Containers/Data/Application/1F2E3D"
+        ));
+        for bad in [
+            "",
+            "/",
+            "relative/path",
+            "/Users/me",
+            "/x/Containers/Data/Application/",
+        ] {
+            assert!(!data_container_ok(bad), "{bad:?}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod device_kind_tests {
     use super::is_physical;
@@ -4230,7 +4274,8 @@ mod recovery_tests {
         let dir = std::env::temp_dir().join(format!("velocity-s45-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let container = dir.join("container");
+        // Shaped like simctl's answer (clear_sim_data checks it).
+        let container = dir.join("Containers/Data/Application/0A1B2C");
         std::fs::create_dir_all(&container).unwrap();
         // "Library" is a file: removing it as a directory fails.
         std::fs::write(container.join("Library"), "x").unwrap();
