@@ -118,6 +118,18 @@ async fn apply(ctx: &Ctx, action: &SafeAction) -> (bool, String) {
             let Some(adb) = adb() else {
                 return (false, "adb not found".into());
             };
+            // Only when the device's lease is free (the doc says so, and the
+            // `--deep` probe does the same): another run or agent may be
+            // using the jar this removes. Held while the jar is replaced.
+            let _lease = match velocity_runner::lease::try_lock(device) {
+                Ok(l) => l,
+                Err(e) => {
+                    return (
+                        false,
+                        format!("{device}: not touched, its lease isn't free ({e})"),
+                    )
+                }
+            };
             let server = velocity_android::tree_server::TreeServer::new()
                 .with_adb_path(adb.to_string_lossy().into_owned());
             match tokio::time::timeout(Duration::from_secs(30), server.repush(device)).await {
@@ -182,5 +194,52 @@ mod tests {
         );
         let log = std::fs::read_to_string(t.path("adb.log")).unwrap();
         assert_eq!(log, "kill-server\nstart-server\n");
+    }
+
+    /// The tree server's jar is removed only when the device's lease is
+    /// free (docs/MCP.md): another process may be driving the device.
+    #[tokio::test]
+    async fn repush_leaves_a_device_alone_while_another_process_holds_its_lease() {
+        let t = Tools::new();
+        let log = t.path("adb.log");
+        t.tool("adb", &format!("echo \"$*\" >> '{}'", log.display()));
+        let leases = t.path("leases");
+        // Restored even when an assertion below panics.
+        struct Restore(std::collections::HashMap<String, String>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                velocity_common::env::set_settings(std::mem::take(&mut self.0));
+            }
+        }
+        let _restore = Restore(velocity_common::env::settings_snapshot());
+        velocity_common::env::set_settings(std::collections::HashMap::from([(
+            "VELOCITY_LEASE_DIR".to_string(),
+            leases.to_string_lossy().into_owned(),
+        )]));
+        // A lease held by another open file description, as another
+        // process's would be.
+        let held = velocity_runner::lease::try_lock("emulator-5554").unwrap();
+        let (ok, message) = apply(
+            &Ctx {
+                opts: Options {
+                    env: t.env(),
+                    ..Options::default()
+                },
+                required: Vec::new(),
+                apps: Vec::new(),
+            },
+            &SafeAction::RepushTreeServer {
+                device: "emulator-5554".into(),
+            },
+        )
+        .await;
+        drop(held);
+        assert!(!ok, "{message}");
+        assert!(message.contains("lease"), "{message}");
+        assert!(
+            !log.exists(),
+            "adb must not run: {:?}",
+            std::fs::read_to_string(&log)
+        );
     }
 }

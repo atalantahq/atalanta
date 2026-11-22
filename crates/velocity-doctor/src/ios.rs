@@ -139,6 +139,20 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
     };
     if license.ok() && !license_blocked {
         out.push(Check::ok("ios.license", A, "Xcode license accepted"));
+    } else if !license_blocked && !matches!(license, Ran::Done(..)) {
+        // No answer is not "not accepted": `sudo xcodebuild -license accept`
+        // would be the wrong advice for a cold or hung Xcode.
+        out.push(
+            Check::fail(
+                "ios.license",
+                A,
+                format!("xcodebuild -license check: {}", license.why()),
+            )
+            .with_fix(Fix::guidance(
+                "run `xcodebuild -license check` by hand; the first call after a boot can be slow",
+            )),
+        );
+        return (out, false);
     } else {
         out.push(
             Check::fail("ios.license", A, "Xcode license not accepted")
@@ -163,15 +177,26 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
     let sims = match listed.stdout().as_deref().and_then(parse_sims) {
         Some(s) => s,
         None => {
+            // CoreSimulatorService takes 10-20 s to start after a boot, so
+            // a slow first answer is not a reason to kill it (and every
+            // running simulator with it).
+            let fix = if matches!(listed, Ran::TimedOut(_)) {
+                Fix::guidance(
+                    "CoreSimulator can be slow right after a boot: run `xcrun simctl list devices` \
+                     once, then `velocity doctor` again. If it still hangs, \
+                     `sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService` restarts it \
+                     (and stops every running simulator)",
+                )
+            } else {
+                Fix::run("sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService")
+            };
             out.push(
                 Check::fail(
                     "ios.simctl",
                     A,
                     format!("simctl list failed: {}", listed.why()),
                 )
-                .with_fix(Fix::run(
-                    "sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService",
-                )),
+                .with_fix(fix),
             );
             return (out, false);
         }
@@ -351,6 +376,21 @@ async fn timed_devicectl(ctx: &Ctx, xcrun: &Path) -> (Check, usize) {
             .await;
         let json = std::fs::read_to_string(&tmp).ok();
         let _ = std::fs::remove_file(&tmp);
+        // A devicectl that ran and failed (CoreDevice not up, a crash) is
+        // not "no real devices paired".
+        if let Ran::Done(..) | Ran::Error(_) = &ran {
+            if !ran.ok() {
+                return Check::warn(
+                    "ios.devicectl",
+                    A,
+                    format!("devicectl failed: {}", ran.why()),
+                )
+                .with_detail("real iPhones may be missed until it works")
+                .with_fix(Fix::guidance(
+                    "run `xcrun devicectl list devices` to see the error, then `velocity doctor` again",
+                ));
+            }
+        }
         if let Ran::TimedOut(d) = ran {
             return Check::warn(
                 "ios.devicectl",
@@ -526,6 +566,52 @@ esac",
     }
 
     #[tokio::test]
+    async fn a_license_check_that_does_not_answer_is_not_called_unaccepted() {
+        let t = Tools::new();
+        let dev = t.path("Xcode.app/Contents/Developer");
+        std::fs::create_dir_all(&dev).unwrap();
+        t.tool("xcode-select", &format!("echo '{}'", dev.display()));
+        t.tool(
+            "xcodebuild",
+            "case \"$1\" in -version) printf 'Xcode 26.0.1\\nBuild version 17A400\\n';; -license) sleep 5;; esac",
+        );
+        let mut c = ctx(&t);
+        c.opts.timeout = Duration::from_secs(1);
+        let (checks, _) = checks(&c).await;
+        let l = checks.iter().find(|c| c.id == "ios.license").unwrap();
+        assert_eq!(l.status, Status::Fail);
+        assert!(!l.summary.contains("not accepted"), "{l:?}");
+        assert!(
+            matches!(l.fix.as_ref().unwrap().kind, crate::FixKind::Guidance(_)),
+            "{l:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_slow_simctl_is_not_met_with_a_killall_of_the_simulator_service() {
+        let t = Tools::new();
+        xcode(&t, true);
+        t.tool("xcrun", "sleep 5");
+        let mut c = ctx(&t);
+        c.opts.timeout = Duration::from_secs(1);
+        let (checks, _) = checks(&c).await;
+        let s = checks.iter().find(|c| c.id == "ios.simctl").unwrap();
+        assert_eq!(s.status, Status::Fail, "{s:?}");
+        assert!(
+            matches!(s.fix.as_ref().unwrap().kind, crate::FixKind::Guidance(_)),
+            "{s:?}"
+        );
+        // A simctl that answered with garbage keeps the restart command.
+        t.tool("xcrun", "echo nope");
+        let (checks, _) = super::checks(&ctx(&t)).await;
+        let s = checks.iter().find(|c| c.id == "ios.simctl").unwrap();
+        assert!(
+            matches!(&s.fix.as_ref().unwrap().kind, crate::FixKind::Run(c) if c.contains("killall")),
+            "{s:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn command_line_tools_only_is_not_xcode() {
         let t = Tools::new();
         t.tool("xcode-select", "echo /Library/Developer/CommandLineTools");
@@ -563,6 +649,17 @@ esac",
             "{dc:?}"
         );
         assert_eq!(get("ios.signing").status, Status::Warn);
+    }
+
+    #[tokio::test]
+    async fn a_failing_devicectl_is_not_reported_as_no_paired_devices() {
+        let t = Tools::new();
+        xcode(&t, true);
+        xcrun(&t, SIMS, "echo 'CoreDevice error' >&2; exit 1");
+        let (checks, _) = checks(&ctx(&t)).await;
+        let dc = checks.iter().find(|c| c.id == "ios.devicectl").unwrap();
+        assert_eq!(dc.status, Status::Warn, "{dc:?}");
+        assert!(dc.summary.contains("failed"), "{dc:?}");
     }
 
     #[test]

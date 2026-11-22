@@ -114,8 +114,13 @@ impl Env {
         self.var(key).is_some()
     }
 
+    /// `$HOME`; when it is unset, the private fallback Velocity itself uses
+    /// (`velocity_common::host::home_dir`), never the shared `/tmp`.
     pub fn home(&self) -> PathBuf {
-        PathBuf::from(self.var("HOME").unwrap_or_else(|| "/tmp".into()))
+        match self.var("HOME") {
+            Some(h) => PathBuf::from(h),
+            None => velocity_common::host::home_dir(),
+        }
     }
 
     /// `name` on `PATH` (an executable file), like `which`.
@@ -292,5 +297,16 @@ mod tests {
                 .await,
             Ran::NotFound
         ));
+    }
+
+    /// With HOME unset the doctor looked in `/tmp/.velocity` (and wrote its
+    /// writability probe into the shared `/tmp`), while Velocity uses a
+    /// private `velocity-home-<uid>` (audit 2026-11 FS-1).
+    #[test]
+    fn an_unset_home_never_falls_back_to_the_shared_tmp() {
+        let home = Env::from_vars(HashMap::new()).home();
+        assert_ne!(home, Path::new("/tmp"));
+        assert_ne!(home, std::env::temp_dir());
+        assert!(home.is_absolute(), "{home:?}");
     }
 }

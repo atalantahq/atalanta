@@ -26,6 +26,20 @@ fn short(id: &str) -> &str {
     id.split_once('.').map_or(id, |(_, n)| n)
 }
 
+/// Text that came from a device, a simulator name, a tool's stderr or a
+/// suite file, made safe to print: control characters (an ESC sequence in
+/// a model name or error text rewrites the terminal) become `?`, a newline
+/// in what should be one line becomes a space. Tabs stay.
+fn clean(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '\n' => ' ',
+            c if c.is_control() && c != '\t' => '?',
+            c => c,
+        })
+        .collect()
+}
+
 pub fn human(report: &Report, color: bool) -> String {
     let width = report
         .checks
@@ -52,9 +66,9 @@ pub fn human(report: &Report, color: bool) -> String {
         let name = short(&c.id);
         let pad = " ".repeat(width.saturating_sub(name.chars().count()));
         let summary = if c.status == Status::Skip {
-            paint(color, "2", &c.summary)
+            paint(color, "2", &clean(&c.summary))
         } else {
-            c.summary.clone()
+            clean(&c.summary)
         };
         out.push_str(&format!(
             "  {} {name}{pad}  {summary}\n",
@@ -64,15 +78,15 @@ pub fn human(report: &Report, color: bool) -> String {
         if let Some(d) = &c.detail {
             if c.status != Status::Ok || d.lines().count() <= 4 {
                 for line in d.lines().take(8) {
-                    out.push_str(&format!("{indent}{}\n", paint(color, "2", line)));
+                    out.push_str(&format!("{indent}{}\n", paint(color, "2", &clean(line))));
                 }
             }
         }
         if let Some(f) = &c.fix {
             if c.status != Status::Ok {
                 let (label, text) = match &f.kind {
-                    FixKind::Run(cmd) => ("Run:", cmd.as_str()),
-                    FixKind::Guidance(t) => ("Guidance:", t.as_str()),
+                    FixKind::Run(cmd) => ("Run:", clean(cmd)),
+                    FixKind::Guidance(t) => ("Guidance:", clean(t)),
                 };
                 let auto = if f.safe_auto {
                     "  (--fix applies it)"
@@ -131,6 +145,31 @@ pub fn human(report: &Report, color: bool) -> String {
 mod tests {
     use crate::{Area, Check, Fix, Report, SafeAction};
     use std::time::Duration;
+
+    #[test]
+    fn escape_sequences_from_devices_and_tools_never_reach_the_terminal() {
+        let r = Report::new(
+            vec![Check::ok(
+                "android.api",
+                Area::Android,
+                "emu: Android 14 \x1b[2J\x1b]0;pwned\x07 Pixel",
+            )
+            .with_detail("line\r\x1b[31mred")],
+            Duration::ZERO,
+        );
+        let plain = r.render(false);
+        assert!(
+            !plain.contains('\x1b') && !plain.contains('\x07'),
+            "{plain:?}"
+        );
+        assert!(!plain.contains('\r'), "{plain:?}");
+        // With colour on, only Velocity's own sequences (`\x1b[…m`) appear.
+        let coloured = r.render(true);
+        assert!(
+            !coloured.contains("\x1b[2J") && !coloured.contains("\x1b]"),
+            "{coloured:?}"
+        );
+    }
 
     #[test]
     fn lines_align_and_fixes_are_prefixed() {

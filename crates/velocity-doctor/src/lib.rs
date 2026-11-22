@@ -364,9 +364,14 @@ impl Options {
         self.areas.is_empty() || self.areas.contains(&area)
     }
 
-    /// The whole budget for one area: its slowest command, a few times.
+    /// The whole budget for one area: its slowest command, a few times,
+    /// plus the slack some commands get on top of `timeout` (`adb devices`
+    /// 2 s, devicectl 3 s). Without it, `--timeout 500ms` and a hung adb
+    /// ran out the area (2 s) before the 2.5 s `adb devices` call could say
+    /// "wedged" and offer the restart.
     fn area_budget(&self) -> Duration {
         self.timeout * 4
+            + Duration::from_secs(3)
             + if self.deep {
                 Duration::from_secs(20)
             } else {
@@ -417,9 +422,7 @@ pub async fn run_checks(opts: &Options) -> Report {
     checks.extend(ai.0);
     if opts.wants(Area::Project) {
         let apps = tokio::time::timeout(opts.area_budget(), project::apps_installed(&ctx)).await;
-        if let Ok(Some(c)) = apps {
-            checks.push(c);
-        }
+        checks.extend(app_lookup(apps, opts.area_budget()));
     }
     // Nothing at all to test on is the one host-level failure.
     if opts.areas.is_empty() && !any_target {
@@ -438,6 +441,26 @@ pub async fn run_checks(opts: &Options) -> Report {
     let mut report = Report::new(checks, started.elapsed());
     report.elapsed_ms = started.elapsed().as_millis() as u64;
     report
+}
+
+/// The app-installed check, or (when its budget ran out) a check saying so:
+/// dropping it made a hung device look like "no app to look for". Skip, not
+/// Warn: a Project warning exits 2.
+fn app_lookup(
+    ran: Result<Option<Check>, tokio::time::error::Elapsed>,
+    budget: Duration,
+) -> Option<Check> {
+    match ran {
+        Ok(c) => c,
+        Err(_) => Some(Check::skip(
+            "project.app_installed",
+            Area::Project,
+            format!(
+                "looking for the app on the devices did not finish in {:.0} s",
+                budget.as_secs_f32()
+            ),
+        )),
+    }
 }
 
 /// What every area sees.
@@ -592,5 +615,41 @@ mod tests {
         assert_eq!(fix["action"]["action"], "reconnect_offline");
         let back: Report = serde_json::from_value(json).unwrap();
         assert_eq!(back, r);
+    }
+
+    /// A lookup that ran out of its budget used to vanish from the report.
+    #[tokio::test]
+    async fn an_app_lookup_that_runs_out_of_budget_still_shows_in_the_report() {
+        let late =
+            tokio::time::timeout(Duration::ZERO, std::future::pending::<Option<Check>>()).await;
+        let c = app_lookup(late, Duration::from_secs(12)).expect("reported");
+        assert_eq!(c.id, "project.app_installed");
+        assert_eq!(c.status, Status::Skip);
+        assert!(c.summary.contains("did not finish in 12 s"), "{c:?}");
+        assert!(app_lookup(Ok(None), Duration::ZERO).is_none());
+    }
+
+    /// The wedged-adb diagnosis (and its restart fix) must survive a short
+    /// `--timeout`: the area budget has to outlast `adb devices`' slack.
+    #[tokio::test]
+    async fn a_short_timeout_still_diagnoses_a_wedged_adb_instead_of_timing_the_area_out() {
+        use crate::env::fake::Tools;
+        let t = Tools::new();
+        t.tool("adb", "case \"$1\" in devices) sleep 30;; esac");
+        let opts = Options {
+            env: t.env(),
+            cwd: t.path("proj"),
+            timeout: Duration::from_millis(400),
+            areas: vec![Area::Android],
+            ..Options::default()
+        };
+        let report = run_checks(&opts).await;
+        assert!(report.get("android.timeout").is_none(), "{report:?}");
+        let c = report.get("android.adb_server").expect("diagnosed");
+        assert_eq!(c.status, Status::Fail, "{c:?}");
+        assert_eq!(
+            c.fix.as_ref().unwrap().action,
+            Some(SafeAction::RestartAdbServer)
+        );
     }
 }
