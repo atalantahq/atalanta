@@ -422,6 +422,11 @@ pub struct RecordedStep {
     /// written after the step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_assertion: Option<PostAssertion>,
+    /// The step ran with `force` (the actionability checks off: a tap on a
+    /// read-only field that reports `enabled=false`). The test writes
+    /// `force: true` too, or it fails on replay as not actionable.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
 }
 
 /// What a session produced.
@@ -793,6 +798,7 @@ struct Effect {
     missed: bool,
     ms: u64,
     expectation: Option<ExpectCheck>,
+    force: bool,
 }
 
 /// The loop's state across turns: what the model was told and what the
@@ -956,7 +962,7 @@ impl<'a> Run<'a> {
 
     fn emit(&mut self, e: ExploreEvent) {
         if let Some(sink) = self.sink.as_mut() {
-            sink(&e);
+            sink(&e.masked());
         }
     }
 
@@ -1083,7 +1089,7 @@ impl<'a> Run<'a> {
             }
         }
         for (i, mut s) in prefix.into_iter().enumerate() {
-            let (ok, ms, _, err) = self.exec(&s.action).await?;
+            let (ok, ms, _, err) = self.exec_with(&s.action, s.force).await?;
             let at = self.at();
             self.emit(ExploreEvent::Prefix {
                 at_ms: at,
@@ -1758,6 +1764,7 @@ impl<'a> Run<'a> {
                     missed,
                     ms,
                     expectation: expectation.clone(),
+                    force,
                 },
             );
         }
@@ -1905,6 +1912,7 @@ impl<'a> Run<'a> {
             screen_assertion: None,
             expectation: None,
             post_assertion: None,
+            force: false,
         });
         st.history.push(format!("#{turn} {label} holds"));
         if self.opts.verify.checks_checkpoints() && !step.reason.trim().is_empty() {
@@ -1948,11 +1956,14 @@ impl<'a> Run<'a> {
             };
             let mut waited = 0;
             while waited < limit {
+                // Every look moves the wait on by at least a millisecond: a
+                // first look of 0 ms left `waited` at 0 and never ended it.
                 let step_ms = if waited == 0 {
                     timing.late_change_ms.min(limit)
                 } else {
-                    timing.web_poll_ms.max(1)
-                };
+                    timing.web_poll_ms
+                }
+                .max(1);
                 tokio::time::sleep(Duration::from_millis(step_ms)).await;
                 waited += step_ms;
                 let again = self.observe().await?;
@@ -2007,6 +2018,7 @@ impl<'a> Run<'a> {
             missed,
             ms,
             expectation,
+            force,
         } = effect;
         let scrolled = step.op == GoalOp::Scroll || step.op == GoalOp::Swipe;
         let screen_assertion = (changed && !scrolled)
@@ -2033,6 +2045,7 @@ impl<'a> Run<'a> {
             screen_assertion,
             expectation: expectation.clone(),
             post_assertion,
+            force,
         };
         let mut line = format!("#{turn} {}", step_line(&rec));
         // Text that changed where the hash folds it (a number a click
@@ -2167,10 +2180,15 @@ impl<'a> Run<'a> {
         (!out.is_empty()).then(|| out.join(", "))
     }
 
+    /// The values no assertion may hold: `--data` and `--secret` values, and
+    /// those typed by the steps replayed before the first turn (`--after`'s
+    /// login), which are not among `self.values`.
     fn user_values(&self) -> Vec<String> {
+        let replayed = self.report_steps.iter().filter_map(|s| s.typed.as_ref());
         self.values
             .iter()
-            .filter(|v| v.kind != ValueKind::Literal)
+            .chain(replayed)
+            .filter(|v| v.kind != ValueKind::Literal && !v.value.is_empty())
             .map(|v| v.value.clone())
             .collect()
     }
@@ -2279,10 +2297,21 @@ impl<'a> Run<'a> {
                     .trim()
                     .trim_start_matches("${")
                     .trim_end_matches('}');
+                // Text that is a `--data` or `--secret` value, copied from a
+                // screen that shows it or the goal that holds it, is that
+                // value: typed as it is and written by name, never as the
+                // literal (a data value in the committed test).
                 let named = self
                     .values
                     .iter()
                     .find(|v| v.name.eq_ignore_ascii_case(wanted))
+                    .or_else(|| {
+                        self.opts
+                            .copy_from()
+                            .any()
+                            .then(|| self.values.iter().find(|v| is_same_value(v, &step.value)))
+                            .flatten()
+                    })
                     .cloned();
                 let slot = match named {
                     Some(slot) => slot,
@@ -2633,7 +2662,19 @@ impl<'a> Run<'a> {
             launch: self.opts.launch,
             outcome,
             reason,
-            steps: std::mem::take(&mut self.report_steps),
+            // What the report holds of the screen (a label names the element
+            // by its text) is masked like the events: the CLI prints it.
+            steps: std::mem::take(&mut self.report_steps)
+                .into_iter()
+                .map(|mut s| {
+                    s.label = crate::events::mask(&s.label);
+                    s.target = s.target.as_deref().map(crate::events::mask);
+                    s.before_title = crate::events::mask(&s.before_title);
+                    s.after_title = crate::events::mask(&s.after_title);
+                    s.expectation = s.expectation.as_ref().map(|e| e.masked());
+                    s
+                })
+                .collect(),
             final_assertions: std::mem::take(&mut self.final_assertions),
             checks: std::mem::take(&mut self.checks),
             turns,
@@ -2658,6 +2699,15 @@ impl<'a> Run<'a> {
             final_basis: self.final_basis,
         }
     }
+}
+
+/// Whether `text` is, folded, the value of a `--data` or `--secret` slot.
+fn is_same_value(slot: &ValueSlot, text: &str) -> bool {
+    // Three characters or more, as for masking: a data value of "2" is not
+    // every "2" the model types.
+    slot.kind != ValueKind::Literal
+        && slot.value.trim().chars().count() >= 3
+        && values::fold(&slot.value) == values::fold(text)
 }
 
 /// A text field on any platform (Android EditText, iOS TextField, a web
@@ -3270,6 +3320,7 @@ mod tests {
             screen_assertion: None,
             expectation: None,
             post_assertion: None,
+            force: false,
         };
         let line = format!("#1 {}", step_line(&rec));
         assert_eq!(line.lines().count(), 1, "{line}");

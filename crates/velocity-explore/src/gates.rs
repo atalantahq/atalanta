@@ -20,8 +20,8 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 use velocity_common::{
-    Action, Element, Platform, PlatformDriver, Result, Selector, Step, TestCase, TestStatus,
-    VelocityError,
+    Action, Element, Platform, PlatformDriver, Result, Selector, Step, StepStatus, TestCase,
+    TestStatus, VelocityError,
 };
 use velocity_core::TestExecutor;
 
@@ -137,6 +137,10 @@ pub fn goal_text_assertion(yaml: &str, goal: &str) -> Option<String> {
         let Action::AssertVisible { selector } = &s.action else {
             return None;
         };
+        // An optional assertion can't fail the test: it checks nothing.
+        if s.modifiers.optional {
+            return None;
+        }
         let text = selector_text(selector)?;
         let w = words(&text);
         w.iter()
@@ -200,6 +204,9 @@ pub async fn wrong_path(
 
     // Up to two neighbours, nearest first: the test must fail for each.
     let mut tried: Option<(usize, String)> = None;
+    // A neighbour whose own tap failed (covered, off screen): the replay
+    // failed before any assertion ran, so it says nothing about them.
+    let mut untappable: Option<String> = None;
     for attempt in 0..SIBLINGS_TRIED {
         let mut executor = TestExecutor::new(driver, config.clone(), &suite.app_id);
         let before = executor
@@ -265,11 +272,29 @@ pub async fn wrong_path(
         if after.status == TestStatus::Passed {
             return Ok(WrongPath::Passed { step: k, tapped });
         }
+        // The tap is the first step of `rest`. A run that fails there never
+        // reached the test's own assertions.
+        let failed_at = after
+            .steps
+            .iter()
+            .find(|s| s.status == StepStatus::Failed)
+            .map(|s| s.step_index);
+        if failed_at == Some(0) {
+            untappable.get_or_insert(tapped);
+            continue;
+        }
         tried = Some((k, tapped));
     }
-    Ok(match tried {
-        Some((step, tapped)) => WrongPath::Rejected { step, tapped },
-        None => WrongPath::Skipped {
+    Ok(match (tried, untappable) {
+        (Some((step, tapped)), _) => WrongPath::Rejected { step, tapped },
+        (None, Some(tapped)) => WrongPath::Skipped {
+            why: format!(
+                "tapping the neighbour {tapped} instead of step {} failed at the tap itself, \
+                 so the test's assertions were not tried",
+                k + 1
+            ),
+        },
+        (None, None) => WrongPath::Skipped {
             why: format!("step {} ({selector}) has no sibling to tap instead", k + 1),
         },
     })
@@ -582,6 +607,16 @@ mod tests {
         // Stop words don't count.
         let only_page = "appId: a\ntests:\n  - name: t\n    steps:\n      - assertVisible: { text: \"Open page\" }\n";
         assert!(goal_text_assertion(only_page, "open the page").is_none());
+    }
+
+    // A hand-written file (`velocity gate FILE`) may mark an assertion
+    // `optional: true`: its failure is only a warning, so it is no check.
+    #[test]
+    fn an_optional_assertion_does_not_count_as_naming_the_goal() {
+        let optional = "appId: a\ntests:\n  - name: t\n    steps:\n      - tap: { text: Network }\n      - assertVisible: { text: \"Internet\" }\n        optional: true\n";
+        assert!(goal_text_assertion(optional, "open Network & internet").is_none());
+        let required = optional.replace("        optional: true\n", "");
+        assert!(goal_text_assertion(&required, "open Network & internet").is_some());
     }
 
     #[test]

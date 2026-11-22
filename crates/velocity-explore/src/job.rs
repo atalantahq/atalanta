@@ -153,7 +153,7 @@ impl ExploreJob {
     fn emit(&self, e: ExploreEvent) {
         if let Ok(mut s) = self.sink.lock() {
             if let Some(sink) = s.as_mut() {
-                sink(&e);
+                sink(&e.masked());
             }
         }
     }
@@ -337,36 +337,48 @@ impl ExploreJob {
                     i + 1
                 ));
             }
-            Some(Origin::Final) => {
-                let k = failed_at.unwrap_or(0);
-                let nth = generated.origins[..k]
-                    .iter()
-                    .filter(|o| **o == Origin::Final)
-                    .count();
+            Some(Origin::Final(n)) => {
                 self.emit(ExploreEvent::Repair {
                     at_ms: started.elapsed().as_millis() as u64,
                     action: "dropped a final assertion that didn't hold on replay".into(),
                     from_step: None,
                     reason: reason.clone(),
                 });
-                if nth < result.report.final_assertions.len() {
-                    result.report.final_assertions.remove(nth);
+                if n < result.report.final_assertions.len() {
+                    result.report.final_assertions.remove(n);
                 }
                 result.repair = Some(format!("dropped a final assertion ({reason})"));
             }
             Some(Origin::Step(i)) => {
-                self.emit(ExploreEvent::Repair {
-                    at_ms: started.elapsed().as_millis() as u64,
-                    action: "exploring on from the step before the failure".into(),
-                    from_step: Some(i),
-                    reason: reason.clone(),
-                });
                 let mut opts = self.opts.clone();
                 opts.max_steps = self
                     .opts
                     .max_steps
                     .saturating_sub(result.report.turns)
                     .max(5);
+                // The repair spends what the first session left of the
+                // token and cost budgets: a run capped at --max-cost X
+                // cost up to 2X, as each session counted from zero.
+                let spent = result.report.input_tokens + result.report.output_tokens;
+                opts.max_tokens = opts.max_tokens.map(|m| m.saturating_sub(spent));
+                if let (Some(max), Some(cost)) = (opts.max_cost_usd, result.report.cost_usd) {
+                    opts.max_cost_usd = Some((max - cost).max(0.0));
+                }
+                if opts.max_tokens == Some(0) || opts.max_cost_usd.is_some_and(|c| c <= 0.0) {
+                    result.repair = Some(format!(
+                        "not repairable: the token or cost budget is spent ({reason})"
+                    ));
+                    result.yaml = Some(generated.yaml.clone());
+                    result.generated = Some(generated);
+                    result.replay = Some(replay);
+                    return Ok(result);
+                }
+                self.emit(ExploreEvent::Repair {
+                    at_ms: started.elapsed().as_millis() as u64,
+                    action: "exploring on from the step before the failure".into(),
+                    from_step: Some(i),
+                    reason: reason.clone(),
+                });
                 let prefix = result.report.steps[..i].to_vec();
                 let again = self.session(opts).with_prefix(prefix).run().await?;
                 result.repair = Some(format!(
