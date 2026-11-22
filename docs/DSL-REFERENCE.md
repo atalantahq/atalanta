@@ -243,6 +243,12 @@ Argument: map: `key`.
 
 - `key` (one of `back`, `home`, `enter`, `volumeUp`, `volumeDown`, `backspace`, `tab`, `escape`, `delete`, `arrowUp`, `arrowDown`, `arrowLeft`, `arrowRight`)
 
+### `hideKeyboard`
+
+Hide the soft keyboard if one is showing (Android only for now: Escape, then Back if it stays up); a no-op when none is.
+
+Argument: nothing or map.
+
 ### `wait`
 
 Sleep `ms` milliseconds. Prefer an assertion: it waits only as long as needed.

@@ -1666,6 +1666,7 @@ fn action_name(action: &Action) -> String {
         Action::SaveState { name } => format!("saveState({name})"),
         Action::RestoreState { name } => format!("restoreState({name})"),
         Action::PressKey { .. } => "pressKey".to_string(),
+        Action::HideKeyboard => "hideKeyboard".to_string(),
         Action::Wait { .. } => "wait".to_string(),
         Action::RunFlow { .. } => "runFlow".to_string(),
         Action::TapXY { x, y } => format!("tapXY({x},{y})"),
@@ -1965,6 +1966,7 @@ fn is_mutating(action: &Action) -> bool {
             | Action::Swipe { .. }
             | Action::ScrollUntilVisible { .. }
             | Action::PressKey { .. }
+            | Action::HideKeyboard
             | Action::LaunchApp { .. }
             | Action::StopApp { .. }
             | Action::TapXY { .. }

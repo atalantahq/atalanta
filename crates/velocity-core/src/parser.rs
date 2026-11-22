@@ -321,6 +321,7 @@ impl<'de> Visitor<'de> for DslStepVisitor {
             "back" | "pressBack" => Some(Action::PressKey {
                 key: velocity_common::Key::Back,
             }),
+            "hideKeyboard" => Some(Action::HideKeyboard),
             "clearMocks" => Some(Action::ClearMocks),
             _ => None,
         };
@@ -515,6 +516,7 @@ pub const ACTION_KEYS: &[&str] = &[
     "saveState",
     "restoreState",
     "pressKey",
+    "hideKeyboard",
     "wait",
     "runFlow",
     "tapXY",
@@ -587,7 +589,6 @@ fn maestro_hint(key: &str) -> Option<&'static str> {
         "waitForAnimationToEnd" => {
             "Velocity waits for the screen to settle after every step; drop it, or use `wait: { ms: … }`"
         }
-        "hideKeyboard" => "Velocity has no hideKeyboard step; tap outside the field instead",
         "inputRandomText" | "inputRandomNumber" | "inputRandomEmail" | "inputRandomPersonName" => {
             "use `inputText` with a value (or `${VAR}`)"
         }
@@ -1008,6 +1009,10 @@ where
         "pressKey" => {
             let v: PressKeyDsl = map.next_value()?;
             Ok(Action::PressKey { key: v.key })
+        }
+        "hideKeyboard" => {
+            no_args(map, key)?;
+            Ok(Action::HideKeyboard)
         }
         "wait" => {
             let v: WaitDsl = map.next_value()?;
@@ -2705,8 +2710,6 @@ tests:
         // VEL-061: these became natural-language steps.
         let err = one_step("lanuchApp").unwrap_err();
         assert!(err.contains("did you mean `launchApp`"), "{err}");
-        let err = one_step("hideKeyboard").unwrap_err();
-        assert!(err.contains("Maestro"), "{err}");
         let err = one_step("tapOn: { text: Go }").unwrap_err();
         assert!(err.contains("use `tap`"), "{err}");
         let err = one_step("tap").unwrap_err();
@@ -2969,5 +2972,13 @@ tests:
             .unwrap_err()
             .to_string();
         assert!(err.contains("tolerance"), "{err}");
+    }
+
+    #[test]
+    fn hide_keyboard_parses_both_forms() {
+        let a = one_step("hideKeyboard").unwrap();
+        assert!(matches!(a, velocity_common::Action::HideKeyboard));
+        let a = one_step("hideKeyboard: {}").unwrap();
+        assert!(matches!(a, velocity_common::Action::HideKeyboard));
     }
 }

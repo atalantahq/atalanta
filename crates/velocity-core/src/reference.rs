@@ -35,6 +35,7 @@ pub fn action_doc(action: &str) -> &'static str {
         "saveState" => "Save the app's data under a name (iOS simulator: data container clone; Android: run-as tar on debuggable builds, else an emulator snapshot).",
         "restoreState" => "Put back app data saved with `saveState`; the app is left stopped.",
         "pressKey" => "Press a key (`back`, `home`, `enter`, …).",
+        "hideKeyboard" => "Hide the soft keyboard if one is showing (Android only for now: Escape, then Back if it stays up); a no-op when none is.",
         "wait" => "Sleep `ms` milliseconds. Prefer an assertion: it waits only as long as needed.",
         "runFlow" => "Run the steps of a flow from `flows:` (by id).",
         "tapXY" => "Tap screen coordinates (no element lookup or actionability checks).",

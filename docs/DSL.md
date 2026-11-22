@@ -250,6 +250,7 @@ tests:
       - goto: "https://shop.example.com/search"
       - inputText: { selector: { role: searchbox }, text: "shoes" }
       - pressKey: { key: enter }
+      - hideKeyboard: {}   # Android only: dismisses the soft keyboard if one is showing; a no-op otherwise.
       - assertVisible: { role: heading, name: "Results" }
       - mockRequest: { url: "*/api/cart", status: 500 }
       - goBack: {}

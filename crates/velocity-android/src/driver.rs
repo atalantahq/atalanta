@@ -2031,6 +2031,60 @@ impl PlatformDriver for AndroidDriver {
         self.key_code(device_id, code).await
     }
 
+    /// The soft keyboard's frame from the window list: an input-method window
+    /// (type 2) whose bounds cover the bottom of the screen.
+    async fn keyboard_frame(&self, device_id: &str) -> Result<Option<velocity_common::Rect>> {
+        let Some(Ok(windows)) = self.tree.windows(device_id).await else {
+            return Ok(None);
+        };
+        let kb = windows
+            .iter()
+            .find(|w| w.kind == 2 && w.bounds.width > 0 && w.bounds.height > 0);
+        Ok(kb.map(|w| w.bounds))
+    }
+
+    /// Hide the soft keyboard without navigating. `input keyevent 111`
+    /// (ESCAPE) dismisses the IME on most devices; it is only sent when a
+    /// keyboard is actually showing, so a second press never navigates away.
+    /// Polls up to 600 ms, falling back to BACK (4) once if ESCAPE did not
+    /// clear it.
+    async fn hide_keyboard(&self, device_id: &str) -> Result<bool> {
+        let Some(_frame) = self.keyboard_frame(device_id).await? else {
+            return Ok(false);
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(600);
+        // ESCAPE first: it dismisses the IME on most devices.
+        self.key_code(device_id, 111).await?;
+        let mut readings: Vec<Option<velocity_common::Rect>> = Vec::new();
+        // Poll every 100 ms for up to 600 ms.
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let frame = self.keyboard_frame(device_id).await?;
+            readings.push(frame);
+            if frame.is_none() {
+                return Ok(true);
+            }
+        }
+        // ESCAPE did not clear it within 600 ms: the keyboard is confirmed
+        // showing, so BACK closes it without navigating.
+        if should_send_back(&readings) {
+            self.key_code(device_id, 4).await?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(600);
+            while std::time::Instant::now() < deadline {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                if self.keyboard_frame(device_id).await?.is_none() {
+                    return Ok(true);
+                }
+            }
+        }
+        Err(VelocityError::AssertionFailed {
+            expected: "the keyboard is gone".into(),
+            actual: "the keyboard stayed up".into(),
+            selector: String::new(),
+            screenshot: None,
+        })
+    }
+
     /// Media sessions and call state in one adb round-trip.
     async fn system_state(&self, device_id: &str) -> Result<velocity_common::SystemState> {
         let out = self
@@ -2187,6 +2241,15 @@ impl PlatformDriver for AndroidDriver {
         shell::validate_app_id(package)?;
         self.adb.collect_resource_metrics(device_id, package).await
     }
+}
+
+/// Pure: whether `hide_keyboard` should send BACK (4) once more, given
+/// the successive `keyboard_frame` readings taken after ESCAPE was sent.
+/// BACK is sent iff the keyboard was still showing in every reading
+/// (ESCAPE did not clear it). An empty reading list means time ran out
+/// before any poll, so BACK is sent once.
+pub(crate) fn should_send_back(readings: &[Option<velocity_common::Rect>]) -> bool {
+    readings.iter().all(Option::is_some)
 }
 
 /// `dir` (and its parents), readable only by this user: a saved state is
@@ -4427,5 +4490,19 @@ mod launch_args_tests {
             matches!(err, VelocityError::AdbConnectionLost { .. }),
             "{err:?}"
         );
+    }
+
+    #[test]
+    fn should_send_back_decides_from_readings() {
+        let kb = Some(velocity_common::Rect {
+            x: 0,
+            y: 1440,
+            width: 1080,
+            height: 480,
+        });
+        let gone: Option<velocity_common::Rect> = None;
+        assert!(should_send_back(&[kb, kb]));
+        assert!(!should_send_back(&[kb, gone]));
+        assert!(should_send_back(&[]));
     }
 }

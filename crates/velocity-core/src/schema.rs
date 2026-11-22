@@ -141,7 +141,7 @@ fn action_arg(action: &str) -> Value {
             }),
             &["run"],
         ),
-        "clearMocks" | "goBack" | "refresh" => no_args(),
+        "clearMocks" | "goBack" | "refresh" | "hideKeyboard" => no_args(),
         "setConfig" => json!({
             "type": "object",
             "description": "Change settings (`velocity settings`) or sync.timeoutMs/reactionMs/quietMs/settleCapMs for the rest of this test",
@@ -899,7 +899,7 @@ mod tests {
     fn every_schema_action_parses() {
         let example = |a: &str| -> String {
             match a {
-                "launchApp" | "stopApp" | "screenshot" | "goBack" | "refresh" => {
+                "launchApp" | "stopApp" | "screenshot" | "goBack" | "refresh" | "hideKeyboard" => {
                     format!("{a}: {{}}")
                 }
                 "tap" | "doubleTap" | "clearText" | "assertVisible" | "assertNotVisible" => {

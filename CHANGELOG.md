@@ -276,6 +276,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- **Android: actions under the soft keyboard hide it first**, scrolls stay above it, and a new `hideKeyboard` step dismisses it. Not yet run on every keyboard app.
 - **More credential shapes are masked:** AWS presigned-URL and SigV4 signatures and credentials, a secret first form field, numeric JSON secrets, and variables named `*_PW`, `*_CREDS` or `*_SEED` (`PWD` and `OLDPWD` themselves are not secret).
 - **`web.block` and mock rules no longer fail open.** If request interception can't start, a web launch with such rules fails (and is retried) instead of sending blocked requests to the network.
 - **`force: true` reaches the Android driver.** A forced `tap`, `doubleTap` or `longPress` touches the element's center without the covering-window check; before, the driver still refused it as covered. `inputText` and `clearText` keep the check. Not yet run on a device.

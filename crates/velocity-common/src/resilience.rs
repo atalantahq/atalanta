@@ -941,6 +941,26 @@ impl PlatformDriver for ResilientDriver {
         .await
     }
 
+    async fn keyboard_frame(&self, device_id: &str) -> Result<Option<crate::types::Rect>> {
+        let did = device_id.to_string();
+        self.with_once(device_id, || {
+            let did = did.clone();
+            let inner = self.inner.clone();
+            async move { inner.keyboard_frame(&did).await }
+        })
+        .await
+    }
+
+    async fn hide_keyboard(&self, device_id: &str) -> Result<bool> {
+        let did = device_id.to_string();
+        self.with_once(device_id, || {
+            let did = did.clone();
+            let inner = self.inner.clone();
+            async move { inner.hide_keyboard(&did).await }
+        })
+        .await
+    }
+
     async fn tap_xy(&self, device_id: &str, x: i32, y: i32) -> Result<()> {
         let did = device_id.to_string();
         self.with_once(device_id, || {
@@ -1182,6 +1202,18 @@ mod tests {
         async fn touch_forced(&self, _: &str, _: &Element, _: crate::traits::Touch) -> Result<()> {
             self.4.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(())
+        }
+        // Values the trait defaults never give, so forwarding is visible.
+        async fn keyboard_frame(&self, _: &str) -> Result<Option<crate::types::Rect>> {
+            Ok(Some(crate::types::Rect {
+                x: 0,
+                y: 1440,
+                width: 1080,
+                height: 480,
+            }))
+        }
+        async fn hide_keyboard(&self, _: &str) -> Result<bool> {
+            Ok(true)
         }
         async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
             Ok(())
@@ -1479,6 +1511,26 @@ mod tests {
             .expect("the forced touch reached the inner driver");
         assert_eq!(inner.4.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(inner.calls(), 0, "no plain tap");
+    }
+
+    /// `keyboard_frame` and `hide_keyboard` reach the inner driver, they are
+    /// not silently replaced by the trait defaults.
+    #[tokio::test]
+    async fn keyboard_frame_and_hide_keyboard_are_forwarded() {
+        let inner = Arc::new(FailingFind::new(|| VelocityError::AssertionFailed {
+            expected: "reachable".into(),
+            actual: "covered".into(),
+            selector: String::new(),
+            screenshot: None,
+        }));
+        let d = ResilientDriver::new(inner.clone());
+        // The defaults would give None and Unsupported.
+        assert_eq!(
+            d.keyboard_frame("d").await.unwrap().map(|r| r.y),
+            Some(1440)
+        );
+        assert!(d.hide_keyboard("d").await.unwrap());
+        assert_eq!(inner.calls(), 0, "no spurious lookups");
     }
 
     #[test]

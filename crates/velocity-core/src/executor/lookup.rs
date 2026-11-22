@@ -546,6 +546,32 @@ impl<'a> TestExecutor<'a> {
             })
     }
 
+    /// The screen area available for a scroll gesture when a soft keyboard is
+    /// up: the whole screen, clipped at the keyboard's top edge. A drag that
+    /// started in the middle of the screen lands on the keyboard and nothing
+    /// scrolls. When the keyboard leaves no room (its top edge at the screen's
+    /// top), returns `None` so the caller can dismiss the keyboard first and
+    /// use the full screen instead.
+    pub(super) async fn keyboard_aware_screen_rect(
+        &mut self,
+        device_id: &str,
+    ) -> Option<velocity_common::Rect> {
+        let screen = self.screen_rect(device_id).await?;
+        let Some(kb) = self.driver.keyboard_frame(device_id).await.ok().flatten() else {
+            return Some(screen);
+        };
+        let kb_top = kb.y.min(screen.height);
+        if kb_top <= screen.y {
+            return None;
+        }
+        Some(velocity_common::Rect {
+            x: screen.x,
+            y: screen.y,
+            width: screen.width,
+            height: kb_top - screen.y,
+        })
+    }
+
     /// The on-screen part of a `within:` container, for the strokes of a
     /// scroll inside it. A container below the fold is brought onto the
     /// screen first (VEL-069: the wheel or drag went to off-screen
