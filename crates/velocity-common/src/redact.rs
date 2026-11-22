@@ -54,15 +54,40 @@ static SHAPES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
             r#"(?i)\b((?:set-)?cookie\s*[:=]\s*)[^\r\n"']{6,}"#,
             "${1}[redacted]",
         ),
+        // AWS SigV4 authorization header: mask the Credential= and Signature=
+        // values (they follow a space or a comma), keep SignedHeaders readable (V12).
         (
-            r"(?i)([?&](?:key|api_?key|token|access_token|refresh_token|id_token|secret|client_secret|password|passwd|pwd|sig|signature|auth)=)[^&\s#]+",
+            r#"(?i)((?:authorization\s*:\s*aws4-hmac-sha256\s+credential=))[^\s,;]+"#,
             "${1}[redacted]",
         ),
-        // A JSON string value, escapes included: `[^"]*` stopped at the
-        // `\"` inside a password and left the rest of it in clear (V3).
         (
-            r#"(?i)("(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|id_token|api_?key|apikey|authorization|proxy-authorization|x-api-key|x-auth-token|cookie|set-cookie|private_key)"\s*:\s*")(?:[^"\\]|\\.)*(")"#,
-            "${1}[redacted]${2}",
+            // After a space or comma, not only in the header: the scheme
+            // word is masked first by the Authorization shape above.
+            r#"(?i)((?:^|[\s,])signature=)[^\s,;&]+"#,
+            "${1}[redacted]",
+        ),
+        // URL query / form parameters named like a secret, after `?` or `&`
+        // (AWS presigned-URL parameters added for V12).
+        (
+            r"(?i)([?&](?:key|api_?key|token|access_token|refresh_token|id_token|secret|client_secret|password|passwd|pwd|sig|signature|auth|x-amz-credential|x-amz-security-token|x-amz-signature)=)[^&\s#]+",
+            "${1}[redacted]",
+        ),
+        // The same at the start of the text or after a space: a form body
+        // whose first field is secret (`password=hunter2&user=bob`, V12).
+        // Only unambiguous names: `key=`, `sig=` or `auth=` in prose are
+        // too often not secrets, and `pwd` here would catch `PWD=/path`.
+        (
+            r"(?i)((?:^|\s)(?:api_?key|token|access_token|refresh_token|id_token|secret|client_secret|password|passwd)=)[^&\s#]+",
+            "${1}[redacted]",
+        ),
+        // A JSON value: strings with escapes included (`[^"]*` stopped at the
+        // `\"` inside a password and left the rest of it in clear (V3)), or
+        // numbers (`{"token": 12345678}`) (V12). The leading group keeps the key
+        // and `: `; the trailing group keeps the closing quote or the delimiter
+        // after a number.
+        (
+            r#"(?i)("(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|id_token|api_?key|apikey|authorization|proxy-authorization|x-api-key|x-auth-token|cookie|set-cookie|private_key)"\s*:\s*)(?:(?:"(?:[^"\\]|\\.)*)|-?\d+(?:\.\d+)?)("|\s|,|\}|$)"#,
+            "${1}[redacted]$2",
         ),
         // `scheme://user:password@host`: a password in a URL's userinfo (V4).
         (
@@ -92,6 +117,11 @@ pub fn is_secret_name(name: &str) -> bool {
     // "PIN" must not catch SHIPPING_ADDRESS, nor "AUTH" AUTHOR. Acronyms and
     // digits split too, so APIToken, TOKEN2 and dbPASSWORD are caught
     // (VEL-075).
+    // The shell's working directories, not passwords (V12); `DB_PWD` and
+    // `MYSQL_PWD` still are.
+    if name == "PWD" || name == "OLDPWD" {
+        return false;
+    }
     let chars: Vec<char> = name.chars().collect();
     let mut words = Vec::new();
     let mut cur = String::new();
@@ -132,6 +162,7 @@ pub fn is_secret_name(name: &str) -> bool {
         "PINCODE",
         "SECRET",
         "SECRETS",
+        "SEED",
         "TOKEN",
         "TOKENS",
         "APIKEY",
@@ -140,6 +171,7 @@ pub fn is_secret_name(name: &str) -> bool {
         "PRIVATEKEY",
         "CREDENTIAL",
         "CREDENTIALS",
+        "CREDS",
         "PIN",
         "OTP",
         "AUTH",
@@ -149,6 +181,7 @@ pub fn is_secret_name(name: &str) -> bool {
         "BEARER",
         "CVV",
         "CVC",
+        "PW",
     ];
     if words.iter().any(|w| WORDS.contains(&w.as_str())) {
         return true;
@@ -727,9 +760,18 @@ mod tests {
             "CARD_CVV",
             "authJWT",
             "PIN1",
+            // Rule 5: PW, CREDS, SEED as whole words.
+            "DB_PW",
+            "PW",
+            "API_CREDS",
+            "CREDS",
+            "RANDOM_SEED",
+            "DATA_SEED",
         ] {
             assert!(is_secret_name(n), "{n}");
         }
+        // Whole-word only: PWD / OLDPWD are path vars, not secrets; SEEDLING_*
+        // merely contains the letters.
         for n in [
             "EMAIL",
             "BASE_URL",
@@ -740,6 +782,10 @@ mod tests {
             "MONKEY",
             "SPINNER",
             "HTTP2_URL",
+            "PWD",
+            "OLDPWD",
+            "SEEDLING_COUNT",
+            "MY_SEEDLING",
         ] {
             assert!(!is_secret_name(n), "{n}");
         }
@@ -771,6 +817,110 @@ mod tests {
         let shown = e.to_string();
         assert!(!shown.contains("S3cret"), "{shown}");
         assert!(shown.contains("emulator-5554"), "{shown}");
+    }
+
+    // V12 — rule 1: AWS presigned URL query parameters.
+    #[test]
+    fn aws_presigned_url_query_parameters_are_masked() {
+        let input = "GET https://bucket.s3.amazonaws.com/obj?X-Amz-Signature=abcd1234deadbeef&X-Amz-Security-Token=AQoEXAMPLE&X-Amz-Credential=AKIA...%2F20261122%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20261122T000000Z";
+        let got = redact(input);
+        assert!(!got.contains("abcd1234deadbeef"), "{got}");
+        assert!(!got.contains("AQoEXAMPLE"), "{got}");
+        assert!(!got.contains("AKIA..."), "{got}");
+        assert!(got.contains("X-Amz-Date=20261122T000000Z"), "{got}");
+        assert!(got.contains(MASK), "{got}");
+        assert_eq!(redact(&got), got, "idempotent");
+    }
+
+    // V12 — rule 2: AWS SigV4 authorization header (Credential= and Signature=).
+    #[test]
+    fn aws_sigv4_authorization_header_credential_and_signature_are_masked() {
+        let input = "Authorization: AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20261122/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-date, Signature=deadbeefcafebabecafe1234567890abcdef1234567890abcdef12345678";
+        let got = redact(input);
+        assert!(!got.contains("AKIAIOSFODNN7EXAMPLE"), "{got}");
+        assert!(!got.contains("deadbeefcafebabecafe"), "{got}");
+        assert!(got.contains("SignedHeaders=host;x-amz-date"), "{got}");
+        assert!(got.contains(MASK), "{got}");
+        assert_eq!(redact(&got), got, "idempotent");
+    }
+
+    // V12 — rule 3: a form body whose first field is secret.
+    #[test]
+    fn secret_first_form_field_is_masked() {
+        for input in ["password=hunter2&user=bob", "token=abc123&user=bob"] {
+            let got = redact(input);
+            assert!(!got.contains("hunter2"), "{input} -> {got}");
+            assert!(!got.contains("abc123"), "{input} -> {got}");
+            assert!(got.contains("user=bob"), "{input} -> {got}");
+            assert!(got.contains(MASK), "{input} -> {got}");
+            assert_eq!(redact(&got), got, "idempotent: {input}");
+        }
+        // But `user=bob` alone (no secret key) is unchanged.
+        assert!(matches!(redact("user=bob"), Cow::Borrowed(_)));
+    }
+
+    // V12 — rule 4: a JSON value that is a number for a secret key.
+    #[test]
+    fn json_numeric_secret_is_masked() {
+        for input in [
+            r#"{"token": 12345678}"#,
+            r#"{"password": 42, "user": "bob"}"#,
+        ] {
+            let got = redact(input);
+            assert!(!got.contains("12345678"), "{input} -> {got}");
+            assert!(!got.contains("42"), "{input} -> {got}");
+            assert!(got.contains(MASK), "{input} -> {got}");
+            assert_eq!(redact(&got), got, "idempotent: {input}");
+        }
+        // A non-secret numeric value stays.
+        assert_eq!(redact(r#"{"count": 12345678}"#), r#"{"count": 12345678}"#);
+    }
+
+    // V12 — rule 5 plus the documented false positives stay unmasked.
+    #[test]
+    fn secret_variable_names_and_false_positives() {
+        // Rule 5: whole words only — PW, CREDS, SEED.
+        for n in [
+            "DB_PW",
+            "PW",
+            "API_CREDS",
+            "CREDS",
+            "RANDOM_SEED",
+            "DATA_SEED",
+            "DB_PWD",
+            "MYSQL_PWD",
+        ] {
+            assert!(is_secret_name(n), "{n}");
+        }
+        // A `pwd` URL parameter is still masked; prose `key=` is not.
+        assert!(!redact("https://x.test/login?user=a&pwd=hunter2").contains("hunter2"));
+        assert!(matches!(redact("lookup key=user_id"), Cow::Borrowed(_)));
+        // PWD / OLDPWD are path vars; SEEDLING_* merely contains the letters.
+        for n in ["PWD", "OLDPWD", "SEEDLING_COUNT", "MY_SEEDLING"] {
+            assert!(!is_secret_name(n), "{n}");
+        }
+
+        // False positives stay unmasked.
+        for plain in [
+            "signature verification failed",
+            "SignedHeaders=host;x-amz-date",
+            "PWD=/Users/me/project",
+            "OLDPWD=/tmp",
+            r#"{"count": 12345678}"#,
+            "user=bob",
+            "https://example.com/a?b=c",
+        ] {
+            assert!(
+                matches!(redact(plain), Cow::Borrowed(_)),
+                "{plain} -> {:?}",
+                redact(plain)
+            );
+        }
+        // RANDOM_SEED=42 IS secret-named under rule 5 (SEED as a whole word) —
+        // that is acceptable. Its value isn't masked by a shape (42 is below
+        // MIN_SECRET_LEN and no query shape covers SEED=); only registration
+        // would mask it. Documented here so the behaviour isn't a surprise.
+        assert!(is_secret_name("RANDOM_SEED"));
     }
 
     mod props {
