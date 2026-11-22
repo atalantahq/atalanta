@@ -566,7 +566,7 @@ pub fn explore_summary(r: &serde_json::Value) -> Summary {
         })
         .collect();
     let files: Vec<Value> = r["files"].as_array().cloned().unwrap_or_default();
-    let explore = json!({
+    let mut explore = json!({
         "outcome": rep["outcome"],
         "reason": rep["reason"],
         "yaml": files.iter().find(|f| f.as_str().is_some_and(|f| !f.ends_with(".nl.yaml"))),
@@ -589,6 +589,10 @@ pub fn explore_summary(r: &serde_json::Value) -> Summary {
             "review {f}, then run it with `velocity run {f}` (run_task suite={f}); commit it for CI"
         )),
     });
+    // The summary goes to task.json and the notifiers as well as the MCP
+    // reply: a secret the model quoted in `reason` (or a repair note) must
+    // be masked here too (second-pass review).
+    velocity_common::redact::redact_value(&mut explore);
     Summary {
         total: runs.len(),
         passed,
@@ -1306,5 +1310,20 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
         let done = m.wait(&info.id, Duration::from_secs(40)).await.unwrap();
         assert_eq!(done.state, TaskState::Stopped, "{done:?}");
         assert_eq!(done.summary.unwrap().explore.unwrap()["outcome"], "stopped");
+    }
+
+    /// Second-pass review: the explore summary is written to task.json and
+    /// handed to notifiers; a registered secret in its `reason` was kept.
+    #[test]
+    fn the_explore_summary_masks_registered_secrets() {
+        velocity_common::redact::register_secret("hunter2-second-pass-value");
+        let r = serde_json::json!({
+            "report": {"outcome": "failed", "reason": "login failed with hunter2-second-pass-value"},
+            "files": ["a.yaml"],
+        });
+        let s = explore_summary(&r);
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(!text.contains("hunter2-second-pass-value"), "{text}");
+        assert!(text.contains("login failed with"), "{text}");
     }
 }
