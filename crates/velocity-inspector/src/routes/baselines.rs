@@ -64,8 +64,18 @@ pub async fn image(
             ))
         }
     };
-    let bytes = std::fs::read(&path)
-        .map_err(|e| (StatusCode::NOT_FOUND, format!("{}: {e}", path.display())))?;
+    // A results dir can come from a CI artifact: a link named
+    // `x-actual.png` must not make this a read of any file the inspector's
+    // user can read, so only a regular file that is a PNG is served.
+    let not_found = |why: String| (StatusCode::NOT_FOUND, format!("{}: {why}", path.display()));
+    let meta = std::fs::symlink_metadata(&path).map_err(|e| not_found(e.to_string()))?;
+    if !meta.file_type().is_file() {
+        return Err(not_found("not a regular file".into()));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| not_found(e.to_string()))?;
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err(not_found("not a PNG image".into()));
+    }
     Ok(([(header::CONTENT_TYPE, "image/png")], bytes).into_response())
 }
 
@@ -307,5 +317,62 @@ mod tests {
             },
         );
         assert!(!html.contains("<script>") && html.contains("&lt;script&gt;"));
+    }
+
+    /// V4: an image link in a results dir must not serve the file it
+    /// points at.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_linked_or_non_png_image_is_not_served() {
+        let root = std::env::temp_dir().join(format!(
+            "vel-insp-img-{}-{}",
+            std::process::id(),
+            crate::security::new_token()
+        ));
+        let diffs = root.join("results/diffs");
+        let base = root.join("suite/velocity-baselines/ios/1x1/home.png");
+        std::fs::create_dir_all(&diffs).unwrap();
+        std::fs::create_dir_all(base.parent().unwrap()).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nrest".to_vec();
+        std::fs::write(diffs.join("home-expected.png"), &png).unwrap();
+        let secret = root.join("secret.txt");
+        std::fs::write(&secret, "SECRET").unwrap();
+        std::os::unix::fs::symlink(&secret, diffs.join("home-actual.png")).unwrap();
+        baselines::record_failure(
+            &diffs,
+            "home.png",
+            &baselines::ReviewRecord {
+                name: "home".into(),
+                baseline: base,
+                detail: String::new(),
+                baseline_hash: None,
+            },
+        )
+        .unwrap();
+        let state = Arc::new(AppState::new(
+            Arc::new(crate::no_device::NoDevice),
+            None,
+            None,
+        ));
+        let mut state = state;
+        Arc::get_mut(&mut state).unwrap().results_dir = root.join("results");
+        let get = |kind: &str| {
+            image(
+                State(state.clone()),
+                Query(ImageQuery {
+                    id: "diffs/home".into(),
+                    kind: kind.into(),
+                }),
+            )
+        };
+        assert!(get("expected").await.is_ok());
+        let err = get("actual").await.unwrap_err();
+        assert_eq!(err.0, StatusCode::NOT_FOUND);
+        assert!(!err.1.contains("SECRET"));
+        // Not a link, but not a PNG either.
+        std::fs::remove_file(diffs.join("home-actual.png")).unwrap();
+        std::fs::write(diffs.join("home-actual.png"), "SECRET").unwrap();
+        assert_eq!(get("actual").await.unwrap_err().0, StatusCode::NOT_FOUND);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

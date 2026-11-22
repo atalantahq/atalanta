@@ -84,6 +84,11 @@ impl Control {
         self.held.lock().await.contains_key(device_id)
     }
 
+    /// Let go of every lease this console holds (it is shutting down).
+    pub async fn release_all(&self) {
+        self.held.lock().await.clear();
+    }
+
     pub async fn release(&self, device_id: &str) -> bool {
         self.held.lock().await.remove(device_id).is_some()
     }
