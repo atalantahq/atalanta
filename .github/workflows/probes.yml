@@ -39,6 +39,10 @@ jobs:
           distribution: temurin
           java-version: ${{ steps.pins.outputs.TREE_JDK }}
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          # The default also installs `tools`, which newer SDKs no longer have
+          # (sdkmanager exits 1: "Failed to find package 'tools'").
+          packages: platform-tools
       - name: Install the SDK platforms and build tools
         env:
           PLATFORM: ${{ steps.pins.outputs.TREE_PLATFORM }}
