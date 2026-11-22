@@ -983,21 +983,39 @@ impl AndroidDriver {
     /// tapping anyway would press a key or the overlay.
     async fn touch_point(&self, device_id: &str, bounds: &Rect) -> Result<(i32, i32)> {
         let center = bounds.center();
-        let Some(Ok(windows)) = self.tree.windows(device_id).await else {
-            return Ok(center);
+        // A window that covers the target may be on its way out: a
+        // permission dialog animating in still has the app's window over
+        // its button (a field test refused about 1 tap in 3 at once). Read
+        // the windows again for a moment before calling it covered.
+        let tree = &self.tree;
+        let read = || async move {
+            match tree.windows(device_id).await {
+                Some(Ok(w)) => Some(w),
+                _ => None,
+            }
         };
-        match uncovered_point(&windows, bounds) {
-            Ok(p) => Ok(p),
-            Err(cover) => Err(VelocityError::AssertionFailed {
-                expected: format!("target at {bounds:?} reachable"),
-                actual: format!(
-                    "covered by the {} ({}); hide it first, e.g. pressKey: back for the keyboard",
-                    cover.kind_name(),
-                    cover.package
-                ),
-                selector: String::new(),
-                screenshot: None,
-            }),
+        match wait_uncovered(read, bounds, COVER_SETTLE, COVER_POLL).await {
+            Uncovered::At(p) => Ok(p),
+            Uncovered::Unknown => Ok(center),
+            Uncovered::Covered(cover) => {
+                // Only the keyboard is hidden with back; for another window
+                // the advice is to wait for it or close it.
+                let hint = if cover.kind == 2 {
+                    "hide it first, e.g. pressKey: back"
+                } else {
+                    "wait until it is gone (assertNotVisible on it) or close it first"
+                };
+                Err(VelocityError::AssertionFailed {
+                    expected: format!("target at {bounds:?} reachable"),
+                    actual: format!(
+                        "covered by the {} ({}); {hint}",
+                        cover.kind_name(),
+                        cover.package
+                    ),
+                    selector: String::new(),
+                    screenshot: None,
+                })
+            }
         }
     }
 
@@ -1025,6 +1043,45 @@ impl AndroidDriver {
         self.swipe_points(device_id, (x1, y1), (x2, y2), 300).await
     }
 }
+
+/// What [`wait_uncovered`] found.
+#[derive(Debug, PartialEq)]
+enum Uncovered {
+    At((i32, i32)),
+    Covered(crate::tree_server::Window),
+    /// No window list (an older tree server): tap the center as before.
+    Unknown,
+}
+
+/// The first uncovered point of `bounds` in windows `read` returns, asking
+/// again every `poll` until `settle` has passed.
+async fn wait_uncovered<F, Fut>(
+    read: F,
+    bounds: &Rect,
+    settle: Duration,
+    poll: Duration,
+) -> Uncovered
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Option<Vec<crate::tree_server::Window>>>,
+{
+    let deadline = Instant::now() + settle;
+    loop {
+        let Some(windows) = read().await else {
+            return Uncovered::Unknown;
+        };
+        match uncovered_point(&windows, bounds) {
+            Ok(p) => return Uncovered::At(p),
+            Err(cover) if Instant::now() + poll >= deadline => return Uncovered::Covered(cover),
+            Err(_) => tokio::time::sleep(poll).await,
+        }
+    }
+}
+
+/// How long a tap waits for a covering window to go before refusing.
+const COVER_SETTLE: Duration = Duration::from_millis(1500);
+/// How often it reads the windows in that time.
+const COVER_POLL: Duration = Duration::from_millis(150);
 
 /// A point inside `bounds` no front window covers, preferring the center;
 /// otherwise the window covering the center. Windows are front first; only
@@ -2794,6 +2851,80 @@ mod launch_tests {
             title: String::new(),
             active: None,
         }
+    }
+
+    /// Field test (a permission dialog animating in): the target is covered
+    /// on the first reads and then free; the tap waits for it rather than
+    /// refusing at once. One that stays covered is refused at the deadline.
+    #[tokio::test]
+    async fn a_cover_that_goes_away_is_waited_for() {
+        use std::time::{Duration, Instant};
+        let mut other = win(5, 1, 1000, 600);
+        other.package = "com.other".into();
+        other.active = Some(false);
+        let mut app = win(1, 1, 0, 2400);
+        app.package = "com.app".into();
+        app.active = Some(true);
+        let under = velocity_common::Rect {
+            x: 100,
+            y: 1100,
+            width: 400,
+            height: 200,
+        };
+        let reads = std::sync::atomic::AtomicUsize::new(0);
+        let (o, a) = (other.clone(), app.clone());
+        let read = || {
+            let n = reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let w = if n < 2 {
+                vec![o.clone(), a.clone()]
+            } else {
+                vec![a.clone()]
+            };
+            async move { Some(w) }
+        };
+        let got = super::wait_uncovered(
+            read,
+            &under,
+            Duration::from_millis(500),
+            Duration::from_millis(10),
+        )
+        .await;
+        assert!(matches!(got, super::Uncovered::At(_)), "{got:?}");
+        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 3);
+
+        let start = Instant::now();
+        let stays = || {
+            let w = vec![other.clone(), app.clone()];
+            async move { Some(w) }
+        };
+        let got = super::wait_uncovered(
+            stays,
+            &under,
+            Duration::from_millis(200),
+            Duration::from_millis(20),
+        )
+        .await;
+        assert!(
+            matches!(got, super::Uncovered::Covered(ref w) if w.package == "com.other"),
+            "{got:?}"
+        );
+        assert!(
+            start.elapsed() >= Duration::from_millis(150),
+            "{:?}",
+            start.elapsed()
+        );
+        // No window list (an older server): the center, at once.
+        let none = || async { None };
+        assert_eq!(
+            super::wait_uncovered(
+                none,
+                &under,
+                Duration::from_millis(200),
+                Duration::from_millis(20)
+            )
+            .await,
+            super::Uncovered::Unknown
+        );
     }
 
     /// Review 09 #12: in freeform / desktop windowing another app's window
