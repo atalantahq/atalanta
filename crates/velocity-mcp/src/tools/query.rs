@@ -420,6 +420,23 @@ mod wait_tests {
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 
+    /// Field tests: `velocity tap` right after a screen change failed "after
+    /// 0ms". An action's lookup now looks again for a moment; a plain lookup
+    /// (assertions without `timeout_ms`) still checks once.
+    #[tokio::test]
+    async fn an_action_finds_a_target_that_arrives_after_its_first_look() {
+        let target = Selector::Text("Airplane mode".into());
+        let d: Arc<dyn PlatformDriver> = Arc::new(CachingDevice::default());
+        assert!(super::super::interaction::find_live(&d, "d", &target)
+            .await
+            .is_err());
+        let d: Arc<dyn PlatformDriver> = Arc::new(CachingDevice::default());
+        let el = super::super::interaction::find_live_for_action(&d, "d", &target)
+            .await
+            .unwrap();
+        assert_eq!(el.text.as_deref(), Some("Airplane mode"));
+    }
+
     /// A device whose screen changes after its first read (a page
     /// transition), behind a tree cache as the Android and iOS drivers keep
     /// one: a lookup is served from the cache until it is invalidated.
