@@ -70,14 +70,26 @@ pub fn flow_yaml(name: &str, app_id: &str, step_yamls: &[String]) -> String {
 }
 
 fn yaml_double_quoted(value: &str) -> String {
-    format!(
-        "\"{}\"",
-        value
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-            .replace('\n', "\\n")
-            .replace('\r', "\\r")
-    )
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for c in value.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // Other control characters (and NEL, U+2028/9) are not
+            // printable YAML: written raw they fail to load or fold into
+            // a space, so the saved selector would no longer match.
+            c if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') => {
+                out.push_str(&format!("\\u{:04X}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn selector_to_yaml(selector: &Selector) -> String {
@@ -200,6 +212,32 @@ mod tests {
                 assert_eq!(selector, &edit)
             }
             other => panic!("{other:?}"),
+        }
+    }
+    /// V1: a label with a control character or a Unicode line break (a
+    /// copied-in U+2028 is common in web text) must come back from the
+    /// suite parser as itself: YAML folds a raw NEL/LS/PS inside a quoted
+    /// scalar into a space and refuses other control characters.
+    #[test]
+    fn labels_with_control_and_line_break_characters_round_trip() {
+        for text in [
+            "Foo\u{2028}Bar",
+            "Foo\u{2029}Bar",
+            "Foo\u{85}Bar",
+            "Foo\u{7}Bar",
+            "tab\there",
+            "\u{1b}[0m",
+        ] {
+            let sel = Selector::Text(text.into());
+            let yaml = flow_yaml("n", "com.app", &[tap_yaml(&sel)]);
+            let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+                .unwrap_or_else(|e| panic!("{text:?}: {e}\n{yaml}"));
+            match &suite.tests[0].steps[0].action {
+                velocity_common::types::Action::Tap { selector } => {
+                    assert_eq!(selector, &sel, "{text:?}\n{yaml}")
+                }
+                other => panic!("{other:?}"),
+            }
         }
     }
 }

@@ -73,6 +73,33 @@ impl Drop for AbortOnDrop {
     }
 }
 
+/// The longest header line accepted.
+const MAX_HEADER_LINE: usize = 8192;
+
+/// One line, at most [`MAX_HEADER_LINE`] bytes: a peer that never sends a
+/// newline is refused after that many, not after it has been buffered.
+async fn read_header_line<R: tokio::io::AsyncBufRead + Unpin>(r: &mut R) -> Result<String, String> {
+    let mut line = Vec::new();
+    loop {
+        let buf = r.fill_buf().await.map_err(|e| e.to_string())?;
+        if buf.is_empty() {
+            return Err("stream closed".into());
+        }
+        let (take, done) = match buf.iter().position(|b| *b == b'\n') {
+            Some(i) => (i + 1, true),
+            None => (buf.len(), false),
+        };
+        line.extend_from_slice(&buf[..take]);
+        r.consume(take);
+        if line.len() > MAX_HEADER_LINE {
+            return Err("header line too long".into());
+        }
+        if done {
+            return Ok(String::from_utf8_lossy(&line).into_owned());
+        }
+    }
+}
+
 /// The next part's JPEG: headers up to a blank line (the HTTP response's
 /// own headers are skipped the same way), then `Content-Length` bytes.
 async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(r: &mut R) -> Result<ImageFrame, String> {
@@ -80,14 +107,7 @@ async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(r: &mut R) -> Result<Ima
         let mut len: Option<usize> = None;
         let mut saw_header = false;
         loop {
-            let mut line = String::new();
-            let n = r.read_line(&mut line).await.map_err(|e| e.to_string())?;
-            if n == 0 {
-                return Err("stream closed".into());
-            }
-            if line.len() > 8192 {
-                return Err("header line too long".into());
-            }
+            let line = read_header_line(r).await?;
             let t = line.trim();
             if t.is_empty() {
                 if saw_header {
@@ -146,5 +166,17 @@ mod tests {
             assert!(!f.png);
         }
         assert!(read_frame(&mut r).await.is_err());
+    }
+
+    /// V9: a header line with no newline is refused at the cap, however
+    /// much the peer keeps sending.
+    #[tokio::test]
+    async fn an_endless_header_line_is_refused_at_the_cap() {
+        let mut r = BufReader::new(tokio::io::repeat(b'a'));
+        let err = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut r))
+            .await
+            .expect("read_frame returned")
+            .unwrap_err();
+        assert!(err.contains("too long"), "{err}");
     }
 }

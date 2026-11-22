@@ -304,10 +304,23 @@ pub async fn execute(args: InspectArgs) -> anyhow::Result<i32> {
         open_browser(&url);
     }
 
-    let served = server.start_with_listener(listener).await;
+    // Ctrl-C / SIGTERM: stop serving, stop the console's run and explore
+    // children (they run in their own process groups, so the terminal's
+    // signal never reaches them), then clean the drivers up. A second
+    // signal kills what is left and exits at once (`signals`).
+    crate::signals::install();
+    let seen = crate::signals::count();
+    let shutdown = async move {
+        crate::signals::after(seen).await;
+        crate::signals::cleaning_up();
+    };
+    let served = server.start_with_listener_until(listener, shutdown).await;
     driver.cleanup().await;
     served?;
 
+    if crate::signals::count() > seen {
+        return Ok(crate::signals::exit_code());
+    }
     Ok(0)
 }
 

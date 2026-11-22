@@ -1034,3 +1034,91 @@ async fn explore_runs_a_child_streams_its_events_and_saves_the_test() {
         .await;
     assert_eq!(r.code, 409);
 }
+
+/// A run that records its pid and then waits to be interrupted.
+struct WaitLauncher;
+impl SuiteLauncher for WaitLauncher {
+    fn command(
+        &self,
+        _: &Path,
+        _: &RunRequest,
+        out_dir: &Path,
+        _: &Path,
+    ) -> tokio::process::Command {
+        let mut c = tokio::process::Command::new("/bin/sh");
+        c.arg("-c")
+            .arg(r#"trap 'exit 130' INT; echo $$ > "$1/pid.txt"; while true; do sleep 0.05; done"#)
+            .arg("sh")
+            .arg(out_dir);
+        c
+    }
+}
+
+/// Shutting the server down returns from `start_with_listener_until` and
+/// leaves no run child behind.
+#[cfg(unix)]
+#[tokio::test]
+async fn shutdown_returns_and_leaves_no_child() {
+    let project = tmp_dir("shutdown");
+    std::fs::write(
+        project.join("velocity.yaml"),
+        "appId: a\ntests:\n  - name: t\n    steps:\n      - launchApp\n",
+    )
+    .unwrap();
+    let listener = InspectorServer::bind(0).await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let hooks = ConsoleHooks {
+        launcher: Arc::new(WaitLauncher),
+        runs_dir: project.join("runs"),
+        project_dir: project.clone(),
+        ..Default::default()
+    };
+    let srv = InspectorServer::new(Fake::new(), Some("dev".into()), None).with_console(hooks);
+    let token = srv.token().to_string();
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        srv.start_with_listener_until(listener, async {
+            let _ = stopped.await;
+        })
+        .await
+    });
+    let host = format!("127.0.0.1:{port}");
+    let r = send(
+        port,
+        "POST",
+        "/api/tasks/run",
+        &[("Host", &host), ("X-Velocity-Token", &token)],
+        r#"{"suite":"velocity.yaml","deviceId":"dev"}"#,
+    )
+    .await;
+    assert_eq!(r.code, 202, "{}", r.body);
+    let pid_file = std::fs::read_dir(project.join("runs"))
+        .unwrap()
+        .flatten()
+        .next()
+        .unwrap()
+        .path()
+        .join("pid.txt");
+    for _ in 0..200 {
+        if pid_file.is_file() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let pid: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    stop.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(30), server)
+        .await
+        .expect("the server stopped")
+        .unwrap()
+        .unwrap();
+    // SAFETY: signal 0 only checks that the process exists.
+    let alive = unsafe { libc::kill(pid, 0) } == 0;
+    assert!(!alive, "the run child is still alive");
+    let _ = std::fs::remove_dir_all(&project);
+}
