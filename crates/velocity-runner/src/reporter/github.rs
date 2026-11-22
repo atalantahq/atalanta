@@ -270,7 +270,7 @@ pub fn annotations(result: &SuiteResult, suite_file: &str) -> Vec<String> {
                     t.failed_attempts.first().map(String::as_str).unwrap_or("?")
                 ),
             ),
-            TestStatus::Passed if !t.warnings.is_empty() => (
+            TestStatus::Passed if !t.from_cache && !t.warnings.is_empty() => (
                 "warning",
                 match t.healed_label() {
                     Some(label) => format!("{label}: {}", t.warnings.join("; ")),
@@ -462,6 +462,31 @@ mod tests {
             "{notes:?}"
         );
         assert!(summary(&r).contains("PASSED (healed 1)"), "{}", summary(&r));
+    }
+
+    // V6: every pass served from the result cache carries a "not run" warning,
+    // so each became a `::warning`; with 10 shown per step, they pushed a
+    // real flaky test's annotation out of the run.
+    #[test]
+    fn cached_passes_take_none_of_the_annotation_slots() {
+        let cached = |n: usize| {
+            let mut t = TestResult::failed(&format!("cached {n}"), String::new(), Duration::ZERO);
+            t.status = TestStatus::Passed;
+            t.error_message = None;
+            t.from_cache = true;
+            t.warnings =
+                vec!["not run: result cache (app, test, config and device unchanged)".into()];
+            t
+        };
+        let mut flaky = TestResult::failed("flaky one", String::new(), Duration::ZERO);
+        flaky.status = TestStatus::Retried;
+        flaky.error_message = None;
+        flaky.failed_attempts = vec!["timeout".into()];
+        let mut tests: Vec<TestResult> = (0..30).map(cached).collect();
+        tests.push(flaky);
+        let notes = annotations(&suite(tests), "app.yaml");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("flaky one"), "{notes:?}");
     }
 
     // R-3: app text such as an error message holding "\n::error::x" or
