@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use velocity_common::host as room;
 
-use crate::{timed, Area, AreaResult, Check, Ctx, Fix, SafeAction};
+use crate::{timed, Area, AreaResult, Check, Ctx, Fix};
 
 const A: Area = Area::Host;
 
@@ -99,6 +99,25 @@ pub(crate) fn lease_dir(ctx: &Ctx) -> PathBuf {
         .var("VELOCITY_LEASE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| ctx.env().home().join(".velocity").join("leases"))
+}
+
+/// Devices a live process holds the lease of now (a run, the console, an MCP
+/// session), as "name (pid N cmd)". Whatever such a process is doing with an
+/// adb server, restarting it would interrupt.
+pub(crate) fn held_leases(ctx: &Ctx) -> Vec<String> {
+    velocity_runner::lease::scan(&lease_dir(ctx))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|l| l.held)
+        .map(|l| {
+            format!(
+                "{} (pid {} {})",
+                l.name,
+                l.pid.map_or("?".into(), |p| p.to_string()),
+                l.cmd.as_deref().unwrap_or("?")
+            )
+        })
+        .collect()
 }
 
 fn state_dirs(ctx: &Ctx) -> Check {
@@ -236,24 +255,22 @@ fn leases(ctx: &Ctx) -> Check {
                 dir.display()
             )));
     }
+    // A lease file whose owner exited and that nobody holds blocks nobody
+    // (`LeaseFile::is_stale`: the lock went with its holder); only the
+    // leftover holder line is stale. Say so, don't warn: every finished run
+    // leaves one, and a warning made a plain doctor "degraded" (exit 3 with
+    // `--strict`) after any run.
     if !stale.is_empty() {
-        return Check::warn("host.leases", A, summary)
-            .with_detail(
+        let detail = held
+            .into_iter()
+            .chain(
                 stale
                     .iter()
-                    .map(|p| format!("stale: {}", name(p)))
-                    .chain(held)
-                    .collect::<Vec<_>>()
-                    .join("\n"),
+                    .map(|p| format!("{}: left by an exited process; blocks nothing", name(p))),
             )
-            .with_fix(Fix::safe(
-                format!(
-                    "clear {} stale lease file(s) in {}",
-                    stale.len(),
-                    dir.display()
-                ),
-                SafeAction::RemoveStaleLeases { paths: stale },
-            ));
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Check::ok("host.leases", A, summary).with_detail(detail);
     }
     Check::ok("host.leases", A, summary).with_detail(detail)
 }
@@ -277,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_leases_are_offered_as_a_safe_fix_and_live_ones_are_named() {
+    fn stale_leases_block_nobody_and_live_ones_are_named() {
         let mut t = Tools::new();
         let dir = t.path("leases");
         t.set("VELOCITY_LEASE_DIR", &dir.to_string_lossy());
@@ -287,17 +304,12 @@ mod tests {
             "pid=999999998 cmd=velocity run\n",
         )
         .unwrap();
+        // Left by an exited process, held by nobody: blocks nothing, so
+        // not a warning (and no fix to offer).
         let c = leases(&ctx(&t));
-        assert_eq!(c.status, Status::Warn, "{c:?}");
+        assert_eq!(c.status, Status::Ok, "{c:?}");
         assert!(c.summary.contains("1 left by exited processes"), "{c:?}");
-        let fix = c.fix.unwrap();
-        assert!(fix.safe_auto);
-        assert_eq!(
-            fix.action,
-            Some(SafeAction::RemoveStaleLeases {
-                paths: vec![dir.join("emulator-5554.lock")]
-            })
-        );
+        assert!(c.detail.unwrap().contains("blocks nothing"));
 
         // Our own pid: alive, not stale.
         std::fs::write(
@@ -329,5 +341,28 @@ mod tests {
         let c = state_dirs(&ctx(&t));
         assert_eq!(c.status, Status::Fail, "{c:?}");
         assert!(c.detail.unwrap().contains("app state"));
+    }
+
+    /// A lease a live process holds is what blocks; its holder line naming a
+    /// dead pid (a child kept the lock) is still a warning.
+    #[test]
+    fn a_lease_that_is_really_held_still_warns() {
+        let mut t = Tools::new();
+        let dir = t.path("leases");
+        t.set("VELOCITY_LEASE_DIR", &dir.to_string_lossy());
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("emulator-5554.lock");
+        std::fs::write(&path, "pid=999999998 cmd=velocity run\n").unwrap();
+        let f = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        f.try_lock().unwrap();
+        let c = leases(&ctx(&t));
+        assert_eq!(c.status, crate::Status::Warn, "{c:?}");
+        assert_eq!(held_leases(&ctx(&t)).len(), 1);
+        drop(f);
+        assert!(held_leases(&ctx(&t)).is_empty());
     }
 }

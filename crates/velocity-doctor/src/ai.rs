@@ -111,9 +111,13 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
 /// `https://host[:port]/path` → (host, port).
 fn host_port(url: &str) -> Option<(String, u16)> {
     let (scheme, rest) = url.split_once("://")?;
-    let authority = rest.split('/').next()?;
+    let authority = rest.split(['/', '?', '#']).next()?;
     let authority = authority.rsplit_once('@').map_or(authority, |(_, a)| a);
-    let default = if scheme == "http" { 80 } else { 443 };
+    let default = if scheme.eq_ignore_ascii_case("http") {
+        80
+    } else {
+        443
+    };
     match authority.rsplit_once(':') {
         Some((h, p)) if p.parse::<u16>().is_ok() => {
             Some((h.trim_matches(['[', ']']).to_string(), p.parse().ok()?))
@@ -231,6 +235,15 @@ mod tests {
         assert_eq!(
             host_port("http://localhost:8080/x"),
             Some(("localhost".into(), 8080))
+        );
+        // Schemes are case-insensitive; a query or fragment ends the authority.
+        assert_eq!(
+            host_port("HTTP://localhost/v1"),
+            Some(("localhost".into(), 80))
+        );
+        assert_eq!(
+            host_port("http://localhost:11434?x=1"),
+            Some(("localhost".into(), 11434))
         );
     }
 }
