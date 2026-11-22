@@ -84,6 +84,11 @@ impl Reply {
 struct Conn {
     reader: BufReader<OwnedReadHalf>,
     writer: OwnedWriteHalf,
+    /// The reply line read so far. Kept here, not in the exchange, so a
+    /// request dropped half way through a reply (a step timeout, Ctrl-C)
+    /// leaves the bytes it read for the next request to finish the line
+    /// with; a local buffer lost them and the next read began mid-line (V7).
+    pending: Vec<u8>,
 }
 
 /// A JSON-lines client for one bridge server on 127.0.0.1.
@@ -125,6 +130,7 @@ impl JsonLineClient {
                 self.conn = Some(Conn {
                     reader: BufReader::new(r),
                     writer: w,
+                    pending: Vec::new(),
                 });
                 Ok(())
             }
@@ -180,20 +186,26 @@ async fn exchange(
     conn.writer.write_all(line).await?;
     conn.writer.flush().await?;
     loop {
-        let mut buf = Vec::new();
-        let n = (&mut conn.reader)
-            .take(max as u64 + 1)
-            .read_until(b'\n', &mut buf)
-            .await?;
-        if n == 0 {
-            anyhow::bail!("{name} disconnected");
-        }
-        if buf.last() != Some(&b'\n') {
-            if buf.len() > max {
+        // Cancel-safe: whatever `read_until` has appended stays in
+        // `conn.pending` if this future is dropped, and the next call
+        // carries on from it.
+        while conn.pending.last() != Some(&b'\n') {
+            let room = (max + 1).saturating_sub(conn.pending.len());
+            if room == 0 {
                 anyhow::bail!("{name} reply is larger than {max} bytes");
             }
-            anyhow::bail!("{name} disconnected mid-reply");
+            let n = (&mut conn.reader)
+                .take(room as u64)
+                .read_until(b'\n', &mut conn.pending)
+                .await?;
+            if n == 0 {
+                if conn.pending.is_empty() {
+                    anyhow::bail!("{name} disconnected");
+                }
+                anyhow::bail!("{name} disconnected mid-reply");
+            }
         }
+        let buf = std::mem::take(&mut conn.pending);
         let value = parse_line(&buf)?;
         match value.get("id") {
             Some(got) if got.as_u64() != Some(id) => {
@@ -352,6 +364,50 @@ mod tests {
             reply,
             Reply::Ok {
                 data: Some(1.into())
+            }
+        );
+        server.await.unwrap();
+    }
+
+    // V7: a request dropped (a step watchdog, Ctrl-C) while its reply was
+    // half read lost those bytes, so the next request began mid-line, failed
+    // to parse it and dropped the connection.
+    #[tokio::test]
+    async fn a_request_dropped_mid_reply_does_not_corrupt_the_next() {
+        let (mut client, mut s) = pair().await;
+        client.timeout = Duration::from_secs(5);
+        let server = tokio::spawn(async move {
+            let first = read_request(&mut s).await;
+            let id1 = first["id"].as_u64().unwrap();
+            // Half of the first reply, then a pause the caller's own
+            // deadline falls into.
+            s.write_all(b"{\"status\":\"ok\",\"da").await.unwrap();
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let second = read_request(&mut s).await;
+            let id2 = second["id"].as_u64().unwrap();
+            // The rest of the first reply, then the second's.
+            let rest = format!("ta\":\"first\",\"id\":{id1}}}\n");
+            let reply = format!("{{\"status\":\"ok\",\"data\":\"second\",\"id\":{id2}}}\n");
+            s.write_all(format!("{rest}{reply}").as_bytes())
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        });
+        let dropped = tokio::time::timeout(
+            Duration::from_millis(100),
+            client.request(&serde_json::json!({"cmd": "one"})),
+        )
+        .await;
+        assert!(dropped.is_err(), "the first request was dropped mid-reply");
+        assert!(client.is_connected(), "dropping it leaves the connection");
+        let reply = client
+            .request(&serde_json::json!({"cmd": "two"}))
+            .await
+            .unwrap();
+        assert_eq!(
+            reply,
+            Reply::Ok {
+                data: Some("second".into())
             }
         );
         server.await.unwrap();

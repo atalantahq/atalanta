@@ -366,8 +366,9 @@ use.
 
 **Redaction coverage** (`redact.rs`): values of `${VAR}`s whose names look
 secret (PASSWORD, TOKEN, SECRET, KEY, PIN, OTP, ..., plus `VELOCITY_SECRETS`)
-and known shapes (Bearer and auth headers, `?token=`-style parameters, JSON
-`password`/`token` fields, JWTs, `sk-`/`ghp_`/`github_pat_`/`glpat-`/`AIza`/
+and known shapes (Bearer, Basic and other auth headers, cookie headers,
+`?token=`-style parameters, `user:password@` in a URL, JSON `password`/`token`
+fields, JWTs, `sk-`/`ghp_`/`github_pat_`/`glpat-`/`AIza`/
 `AKIA`/`xox?-`/`hf_` prefixes, PEM private keys). It is applied to reports,
 traces, live events, MCP replies, Android logcat and NL traces. Values
 shorter than 8 characters are masked only as whole words.

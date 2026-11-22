@@ -41,16 +41,32 @@ static SECRETS: LazyLock<RwLock<Vec<(String, usize)>>> = LazyLock::new(|| RwLock
 static SHAPES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
         (r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", "${1}[redacted]"),
+        // The credential after an auth scheme word (`Basic <base64>`): the
+        // scheme alone is 5 characters, so it was never what got masked and
+        // the credential after it stayed in clear (V1).
         (
-            r#"(?i)((?:authorization|x-api-key|api-key|x-auth-token|cookie|set-cookie)\s*[:=]\s*)[^\s,;"']{6,}"#,
+            r#"(?i)((?:authorization|x-api-key|api-key|x-auth-token)\s*[:=]\s*(?:(?:basic|bearer|token|negotiate|ntlm|apikey)\s+)?)[^\s,;"']{6,}"#,
+            "${1}[redacted]",
+        ),
+        // A cookie header is a list (`a=1; b=2`): all of it, to the end of
+        // the line (V2).
+        (
+            r#"(?i)\b((?:set-)?cookie\s*[:=]\s*)[^\r\n"']{6,}"#,
             "${1}[redacted]",
         ),
         (
             r"(?i)([?&](?:key|api_?key|token|access_token|refresh_token|id_token|secret|client_secret|password|passwd|pwd|sig|signature|auth)=)[^&\s#]+",
             "${1}[redacted]",
         ),
+        // A JSON string value, escapes included: `[^"]*` stopped at the
+        // `\"` inside a password and left the rest of it in clear (V3).
         (
-            r#"(?i)("(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|id_token|api_?key|apikey|authorization|private_key)"\s*:\s*")[^"]*(")"#,
+            r#"(?i)("(?:password|passwd|pwd|secret|client_secret|token|access_token|refresh_token|id_token|api_?key|apikey|authorization|proxy-authorization|x-api-key|x-auth-token|cookie|set-cookie|private_key)"\s*:\s*")(?:[^"\\]|\\.)*(")"#,
+            "${1}[redacted]${2}",
+        ),
+        // `scheme://user:password@host`: a password in a URL's userinfo (V4).
+        (
+            r"(?i)(\b[a-z][a-z0-9+.-]*://[^\s/?#@:]*:)[^\s/?#]+(@)",
             "${1}[redacted]${2}",
         ),
         (r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b", "[redacted]"),
@@ -602,6 +618,90 @@ mod tests {
         // multi-line value is never handed on with a line break in it.
         let long = registered_secrets_at_least(WORD_ONLY_BELOW);
         assert!(long.iter().any(|f| f == "C3secondLineData"), "{long:?}");
+    }
+
+    // V1-V4 (second pass, November 2026): shapes that let a credential
+    // through. Each secret below is unregistered, so only a shape can mask it.
+    #[test]
+    fn basic_and_other_scheme_authorization_headers_are_masked() {
+        for (input, secret) in [
+            (
+                "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+                "dXNlcjpwYXNzd29yZA",
+            ),
+            (
+                "Proxy-Authorization: Basic dXNlcjpwYXNzd29yZA==",
+                "dXNlcjpwYXNzd29yZA",
+            ),
+            ("Authorization: Token abcdef0123456789", "abcdef0123456789"),
+            ("Authorization: Bearer short1", "short1"),
+        ] {
+            let got = redact(input);
+            assert!(!got.contains(secret), "{input} -> {got}");
+            assert!(got.contains(MASK), "{input} -> {got}");
+            assert_eq!(redact(&got), got, "idempotent: {input}");
+        }
+        // Not a header: prose about "basic" stays.
+        assert!(matches!(
+            redact("Authorization is basic information"),
+            Cow::Borrowed(_)
+        ));
+    }
+
+    #[test]
+    fn every_cookie_of_a_cookie_header_is_masked() {
+        for (input, secrets) in [
+            (
+                "Cookie: session=abc123def456; csrf=xyz789uvw012; theme=dark",
+                vec!["abc123def456", "xyz789uvw012", "theme=dark"],
+            ),
+            (
+                "Set-Cookie: id=a1b2c3d4e5f6; Path=/; HttpOnly",
+                vec!["a1b2c3d4e5f6"],
+            ),
+        ] {
+            let got = redact(input);
+            for s in secrets {
+                assert!(!got.contains(s), "{input} -> {got}");
+            }
+            assert_eq!(redact(&got), got, "idempotent: {input}");
+        }
+    }
+
+    #[test]
+    fn a_json_secret_holding_an_escaped_quote_is_masked_whole() {
+        let input = r#"{"user":"qa","password":"ab\"cdEFGH1234","next":"x"}"#;
+        let got = redact(input);
+        assert!(
+            !got.contains("cdEFGH1234") && !got.contains("ab\\"),
+            "{got}"
+        );
+        assert!(got.contains(r#""next":"x""#), "{got}");
+        assert_eq!(redact(&got), got);
+    }
+
+    #[test]
+    fn a_password_in_url_userinfo_is_masked() {
+        for input in [
+            "GET https://qa:s3cr3tPassw0rd@api.example.com/v1 answered 500",
+            "git clone http://token:ghs3cr3tvalue@host:8080/repo.git",
+            "postgres://app:hunter22xyz@db.internal:5432/main",
+        ] {
+            let got = redact(input);
+            for secret in ["s3cr3tPassw0rd", "ghs3cr3tvalue", "hunter22xyz"] {
+                assert!(!got.contains(secret), "{input} -> {got}");
+            }
+            assert!(got.contains('@') && got.contains(MASK), "{got}");
+            assert_eq!(redact(&got), got);
+        }
+        // No password, or no userinfo: unchanged.
+        for plain in [
+            "https://token@github.com/org/repo",
+            "https://example.com:8080/a@b",
+            "see https://example.com/path?x=a:b@c",
+        ] {
+            assert!(matches!(redact(plain), Cow::Borrowed(_)), "{plain}");
+        }
     }
 
     #[test]

@@ -65,7 +65,21 @@ pub fn hash_app(path: &Path) -> std::io::Result<String> {
 /// `<installs_dir>/hashes.json`, so rerunning a suite against the same
 /// build doesn't read the whole build again.
 pub fn hash_app_cached(path: &Path) -> std::io::Result<String> {
+    hash_cached_with(path, hash_app)
+}
+
+/// [`hash_app_cached`] with the hashing passed in, so a test can count it.
+fn hash_cached_with(
+    path: &Path,
+    compute: impl Fn(&Path) -> std::io::Result<String>,
+) -> std::io::Result<String> {
     static CACHE: Mutex<Option<HashMap<PathBuf, (Stamp, String)>>> = Mutex::new(None);
+    // One caller at a time. A parallel run starts one installer per device,
+    // all asking for the same build together: each missed the cache and read
+    // the whole build, and all of them rewrote `hashes.json` (V9). Held
+    // across the hashing, the others find its result in the cache.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let key = std::fs::canonicalize(path)?;
     let now = stamp(&key)?;
     let remembered = CACHE
@@ -83,7 +97,7 @@ pub fn hash_app_cached(path: &Path) -> std::io::Result<String> {
             return Ok(hash);
         }
     }
-    let hash = hash_app(&key)?;
+    let hash = compute(&key)?;
     let mut disk = load_hashes();
     disk.insert(key.to_string_lossy().into_owned(), (now, hash.clone()));
     // Forget builds that are gone (CI workspaces, deleted temp dirs).
@@ -373,6 +387,37 @@ mod tests {
         assert_eq!(hash_app_cached(&apk).unwrap(), a);
         std::fs::write(&apk, b"two!").unwrap();
         assert_ne!(hash_app_cached(&apk).unwrap(), a);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // V9: every device's installer hashed the same build at once.
+    #[test]
+    fn devices_asking_together_hash_the_build_once() {
+        let dir = scratch("together");
+        let apk = dir.join("app.apk");
+        std::fs::write(&apk, vec![7u8; 1 << 20]).unwrap();
+        let computed = std::sync::atomic::AtomicUsize::new(0);
+        let hashes: Vec<String> = std::thread::scope(|s| {
+            let jobs: Vec<_> = (0..8)
+                .map(|_| {
+                    s.spawn(|| {
+                        hash_cached_with(&apk, |p| {
+                            computed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                            hash_app(p)
+                        })
+                        .unwrap()
+                    })
+                })
+                .collect();
+            jobs.into_iter().map(|j| j.join().unwrap()).collect()
+        });
+        assert!(hashes.iter().all(|h| *h == hashes[0] && is_sha256(h)));
+        assert_eq!(
+            computed.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the build was hashed once, not once per device"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
