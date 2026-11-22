@@ -4,10 +4,14 @@
 //!
 //! - **Redirects.** reqwest drops `Authorization` and `Cookie` when a
 //!   redirect changes host, but not a suite's own headers (`X-Api-Key`), and
-//!   it replays a 307/308 body. So a request that carries headers of its
-//!   own (`config.http.headers` or the step's) follows redirects on the same
-//!   origin only; a hop to another origin stops there, and the step sees
-//!   the 3xx. A redirect from `https` to `http` always stops.
+//!   it replays a 307/308 body (a login's password). So a request that
+//!   carries headers of its own (`config.http.headers` or the step's) or a
+//!   body (`json`, `body`, `form`) follows redirects on the same origin only;
+//!   a hop to another origin stops there. The step then fails with both
+//!   origins named, unless it says `expect.status` (a test of the redirect
+//!   itself). A redirect from `https` to `http` always stops. Nothing is
+//!   followed with the credentials left off: a request that quietly goes
+//!   elsewhere without them tests something else.
 //! - **Cloud metadata.** With [`BLOCK_METADATA_ENV`] set (the MCP server
 //!   sets it for a suite an agent wrote), no request reaches a link-local,
 //!   unspecified or metadata address, by IP literal, by a name that resolves
