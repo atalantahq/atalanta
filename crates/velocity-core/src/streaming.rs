@@ -21,16 +21,25 @@ pub fn parse_headers(yaml: &str) -> Result<Vec<TestHeader>> {
     let mut current_header: Option<PartialHeader> = None;
     let mut step_depth = false;
     let mut byte_offset = 0usize;
+    // Where the tests' own `- name:` lines sit: a `- name:` deeper in
+    // (a block-style `name:` selector in a `mask:` list) is no test.
+    let mut test_indent: Option<usize> = None;
 
-    for line in yaml.lines() {
+    for raw in yaml.split_inclusive('\n') {
         let offset = byte_offset;
-        byte_offset += line.len() + 1; // +1 for the newline
+        // The real length, newline included: `lines()` drops a `\r\n`'s two
+        // bytes, and counting one put every offset after the first line of a
+        // CRLF file too early.
+        byte_offset += raw.len();
+        let line = raw.trim_end_matches(['\n', '\r']);
         let trimmed = line.trim();
+        let indent = line.len() - line.trim_start().len();
 
         // Detect "tests:" top-level key
         if trimmed == "tests:" {
             in_tests_block = true;
             step_depth = false;
+            test_indent = None;
             continue;
         }
 
@@ -39,7 +48,8 @@ pub fn parse_headers(yaml: &str) -> Result<Vec<TestHeader>> {
         }
 
         // Detect start of a new test case "- name: ..."
-        if trimmed.starts_with("- name:") {
+        if trimmed.starts_with("- name:") && test_indent.is_none_or(|i| i == indent) {
+            test_indent = Some(indent);
             // Flush previous header
             if let Some(h) = current_header.take() {
                 headers.push(h.finalize());
@@ -183,6 +193,32 @@ tests:
         assert_eq!(headers[1].tags, vec!["e2e"]);
         assert!(!headers[1].isolated);
         assert_eq!(headers[1].step_count, 2);
+    }
+
+    #[test]
+    fn offsets_are_byte_positions_in_a_crlf_file() {
+        let yaml = "appId: a\r\ntests:\r\n  - name: one\r\n    steps:\r\n      - tap: { id: x }\r\n  - name: two\r\n";
+        let headers = parse_headers(yaml).unwrap();
+        assert_eq!(headers.len(), 2);
+        for h in &headers {
+            assert!(
+                yaml[h.byte_offset..].trim_start().starts_with("- name:"),
+                "{} at {}",
+                h.name,
+                h.byte_offset
+            );
+        }
+    }
+
+    #[test]
+    fn a_name_selector_in_a_step_is_not_a_test() {
+        let yaml = "appId: a\ntests:\n  - name: shot\n    steps:\n      - assertScreenshot:\n          name: home\n          mask:\n            - name: Clock\n";
+        let names: Vec<String> = parse_headers(yaml)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.name)
+            .collect();
+        assert_eq!(names, ["shot"]);
     }
 
     #[test]

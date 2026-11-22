@@ -560,7 +560,7 @@ const MAX_NATIVE_CONNECT_ATTEMPTS: u32 = 3;
 /// page costs nothing over the old network-only wait (M-3). The native
 /// default (300 ms) made every web action wait that long.
 pub const WEB_REACTION_MS: u64 = 30;
-/// The web settle cap when the suite keeps the default (3 s): a page that
+/// The web settle cap when the suite keeps the default (1 s): a page that
 /// never goes quiet (a JS animation the page settle can't tell from a
 /// render) costs this per action. `sync.mode: none` skips the settle.
 pub const WEB_SETTLE_CAP_MS: u64 = 1_000;

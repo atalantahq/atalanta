@@ -113,10 +113,28 @@ impl ImpactAnalyzer {
 
     /// Get the list of files changed since the base ref.
     pub fn changed_files(&self) -> Result<Vec<String>> {
+        self.changed_files_in(Path::new("."))
+    }
+
+    /// [`Self::changed_files`] for the repository at `dir`.
+    fn changed_files_in(&self, dir: &Path) -> Result<Vec<String>> {
+        // A ref starting with `-` would be read by git as an option
+        // (`--output=<file>..HEAD` truncates a file).
+        if self.config.base_ref.starts_with('-') {
+            return Err(VelocityError::Config(format!(
+                "impact base ref {:?} must not start with `-`",
+                self.config.base_ref
+            )));
+        }
+        // `-z`: NUL-separated, unquoted. Without it git writes a path with
+        // a non-ASCII character as `"caf\303\251.txt"` in quotes, which no
+        // mapping pattern matches.
         let output = Command::new("git")
+            .current_dir(dir)
             .args([
                 "diff",
                 "--name-only",
+                "-z",
                 &format!("{}..HEAD", self.config.base_ref),
             ])
             .output()
@@ -129,7 +147,7 @@ impl ImpactAnalyzer {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let files: Vec<String> = stdout
-            .lines()
+            .split('\0')
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty())
             .collect();
@@ -349,6 +367,68 @@ fn simple_glob_match(pattern: &str, text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A repository in a temp dir with a commit, then a second adding a
+    /// file with a non-ASCII name. Returns the dir and the first commit.
+    fn repo_with_unicode_change() -> (std::path::PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!(
+            "velocity-impact-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .current_dir(&dir)
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(["-c", "commit.gpgsign=false", "-c", "core.quotePath=true"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        git(&["init", "-q"]);
+        std::fs::write(dir.join("a.txt"), "a").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "one"]);
+        let first = git(&["rev-parse", "HEAD"]);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/caf\u{e9}.txt"), "b").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "two"]);
+        (dir, first)
+    }
+
+    #[test]
+    fn a_changed_file_with_a_non_ascii_name_is_listed_as_written() {
+        let (dir, first) = repo_with_unicode_change();
+        let analyzer = ImpactAnalyzer::new(
+            ImpactConfig {
+                enabled: true,
+                base_ref: first,
+            },
+            ImpactMapping::empty(),
+        );
+        let files = analyzer.changed_files_in(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(files, vec!["src/caf\u{e9}.txt".to_string()]);
+    }
+
+    #[test]
+    fn a_base_ref_that_looks_like_an_option_is_refused() {
+        let analyzer = ImpactAnalyzer::new(
+            ImpactConfig {
+                enabled: true,
+                base_ref: "--output=velocity-impact-must-not-exist".to_string(),
+            },
+            ImpactMapping::empty(),
+        );
+        let e = analyzer.changed_files_in(Path::new(".")).unwrap_err();
+        assert!(e.to_string().contains("must not start with"), "{e}");
+        assert!(!Path::new("velocity-impact-must-not-exist..HEAD").exists());
+    }
 
     #[test]
     fn test_file_matches_exact() {
