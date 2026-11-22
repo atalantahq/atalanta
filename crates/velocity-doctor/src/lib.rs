@@ -231,10 +231,12 @@ impl Check {
         self
     }
 
-    /// A failure of the user's configuration (a suite, the impact map)
-    /// rather than of the machine or a device: exit 2, not 3.
+    /// A failure of the user's configuration (a suite, the impact map, an
+    /// invalid `VELOCITY_NL_PROVIDER` / model) rather than of the machine
+    /// or a device: exit 2, not 3 (`VelocityError::Config` is 2 everywhere
+    /// else).
     pub fn is_config(&self) -> bool {
-        self.area == Area::Project
+        self.area == Area::Project || (self.id == "ai.keys" && self.status == Status::Fail)
     }
 }
 
@@ -589,6 +591,25 @@ mod tests {
             d,
         );
         assert_eq!(blocked_cfg.exit_code(false), 2);
+    }
+
+    #[test]
+    fn a_bad_ai_provider_setting_is_a_config_failure() {
+        let bad = Report::new(
+            vec![Check::fail(
+                "ai.keys",
+                Area::Ai,
+                "AI settings: unknown provider",
+            )],
+            Duration::ZERO,
+        );
+        assert_eq!(bad.exit_code(false), 2);
+        // Only that check: a failed AI network probe or any other area stays 3.
+        let other = Report::new(
+            vec![Check::fail("ai.network", Area::Ai, "x")],
+            Duration::ZERO,
+        );
+        assert_eq!(other.exit_code(false), 3);
     }
 
     #[test]

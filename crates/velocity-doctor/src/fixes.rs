@@ -63,6 +63,17 @@ async fn apply(ctx: &Ctx, action: &SafeAction) -> (bool, String) {
             let Some(adb) = adb() else {
                 return (false, "adb not found".into());
             };
+            // The report may be older than a run that started since.
+            let busy = crate::host::held_leases(ctx);
+            if !busy.is_empty() {
+                return (
+                    false,
+                    format!(
+                        "adb server left running: it would cut off {}",
+                        busy.join(", ")
+                    ),
+                );
+            }
             let _ = env
                 .run(&adb, &["kill-server"], Duration::from_secs(5))
                 .await;
@@ -241,5 +252,35 @@ mod tests {
             "adb must not run: {:?}",
             std::fs::read_to_string(&log)
         );
+    }
+
+    #[tokio::test]
+    async fn the_adb_server_is_not_restarted_under_a_held_lease() {
+        let mut t = Tools::new();
+        let log = t.path("adb.log");
+        t.tool("adb", &format!("echo \"$*\" >> '{}'", log.display()));
+        let leases = t.path("leases");
+        std::fs::create_dir_all(&leases).unwrap();
+        t.set("VELOCITY_LEASE_DIR", &leases.to_string_lossy());
+        let path = leases.join("emulator-5554.lock");
+        std::fs::write(&path, "pid=1 cmd=velocity run\n").unwrap();
+        let f = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        f.try_lock().unwrap();
+        let ctx = Ctx {
+            opts: Options {
+                env: t.env(),
+                ..Options::default()
+            },
+            required: Vec::new(),
+            apps: Vec::new(),
+        };
+        let (ok, message) = apply(&ctx, &SafeAction::RestartAdbServer).await;
+        assert!(!ok && message.contains("emulator-5554"), "{message}");
+        assert!(!log.exists(), "adb must not run");
+        drop(f);
     }
 }

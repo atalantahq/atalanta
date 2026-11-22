@@ -130,15 +130,29 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
         .stdout()
         .map(|s| adb_version(&s))
         .unwrap_or_default();
+    // Restarting the one adb server drops every device of every tool on it:
+    // not while a live process holds a device lease (a run, the console, an
+    // MCP session).
+    let busy = crate::host::held_leases(ctx);
     let restart = || {
-        Fix::safe(
-            format!(
-                "{} kill-server && {} start-server",
+        if busy.is_empty() {
+            Fix::safe(
+                format!(
+                    "{} kill-server && {} start-server",
+                    adb.display(),
+                    adb.display()
+                ),
+                SafeAction::RestartAdbServer,
+            )
+        } else {
+            Fix::guidance(format!(
+                "restarting the adb server is withheld: it would cut off {}. Let those finish, \
+                 then `{} kill-server && {} start-server`",
+                busy.join(", "),
                 adb.display(),
                 adb.display()
-            ),
-            SafeAction::RestartAdbServer,
-        )
+            ))
+        }
     };
     let devices = match &listing {
         Ran::Done(o, took) if o.status.success() => {
@@ -711,5 +725,41 @@ esac",
         assert_eq!(tree.status, Status::Skip, "{tree:?}");
         let log = std::fs::read_to_string(&log).unwrap();
         assert!(!log.contains("push") && !log.contains("forward"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn an_adb_restart_is_not_offered_while_a_live_process_holds_a_lease() {
+        let mut t = Tools::new();
+        t.tool("adb", "case \"$1\" in devices) sleep 30;; esac");
+        let leases = t.path("leases");
+        std::fs::create_dir_all(&leases).unwrap();
+        t.set("VELOCITY_LEASE_DIR", &leases.to_string_lossy());
+        let path = leases.join("emulator-5554.lock");
+        std::fs::write(
+            &path,
+            format!("pid={} cmd=velocity run\n", std::process::id()),
+        )
+        .unwrap();
+        let f = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        f.try_lock().unwrap();
+        let mut c = ctx(&t, true);
+        c.opts.timeout = Duration::from_millis(300);
+        let (checks, _) = checks(&c).await;
+        let s = checks
+            .iter()
+            .find(|c| c.id == "android.adb_server")
+            .unwrap();
+        assert_eq!(s.status, Status::Fail);
+        let fix = s.fix.as_ref().unwrap();
+        assert!(!fix.safe_auto && fix.action.is_none(), "{fix:?}");
+        assert!(
+            matches!(&fix.kind, crate::FixKind::Guidance(g) if g.contains("withheld") && g.contains("emulator-5554")),
+            "{fix:?}"
+        );
+        drop(f);
     }
 }
