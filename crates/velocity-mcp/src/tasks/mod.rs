@@ -329,17 +329,30 @@ impl TaskManager {
         &self.root
     }
 
-    /// A fresh id and its folder.
+    /// A fresh id and its folder. The folder is made with `create_dir`: the
+    /// root is shared with other servers of the project (each counts from 1),
+    /// so an id whose folder exists is taken, and the next number is tried.
     pub fn new_task_dir(&self) -> Result<(String, PathBuf)> {
-        let id = {
-            let mut inner = lock(&self.shared);
-            inner.seq += 1;
-            format!("t{}-{}", now_ms() / 1000, inner.seq)
-        };
-        let dir = self.root.join(&id);
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| VelocityError::io(format!("task folder {}", dir.display()), e))?;
-        Ok((id, dir))
+        std::fs::create_dir_all(&self.root)
+            .map_err(|e| VelocityError::io(format!("task folder {}", self.root.display()), e))?;
+        loop {
+            let id = {
+                let mut inner = lock(&self.shared);
+                inner.seq += 1;
+                format!("t{}-{}", now_ms() / 1000, inner.seq)
+            };
+            let dir = self.root.join(&id);
+            match std::fs::create_dir(&dir) {
+                Ok(()) => return Ok((id, dir)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => {
+                    return Err(VelocityError::io(
+                        format!("task folder {}", dir.display()),
+                        e,
+                    ))
+                }
+            }
+        }
     }
 
     /// Start `body` in the background; returns at once.
@@ -684,6 +697,23 @@ mod tests {
         );
         assert_eq!(m.running_on("emulator-5554"), None);
         assert!(dir.join("task.json").exists());
+    }
+
+    // Two servers started in one project share the tasks folder, and each
+    // numbers its tasks from 1: in the same second they made the same id and
+    // one folder (one `events.jsonl`, one log) for two runs.
+    #[test]
+    fn two_servers_on_one_tasks_folder_never_share_a_task_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, b) = (manager(tmp.path(), vec![]), manager(tmp.path(), vec![]));
+        let mut ids = std::collections::HashSet::new();
+        for _ in 0..20 {
+            for m in [&a, &b] {
+                let (id, dir) = m.new_task_dir().unwrap();
+                assert!(dir.is_dir());
+                assert!(ids.insert(id.clone()), "{id} was made twice");
+            }
+        }
     }
 
     #[tokio::test]

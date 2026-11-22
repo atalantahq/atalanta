@@ -88,6 +88,18 @@ pub fn refusal(suite: &TestSuite) -> Option<String> {
         why.push("it serves a host file as a mock (mockRequest.file); use body or json".into());
     }
     why.extend(host_config(suite));
+    // A file input takes the path it is typed (`inputText`): a host file
+    // outside the project would be uploaded to the page.
+    let typed_file = suite
+        .flows
+        .iter()
+        .flat_map(|f| &f.steps)
+        .chain(suite.tests.iter().flat_map(|t| &t.steps))
+        .find_map(|s| match &s.action {
+            Action::InputText { text, .. } => typed_refusal(text),
+            _ => None,
+        });
+    why.extend(typed_file);
     if why.is_empty() {
         return None;
     }
@@ -171,10 +183,21 @@ fn host_config(suite: &TestSuite) -> Vec<String> {
     )]
 }
 
+/// `s` as a browser reads it as a URL (the URL standard): leading and
+/// trailing control characters and spaces dropped, tabs and line breaks
+/// removed anywhere. `" file:///x"` and `"fi\nle:///x"` are file URLs to
+/// Chrome, so the checks below must see them as such.
+fn url_text(s: &str) -> String {
+    s.trim_matches(|c: char| c <= ' ')
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect()
+}
+
 /// Whether `s` starts with a URL scheme (`file:`, `chrome:`, `data:`); an
 /// app id (`com.example.app`) has none.
 fn has_scheme(s: &str) -> bool {
-    s.split_once(':').is_some_and(|(scheme, _)| {
+    url_text(s).split_once(':').is_some_and(|(scheme, _)| {
         !scheme.is_empty()
             && scheme.starts_with(|c: char| c.is_ascii_alphabetic())
             && scheme
@@ -185,7 +208,7 @@ fn has_scheme(s: &str) -> bool {
 
 /// `http://…` or `https://…`, any case.
 fn is_http_url(u: &str) -> bool {
-    let lower = u.trim().get(..8).unwrap_or(u.trim()).to_ascii_lowercase();
+    let lower = url_text(u).to_ascii_lowercase();
     lower.starts_with("http://") || lower.starts_with("https://")
 }
 
@@ -202,18 +225,23 @@ pub fn call_refusal(tool: &str, args: &serde_json::Value) -> Option<String> {
                 format!("launch_app {app:?}: outside --profile full a web app_id is an http(s) URL")
             })
         }
-        "type_text" => {
-            let text = args.get("text").and_then(|v| v.as_str())?;
-            let cwd = std::env::current_dir().ok()?;
-            host_file_outside(text, &cwd).map(|p| {
-                format!(
-                    "type_text names the host file {p}, outside the project; outside --profile \
-                     full a file input only takes files in the project"
-                )
-            })
-        }
+        "type_text" => typed_refusal(args.get("text").and_then(|v| v.as_str())?),
         _ => None,
     }
+}
+
+/// Why `text` may not be typed outside `--profile full`, or `None`: it names
+/// a host file outside the project, which a web file input would upload.
+/// For text the agent chose: `type_text`'s `text`, a written suite's
+/// `inputText`, an explore task's `data`.
+pub fn typed_refusal(text: &str) -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    host_file_outside(text, &cwd).map(|p| {
+        format!(
+            "typed text names the host file {p}, outside the project; outside --profile \
+             full a file input only takes files in the project"
+        )
+    })
 }
 
 /// The first line of `text` that names an existing file outside `root`.
@@ -551,6 +579,60 @@ tests:
         assert!(host_file_outside("fixture.png", project.path()).is_none());
         assert!(host_file_outside("../../../../../../etc/passwd", project.path()).is_some());
         assert!(host_file_outside("hello world", project.path()).is_none());
+    }
+
+    // A browser reads " file:///x", "fi\nle:///x" and "\u{1}file:///x" as file
+    // URLs (the URL standard drops leading controls and spaces and removes
+    // tabs and line breaks), so the scheme check has to read them that way.
+    #[test]
+    fn a_url_the_browser_cleans_up_is_still_not_http() {
+        use serde_json::json;
+        for app in [
+            " file:///etc/passwd",
+            "\tfile:///etc/passwd",
+            "fi\nle:///etc/passwd",
+            "\u{1}file:///etc/passwd",
+            "java\tscript:alert(1)",
+        ] {
+            assert!(
+                call_refusal("launch_app", &json!({ "app_id": app })).is_some(),
+                "launch_app {app:?}"
+            );
+            let yaml = format!(
+                "appId: https://a.example\ntests:\n- name: t\n  steps:\n  - goto: {{ url: {} }}\n",
+                serde_json::to_string(app).unwrap()
+            );
+            assert!(refusal(&suite(&yaml)).is_some(), "goto {app:?}");
+        }
+        for app in [
+            "ht\ntps://a.example/",
+            " https://a.example/",
+            "com.example.app",
+        ] {
+            assert!(
+                call_refusal("launch_app", &json!({ "app_id": app })).is_none(),
+                "{app:?}"
+            );
+        }
+    }
+
+    // `type_text` is refused a host file outside the project (MCP-4); the
+    // same text typed by a suite the agent wrote reaches the same file input.
+    #[test]
+    fn a_written_suite_can_not_type_a_host_file_path() {
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        let path = outside.path().display().to_string();
+        let typing = |text: &str| {
+            suite(&format!(
+                "appId: https://a.example\ntests:\n- name: t\n  steps:\n  - inputText: {{ selector: {{ css: \"input\" }}, text: {} }}\n",
+                serde_json::to_string(text).unwrap()
+            ))
+        };
+        let why = refusal(&typing(&path)).expect("a host file is refused");
+        assert!(why.contains("host file"), "{why}");
+        assert_eq!(refusal(&typing("hello world")), None);
+        assert!(typed_refusal(&path).is_some());
+        assert!(typed_refusal("hello world").is_none());
     }
 
     #[test]

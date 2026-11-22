@@ -230,9 +230,13 @@ fn server_info() -> Value {
     })
 }
 
+/// Longest tool name read for a match or a hint (no tool name is near it): a
+/// name is agent text, and the hint costs a Levenshtein pass per tool.
+const MAX_TOOL_NAME_CHARS: usize = 64;
+
 fn resolve_tool_name(raw: &str, known: &[String]) -> std::result::Result<String, String> {
     let mut snake = String::new();
-    for (i, c) in raw.trim().chars().enumerate() {
+    for (i, c) in raw.trim().chars().take(MAX_TOOL_NAME_CHARS + 1).enumerate() {
         if c.is_uppercase() && i > 0 && !snake.ends_with('_') {
             snake.push('_');
         }
@@ -254,7 +258,15 @@ fn resolve_tool_name(raw: &str, known: &[String]) -> std::result::Result<String,
         .min_by_key(|k| strsim_distance(k, &snake))
         .cloned()
         .unwrap_or_default();
-    Err(format!("Unknown tool: {raw} (did you mean `{closest}`?)"))
+    let shown: String = raw.chars().take(MAX_TOOL_NAME_CHARS).collect();
+    let more = if raw.chars().nth(MAX_TOOL_NAME_CHARS).is_some() {
+        "…"
+    } else {
+        ""
+    };
+    Err(format!(
+        "Unknown tool: {shown}{more} (did you mean `{closest}`?)"
+    ))
 }
 
 /// Levenshtein distance, for the "did you mean" hint.
@@ -777,6 +789,9 @@ impl McpServer {
     /// does (review 01 #4): retire the refs, and rebuild the driver session
     /// a dropped exchange may have left half-done. A read changed nothing.
     async fn after_cancel(&mut self, line: &str) {
+        // Nothing runs now: a read retry dropped mid-flight must not leave
+        // retries off for the next dead session.
+        self.retrying = false;
         let Ok(v) = serde_json::from_str::<Value>(line) else {
             return;
         };
@@ -1091,7 +1106,7 @@ impl McpServer {
         let limit = self.call_limit.unwrap_or_else(|| call_limit(name));
         let timed = tokio::time::timeout(limit, async { match name {
                 "list_devices" => {
-                    let devices = self.session.get_devices(&*self.driver).await?;
+                    let devices = self.session.fresh_devices(&*self.driver).await?;
                     Ok(serde_json::to_value(devices).unwrap_or(Value::Null))
                 }
                 "screenshot" => device::screenshot(&self.driver, &device_id, &arguments).await,
@@ -1777,6 +1792,14 @@ impl McpServer {
             None => Vec::new(),
             Some(_) => return Err(bad("'data' is an object of NAME: value".into())),
         };
+        // The child types these, into a web file input too (MCP-4).
+        if self.profile != crate::profile::Profile::Full {
+            if let Some(why) = data.iter().find_map(|(k, v)| {
+                crate::authored::typed_refusal(v).map(|w| format!("data {k}: {w}"))
+            }) {
+                return Err(bad(why));
+            }
+        }
         let verify = match args.get("verify") {
             Some(Value::String(v)) => Some(v.clone()),
             Some(Value::Bool(false)) => Some("off".into()),
@@ -1806,6 +1829,17 @@ impl McpServer {
                 "secret {n} is not an allowed secret: list it in VELOCITY_SECRETS (the `secrets` \
                  setting) for an explore task to type it"
             )));
+        }
+        // The child reads each value from its environment and types it; this
+        // process masks it in what it returns (a later `snapshot` of the
+        // field), as it does for `type_text {secret}`.
+        for name in &secrets {
+            if let Some(value) = velocity_common::env::var(name)
+                .ok()
+                .filter(|v| !v.is_empty())
+            {
+                velocity_common::redact::register_secret(&value);
+            }
         }
         let cwd = std::env::current_dir().ok();
         let (id, dir) = self.tasks.new_task_dir()?;
@@ -3612,6 +3646,24 @@ mod tests {
         }
     }
 
+    // A tool name is agent text: a very long one used to cost a
+    // Levenshtein pass per tool (and was echoed back whole in the error).
+    #[tokio::test]
+    async fn an_overlong_tool_name_is_answered_at_once() {
+        let s = server().await;
+        let known: Vec<String> = s.tool_definitions().into_iter().map(|d| d.name).collect();
+        let name = "x".repeat(200_000);
+        let started = std::time::Instant::now();
+        let msg = resolve_tool_name(&name, &known).unwrap_err();
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert!(msg.len() < 1_000, "the whole name is echoed: {}", msg.len());
+        assert!(msg.contains("did you mean"), "{msg}");
+    }
+
     #[tokio::test]
     async fn unknown_tool_is_invalid_params() {
         let mut s = server().await;
@@ -4417,6 +4469,42 @@ mod t2_tests {
         assert_eq!(s.refs.expired_by(), None);
         s.after_cancel(&tool("tap")).await;
         assert_eq!(s.refs.expired_by(), Some("tap"));
+    }
+
+    // A read retried after a rebuild sets `retrying`; a cancel that drops the
+    // retry mid-flight must not leave it set (the next dead session would
+    // then never be retried).
+    #[tokio::test]
+    async fn a_cancel_during_a_read_retry_does_not_leave_retries_off() {
+        let (mut s, _dir) = launched(FORM).await;
+        s.retrying = true;
+        let line = r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"snapshot","arguments":{}}}"#;
+        s.after_cancel(line).await;
+        assert!(!s.retrying);
+    }
+
+    // MCP-4 for explore: `data` values are typed by the child, into a web
+    // file input too, so outside --profile full they may not name a host
+    // file.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_explore_task_can_not_type_a_host_file_outside_the_full_profile() {
+        let (s, _dir) = launched(FORM).await;
+        let mut s = s
+            .profile(crate::profile::Profile::Core)
+            .with_velocity_bin("/usr/bin/true".into());
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        let args = serde_json::json!({
+            "goal": "attach the file", "app_id": "com.app",
+            "data": { "UPLOAD": outside.path().display().to_string() }
+        });
+        let err = s
+            .run_task("emulator-5554", &args)
+            .await
+            .expect_err("a host file is refused")
+            .to_string();
+        assert!(err.contains("host file"), "{err}");
+        assert!(s.tasks.list().is_empty(), "nothing was started");
     }
 
     // Review 05 #4: `suite` is a model-chosen path like explore's `out`.

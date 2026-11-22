@@ -141,6 +141,8 @@ impl Recorder {
             if SCREEN_CHANGING.contains(&r.tool.as_str()) {
                 r.assertion = pick_assertion(r.before.as_deref(), tree, screen, platform, &typed);
             }
+            // Read once: kept, it holds a whole tree per action.
+            r.before = None;
         }
         self.last_tree = Some(Arc::new(tree.clone()));
     }
@@ -150,6 +152,7 @@ impl Recorder {
         // An action's own screen is settled once the next one starts.
         if let Some(i) = self.pending() {
             self.steps[i].observed = true;
+            self.steps[i].before = None;
         }
         self.steps.push(Recorded {
             tool: tool.to_string(),
@@ -547,6 +550,35 @@ mod tests {
         let after = tree(vec![body]);
         let picked = pick_assertion(None, &after, None, Platform::Web, &[]);
         assert_eq!(picked, Some(Selector::Text("Sign in".into())), "{picked:?}");
+    }
+
+    // `before` is read once, when the screen the action led to is seen.
+    // Kept on every step it held a whole tree per action for the session
+    // (and wrote them all to the saved state of the agent commands).
+    #[test]
+    fn only_the_step_waiting_for_its_screen_keeps_the_screen_before_it() {
+        let mut r = Recorder::default();
+        r.observe(&tree(vec![el("", "A", 0)]), None);
+        for i in 0..4 {
+            r.record("tap", &serde_json::json!({ "selector": { "text": "A" } }));
+            if i < 3 {
+                r.observe(&tree(vec![el("", &format!("Screen {i}"), 0)]), None);
+            }
+        }
+        // Three observed steps and one still waiting for its screen.
+        assert_eq!(r.steps.iter().filter(|s| s.before.is_some()).count(), 1);
+        assert!(r.steps.last().unwrap().before.is_some());
+        let saved = serde_json::to_value(r.to_state()).unwrap();
+        let kept = saved["steps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| !s["before"].is_null())
+            .count();
+        assert_eq!(
+            kept, 1,
+            "the saved state carries one tree, not one per step"
+        );
     }
 
     #[test]
