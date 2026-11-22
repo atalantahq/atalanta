@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{css, eventually, serve};
+use common::{css, eventually_for, serve};
 use velocity_common::{PlatformDriver, Selector};
 
 /// The id registry holds elements through `WeakRef`s only, so rows the page
@@ -40,7 +40,10 @@ async fn walked_elements_can_be_collected() {
     d.debug_eval_main("document.getElementById('list').remove()")
         .await
         .unwrap();
-    let collected = eventually(|| async {
+    // Collection and the registry's cleanup of the ids it frees are tasks
+    // of the page's own thread: on a loaded machine they come late, so the
+    // wait is for time (20 s), not for 60 tries.
+    let collected = eventually_for(std::time::Duration::from_secs(20), || async {
         d.debug_eval_main("gc()").await.unwrap();
         d.debug_live_ids().await.unwrap() < 50
     })
