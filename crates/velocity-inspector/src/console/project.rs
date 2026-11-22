@@ -73,7 +73,7 @@ pub fn find_suites(base: &Path) -> Vec<Suite> {
         return out;
     };
     let mut stack = vec![(root.clone(), 0usize)];
-    while let Some((dir, depth)) = stack.pop() {
+    'walk: while let Some((dir, depth)) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -108,7 +108,7 @@ pub fn find_suites(base: &Path) -> Vec<Suite> {
                     .join("/");
                 out.push(Suite { path: rel, tests });
                 if out.len() >= MAX_SUITES {
-                    break;
+                    break 'walk;
                 }
             }
         }
@@ -189,6 +189,21 @@ mod tests {
         let paths: Vec<_> = found.iter().map(|s| s.path.as_str()).collect();
         assert_eq!(paths, ["flows/sub/b.yml", "velocity.yaml"]);
         assert_eq!(found[1].tests, ["login"]);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// V2: the cap holds across folders (it used to end only the folder
+    /// being read, so every further folder added one more suite).
+    #[test]
+    fn the_suite_list_stops_at_the_cap() {
+        let base = tmp("cap");
+        let suite = "tests:\n  - name: t\n    steps:\n      - launchApp\n";
+        for i in 0..MAX_SUITES + 20 {
+            let d = base.join(format!("d{i}"));
+            std::fs::create_dir_all(&d).unwrap();
+            std::fs::write(d.join("s.yaml"), suite).unwrap();
+        }
+        assert_eq!(find_suites(&base).len(), MAX_SUITES);
         let _ = std::fs::remove_dir_all(&base);
     }
 }
