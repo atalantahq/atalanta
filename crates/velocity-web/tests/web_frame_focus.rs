@@ -10,6 +10,23 @@ use velocity_common::PlatformDriver;
 const CARD_FIELD: &str = r#"<!doctype html><html><body style="margin:0">
 <input id="n" style="width:300px;height:60px"></body></html>"#;
 
+/// Waits until the page itself reports the card frame as its focused
+/// element. The browser moves the focus into a cross-origin frame at once,
+/// but tells the page's renderer a moment later (on a loaded machine, a
+/// long moment): a step that asks "which frame holds the focus" before
+/// that sees none, and has nothing to refuse.
+async fn wait_page_sees_frame_focus(d: &velocity_web::WebDriver) {
+    assert!(
+        common::eventually(|| async {
+            d.debug_eval_main("document.activeElement && document.activeElement.tagName")
+                .await
+                .is_ok_and(|v| v == "IFRAME")
+        })
+        .await,
+        "the page never saw the focus move into the card frame"
+    );
+}
+
 #[tokio::test]
 async fn focus_left_in_a_card_frame_fails_the_next_input_text() {
     require_chrome!();
@@ -34,6 +51,7 @@ async fn focus_left_in_a_card_frame_fails_the_next_input_text() {
     // Into the card: the frame takes the focus, unknown inside, allowed.
     let card = find(&d, "#card").await;
     d.input_text("web", &card, "4242").await.unwrap();
+    wait_page_sees_frame_focus(&d).await;
     // Into "Name": the focus stays in the card frame; typing would go into
     // the card number. Before the fix this passed.
     let name = find(&d, "#name").await;
@@ -76,6 +94,12 @@ async fn two_input_texts_into_a_card_widget_container() {
     d.input_text("web", &card, "4242").await.unwrap();
     let card = find(&d, "#card-element").await;
     d.input_text("web", &card, " 4242").await.unwrap();
+    // A lookup in the card frame gives up on a frame that is slow to
+    // answer (a loaded machine): ask until it does.
+    assert!(
+        common::wait_found(&d, "#n").await,
+        "the card frame went quiet"
+    );
     let field = find(&d, "#n").await;
     assert!(field.platform_id.starts_with('@'), "{}", field.platform_id);
     assert_eq!(
@@ -112,12 +136,17 @@ async fn a_container_clicked_beside_its_frame_does_not_take_the_frames_focus() {
     );
     let card = find(&d, "#card").await;
     d.input_text("web", &card, "4242").await.unwrap();
+    wait_page_sees_frame_focus(&d).await;
     let wrap = find(&d, "#wrap").await;
     let err = d
         .input_text("web", &wrap, "99")
         .await
         .expect_err("the click beside the frame moved no focus");
     assert!(err.to_string().contains("iframe"), "{err}");
+    assert!(
+        common::wait_found(&d, "#n").await,
+        "the card frame went quiet"
+    );
     let field = find(&d, "#n").await;
     assert_eq!(d.get_element_text("web", &field).await.unwrap(), "4242");
     d.cleanup().await;

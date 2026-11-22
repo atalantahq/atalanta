@@ -331,11 +331,15 @@ async fn a_fixed_banner_does_not_block_a_tap() {
     d.cleanup().await;
 }
 
-// The button moves 40 px on each of 8 animation frames once `slide()` is
-// called, then stays put. Counted in frames, not milliseconds, so a loaded
-// machine only makes the slide slower, never shorter: the tap can't see two
-// frames with the same box until the slide is over. A click that arrives
-// before the last frame reports "early".
+// The button moves 80 px on each of 4 steps once `slide()` is called, then
+// stays put. A step is the next animation frame, or 50 ms after the last
+// step if no frame came: the probe (`act` in `injected.js`) waits for two
+// animation frames but stops waiting for one after 100 ms (a hidden page
+// never paints), so on a loaded machine whose renderer misses frames it
+// compares boxes 200 ms apart. A slide counted in frames alone doesn't move
+// in that time, and the probe saw two equal boxes mid-slide. Few steps, so
+// the slide is over well inside the tap's one second of patience. A click
+// that arrives before the last step reports "early".
 const SLIDING: &str = r#"<!doctype html><html><body style="margin:0">
 <button id="mv" style="position:absolute;top:100px;left:0;width:30px;height:30px;padding:0"
  onclick="document.getElementById('out').textContent = left === 320 ? 'tapped' : 'early'"></button>
@@ -350,16 +354,23 @@ function note(s) { log.push(s + ' left=' + left + ' t=' + performance.now().toFi
 });
 function slide() {
   var b = document.getElementById('mv');
-  (function step() { if (left >= 320) return; left += 40; b.style.left = left + 'px';
-    note('step'); requestAnimationFrame(step); })();
+  (function step() {
+    if (left >= 320) return;
+    left += 80; b.style.left = left + 'px'; note('step');
+    var next = function () { if (!next.done) { next.done = true; step(); } };
+    requestAnimationFrame(next);
+    setTimeout(next, 50);
+  })();
 }
 </script></body></html>"#;
 
 /// P6: an element still moving (a slide-in) is tapped where it comes to
 /// rest: the probe waits for the same box on two animation frames. The
-/// slide starts from the test just before the tap and is driven frame by
-/// frame, so the outcome doesn't depend on wall-clock timing (it flaked
-/// under parallel load as a 600 ms CSS animation from first render).
+/// slide starts from the test just before the tap and is driven by frames
+/// (or, when the renderer misses them, by a short timer), so the outcome
+/// doesn't depend on how fast the machine is (it flaked under parallel
+/// load as a 600 ms CSS animation from first render, and again as a slide
+/// counted in frames only).
 #[tokio::test]
 async fn a_moving_element_is_tapped_where_it_stops() {
     require_chrome!();
