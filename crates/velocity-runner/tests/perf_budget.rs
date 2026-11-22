@@ -326,6 +326,14 @@ async fn driver_calls_per_action_stay_within_budget() {
                 over.push(format!("{step}: {call} called {n}× (budget {max})"));
             }
         }
+        // The budget is an upper bound, so a step that stopped doing its
+        // work (no `tap`, no `input_text`) would stay inside it and still
+        // pass: every budgeted call must happen at least once.
+        for (call, max) in &budget {
+            if *max > 0 && !got.contains_key(call) {
+                over.push(format!("{step}: {call} never called (budget {max})"));
+            }
+        }
     }
     assert!(
         over.is_empty(),

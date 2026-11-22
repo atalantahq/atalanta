@@ -140,6 +140,14 @@ pub fn merge_preventive(mut copies: Vec<CopyOutcome>, p_fail: f64) -> Option<Tes
         }
         (None, None) => return None,
     };
+    // D-19: a panic in any copy sticks, as it does across a test's retries.
+    let panicked = failed
+        .iter()
+        .find(|c| c.result.internal_error)
+        .and_then(|c| c.result.error_message.clone());
+    let mut warnings = std::mem::take(&mut result.warnings);
+    crate::retry::keep_internal_error(&mut result, panicked, &mut warnings);
+    result.warnings = warnings;
     result.retries = result.failed_attempts.len() as u32;
     Some(result)
 }
@@ -216,6 +224,29 @@ mod tests {
             device: device.into(),
             result,
         }
+    }
+
+    // V4 (D-19): a copy that panicked is Velocity's own bug; another copy
+    // passing must not turn the test back into a pass or a plain flake.
+    #[test]
+    fn a_copy_that_panicked_keeps_the_merged_test_an_internal_error() {
+        let mut panicked = copy("A", TestStatus::Failed, Some("internal error: boom"));
+        panicked.result.internal_error = true;
+        let passed = copy("B", TestStatus::Passed, None);
+        for order in [
+            vec![panicked.clone(), passed.clone()],
+            vec![passed.clone(), panicked.clone()],
+        ] {
+            let r = merge_preventive(order, 0.3).unwrap();
+            assert_eq!(r.status, TestStatus::Failed, "{r:#?}");
+            assert!(r.internal_error, "{r:#?}");
+            assert_eq!(r.error_message.as_deref(), Some("internal error: boom"));
+        }
+        // Several copies failed and only an earlier one panicked.
+        let mut plain = copy("B", TestStatus::Failed, Some("not found"));
+        plain.result.internal_error = false;
+        let r = merge_preventive(vec![panicked, plain], 0.3).unwrap();
+        assert!(r.internal_error, "{r:#?}");
     }
 
     #[test]

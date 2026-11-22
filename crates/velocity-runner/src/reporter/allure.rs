@@ -58,7 +58,9 @@ pub fn clean_dir(dir: &str) -> usize {
         let allure_file = name.ends_with("-result.json")
             || name.ends_with("-container.json")
             || name.contains("-attachment")
-            || name.contains("-shot");
+            || name.contains("-shot")
+            // Video, logs and the trace viewer `write_allure` copies in.
+            || name.contains("-evidence");
         if allure_file
             && entry.file_type().is_ok_and(|t| t.is_file())
             && std::fs::remove_file(entry.path()).is_ok()
@@ -358,6 +360,43 @@ mod clean_tests {
         write_allure(&one("new name"), d, "app").unwrap();
         assert_eq!(names_in(&dir), vec!["new name".to_string()]);
         assert!(dir.join("categories.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // V2: video, log and trace attachments are written as `<uuid>-evidence<N>.<ext>`;
+    // `--clean-allure` left them behind, so they piled up run after run.
+    #[test]
+    fn clean_dir_removes_the_evidence_files_a_run_wrote() {
+        let dir = std::env::temp_dir().join(format!("vel-allure-evid-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let video = dir.join("source.mp4");
+        std::fs::write(&video, "v").unwrap();
+        let mut t = TestResult::failed("with video", "x".into(), Duration::ZERO);
+        t.attachments = vec![velocity_common::Attachment::new(
+            velocity_common::AttachmentKind::Video,
+            &video,
+        )];
+        let result = SuiteResult {
+            total: 1,
+            passed: 0,
+            failed: 1,
+            skipped: 0,
+            retried: 0,
+            duration: Duration::from_secs(1),
+            tests: vec![t],
+            shard_index: None,
+            shard_total: None,
+        };
+        let d = dir.to_str().unwrap();
+        write_allure(&result, d, "app").unwrap();
+        // The result and its evidence copy; the source stays.
+        assert_eq!(clean_dir(d), 2);
+        let left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, vec!["source.mp4".to_string()], "{left:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
