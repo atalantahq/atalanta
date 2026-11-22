@@ -224,11 +224,12 @@ impl AsyncAdb {
     /// A non-zero exit status is an error, as with the `adb` client
     /// (VEL-312); output that isn't UTF-8 is read lossily.
     async fn shell(&self, device_id: &str, command: &str) -> Result<String> {
-        if command.contains("input text") {
-            debug!(device = device_id, "async adb shell: input text <redacted>");
-        } else {
-            debug!(device = device_id, command, "async adb shell");
-        }
+        // Typed text, a launch argument or a link's token: not in the log.
+        debug!(
+            device = device_id,
+            command = %velocity_common::redact::redact(&crate::adb::redact_typed_text(&[command])),
+            "async adb shell"
+        );
         self.deadline(device_id, "shell", async {
             let v2 = !self
                 .no_shell_v2
@@ -566,6 +567,19 @@ pub(crate) fn build_cpu_metrics_command(package: &str) -> String {
     )
 }
 
+/// The KB figure after `label` on `line`: the first number only. Android 10+
+/// prints a second column after it (`Java Heap:  6540   19384` is Pss then
+/// Rss; `TOTAL PSS: 37264  TOTAL RSS: 93944  TOTAL SWAP PSS: 1260` is three
+/// figures on one line), which made the whole remainder fail to parse as one
+/// number and every value read 0.
+fn kb_after(line: &str, label: &str) -> Option<u64> {
+    line.strip_prefix(label)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
+
 /// Parse `dumpsys meminfo <pkg> --short` output.
 /// Returns (java_heap_kb, native_heap_kb, total_pss_kb).
 pub(crate) fn parse_meminfo_short(output: &str) -> (u64, u64, u64) {
@@ -579,15 +593,15 @@ pub(crate) fn parse_meminfo_short(output: &str) -> (u64, u64, u64) {
         //                   "  Native Heap:    567"
         //                   "  TOTAL PSS:     8901"
         //                   or in some formats: "  TOTAL:     8901"
-        if let Some(rest) = trimmed.strip_prefix("Java Heap:") {
-            java_heap = rest.trim().parse().unwrap_or(0);
-        } else if let Some(rest) = trimmed.strip_prefix("Native Heap:") {
-            native_heap = rest.trim().parse().unwrap_or(0);
-        } else if let Some(rest) = trimmed.strip_prefix("TOTAL PSS:") {
-            total_pss = rest.trim().parse().unwrap_or(0);
+        if let Some(kb) = kb_after(trimmed, "Java Heap:") {
+            java_heap = kb;
+        } else if let Some(kb) = kb_after(trimmed, "Native Heap:") {
+            native_heap = kb;
+        } else if let Some(kb) = kb_after(trimmed, "TOTAL PSS:") {
+            total_pss = kb;
         } else if total_pss == 0 {
-            if let Some(rest) = trimmed.strip_prefix("TOTAL:") {
-                total_pss = rest.trim().parse().unwrap_or(0);
+            if let Some(kb) = kb_after(trimmed, "TOTAL:") {
+                total_pss = kb;
             }
         }
     }
@@ -595,25 +609,37 @@ pub(crate) fn parse_meminfo_short(output: &str) -> (u64, u64, u64) {
     (java_heap, native_heap, total_pss)
 }
 
-/// Parse CPU% from a `top` output line for the target package.
-/// Lines look like: "  1234  u0_a42  10  -10  1.2G  100M  S  12.5  com.example.app"
+/// Parse CPU% from a `top` (or `ps`) line for the target package. The
+/// formats:
+///
+/// - toolbox `top -n 1` (Android 7 and older): a `12%` column;
+/// - toybox `top` (8+): the column after the one-letter process state,
+///   `1234 u0_a42 10 -10 1.2G 100M 50M S 12.5 3.2 0:01.00 com.example.app`;
+/// - `ps -A -o %CPU,ARGS`: `12.5 com.example.app`.
+///
+/// Any other line reads as 0: scanning the line for a float that "looks like
+/// CPU" returned the PID, the priority or the nice value.
 pub(crate) fn parse_cpu_line(output: &str) -> f32 {
     for line in output.lines() {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        // top output has varying columns; CPU% is typically column 9 (0-indexed 8)
-        // but can vary. We look for a float-like value before the package name.
-        if fields.len() >= 9 {
-            // Try the field at index 8 (common position for CPU%)
-            if let Ok(cpu) = fields[8].trim_end_matches('%').parse::<f32>() {
-                return cpu;
-            }
+        if let Some(cpu) = fields
+            .iter()
+            .find_map(|f| f.strip_suffix('%')?.parse::<f32>().ok())
+        {
+            return cpu;
         }
-        // Fallback: scan fields for a float that looks like CPU%
-        for field in &fields {
-            if let Ok(cpu) = field.trim_end_matches('%').parse::<f32>() {
-                if (0.0..=100.0).contains(&cpu) {
-                    return cpu;
-                }
+        let state = fields
+            .iter()
+            .position(|f| f.len() == 1 && f.bytes().all(|b| b.is_ascii_uppercase()));
+        if let Some(cpu) = state
+            .and_then(|i| fields.get(i + 1))
+            .and_then(|f| f.parse::<f32>().ok())
+        {
+            return cpu;
+        }
+        if fields.len() >= 2 && fields[0].contains('.') {
+            if let Ok(cpu) = fields[0].parse::<f32>() {
+                return cpu;
             }
         }
     }
@@ -842,9 +868,45 @@ mod tests {
     #[test]
     fn test_parse_cpu_line() {
         let output = "  1234  u0_a42  10  -10  1.2G  100M  S  12.5  com.example.app\n";
-        // The 12.5 is at index 7, but our fallback scanner should find it
-        let cpu = parse_cpu_line(output);
-        assert!(cpu > 0.0);
+        assert_eq!(parse_cpu_line(output), 12.5);
+    }
+
+    /// Review (Nov 2026): the fallback scan returned the first number in
+    /// 0..=100, which on every real `top` line is the priority or the PID.
+    #[test]
+    fn cpu_is_read_from_its_own_column_in_each_top_format() {
+        // toybox `top` (Android 8+): ... SHR S %CPU %MEM TIME+ ARGS
+        let toybox = "12345 u0_a123 10 -10 5.0G 100M 50M S 12.5 3.2 0:12.34 com.example.app";
+        assert_eq!(parse_cpu_line(toybox), 12.5);
+        // toolbox `top -n 1` (Android 7 and older): the `12%` column; the
+        // priority (0) and a low PID come first.
+        let toolbox = "42 0 12% S 45 1G 100M fg u0_a42 com.example.app";
+        assert_eq!(parse_cpu_line(toolbox), 12.0);
+        // `ps -A -o %CPU,ARGS`
+        assert_eq!(parse_cpu_line("3.5 com.example.app\n"), 3.5);
+        assert_eq!(parse_cpu_line("0.0 com.example.app --flag\n"), 0.0);
+        // Plain `ps`: no CPU column at all, so 0, not the PID or the VSS.
+        assert_eq!(
+            parse_cpu_line("u0_a42 4321 567 1234 5678 0 0 S com.example.app"),
+            0.0
+        );
+    }
+
+    /// Android 10+ prints the Rss column after Pss, and the totals on one
+    /// line: each figure is the first number after its label.
+    #[test]
+    fn meminfo_with_an_rss_column_still_reads() {
+        let output = r#"
+ App Summary
+                       Pss(KB)                        Rss(KB)
+                        ------                         ------
+           Java Heap:     6540                          19384
+         Native Heap:     5232                           7148
+                Code:    10000                          20000
+
+           TOTAL PSS:    37264            TOTAL RSS:    93944       TOTAL SWAP PSS:     1260
+        "#;
+        assert_eq!(parse_meminfo_short(output), (6540, 5232, 37264));
     }
 
     #[test]
