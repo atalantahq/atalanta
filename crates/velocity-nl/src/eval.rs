@@ -571,9 +571,10 @@ pub async fn compare(
         let started = Instant::now();
         let report = evaluate_with(*planner, traces, samples, k).await;
         let usage = planner.usage().since(before);
-        let cost_usd = prices.get(label).map(|(i, o)| {
-            (usage.input_tokens as f64 * i + usage.output_tokens as f64 * o) / 1_000_000.0
-        });
+        // `Usage::cost` bills the cache reads and writes inside
+        // `input_tokens` at their own rates, as `velocity explore` does: at
+        // the plain input price a cached prompt read as ten times its cost.
+        let cost_usd = prices.get(label).map(|(i, o)| usage.cost(*i, *o));
         rows.push(ModelRow {
             model: label.clone(),
             report,
@@ -1489,6 +1490,38 @@ mod tests {
                 || json["rows"][1]["report"]["pass_hat_k"].is_number()
         );
         assert!(json["rows"][1]["usage"]["inputTokens"].is_number());
+    }
+
+    /// Like [`Metered`], but half of each call's prompt is read from the
+    /// provider's prompt cache.
+    struct Cached(Metered<Oracle>);
+
+    #[async_trait]
+    impl NaturalPlanner for Cached {
+        async fn plan(&self, req: &PlanRequest<'_>) -> Result<PlannedStep> {
+            self.0.meter.record_cached(1000, 10, 500, 0);
+            self.0.inner.plan(req).await
+        }
+
+        fn usage(&self) -> Usage {
+            self.0.meter.get()
+        }
+    }
+
+    // The cost column bills cache reads at the cache-read rate (a tenth of
+    // the input price by default), like `Usage::cost`.
+    #[tokio::test]
+    async fn compare_prices_cache_reads_at_their_own_rate() {
+        let tasks = builtin_tasks();
+        let m = Cached(metered(Oracle, (0, 0)));
+        let models: Vec<(String, &dyn NaturalPlanner)> = vec![("anthropic:m".into(), &m)];
+        let prices = std::collections::HashMap::from([("anthropic:m".to_string(), (10.0, 20.0))]);
+        let c = compare(&models, &tasks[..2], 1, 1, &prices).await;
+        let calls = 2.0;
+        // Per call: 500 plain + 500 cached input tokens, 10 output.
+        let want = calls * (500.0 * 10.0 + 500.0 * 1.0 + 10.0 * 20.0) / 1e6;
+        let got = c.rows[0].cost_usd.unwrap();
+        assert!((got - want).abs() < 1e-9, "{got} vs {want}");
     }
 
     #[tokio::test]

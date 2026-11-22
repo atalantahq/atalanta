@@ -74,6 +74,9 @@ impl BedrockPlanner {
                 "bedrock needs a region: set AWS_REGION (or the profile's region)".into(),
             ));
         }
+        if let Some(o) = &origin {
+            crate::anthropic::check_http_url("the Bedrock endpoint", o)?;
+        }
         let client = reqwest::Client::builder()
             // A provider never redirects; following one would carry the key
             // (`x-api-key`, `api-key`) to another host (audit 2026-11).
@@ -346,22 +349,34 @@ impl BedrockPlanner {
                             .get("retry-after")
                             .and_then(|v| v.to_str().ok()),
                     );
-                    let text = resp.text().await.unwrap_or_default();
+                    let body = resp.text().await;
                     if (200..300).contains(&status) {
-                        return serde_json::from_str(&text).map_err(|e| {
-                            Final(VelocityError::Config(format!(
-                                "Bedrock answered 200 with something that isn't a Converse response ({e})"
-                            )))
-                        });
+                        match body {
+                            Ok(text) => {
+                                return serde_json::from_str(&text).map_err(|e| {
+                                    Final(VelocityError::Config(format!(
+                                        "Bedrock answered 200 with something that isn't a Converse response ({e})"
+                                    )))
+                                })
+                            }
+                            // The connection dropped or stalled mid-reply: the
+                            // network's failure, so it is retried.
+                            Err(e) => {
+                                last_err = format!("Bedrock reply was cut off: {e}");
+                                retry
+                            }
+                        }
+                    } else {
+                        let text = body.unwrap_or_default();
+                        if !(matches!(status, 408 | 424 | 429) || status >= 500) {
+                            return Err(Err4xx { status, text });
+                        }
+                        last_err = format!(
+                            "Bedrock error {status}: {}",
+                            text.chars().take(300).collect::<String>()
+                        );
+                        retry
                     }
-                    if !(matches!(status, 408 | 424 | 429) || status >= 500) {
-                        return Err(Err4xx { status, text });
-                    }
-                    last_err = format!(
-                        "Bedrock error {status}: {}",
-                        text.chars().take(300).collect::<String>()
-                    );
-                    retry
                 }
                 Err(e) => {
                     last_err = format!("Bedrock request failed: {e}");
@@ -562,6 +577,37 @@ mod tests {
             .unwrap()
             .contains("JSON schema"));
         assert_eq!(seen[0].header("authorization"), Some("Bearer bk"));
+    }
+
+    #[test]
+    fn an_endpoint_that_is_not_http_is_a_configuration_error() {
+        let e = BedrockPlanner::new(
+            "us-east-1",
+            "m",
+            BedrockAuth::Bearer("k".into()),
+            Some("vpce.example.com".into()),
+            true,
+        )
+        .err()
+        .expect("accepted");
+        assert_eq!(e.exit_code(), 2, "{e:?}");
+    }
+
+    #[tokio::test]
+    async fn a_reply_cut_off_mid_body_is_retried_not_a_setup_error() {
+        let cut = || (200, "x-truncate: 1\r\n", "{\"outp".to_string());
+        let (origin, seen) = serve(vec![cut(), cut(), cut()]).await;
+        let p = BedrockPlanner::new(
+            "us-east-1",
+            "m",
+            BedrockAuth::Bearer("k".into()),
+            Some(origin),
+            true,
+        )
+        .unwrap();
+        let e = p.plan(&req()).await.unwrap_err();
+        assert!(e.is_transient(), "{e:?}");
+        assert_eq!(seen.lock().unwrap().len(), 3);
     }
 
     #[tokio::test]

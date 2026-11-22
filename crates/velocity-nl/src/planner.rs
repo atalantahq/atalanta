@@ -277,16 +277,16 @@ pub struct PlannedStep {
     pub element: Option<usize>,
     /// Text to type, expected text, key name, URL, or the text of an element
     /// that isn't on screen (scroll / assertNotVisible). Empty means unset.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub text: String,
     /// `up` / `down` / `left` / `right` for scroll and swipe; `none` otherwise.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub direction: String,
     /// The key for pressKey, from a closed set (D-17): never free text.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub key: PlannedKey,
     /// Milliseconds for wait / longPress; 0 means unset.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_or_default")]
     pub ms: u64,
 }
 
@@ -300,6 +300,17 @@ pub enum PlannedKey {
     Enter,
     Back,
     Home,
+}
+
+/// A field a model may answer with `null` (a model with no schema, in text
+/// mode, writes `"text": null` for "unset"): read as its default instead of
+/// making the whole reply unparseable.
+pub(crate) fn de_or_default<'de, D, T>(d: D) -> std::result::Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
 }
 
 pub(crate) fn de_element<'de, D: serde::Deserializer<'de>>(
@@ -715,10 +726,17 @@ fn fit(s: &str, long: &std::collections::HashSet<String>) -> String {
     truncate_to(s, n)
 }
 
+/// How many `{` that never close are tried before the rest of a reply is
+/// given up on. Each try scans to the end of the reply, so a reply that is
+/// all `{` (a model stuck in a loop, or a hostile endpoint) cost time
+/// quadratic in its length.
+const MAX_UNCLOSED_STARTS: usize = 200;
+
 /// Every balanced top-level `{…}` span in `s`, in order.
 pub(crate) fn json_spans(s: &str) -> Vec<&str> {
     let mut out = Vec::new();
     let mut from = 0;
+    let mut unclosed = 0;
     while let Some(off) = s.get(from..).and_then(|r| r.find('{')) {
         let start = from + off;
         match extract_json(&s[start..]) {
@@ -726,7 +744,13 @@ pub(crate) fn json_spans(s: &str) -> Vec<&str> {
                 out.push(span);
                 from = start + span.len();
             }
-            None => from = start + 1,
+            None => {
+                unclosed += 1;
+                if unclosed >= MAX_UNCLOSED_STARTS {
+                    break;
+                }
+                from = start + 1;
+            }
         }
     }
     out
@@ -768,6 +792,51 @@ fn extract_json(s: &str) -> Option<&str> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    // A model with no schema (text mode, a local server) writes `null` for
+    // a field that doesn't apply: that read as an unparseable reply, and
+    // the re-ask got the same.
+    #[test]
+    fn null_fields_read_as_unset() {
+        let s = PlannedStep::from_reply(
+            r#"{"op":"tap","element":0,"text":null,"direction":null,"key":null,"ms":null}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (s.op, s.element, s.text.as_str(), s.ms, s.key),
+            (Op::Tap, Some(0), "", 0, PlannedKey::None)
+        );
+        let g = crate::goal::GoalStep::from_reply(
+            r#"{"op":"tap","element":1,"value":null,"direction":null,"ms":null,"outcome":null,"reason":null,"memo":null}"#,
+        )
+        .unwrap();
+        assert_eq!((g.value.as_str(), g.ms, g.memo.as_str()), ("", 0, ""));
+        let c = crate::checker::CheckAnswer::from_reply(
+            r#"{"holds":false,"evidence_element_ids":null,"evidence_turns":null,"reason":null}"#,
+        )
+        .unwrap();
+        assert!(c.evidence_element_ids.is_empty() && c.reason.is_empty());
+        // `holds` is still required: a verdict is never defaulted.
+        assert!(crate::checker::CheckAnswer::from_reply(r#"{"holds":null}"#).is_err());
+    }
+
+    // Each unclosed `{` rescanned the rest of the reply: 120k of them took
+    // minutes (a model stuck repeating a brace, or an endpoint sending junk).
+    #[test]
+    fn a_reply_of_unclosed_braces_is_not_quadratic() {
+        let junk = "{".repeat(120_000);
+        let started = std::time::Instant::now();
+        assert!(PlannedStep::from_reply(&junk).is_err());
+        assert!(json_spans(&junk).is_empty());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        // The answer after some prose with a stray brace is still found.
+        let s = PlannedStep::from_reply(r#"{see below} {"op":"refresh","element":-1}"#).unwrap();
+        assert_eq!(s.op, Op::Refresh);
+    }
 
     #[test]
     fn a_control_keeps_its_place_above_the_cap() {

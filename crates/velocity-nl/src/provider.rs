@@ -592,7 +592,12 @@ impl AiSettings {
                 preset.name
             )));
         }
-        let strip = |m: String| split_model(&m).1.to_string();
+        // Only the chosen provider's own prefix goes: `mistral:7b` is an
+        // Ollama model, not `7b` on Mistral's name.
+        let strip = |m: String| match split_model(&m) {
+            (Some(p), rest) if std::ptr::eq(p, preset) => rest.to_string(),
+            _ => m,
+        };
         let model = env_model
             .map(strip)
             .or_else(|| cfg_field(&cfg.model).map(strip))
@@ -1040,6 +1045,45 @@ mod tests {
 
     fn name(s: &Option<AiSettings>) -> &'static str {
         s.as_ref().map_or("none", |s| s.preset.name)
+    }
+
+    // A model tag that starts with another preset's name (Ollama's
+    // `mistral:7b`, `qwen:7b`) is the model, not a `provider:model` pair,
+    // when the provider is named some other way: the prefix was stripped and
+    // `7b` was asked for.
+    #[test]
+    fn a_model_tag_that_looks_like_another_provider_prefix_is_kept() {
+        let s = resolve(
+            None,
+            &[
+                ("VELOCITY_NL_PROVIDER", "ollama"),
+                ("VELOCITY_NL_MODEL", "mistral:7b"),
+            ],
+        )
+        .unwrap();
+        assert_eq!((s.preset.name, s.model.as_str()), ("ollama", "mistral:7b"));
+        let cfg = AiConfig {
+            provider: Some("ollama".into()),
+            model: Some("qwen:7b".into()),
+            explore_model: Some("mistral:latest".into()),
+            ..Default::default()
+        };
+        let s = resolve(Some(&cfg), &[]).unwrap();
+        assert_eq!(s.model, "qwen:7b");
+        assert_eq!(s.explore_model, "mistral:latest");
+        // `nl-eval --model ollama:mistral:7b`.
+        let s = AiSettings::for_spec_with("ollama:mistral:7b", &env_of(&[])).unwrap();
+        assert_eq!((s.preset.name, s.model.as_str()), ("ollama", "mistral:7b"));
+        // The prefix of the provider actually chosen still goes.
+        let s = resolve(
+            None,
+            &[
+                ("VELOCITY_NL_PROVIDER", "ollama"),
+                ("VELOCITY_NL_MODEL", "ollama:mistral:7b"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(s.model, "mistral:7b");
     }
 
     #[test]
