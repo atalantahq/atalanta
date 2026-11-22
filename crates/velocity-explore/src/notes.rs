@@ -115,6 +115,35 @@ impl TurnNote {
         }
     }
 
+    /// The note with every registered secret masked in its text: what an
+    /// event may carry (the model's copy is masked in [`render_all`]).
+    pub(crate) fn masked(&self) -> Self {
+        let m = |s: &String| crate::events::mask(s);
+        match self {
+            Self::Operator { instruction } => Self::Operator {
+                instruction: m(instruction),
+            },
+            Self::Rejected { why } => Self::Rejected { why: m(why) },
+            Self::CheckRejected { why } => Self::CheckRejected { why: m(why) },
+            Self::AssertFailed { error } => Self::AssertFailed { error: m(error) },
+            Self::ActionFailed { error } => Self::ActionFailed { error: m(error) },
+            Self::NoEffect { action, why } => Self::NoEffect {
+                action: m(action),
+                why: *why,
+            },
+            Self::ExpectedNotMet {
+                expected,
+                action,
+                detail,
+            } => Self::ExpectedNotMet {
+                expected: m(expected),
+                action: m(action),
+                detail: detail.as_ref().map(m),
+            },
+            other => other.clone(),
+        }
+    }
+
     /// Whether the run also reports this note as a `note` event of its own
     /// when it is decided (the loop and effect notes, read live in the
     /// CLI); every note is in the turn's `notes` event either way.
