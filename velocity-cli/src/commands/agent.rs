@@ -16,7 +16,8 @@
 //! next (`velocity_mcp::agent_error`); `--json` prints one envelope
 //! instead: `{"v":1,"ok":…,"command":…,"session":…,"device":…,"data"|"error":…}`.
 //! Exit status: 0 ok, 1 a failure the reply describes, 2 a malformed command
-//! line (clap's).
+//! line (clap's), 3 the device or the session is the problem (`DEVICE_*`,
+//! `SESSION_BUSY`: a retry may work).
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -565,7 +566,10 @@ fn target_args(target: &str) -> anyhow::Result<Value> {
              id=…, or a JSON selector"
         );
     }
-    if t.starts_with("@e") {
+    // `@e<digits>` only (as the MCP server reads a ref): "@everyone" is text.
+    if t.strip_prefix("@e")
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    {
         return Ok(json!({ "ref": t }));
     }
     if t.starts_with('{') {
@@ -933,7 +937,7 @@ impl Session {
     fn try_open(common: &Common) -> anyhow::Result<Result<Self, SessionBusy>> {
         use std::io::{Read, Seek, Write};
         let dir = sessions_dir();
-        std::fs::create_dir_all(&dir)?;
+        velocity_common::fsutil::create_private_dir(&dir)?;
         let key = session_key(common);
         let mut lock = std::fs::OpenOptions::new()
             .create(true)
@@ -973,11 +977,9 @@ impl Session {
     }
 
     fn save(&self) -> anyhow::Result<()> {
-        let tmp = self
-            .path
-            .with_extension(format!("json.{}", std::process::id()));
-        std::fs::write(&tmp, serde_json::to_vec(&self.state)?)?;
-        std::fs::rename(&tmp, &self.path)?;
+        // Owner-only, through a temp file and a rename: the state holds the
+        // last screen's text and what was typed.
+        velocity_common::fsutil::write_private(&self.path, &serde_json::to_vec(&self.state)?)?;
         Ok(())
     }
 }
@@ -1022,7 +1024,18 @@ fn session_command(action: &str, common: &Common) -> anyhow::Result<i32> {
     }
     let session = match Session::try_open(common)? {
         Ok(s) => s,
-        Err(busy) => anyhow::bail!("{}", busy.failure()["message"].as_str().unwrap_or("busy")),
+        // The same reply (and exit 3) as any other command of a busy session.
+        Err(busy) => {
+            let reply = Reply {
+                command: "session",
+                session: busy.key.clone(),
+                device: String::new(),
+                outcome: Err(busy.failure()),
+                settle: None,
+                screen: None,
+            };
+            return Ok(print_reply(&reply, common.json));
+        }
     };
     let data = if action == "reset" {
         let _ = std::fs::remove_file(&session.path);
@@ -1214,6 +1227,51 @@ mod tests {
             json!({ "selector": { "text": "Log in" } })
         );
         assert!(target_args("  ").is_err());
+    }
+
+    /// Only `@e<digits>` is a ref. Visible text that starts `@e` ("@everyone",
+    /// "@elon") was sent as a ref and failed as an unknown one, with no
+    /// plain-text way to tap it.
+    #[test]
+    fn text_that_starts_with_at_e_is_text_unless_it_is_a_ref() {
+        assert_eq!(target_args("@e12").unwrap(), json!({ "ref": "@e12" }));
+        assert_eq!(
+            target_args(" @e3 ").unwrap(),
+            json!({ "ref": "@e3" }),
+            "a ref is trimmed like the rest"
+        );
+        for text in ["@everyone", "@elon", "@e", "@e7x", "@e-1"] {
+            assert_eq!(
+                target_args(text).unwrap(),
+                json!({ "selector": { "text": text } }),
+                "{text}"
+            );
+        }
+    }
+
+    /// A session holds the last screen's text (names, balances) and what was
+    /// typed: only its owner may read it, as for the history and the result
+    /// cache. It was written with the umask's mode (0644 in a 0755 folder).
+    #[cfg(unix)]
+    #[test]
+    fn a_session_is_saved_for_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let sessions = dir.path().join("agent/sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let session = Session {
+            key: "k".into(),
+            path: sessions.join("k.json"),
+            state: json!({ "device": "emulator-5554" }),
+            _lock: tempfile::tempfile().unwrap(),
+        };
+        session.save().unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&session.path), 0o600);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&std::fs::read(&session.path).unwrap()).unwrap(),
+            session.state
+        );
     }
 
     #[test]

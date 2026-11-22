@@ -64,6 +64,34 @@ fn tags_need_to_match_in_one_suite_of_the_folder_not_all() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A folder named like a suite (`old.yaml/`) is not a suite, and `a.yaml`
+/// next to `a.yml` each keep their own reports: the folder's file stem named
+/// both artifact folders, so the second run overwrote the first's results.
+#[test]
+fn folders_named_like_suites_are_skipped_and_equal_stems_do_not_share_results() {
+    let dir = scratch("stems");
+    suite(&dir, "a.yaml", "smoke", 1);
+    suite(&dir, "a.yml", "smoke", 1);
+    std::fs::create_dir_all(dir.join("suites/old.yaml")).unwrap();
+    let out = run(&dir, &[]).output().unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.status.code(), Some(0), "{text}");
+    for stem in ["a.yaml", "a.yml"] {
+        assert!(
+            dir.join("velocity-results")
+                .join(stem)
+                .join("results.json")
+                .exists(),
+            "{stem}: {text}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Run the folder, send SIGINT `delay` after `marker` shows on stdout, and
 /// return (exit code, stdout, stderr).
 fn interrupt_after(dir: &Path, marker: &str, delay: Duration) -> (Option<i32>, String, String) {
