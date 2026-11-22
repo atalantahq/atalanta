@@ -65,18 +65,13 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<i32> {
 /// no result cache (a login must really run), no retries of a wrong
 /// password (an account may lock).
 fn run_argv(suite: &str, test: &str, args: &LoginArgs) -> Vec<String> {
-    // The name as a glob that matches only itself.
-    let exact: String = test
-        .chars()
-        .flat_map(|c| match c {
-            '*' | '?' | '[' | ']' => vec!['[', c, ']'],
-            c => vec![c],
-        })
-        .collect();
+    // The name as the filter: `--filter` is a `*` glob and nothing else, so
+    // `?`, `[` and `]` match themselves (escaping them as `[?]` matched no
+    // test). A `*` in a name can't be escaped and also matches any text;
+    // `=` keeps a name that starts with `-` from reading as a flag.
     let mut a: Vec<String> = vec![
         suite.into(),
-        "--filter".into(),
-        exact,
+        format!("--filter={test}"),
         "--retries".into(),
         "0".into(),
         "--artifacts-dir".into(),
@@ -107,6 +102,31 @@ mod tests {
         args: LoginArgs,
     }
 
+    /// `--filter` is a `*` glob and nothing else: `[`, `]` and `?` are
+    /// plain characters in it. Writing them as `[[]`, `[]]` and `[?]` made a
+    /// test named "[smoke] log in?" match nothing (exit 2, "no test matches").
+    #[test]
+    fn a_test_name_with_brackets_or_a_question_mark_is_still_selected() {
+        let suite = velocity_core::parser::parse_suite_from_str(
+            "appId: x\ntests:\n  - name: \"[smoke] log in?\"\n    steps:\n      - wait: { ms: 1 }\n  - name: \"[smoke] log out\"\n    steps:\n      - wait: { ms: 1 }\n",
+        )
+        .unwrap();
+        let p = P::try_parse_from(["login.yaml"]).unwrap();
+        for name in ["[smoke] log in?", "-dash first"] {
+            let argv = run_argv("login.yaml", name, &p.args);
+            let filter = argv
+                .iter()
+                .find_map(|a| a.strip_prefix("--filter="))
+                .expect("--filter=…");
+            if name.starts_with('[') {
+                let picked = velocity_runner::filter_by_name(&suite.tests, filter);
+                assert_eq!(picked.len(), 1, "{filter:?}");
+                assert_eq!(picked[0].name, name);
+            }
+            AsRun::try_parse_from(&argv).unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+    }
+
     #[test]
     fn login_runs_one_test_once_with_its_env() {
         let p = P::try_parse_from([
@@ -123,7 +143,7 @@ mod tests {
         let run = AsRun::try_parse_from(&argv).expect("run accepts the arguments");
         drop(run);
         let joined = argv.join(" ");
-        assert!(joined.contains("--filter sign in[*]"), "{joined}");
+        assert!(joined.contains("--filter=sign in*"), "{joined}");
         assert!(
             joined.contains("--retries 0") && joined.contains("--device emulator-5554"),
             "{joined}"

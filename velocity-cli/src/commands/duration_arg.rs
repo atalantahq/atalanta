@@ -43,7 +43,7 @@ pub fn parse(text: &str, bare: BareUnit) -> Result<(Duration, Option<String>), S
                 BareUnit::Millis => value / 1000.0,
                 BareUnit::Secs => value,
             };
-            let d = Duration::from_secs_f64(secs);
+            let d = to_duration(text, secs)?;
             return Ok((d, bare_warning(t, value, bare)));
         }
         "ms" => value / 1000.0,
@@ -56,7 +56,15 @@ pub fn parse(text: &str, bare: BareUnit) -> Result<(Duration, Option<String>), S
             ))
         }
     };
-    Ok((Duration::from_secs_f64(secs), None))
+    Ok((to_duration(text, secs)?, None))
+}
+
+/// `secs` as a `Duration`. `Duration::from_secs_f64` panics past about
+/// 5.8e11 years, and this runs inside clap's argument parsing, before
+/// `main`'s panic guard: `--timeout 99999999999999999999h` died with Rust's
+/// 101 instead of a usage error.
+fn to_duration(text: &str, secs: f64) -> Result<Duration, String> {
+    Duration::try_from_secs_f64(secs).map_err(|_| format!("invalid duration {text:?}: too large"))
 }
 
 fn bare_warning(text: &str, value: f64, bare: BareUnit) -> Option<String> {
@@ -127,6 +135,22 @@ mod tests {
         assert!(parse("20000", BareUnit::Millis).unwrap().1.is_none());
         assert!(parse("600", BareUnit::Secs).unwrap().1.is_none());
         assert!(parse("600ms", BareUnit::Millis).unwrap().1.is_none());
+    }
+
+    /// A huge number is an error, not a panic inside the argument parser.
+    #[test]
+    fn a_huge_duration_is_an_error_not_a_panic() {
+        for text in [
+            "99999999999999999999h",
+            "1e400",
+            "99999999999999999999999999",
+        ] {
+            for bare in [BareUnit::Millis, BareUnit::Secs] {
+                let r = std::panic::catch_unwind(|| parse(text, bare));
+                assert!(r.is_ok(), "{text} panicked");
+                assert!(r.unwrap().is_err(), "{text} should be refused");
+            }
+        }
     }
 
     #[test]

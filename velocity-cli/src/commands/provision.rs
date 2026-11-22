@@ -201,11 +201,18 @@ impl Registry {
     /// with a warning, and a file that isn't a registry at all is kept as
     /// `provisioned.json.corrupt` (VEL-037).
     fn load_at(path: &std::path::Path) -> Self {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Self::default();
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => Some(t),
+            // No registry yet.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+            // Bytes that aren't text: kept aside below like any file that
+            // isn't a registry, not overwritten by the next update.
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => None,
+            // Unreadable for another reason (permissions): changed no further.
+            Err(_) => return Self::default(),
         };
-        let devices = serde_json::from_str::<serde_json::Value>(&text)
-            .ok()
+        let devices = text
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .and_then(
                 |mut v| match v.get_mut("devices").map(serde_json::Value::take) {
                     Some(serde_json::Value::Array(a)) => Some(a),
@@ -1543,6 +1550,25 @@ mod tests {
             "{:?}",
             start.elapsed()
         );
+    }
+
+    /// A registry that can't be read as text (bytes damaged) is kept aside
+    /// like any file that isn't a registry. It read as empty and the next
+    /// `update` overwrote it with one entry: every device Velocity had
+    /// started was forgotten.
+    #[test]
+    fn a_registry_that_is_not_utf8_is_kept_aside_not_overwritten() {
+        let path = registry_scratch("not-utf8");
+        std::fs::write(&path, b"{\"devices\": [\xff\xfe]}").unwrap();
+        let reg = Registry::load_at(&path);
+        assert!(reg.devices.is_empty());
+        let aside = path.with_extension("json.corrupt");
+        assert_eq!(
+            std::fs::read(&aside).unwrap(),
+            b"{\"devices\": [\xff\xfe]}",
+            "the unreadable file is kept for the user, not left to be overwritten"
+        );
+        let _ = std::fs::remove_file(&aside);
     }
 
     /// VEL-037: one bad entry costs that entry, not the whole registry; a

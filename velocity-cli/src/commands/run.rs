@@ -421,8 +421,9 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
         let mut files: Vec<_> = std::fs::read_dir(path)?
             .flatten()
             .map(|e| e.path())
-            // Not the impact map or quarantine list next to the suites.
-            .filter(|p| velocity_core::is_suite_file(p))
+            // Not the impact map or quarantine list next to the suites, and
+            // not a folder that happens to be named `x.yaml` (as `validate`).
+            .filter(|p| p.is_file() && velocity_core::is_suite_file(p))
             .collect();
         files.sort();
         if files.is_empty() {
@@ -432,7 +433,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
         let mut skipped = 0;
         crate::signals::install();
         let seen = crate::signals::count();
-        for file in files {
+        for file in &files {
             let mut one = args.clone();
             one.folder_member = true;
             one.config = file.to_string_lossy().into_owned();
@@ -440,7 +441,19 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
             // junit.xml / results.json to the same one, so only the last
             // suite's report survived.
             let stem = file.file_stem().unwrap_or_default().to_string_lossy();
-            one.artifacts_dir = format!("{}/{stem}", args.artifacts_dir.trim_end_matches('/'));
+            // `a.yaml` beside `a.yml` share a stem, and so would a folder:
+            // those two keep their extension.
+            let shared = files
+                .iter()
+                .filter(|f| f.file_stem() == file.file_stem())
+                .count()
+                > 1;
+            let name = if shared {
+                file.file_name().unwrap_or_default().to_string_lossy()
+            } else {
+                stem
+            };
+            one.artifacts_dir = format!("{}/{name}", args.artifacts_dir.trim_end_matches('/'));
             // One suite that can't load doesn't stop the others.
             let code = match Box::pin(execute_file(one)).await {
                 Ok(code) => code,
@@ -616,7 +629,12 @@ fn set_config_path(config: &mut serde_json::Value, path: &str, value: &str) -> a
                         .map_err(|_| usage_err!("--set {path}: `{value}` isn't a number"))?,
                 ),
                 serde_json::Value::Bool(_) => {
-                    serde_json::Value::Bool(matches!(value, "true" | "1" | "yes"))
+                    serde_json::Value::Bool(match value.trim().to_ascii_lowercase().as_str() {
+                        "true" | "1" | "yes" | "on" => true,
+                        "false" | "0" | "no" | "off" => false,
+                        // Anything else used to read as false, a typo too.
+                        _ => usage_bail!("--set {path}: `{value}` isn't true or false"),
+                    })
                 }
                 _ => serde_json::Value::String(value.to_string()),
             };
@@ -719,12 +737,54 @@ pub(crate) fn shard_of(
 /// `--device` as the device itself, so there each part must be a device's
 /// exact id or name, ignoring case (review-d7 m8): `emulator-555`, a typo
 /// for `emulator-5554`, passed as a substring and then failed every step.
+///
+/// A sequential run's `--device` given by name (or in another case) is
+/// answered with the id the driver knows it by ([`resolve_exact_device`]):
+/// the name passed this check and then went to adb as the serial.
 async fn check_devices_exist(
     wanted: &str,
     driver: &dyn PlatformDriver,
     pool: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     check_devices_exist_within(wanted, driver, std::time::Duration::from_secs(15), pool).await
+}
+
+/// The id of the one device a sequential `--device` names, when `wanted` is
+/// not already that id as the driver spells it: its name, or its id in
+/// another case, ignoring case. `None` for an exact id and a name no listed
+/// device has. A list is an error (only a `--parallel` pool takes one: the
+/// whole text went to adb as one serial), and so is a name shared by
+/// several devices, which lists their ids.
+fn resolve_exact_device(
+    wanted: &str,
+    devices: &[velocity_common::DeviceInfo],
+) -> Result<Option<String>, String> {
+    let w = wanted.trim();
+    if w.contains(',') {
+        return Err("takes one device unless --parallel N (N ≥ 2) runs on several".into());
+    }
+    if w.is_empty() || devices.iter().any(|d| d.id == w) {
+        return Ok(None);
+    }
+    if let Some(d) = devices.iter().find(|d| d.id.eq_ignore_ascii_case(w)) {
+        return Ok(Some(d.id.clone()));
+    }
+    let named: Vec<&velocity_common::DeviceInfo> = devices
+        .iter()
+        .filter(|d| d.name.eq_ignore_ascii_case(w))
+        .collect();
+    match named.as_slice() {
+        [] => Ok(None),
+        [d] => Ok(Some(d.id.clone())),
+        many => Err(format!(
+            "{} devices are named '{w}'; pass one id: {}",
+            many.len(),
+            many.iter()
+                .map(|d| d.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 /// The first part of `wanted` that is no device's exact id or name
@@ -751,9 +811,9 @@ async fn check_devices_exist_within(
     driver: &dyn PlatformDriver,
     limit: std::time::Duration,
     pool: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     if wanted.trim().is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     let skip_warning = |why: String| {
         eprintln!(
@@ -765,14 +825,14 @@ async fn check_devices_exist_within(
         Ok(Ok(d)) => d,
         Ok(Err(e)) => {
             skip_warning(format!("listing devices failed ({e})"));
-            return Ok(());
+            return Ok(None);
         }
         Err(_) => {
             skip_warning(format!(
                 "listing devices took over {}s",
                 limit.as_secs_f32()
             ));
-            return Ok(());
+            return Ok(None);
         }
     };
     let remote_listed =
@@ -797,7 +857,10 @@ async fn check_devices_exist_within(
             available,
         ));
     }
-    Ok(())
+    if pool {
+        return Ok(None);
+    }
+    resolve_exact_device(wanted, &devices).map_err(|e| usage_err!("--device {wanted}: {e}"))
 }
 
 /// The first id of a `--device` list (`a,b` → `a`), or the value itself.
@@ -1653,15 +1716,22 @@ async fn prepare_devices(
 
     // `--device` names a device the driver can see, checked now: a typo
     // used to fail later as a device error deep in the run (D-25).
+    let mut device = args.device.clone();
     if let (Some(wanted), DriverMode::Device, false) = (
         args.device.as_deref(),
         target.mode,
         target.platform == Platform::Web,
     ) {
-        check_devices_exist(wanted, driver, args.parallel.is_some_and(|n| n > 1)).await?;
+        if let Some(id) =
+            check_devices_exist(wanted, driver, args.parallel.is_some_and(|n| n > 1)).await?
+        {
+            println!("{} Device {wanted} is {id}", "=>".cyan().bold());
+            runtime_config.device_id = Some(id.clone());
+            device = Some(id);
+        }
     }
 
-    let boot_device_id = boot_device(args.device.as_deref(), driver).await?;
+    let boot_device_id = boot_device(device.as_deref(), driver).await?;
     if runtime_config.device_id.is_none()
         && !boot_device_id.is_empty()
         && args.parallel.is_none_or(|n| n <= 1)
@@ -2843,6 +2913,62 @@ mod folder_tests {
         assert_eq!(c["batch"], true);
         assert!(super::set_config_path(&mut c, "sync.reactionMz", "1").is_err());
         assert!(super::set_config_path(&mut c, "sync.reactionMs", "fast").is_err());
+    }
+
+    /// `--set flag=TRUE` or `=on` used to turn a boolean off without a word:
+    /// only `true`, `1` and `yes` were true, so everything else, a typo
+    /// included, was false.
+    #[test]
+    fn set_reads_booleans_the_way_people_write_them_and_refuses_the_rest() {
+        let mut c = serde_json::json!({ "batch": false });
+        for yes in ["true", "TRUE", "True", "1", "yes", "on"] {
+            c["batch"] = false.into();
+            super::set_config_path(&mut c, "batch", yes).unwrap();
+            assert_eq!(c["batch"], true, "{yes}");
+        }
+        for no in ["false", "FALSE", "0", "no", "off"] {
+            c["batch"] = true.into();
+            super::set_config_path(&mut c, "batch", no).unwrap();
+            assert_eq!(c["batch"], false, "{no}");
+        }
+        c["batch"] = true.into();
+        let e = super::set_config_path(&mut c, "batch", "flase").unwrap_err();
+        assert_eq!(super::super::exit_code_for(&e), 2, "{e}");
+        assert_eq!(c["batch"], true, "a refused value changes nothing");
+    }
+
+    /// `--device Pixel_8` (a name, or an id in another case) passed the
+    /// up-front check and then went to adb as the serial. A sequential run
+    /// now takes the id the driver knows the device by.
+    #[test]
+    fn a_sequential_device_name_resolves_to_its_id() {
+        use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform};
+        let dev = |id: &str, name: &str| DeviceInfo {
+            id: id.into(),
+            name: name.into(),
+            platform: Platform::Android,
+            state: DeviceState::Booted,
+            os_version: None,
+            device_type: DeviceType::Emulator,
+        };
+        let devices = [
+            dev("emulator-5554", "Pixel_7"),
+            dev("emulator-5556", "Pixel_8"),
+            dev("R5CT1", "Pixel_8"),
+        ];
+        let r = |w: &str| super::resolve_exact_device(w, &devices);
+        assert_eq!(r("Pixel_7"), Ok(Some("emulator-5554".into())));
+        assert_eq!(r("pixel_7"), Ok(Some("emulator-5554".into())));
+        assert_eq!(r("EMULATOR-5556"), Ok(Some("emulator-5556".into())));
+        assert_eq!(r("emulator-5554"), Ok(None), "an exact id stays as it is");
+        assert_eq!(r("nothing"), Ok(None));
+        let list = r("emulator-5554,emulator-5556").unwrap_err();
+        assert!(list.contains("--parallel"), "a list is a pool's: {list}");
+        let two = r("Pixel_8").unwrap_err();
+        assert!(
+            two.contains("emulator-5556") && two.contains("R5CT1"),
+            "{two}"
+        );
     }
 
     // A-10: `--junit-classname suite` names the suite file's stem; the

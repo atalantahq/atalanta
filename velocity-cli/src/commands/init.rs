@@ -1144,8 +1144,16 @@ fn update_gitignore(root: &Path) -> anyhow::Result<GitIgnore> {
         ".velocity/healer-snapshots.json",
     ];
     let path = root.join(".gitignore");
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let have: Vec<&str> = existing.lines().map(str::trim).collect();
+    // Bytes, appended to: a `.gitignore` that is not UTF-8 (UTF-16 from a
+    // Windows shell, a Latin-1 comment) read as empty and was overwritten,
+    // taking every rule the user had with it.
+    let existing = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e.into()),
+    };
+    let text = String::from_utf8_lossy(&existing);
+    let have: Vec<&str> = text.lines().map(str::trim).collect();
     let missing: Vec<&str> = ENTRIES
         .iter()
         .copied()
@@ -1154,16 +1162,20 @@ fn update_gitignore(root: &Path) -> anyhow::Result<GitIgnore> {
     if missing.is_empty() {
         return Ok(GitIgnore::Unchanged);
     }
-    let mut text = existing.clone();
-    if !text.is_empty() && !text.ends_with('\n') {
-        text.push('\n');
+    let mut add = String::new();
+    if !existing.is_empty() && !existing.ends_with(b"\n") {
+        add.push('\n');
     }
-    text.push_str("# Velocity: run reports, traces, screenshots, history; local heal state\n");
+    add.push_str("# Velocity: run reports, traces, screenshots, history; local heal state\n");
     for m in missing {
-        text.push_str(m);
-        text.push('\n');
+        add.push_str(m);
+        add.push('\n');
     }
-    std::fs::write(&path, text)?;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?
+        .write_all(add.as_bytes())?;
     Ok(if existing.is_empty() {
         GitIgnore::Created
     } else {
@@ -1358,6 +1370,24 @@ impl Prompt {
 
 #[cfg(test)]
 mod tests {
+    /// A `.gitignore` that is not UTF-8 (UTF-16 from a Windows shell, a
+    /// Latin-1 comment) used to read as empty and be overwritten with
+    /// Velocity's three lines: every rule the user had was gone.
+    #[test]
+    fn a_gitignore_that_is_not_utf8_keeps_its_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".gitignore");
+        let original = b"# caf\xe9\nnode_modules/\n.env\n".to_vec();
+        std::fs::write(&path, &original).unwrap();
+        super::update_gitignore(dir.path()).unwrap();
+        let after = std::fs::read(&path).unwrap();
+        assert!(after.starts_with(&original), "{after:?}");
+        assert!(
+            String::from_utf8_lossy(&after).contains("velocity-results/"),
+            "{after:?}"
+        );
+    }
+
     use super::*;
 
     fn el(id: &str, text: Option<&str>, y: i32, ty: &str) -> Element {

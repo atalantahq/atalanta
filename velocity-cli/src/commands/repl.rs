@@ -222,6 +222,15 @@ fn edit_distance(a: &str, b: &str) -> usize {
     d[a.len()][b.len()]
 }
 
+/// `text` as one YAML scalar, escaped by the YAML emitter. Rust's `{:?}`
+/// writes a combining accent or a zero-width space as `\u{301}`, which YAML
+/// refuses.
+fn yaml_scalar(text: &str) -> String {
+    serde_yaml::to_string(text)
+        .map(|y| y.trim_end().to_string())
+        .unwrap_or_else(|_| format!("{text:?}"))
+}
+
 /// One step line, parsed with the suite parser (so the syntax is the same).
 fn parse_step(line: &str) -> anyhow::Result<velocity_common::Step> {
     if !is_suite_syntax(line) {
@@ -234,7 +243,7 @@ fn parse_step(line: &str) -> anyhow::Result<velocity_common::Step> {
         line.to_string()
     } else {
         // Plain English.
-        format!("{:?}", line.trim_matches('"'))
+        yaml_scalar(line.trim_matches('"'))
     };
     let yaml = format!("appId: repl\ntests:\n  - name: repl\n    steps:\n      - {item}\n");
     let mut suite = velocity_core::parser::parse_suite_from_str(&yaml)?;
@@ -264,7 +273,7 @@ fn suite_yaml(app: &str, steps: &[String]) -> String {
         let item = if is_suite_syntax(s) {
             s.clone()
         } else {
-            format!("{:?}", s.trim_matches('"'))
+            yaml_scalar(s.trim_matches('"'))
         };
         out.push_str(&format!("      - {item}\n"));
     }
@@ -321,6 +330,30 @@ mod tests {
         assert!(parse_step("tap: { txet: \"x\" }").is_err());
         let sel = parse_selector("{ text: \"Pay\", below: { text: \"Total\" } }").unwrap();
         assert_eq!(sel.to_string(), r#"text="Pay" below(text="Total")"#);
+    }
+
+    /// Plain English is quoted for YAML with Rust's `{:?}`, which writes a
+    /// combining accent, a zero-width space (pasted from a web page) or a
+    /// DEL as `\u{301}`: not a YAML escape, so the step failed to parse (and
+    /// `:save` wrote a suite that did not load).
+    #[test]
+    fn english_with_invisible_or_combining_characters_still_parses() {
+        for line in [
+            "Tap the Cafe\u{301} button",
+            "Tap the\u{200b} button",
+            "Tap the \u{1f468}\u{200d}\u{1f469} button",
+        ] {
+            let s = parse_step(line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
+            assert!(
+                matches!(&s.action, velocity_common::Action::Natural { intent, .. } if intent == line),
+                "{line:?}: {:?}",
+                s.action
+            );
+            let yaml = suite_yaml("com.app", &[line.to_string()]);
+            let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+                .unwrap_or_else(|e| panic!("{line:?}: {e}\n{yaml}"));
+            assert_eq!(suite.tests[0].steps.len(), 1);
+        }
     }
 
     #[test]

@@ -341,6 +341,16 @@ fn send(req: &Request) -> anyhow::Result<String> {
     Ok(out)
 }
 
+/// The client's environment as the daemon is sent it. `std::env::vars()`
+/// panics on a variable that is not UTF-8 (a damaged locale, a Latin-1
+/// path), and this runs in `main` before its panic guard; such a variable
+/// is left out, as no `${NAME}` can name it.
+fn client_env() -> Vec<(String, String)> {
+    std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect()
+}
+
 /// Client side of `velocity run --daemon`. `Ok(None)`: no daemon is
 /// running; the caller runs locally.
 pub fn client_run(argv: Vec<String>) -> anyhow::Result<Option<i32>> {
@@ -349,7 +359,7 @@ pub fn client_run(argv: Vec<String>) -> anyhow::Result<Option<i32>> {
     let req = Request::Run {
         cwd: std::env::current_dir()?.to_string_lossy().into_owned(),
         argv,
-        env: std::env::vars().collect(),
+        env: client_env(),
         // The client's decision (`--color`, NO_COLOR, its terminal), C4.
         color: velocity_common::color::enabled(),
     };
@@ -363,7 +373,7 @@ pub fn client_agent(argv: Vec<String>, stdin: Option<String>) -> anyhow::Result<
         argv,
         // Secrets (`type --secret NAME`) and VELOCITY_SESSION are read
         // from the client's environment.
-        env: std::env::vars().collect(),
+        env: client_env(),
         color: velocity_common::color::enabled(),
         stdin,
     };

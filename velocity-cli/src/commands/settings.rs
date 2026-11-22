@@ -22,7 +22,16 @@ pub fn execute(args: SettingsArgs) -> anyhow::Result<i32> {
         .iter()
         .filter(|s| s.key.to_lowercase().contains(&filter))
     {
-        let current = velocity_common::env::var(s.env).ok();
+        // A secret's value (`ios.runnerToken`) is never printed: only that
+        // it is set. The page can end up in a CI log or a bug report.
+        // (`secrets` holds variable names, which are not secret.)
+        let current = velocity_common::env::var(s.env).ok().map(|v| {
+            if s.key != "secrets" && velocity_common::redact::is_secret_name(s.env) {
+                "set".to_string()
+            } else {
+                v
+            }
+        });
         println!(
             "  {:<24} {:<34} default {}{}",
             s.key.bold(),
