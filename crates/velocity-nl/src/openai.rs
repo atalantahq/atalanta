@@ -581,23 +581,35 @@ impl OpenAiPlanner {
                     let headers = resp.headers();
                     let header = |n: &str| headers.get(n).and_then(|v| v.to_str().ok());
                     let retry_after = retry_after(header("retry-after-ms"), header("retry-after"));
-                    let text = resp.text().await.unwrap_or_default();
+                    let body = resp.text().await;
                     if (200..300).contains(&status) {
-                        // A 200 that isn't JSON is not this API at all (a
-                        // login page, a wrong base URL): a setup problem.
-                        return serde_json::from_str(&text).map_err(|e| {
-                            Failed(VelocityError::Config(format!(
-                                "{} answered 200 with something that isn't a chat completion ({e}); \
-                                 check the base URL",
-                                self.endpoint
-                            )))
-                        });
+                        match body {
+                            // A 200 that isn't JSON is not this API at all (a
+                            // login page, a wrong base URL): a setup problem.
+                            Ok(text) => {
+                                return serde_json::from_str(&text).map_err(|e| {
+                                    Failed(VelocityError::Config(format!(
+                                        "{} answered 200 with something that isn't a chat completion ({e}); \
+                                         check the base URL",
+                                        self.endpoint
+                                    )))
+                                })
+                            }
+                            // The connection dropped or stalled mid-reply: the
+                            // network's failure, so it is retried.
+                            Err(e) => {
+                                last_err = format!("reply was cut off: {e}");
+                                retry_after
+                            }
+                        }
+                    } else {
+                        let text = body.unwrap_or_default();
+                        if !is_retryable(status) {
+                            return Err(Rejected { status, text });
+                        }
+                        last_err = format!("API error {status}: {}", clip(&text));
+                        retry_after
                     }
-                    if !is_retryable(status) {
-                        return Err(Rejected { status, text });
-                    }
-                    last_err = format!("API error {status}: {}", clip(&text));
-                    retry_after
                 }
                 Err(e) => {
                     last_err = format!("request failed: {e}");
@@ -675,7 +687,7 @@ fn cleartext_to_remote(endpoint: &str) -> bool {
 }
 
 /// An error body, cut to a readable length.
-fn clip(text: &str) -> String {
+pub(crate) fn clip(text: &str) -> String {
     const MAX: usize = 500;
     if text.chars().count() <= MAX {
         text.to_string()
@@ -1040,6 +1052,21 @@ pub(crate) mod tests {
         let (base, _) = mock(vec![(200, "", "<html>login</html>".into())]).await;
         let e = backend(&base, None).plan(&req()).await.unwrap_err();
         assert_eq!(e.exit_code(), 2, "{e:?}");
+    }
+
+    // The connection dropping mid-reply is the network's failure: it is
+    // retried and ends as a transient error, not "check the base URL".
+    #[tokio::test]
+    async fn a_reply_cut_off_mid_body_is_retried_not_a_setup_error() {
+        let cut = || (200, "x-truncate: 1\r\n", "{\"choi".to_string());
+        let (base, seen) = crate::testutil::serve(vec![cut(), cut(), cut()]).await;
+        let e = backend(&base, None).plan(&req()).await.unwrap_err();
+        assert!(e.is_transient(), "{e:?}");
+        assert_eq!(e.exit_code(), 3, "{e:?}");
+        assert_eq!(seen.lock().unwrap().len(), 3);
+        // ... and a retry that gets the whole reply succeeds.
+        let (base, _) = crate::testutil::serve(vec![cut(), (200, "", content_reply(TAP0))]).await;
+        assert!(backend(&base, None).plan(&req()).await.is_ok());
     }
 
     fn check_req(shot: Option<&'static [u8]>) -> CheckRequest<'static> {

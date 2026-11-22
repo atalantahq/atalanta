@@ -150,6 +150,7 @@ impl AnthropicPlanner {
         let api_url = api_url
             .or_else(|| velocity_common::env::var("VELOCITY_NL_API_URL").ok())
             .unwrap_or_else(|| API_URL.to_string());
+        check_http_url("the Anthropic API", &api_url)?;
         let client = reqwest::Client::builder()
             // A provider never redirects; following one would carry the key
             // (`x-api-key`, `api-key`) to another host (audit 2026-11).
@@ -477,28 +478,46 @@ impl AnthropicPlanner {
                     let header = |n: &str| headers.get(n).and_then(|v| v.to_str().ok());
                     let should_retry = header("x-should-retry").map(|v| v == "true");
                     let retry_after = retry_after(header("retry-after-ms"), header("retry-after"));
-                    let text = resp.text().await.unwrap_or_default();
+                    let body = resp.text().await;
                     if (200..300).contains(&status) {
-                        return serde_json::from_str(&text).map_err(|e| {
-                            VelocityError::Internal(anyhow::anyhow!("bad JSON from API: {e}"))
-                        });
-                    }
-                    if !should_retry.unwrap_or_else(|| is_retryable(status)) {
-                        let msg = format!("Anthropic API error {status}: {text}");
-                        // The header only says whether to retry: a 5xx or
-                        // 429 is still the service's failure, not a config
-                        // mistake (exit 2).
-                        return Err(if is_retryable(status) {
-                            VelocityError::ServiceUnavailable {
-                                service: "Anthropic API".into(),
-                                detail: msg,
+                        match body {
+                            // A 200 that isn't JSON is not this API at all (a
+                            // login page, a wrong base URL): a setup problem.
+                            Ok(text) => {
+                                return serde_json::from_str(&text).map_err(|e| {
+                                    VelocityError::Config(format!(
+                                        "{} answered 200 with something that isn't a Messages \
+                                         response ({e}); check the base URL",
+                                        self.api_url
+                                    ))
+                                })
                             }
-                        } else {
-                            VelocityError::Config(msg)
-                        });
+                            // The connection dropped or stalled mid-reply: the
+                            // network's failure, so it is retried.
+                            Err(e) => {
+                                last_err = format!("Anthropic reply was cut off: {e}");
+                                None
+                            }
+                        }
+                    } else {
+                        let text = crate::openai::clip(&body.unwrap_or_default());
+                        if !should_retry.unwrap_or_else(|| is_retryable(status)) {
+                            let msg = format!("Anthropic API error {status}: {text}");
+                            // The header only says whether to retry: a 5xx or
+                            // 429 is still the service's failure, not a config
+                            // mistake (exit 2).
+                            return Err(if is_retryable(status) {
+                                VelocityError::ServiceUnavailable {
+                                    service: "Anthropic API".into(),
+                                    detail: msg,
+                                }
+                            } else {
+                                VelocityError::Config(msg)
+                            });
+                        }
+                        last_err = format!("Anthropic API error {status}: {text}");
+                        retry_after
                     }
-                    last_err = format!("Anthropic API error {status}: {text}");
-                    retry_after
                 }
                 Err(e) => {
                     last_err = format!("Anthropic request failed: {e}");
@@ -559,6 +578,18 @@ fn check_effort(model: &str, effort: &str) -> Result<()> {
             levels.join(", ")
         ))),
         _ => Ok(()),
+    }
+}
+
+/// A model service's URL must be http(s): anything else fails every request
+/// the same way, which the retry loop would read as a flaky network.
+pub(crate) fn check_http_url(service: &str, url: &str) -> Result<()> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        Ok(())
+    } else {
+        Err(VelocityError::Config(format!(
+            "the {service} URL {url:?} must start with http:// or https://"
+        )))
     }
 }
 
@@ -732,6 +763,54 @@ mod tests {
             screen: "[0] <button> text=\"Login\" @10,20",
             feedback,
         }
+    }
+
+    fn at(url: String) -> AnthropicPlanner {
+        AnthropicPlanner {
+            api_url: url,
+            ..planner("claude-haiku-5-5")
+        }
+    }
+
+    // Like the other providers: a 200 that isn't JSON is a setup problem
+    // (exit 2, docs/AI-PROVIDERS.md), not an internal error (exit 5); a body
+    // that dies mid-reply is the network's, so it is retried; a proxy's
+    // error page isn't copied whole into the error.
+    #[tokio::test]
+    async fn bad_replies_are_classified_like_the_other_providers() {
+        use crate::testutil::serve;
+        let (origin, _) = serve(vec![(200, "", "<html>login</html>".into())]).await;
+        let e = at(origin).plan(&req(None)).await.unwrap_err();
+        assert_eq!(e.exit_code(), 2, "{e:?}");
+
+        let cut = || (200, "x-truncate: 1\r\n", "{\"cont".to_string());
+        let (origin, seen) = serve(vec![cut(), cut(), cut()]).await;
+        let e = at(origin).plan(&req(None)).await.unwrap_err();
+        assert!(e.is_transient(), "{e:?}");
+        assert_eq!(seen.lock().unwrap().len(), 3);
+
+        let page = "x".repeat(50_000);
+        let (origin, _) = serve(vec![(404, "", page)]).await;
+        let e = at(origin).plan(&req(None)).await.unwrap_err();
+        assert!(e.to_string().len() < 1000, "{} bytes", e.to_string().len());
+    }
+
+    // A URL that isn't http(s) was "a flaky network": retried three times
+    // with backoff, then reported as an outage.
+    #[test]
+    fn a_url_that_is_not_http_is_a_configuration_error() {
+        for bad in ["localhost:8080/v1/messages", "api.example.com", ""] {
+            let e = AnthropicPlanner::new("k".into(), "claude-haiku-5-5".into(), Some(bad.into()))
+                .err()
+                .unwrap_or_else(|| panic!("{bad:?} was accepted"));
+            assert_eq!(e.exit_code(), 2, "{e:?}");
+        }
+        assert!(AnthropicPlanner::new(
+            "k".into(),
+            "claude-haiku-5-5".into(),
+            Some("http://127.0.0.1:9/v1/messages".into())
+        )
+        .is_ok());
     }
 
     #[test]
