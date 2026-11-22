@@ -597,12 +597,18 @@ fn merge_copies(
 /// devices' stress to be turned off before it reports.
 const CUT_CLEANUP: Duration = Duration::from_secs(15);
 
+/// The most one of `maintain`'s device calls (a readiness probe, a device
+/// listing) may take before the supervisor goes on without it.
+const MAINTAIN_LIMIT: Duration = Duration::from_secs(20);
+
 struct ActorHandle {
     /// `Some` once it holds a lease.
     device: Option<String>,
     busy: bool,
     /// Tests of the item it is running, failed if the actor dies with it.
     in_flight: Vec<String>,
+    /// The copy tag of that item, if it is a copy.
+    copy: Option<CopyTag>,
     work: mpsc::Sender<Work>,
     task: tokio::task::JoinHandle<()>,
 }
@@ -703,6 +709,7 @@ impl Supervisor {
                 device: None,
                 busy: false,
                 in_flight: Vec::new(),
+                copy: None,
                 work: work_tx,
                 task,
             },
@@ -760,10 +767,12 @@ impl Supervisor {
             };
             if let Some(a) = self.actors.get_mut(&id) {
                 let names = item.group.iter().map(|t| t.name.clone()).collect();
+                let copy_tag = item.copy.clone();
                 match a.work.send(Work::Run(Box::new(item), flags)).await {
                     Ok(()) => {
                         a.busy = true;
                         a.in_flight = names;
+                        a.copy = copy_tag;
                     }
                     // The actor is gone; `maintain` replaces it. The item
                     // goes back, never lost.
@@ -814,6 +823,7 @@ impl Supervisor {
                 if let Some(a) = self.actors.get_mut(&actor) {
                     a.busy = false;
                     a.in_flight.clear();
+                    a.copy = None;
                 }
                 if let Some(tag) = &copy {
                     if let Some(r) = self.running.get_mut(&tag.key) {
@@ -894,16 +904,34 @@ impl Supervisor {
         events: &mpsc::UnboundedSender<Event>,
     ) {
         self.reap_dead_actors(inbox, events);
-        for id in self.shared.farm.probe_quarantined().await {
+        // Device calls here are bounded and give way to `--timeout` and a
+        // stop request: a wedged `adb` or `simctl` must not hold the
+        // supervisor (which handles `Done` events and the cut) for as long
+        // as the driver's own limit.
+        let back = self
+            .until_cut(self.shared.farm.probe_quarantined())
+            .await
+            .unwrap_or_default();
+        for id in back {
             cprintln!(
                 "  \x1b[32m▲ device {id} passed its readiness check; back in the pool\x1b[0m"
             );
         }
-        if let Err(e) = self.shared.farm.refresh().await {
+        if let Some(Err(e)) = self.until_cut(self.shared.farm.refresh()).await {
             debug!("device refresh failed: {e}");
         }
         while self.actors.len() < self.target && !self.queue.is_empty() {
             self.spawn_actor(events);
+        }
+    }
+
+    /// `fut`, unless the run is cut (`--timeout`, a stop request) or it
+    /// takes longer than [`MAINTAIN_LIMIT`]: then `None`, and the future is
+    /// dropped (the farm holds no lock across a driver call).
+    async fn until_cut<T>(&self, fut: impl std::future::Future<Output = T>) -> Option<T> {
+        tokio::select! {
+            r = tokio::time::timeout(MAINTAIN_LIMIT, fut) => r.ok(),
+            _ = Cut::first(&self.stop, self.deadline) => None,
         }
     }
 
@@ -958,7 +986,16 @@ impl Supervisor {
                 r.infrastructure_failure = true;
                 r.internal_error = true;
                 print_result(&r, a.device.as_deref());
-                self.results.push(r);
+                match &a.copy {
+                    // A copy's result belongs with the test's other copies:
+                    // pushed to `results` too, the test was reported twice.
+                    Some(tag) => self.copies.push(CopyOutcome {
+                        tag: tag.clone(),
+                        device: a.device.clone().unwrap_or_default(),
+                        result: r,
+                    }),
+                    None => self.results.push(r),
+                }
             }
         }
         // Replacements keep dying too: stop instead of respawning forever.
@@ -1225,6 +1262,13 @@ fn launches_suite_app(test: &velocity_common::TestCase, app_id: &str) -> bool {
         )
 }
 
+/// How many attempts of this item already ran (at least 1 for a retry).
+fn attempts_so_far(item: &Item) -> u32 {
+    // One per failed attempt: the retries used plus the free infrastructure
+    // re-run. (`failed_on` counts devices, which stays 1 on a single device.)
+    (item.attempt + u32::from(item.infra_rerun)).max(1)
+}
+
 /// One independent test: a single attempt here; a retry goes back to the
 /// supervisor for another device.
 async fn run_single(
@@ -1264,13 +1308,7 @@ async fn run_single(
     // The how-many-th attempt this is across devices: the executor names
     // the attempt's files `-retry<N>` from it, and the device keeps two
     // attempts apart.
-    let base_attempt = if is_retry {
-        u32::try_from(item.failed_on.len())
-            .unwrap_or(u32::MAX)
-            .max(1)
-    } else {
-        0
-    };
+    let base_attempt = if is_retry { attempts_so_far(&item) } else { 0 };
     let retry_tag = is_retry.then(|| device.to_string());
     let copy_tag = item.copy.as_ref().map(|c| c.trace_tag(device));
     executor.set_trace_tag(match (copy_tag, retry_tag) {
@@ -1560,6 +1598,7 @@ mod tests {
                 device: Some("d1".into()),
                 busy: true,
                 in_flight: vec!["t".into()],
+                copy: None,
                 work,
                 task,
             },
@@ -1580,6 +1619,82 @@ mod tests {
         assert_eq!(sup.deaths, 0);
         assert_eq!(sup.results.len(), 1, "one result for one test");
         assert_eq!(sup.results[0].status, TestStatus::Passed);
+    }
+
+    // V9: the failure of a copy whose actor died went to `results`, and the
+    // test's other copies were merged into `results` again after the run: the
+    // test appeared twice. It is now one of the test's copies.
+    #[tokio::test]
+    async fn a_dead_copy_actor_reports_as_a_copy_not_a_second_result() {
+        let driver = Arc::new(SplitDriver {
+            devices: vec!["d1".into()],
+            bad: "none",
+            infra: false,
+        });
+        let mut sup = bare_supervisor(driver);
+        let (tx, mut inbox) = mpsc::unbounded_channel::<Event>();
+        let (work, _work_rx) = mpsc::channel::<Work>(1);
+        let task = tokio::spawn(async {});
+        while !task.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        let tag = CopyTag {
+            key: "t".into(),
+            kind: CopyKind::Hunt { round: 1, seed: 2 },
+        };
+        sup.actors.insert(
+            0,
+            ActorHandle {
+                device: Some("d1".into()),
+                busy: true,
+                in_flight: vec!["t".into()],
+                copy: Some(tag.clone()),
+                work,
+                task,
+            },
+        );
+        sup.next_actor = 1;
+        sup.reap_dead_actors(&mut inbox, &tx);
+        assert!(sup.results.is_empty(), "{:#?}", sup.results);
+        assert_eq!(sup.copies.len(), 1);
+        assert_eq!(sup.copies[0].tag, tag);
+        assert_eq!(sup.copies[0].device, "d1");
+        assert!(sup.copies[0].result.internal_error);
+    }
+
+    // V10: with one device `failed_on` stays at one entry, so every retry was
+    // "retry 1" and the second one overwrote the first one's trace files.
+    #[test]
+    fn each_retry_on_one_device_has_its_own_attempt_number() {
+        let mut item = failed_item(&["A"]);
+        item.attempt = 1;
+        assert_eq!(attempts_so_far(&item), 1);
+        item.attempt = 2;
+        assert_eq!(attempts_so_far(&item), 2);
+        // The free infrastructure re-run is an attempt too.
+        item.infra_rerun = true;
+        assert_eq!(attempts_so_far(&item), 3);
+        // Another device failed too: still one number per attempt.
+        item.failed_on.insert("B".into());
+        assert_eq!(attempts_so_far(&item), 3);
+    }
+
+    // V8: `maintain` awaited the device listing with no bound, in the part of
+    // the loop where `--timeout` and Ctrl-C are not watched, so a wedged
+    // listing held the run past its stop request.
+    #[tokio::test]
+    async fn a_wedged_device_listing_does_not_hold_the_supervisor_past_a_stop() {
+        let driver = Arc::new(SplitDriver {
+            devices: vec!["par-maintain-hanglist".into()],
+            bad: "none",
+            infra: false,
+        });
+        let mut sup = bare_supervisor(driver);
+        let (tx, mut inbox) = mpsc::unbounded_channel::<Event>();
+        sup.stop.stop("stop requested");
+        tokio::time::timeout(Duration::from_secs(5), sup.maintain(&mut inbox, &tx))
+            .await
+            .expect("maintain returned after the stop request");
     }
 
     // V5: an actor that dies mid-copy never sends `Done`, which is what
@@ -1605,6 +1720,7 @@ mod tests {
                 device: Some("d1".into()),
                 busy: true,
                 in_flight: vec!["t".into()],
+                copy: None,
                 work,
                 task,
             },
@@ -1645,6 +1761,7 @@ mod tests {
                     device: Some(device.to_string()),
                     busy: *busy,
                     in_flight: Vec::new(),
+                    copy: None,
                     work,
                     task: tokio::spawn(async {}),
                 },
@@ -2095,6 +2212,13 @@ mod tests {
             .unwrap();
         assert_eq!(result.total, 4);
         assert_eq!(result.failed, 0, "{:#?}", result.tests);
+        // Without this the loop below asserts nothing when no test happened
+        // to start on the bad device.
+        assert!(
+            result.tests.iter().any(|t| t.status == TestStatus::Retried),
+            "{:#?}",
+            result.tests
+        );
         for t in &result.tests {
             if t.status == TestStatus::Retried {
                 assert_eq!(t.failed_attempts.len(), 1);

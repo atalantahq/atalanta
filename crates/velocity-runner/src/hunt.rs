@@ -228,6 +228,9 @@ async fn run_rounds(
             let tally = tests.entry(t.test_name.clone()).or_default();
             match t.status {
                 TestStatus::Passed | TestStatus::Retried => tally.passed += 1,
+                // A lost device says nothing about the test (as in
+                // `tally_copies` and `Observation::failed`).
+                TestStatus::Failed if t.infrastructure_failure => continue,
                 TestStatus::Failed => {
                     tally.failed += 1;
                     if tally.first_failure.is_none() {
@@ -570,5 +573,168 @@ mod tests {
         assert_eq!(doc["hunt"]["flaky"][0]["passed"], 2);
         assert_eq!(doc["termination"], "completed");
         assert!(doc.get("tests").is_some(), "the usual fields stay");
+    }
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    use velocity_common::{
+        DeviceInfo, DeviceState, Direction, Element, Key, PlatformDriver, Rect, Selector,
+        VelocityError,
+    };
+
+    /// Every launch is counted; on launch number `lost_on` the device is
+    /// offline (an infrastructure failure), otherwise the button is there.
+    struct LosesTheDevice {
+        device: String,
+        launches: AtomicUsize,
+        lost_on: usize,
+    }
+
+    impl LosesTheDevice {
+        fn button() -> Element {
+            Element {
+                platform_id: "go".into(),
+                text: Some("Go".into()),
+                element_type: "Button".into(),
+                bounds: Rect {
+                    x: 10,
+                    y: 10,
+                    width: 100,
+                    height: 40,
+                },
+                enabled: true,
+                visible: true,
+                ..Default::default()
+            }
+        }
+        fn offline(&self) -> bool {
+            self.launches.load(SeqCst) == self.lost_on
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl PlatformDriver for LosesTheDevice {
+        async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
+            Ok(vec![DeviceInfo {
+                id: self.device.clone(),
+                name: self.device.clone(),
+                platform: velocity_common::Platform::Android,
+                state: DeviceState::Booted,
+                os_version: Some("14".into()),
+                device_type: Default::default(),
+            }])
+        }
+        async fn boot_device(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn shutdown_device(&self, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn install_app(&self, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn launch_app(&self, _: &str, _: &str, _: bool) -> Result<()> {
+            self.launches.fetch_add(1, SeqCst);
+            Ok(())
+        }
+        async fn stop_app(&self, _: &str, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn find_element(&self, d: &str, _: &Selector) -> Result<Element> {
+            if self.offline() {
+                Err(VelocityError::AdbConnectionLost {
+                    device_id: d.into(),
+                    reason: "device offline".into(),
+                })
+            } else {
+                Ok(Self::button())
+            }
+        }
+        async fn find_elements(&self, d: &str, s: &Selector) -> Result<Vec<Element>> {
+            Ok(self.find_element(d, s).await.into_iter().collect())
+        }
+        async fn get_hierarchy(&self, d: &str) -> Result<Element> {
+            if self.offline() {
+                return Err(VelocityError::AdbConnectionLost {
+                    device_id: d.into(),
+                    reason: "device offline".into(),
+                });
+            }
+            let mut root = Self::button();
+            root.platform_id = "root".into();
+            root.text = None;
+            root.bounds.width = 1080;
+            root.bounds.height = 2400;
+            root.children.push(Self::button());
+            Ok(root)
+        }
+        async fn tap(&self, _: &str, _: &Element) -> Result<()> {
+            Ok(())
+        }
+        async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
+            Ok(())
+        }
+        async fn long_press(&self, _: &str, _: &Element, _: u64) -> Result<()> {
+            Ok(())
+        }
+        async fn input_text(&self, _: &str, _: &Element, _: &str) -> Result<()> {
+            Ok(())
+        }
+        async fn clear_text(&self, _: &str, _: &Element) -> Result<()> {
+            Ok(())
+        }
+        async fn swipe(&self, _: &str, _: Direction) -> Result<()> {
+            Ok(())
+        }
+        async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
+            Ok(())
+        }
+        async fn press_key(&self, _: &str, _: Key) -> Result<()> {
+            Ok(())
+        }
+        async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
+            Ok((1080, 2400))
+        }
+        async fn get_element_text(&self, _: &str, _: &Element) -> Result<String> {
+            Ok("Go".into())
+        }
+        async fn is_element_visible(&self, _: &str, _: &Element) -> Result<bool> {
+            Ok(!self.offline())
+        }
+    }
+
+    // V7: the parallel hunt ignores a round lost to the device
+    // (`tally_copies`); the sequential one counted it as a failed round, so a
+    // test that passed every other round was reported FLAKY and the hunt
+    // exited 1.
+    #[tokio::test]
+    async fn a_round_lost_to_the_device_does_not_make_a_test_flaky() {
+        let dir = std::env::temp_dir().join(format!("vel-hunt-lost-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let device = format!("hunt-lost-{}", std::process::id());
+        let driver = LosesTheDevice {
+            device: device.clone(),
+            launches: AtomicUsize::new(0),
+            lost_on: 3,
+        };
+        let suite = velocity_core::parser::parse_suite_from_str(
+            "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\n    quietMs: 10\n    reactionMs: 10\ntests:\n  - name: t\n    steps:\n      - launchApp: { appId: com.t }\n      - assertVisible: { text: \"Go\" }\n",
+        )
+        .unwrap();
+        let config = RuntimeConfig {
+            artifacts_dir: dir.to_string_lossy().into_owned(),
+            device_id: Some(device),
+            state_dir: Some(dir.join(".velocity")),
+            hunt_rounds: Some(5),
+            ..Default::default()
+        };
+        let report = hunt(suite, config, &driver).await.unwrap();
+        let t = &report.tests["t"];
+        assert_eq!((t.passed, t.failed), (4, 0), "{t:?}");
+        assert!(!t.is_flaky());
+        assert_eq!(report.exit_code(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
