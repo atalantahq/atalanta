@@ -218,10 +218,12 @@ impl CircuitBreaker {
                 self.failure_count.store(0, Ordering::SeqCst);
                 self.state.store(CLOSED, Ordering::SeqCst);
             }
-        } else {
+        } else if prev_state == CLOSED {
             self.failure_count.store(0, Ordering::SeqCst);
-            self.state.store(CLOSED, Ordering::SeqCst);
         }
+        // OPEN: a success from a call that started before the breaker opened
+        // (or a permanent error reported as success) must not close it and
+        // skip the cooldown and the half-open probe (second-pass review).
     }
 
     pub fn on_failure(&self) {
@@ -1537,5 +1539,16 @@ mod tests {
     fn breaker_clock_is_64_bit() {
         // A u32 millisecond clock wraps every 49.7 days.
         assert!(epoch_ms() > u64::from(u32::MAX));
+    }
+
+    #[test]
+    fn second_pass_late_success_does_not_close_an_open_breaker() {
+        let b = CircuitBreaker::named("d", 2, Duration::from_secs(60), 2);
+        b.on_failure();
+        b.on_failure();
+        assert_eq!(b.state_name(), "open");
+        // A call that was already in flight when it opened now answers.
+        b.on_success();
+        assert_eq!(b.state_name(), "open", "a stale success closed the breaker");
     }
 }
