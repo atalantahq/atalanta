@@ -243,13 +243,15 @@ jobs:
           # the MachPortRendezvousServer: Permission denied); the network
           # service crash-loops and no page finishes opening. Strip them and
           # check the signature.
-          # The copy is on a read-only volume, so copy it out first.
+          # xattr can't clear a symlink's attributes and says "Read-only file
+          # system" for the framework's symlinks, so its exit status is
+          # ignored: the signature check below is what decides.
           if [ "$RUNNER_OS" = macOS ]; then
             app="$(cd "$(dirname "$CHROME_BIN")/../.." && pwd)"
             dest="$RUNNER_TEMP/chrome/Google Chrome.app"
             mkdir -p "$RUNNER_TEMP/chrome"
             ditto "$app" "$dest"
-            xattr -cr "$dest"
+            xattr -cr "$dest" 2>/dev/null || true
             codesign --verify --deep --strict "$dest" \
               || { echo "::error::Chrome's signature does not verify at $dest"; exit 1; }
             CHROME_BIN="$dest/Contents/MacOS/$(basename "$CHROME_BIN")"
