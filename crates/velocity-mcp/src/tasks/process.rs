@@ -18,7 +18,12 @@ use velocity_common::{Platform, SuiteResult};
 use super::{Failure, Progress, Summary, TaskBody, TaskContext, TaskKind, TaskOutcome, TaskState};
 
 /// How long a stopped run may take to write its reports.
+#[cfg(not(test))]
 const STOP_GRACE: Duration = Duration::from_secs(30);
+/// Short under test, so a child that ignores the Ctrl-C is killed soon (but
+/// not so soon that a loaded machine kills one that is writing its reports).
+#[cfg(test)]
+const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// How often progress is read.
 const POLL: Duration = Duration::from_millis(400);
@@ -206,6 +211,18 @@ impl Child {
         if let Some(cwd) = &self.cwd {
             cmd.current_dir(cwd);
         }
+        // A stop is a SIGINT to the child's group, so the child must not
+        // inherit "ignore SIGINT": a server started in the background
+        // (`nohup`, a `&` job of a script) ignores it, and the stop would
+        // wait out the grace period and end in a kill.
+        #[cfg(unix)]
+        // SAFETY: the closure only calls signal(2), which is async-signal-safe.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::signal(libc::SIGINT, libc::SIG_DFL);
+                Ok(())
+            });
+        }
         let mut child = velocity_common::process::spawn_group(&mut cmd)
             .map_err(|e| format!("could not start {}: {e}", self.program.display()))?;
         let pid = child.id();
@@ -220,6 +237,7 @@ impl Child {
                 _ = tick.tick() => {
                     ctx.set_progress(tail.read(events, progress_now(ctx)));
                     if stop_deadline.is_some_and(|d| tokio::time::Instant::now() >= d) {
+                        kill_group(pid);
                         let _ = child.start_kill();
                     }
                 }
@@ -603,6 +621,21 @@ fn interrupt(pid: Option<u32>) {
     let _ = pid;
 }
 
+/// SIGKILL to the child's whole process group: what it started (Chrome
+/// runs in `velocity`'s own group) must not outlive it. Killing only the
+/// leader orphaned them, and once the leader is reaped nothing else will.
+fn kill_group(pid: Option<u32>) {
+    #[cfg(unix)]
+    if let Some(pid) = pid.and_then(|p| i32::try_from(p).ok()).filter(|p| *p > 1) {
+        // SAFETY: plain kill(2) on the group the child leads.
+        unsafe {
+            libc::kill(-pid, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = pid;
+}
+
 /// Progress from the events file: the test and step running now, how many
 /// test attempts finished (and failed), and for an exploration its turn,
 /// last operation and phase (`exploring`, `explored` once the session has
@@ -719,10 +752,26 @@ fn read_results(path: &Path) -> Option<SuiteResult> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
-/// The last `n` lines of the log, masked.
+/// The last `n` lines of the log, masked. Only its end is read, and bytes
+/// that aren't UTF-8 (a device tool's output) are replaced, not fatal.
 fn log_tail(log: &Path, n: usize) -> String {
-    let text = std::fs::read_to_string(log).unwrap_or_default();
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    use std::io::{Read, Seek, SeekFrom};
+    const WINDOW: u64 = 64 * 1024;
+    let mut bytes = Vec::new();
+    let mut cut = false;
+    if let Ok(mut f) = std::fs::File::open(log) {
+        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+        cut = len > WINDOW;
+        if f.seek(SeekFrom::Start(len.saturating_sub(WINDOW))).is_ok() {
+            let _ = f.take(WINDOW).read_to_end(&mut bytes);
+        }
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    // The window may begin inside a line.
+    if cut && lines.len() > 1 {
+        lines.remove(0);
+    }
     let tail = lines[lines.len().saturating_sub(n)..].join("\n");
     velocity_common::redact::redact(&tail).into_owned()
 }
@@ -946,6 +995,128 @@ finish "$FAKE_EXIT"
             done.summary.is_some(),
             "the interrupted run wrote results.json"
         );
+    }
+
+    // A server started in the background (`nohup`, a `&` job of a script)
+    // ignores SIGINT, and a child inherits that: the stop (a SIGINT to its
+    // group) then waited out the grace period and ended in a kill.
+    #[tokio::test]
+    async fn a_stop_interrupts_the_child_when_the_server_ignores_sigint() {
+        struct Restore(libc::sighandler_t);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                // SAFETY: puts back the disposition `signal` returned.
+                unsafe { libc::signal(libc::SIGINT, self.0) };
+            }
+        }
+        // SAFETY: signal(2) with SIG_IGN; undone by `Restore`.
+        let _restore = Restore(unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) });
+        let tmp = tempfile::tempdir().unwrap();
+        let m = TaskManager::new(tmp.path().join("tasks"), vec![]);
+        let info = start(&m, 0, 30);
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        while m.status(&info.id).unwrap().progress.step.is_none()
+            && std::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        m.stop(&info.id).unwrap();
+        let done = m.wait(&info.id, Duration::from_secs(10)).await.unwrap();
+        assert_eq!(done.state, TaskState::Stopped, "{done:?}");
+        assert_eq!(done.exit_code, Some(130), "the child saw the Ctrl-C");
+    }
+
+    // The kill after the grace period takes the child's whole group: what
+    // it started (a browser, a helper) must not outlive it.
+    #[tokio::test]
+    async fn a_killed_run_leaves_nothing_running_in_its_group() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = TaskManager::new(tmp.path().join("tasks"), vec![]);
+        let (id, dir) = m.new_task_dir().unwrap();
+        let pid_file = tmp.path().join("helper.pid");
+        let script = crate::test_util::script(
+            "fake-velocity-stubborn",
+            "#!/bin/sh\ntrap '' INT\nsleep 300 &\necho $! > \"$HELPER_PID_FILE\"\nwait\n",
+        );
+        let body = SuiteRun {
+            child: Child {
+                program: PathBuf::from("/usr/bin/env"),
+                args: vec![
+                    format!("HELPER_PID_FILE={}", pid_file.display()),
+                    "/bin/sh".into(),
+                    script.to_string_lossy().into_owned(),
+                ],
+                cwd: None,
+                log: dir.join("run.log"),
+                env: None,
+            },
+            artifacts: dir.join("artifacts"),
+        };
+        let meta = TaskMeta {
+            target: "suite.yaml".into(),
+            device: None,
+            log: dir.join("run.log"),
+            artifacts: dir.join("artifacts"),
+            dir,
+            tests_total: None,
+        };
+        let info = m.spawn(id, meta, Box::new(body));
+        let deadline = std::time::Instant::now() + Duration::from_secs(60);
+        let helper = loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|t| t.trim().parse::<i32>().ok())
+            {
+                break pid;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the helper never started"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        };
+        // The child ignores the Ctrl-C: it is killed after the grace period.
+        m.stop(&info.id).unwrap();
+        let done = m.wait(&info.id, Duration::from_secs(20)).await.unwrap();
+        assert_eq!(done.state, TaskState::Stopped, "{done:?}");
+        let alive = || {
+            // SAFETY: signal 0 only checks that the process exists.
+            unsafe { libc::kill(helper, 0) == 0 }
+        };
+        let gone = std::time::Instant::now() + Duration::from_secs(3);
+        while alive() && std::time::Instant::now() < gone {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let survived = alive();
+        if survived {
+            // SAFETY: the helper this test started; don't leave it behind.
+            unsafe { libc::kill(helper, libc::SIGKILL) };
+        }
+        assert!(!survived, "the child's helper outlived the kill");
+    }
+
+    // The log tail is the error a task reports: bytes that aren't UTF-8 (an
+    // adb or simctl line) must not blank it, and a huge log isn't read whole.
+    #[test]
+    fn the_log_tail_survives_bytes_that_are_not_utf8_and_a_huge_log() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = tmp.path().join("run.log");
+        std::fs::write(&log, b"first\nadb said \xff\xfe garbage\nlast line\n").unwrap();
+        let tail = log_tail(&log, 12);
+        assert!(
+            tail.contains("last line") && tail.contains("garbage"),
+            "{tail:?}"
+        );
+        let mut big = "x".repeat(2000).repeat(2_000).into_bytes();
+        big.extend_from_slice(b"\nthe end\n");
+        std::fs::write(&log, &big).unwrap();
+        let tail = log_tail(&log, 3);
+        assert!(
+            tail.ends_with("the end"),
+            "{}",
+            &tail[tail.len().saturating_sub(40)..]
+        );
+        assert!(tail.len() < 100_000, "{} bytes", tail.len());
     }
 
     #[tokio::test]

@@ -31,6 +31,10 @@ use velocity_common::{Element, Platform, Rect, Result, Selector, VelocityError};
 /// Longest text kept on a line; the rest is cut with `…`.
 const MAX_TEXT: usize = 80;
 
+/// Identities remembered for stable refs before the ones not on screen now
+/// are forgotten.
+const MAX_REFS: usize = 5_000;
+
 /// What makes an element the same element across snapshots: its kind and
 /// id, or, without an id, its kind, text and label; then which of its
 /// twins it is.
@@ -434,6 +438,12 @@ impl Snapshots {
                 },
             );
         }
+        // Past the cap, keep only what is on screen now: a ref is only ever
+        // resolved against the last snapshot, and numbers are never reused.
+        if self.refs.len() > MAX_REFS {
+            let live: std::collections::HashSet<u64> = now.keys().copied().collect();
+            self.refs.retain(|_, r| live.contains(r));
+        }
         // The region `within` names, on the screen as it is now.
         let within_ref: Option<u64> = opts
             .within
@@ -699,6 +709,30 @@ mod tests {
 
     fn text(v: Value) -> String {
         v.as_str().unwrap().to_string()
+    }
+
+    // Every distinct text (a clock, a counter, a feed) used to mint an
+    // identity that was kept for the whole session and written to the saved
+    // state of every agent command.
+    #[test]
+    fn the_remembered_identities_are_bounded() {
+        let mut s = Snapshots::default();
+        for i in 0..MAX_REFS + 100 {
+            let t = tree(vec![
+                el("TextView", "", &format!("tick {i}"), 0),
+                el("Button", "ok", "OK", 100),
+            ]);
+            s.take(&t, None, Options::default()).unwrap();
+        }
+        assert!(s.refs.len() <= MAX_REFS, "{} identities kept", s.refs.len());
+        // The screen now keeps its refs once it settles.
+        let t = tree(vec![
+            el("TextView", "", "last", 0),
+            el("Button", "ok", "OK", 100),
+        ]);
+        let out = text(s.take(&t, None, Options::default()).unwrap());
+        assert!(out.contains("button \"OK\" #ok"), "{out}");
+        assert_eq!(out, text(s.take(&t, None, Options::default()).unwrap()));
     }
 
     #[test]
