@@ -14,6 +14,7 @@ use crate::snapshot::Snapshots;
 use crate::tasks::TaskManager;
 use crate::tool_registry::ToolDefinition;
 use crate::tools::{device, failure, flow, inspector, interaction, query, steps};
+use velocity_core::selector_wire;
 
 #[derive(Debug)]
 struct JsonRpcRequest {
@@ -1401,8 +1402,7 @@ impl McpServer {
                     self.snapshots.platform = Some(p);
                 }
                 let selector = self.snapshots.resolve(r, &tree, screen.as_ref())?;
-                args["selector"] = serde_json::to_value(selector)
-                    .map_err(|e| VelocityError::Internal(anyhow::anyhow!("{e}")))?;
+                args["selector"] = selector_wire::to_value(&selector);
                 Ok(())
             }
             _ => self.refs.resolve_args(args, &tree, screen.as_ref()),
@@ -4095,6 +4095,50 @@ mod t2_tests {
         let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
         velocity_core::validate_suite(&suite).unwrap();
         assert_eq!(v["steps"], 2, "{yaml}");
+    }
+
+    // A snapshot ref whose element resolves to a `Compound` or `Index`
+    // selector (no usable id/text of its own) serialises to the DSL's flat
+    // form, not the derived serde form (`{"compound": …}` / `{"index": {…}}`)
+    // that `selector_from_value` rejects. Each test uses its own server so no
+    // screen-changing call retires the ref before it is used.
+    #[tokio::test]
+    async fn snapshot_ref_compound_selector_round_trips() {
+        // Two "Pay" elements: a TextView and a Button. The Button's selector is
+        // Compound([role: button, name: Pay]) — Text("Pay") finds both elements
+        // so it falls to role+name, which finds only the button.
+        let layout = r#"<LinearLayout android:orientation="vertical"><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pay"/><Button android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pay"/></LinearLayout>"#;
+        let (mut s, _dir) = launched(layout).await;
+        let full = text(&call(&mut s, "snapshot", serde_json::json!({})).await);
+        let btn_ref = full
+            .lines()
+            .nth(1)
+            .and_then(|l| l.split_whitespace().next())
+            .unwrap()
+            .to_string();
+        let typed = call(
+            &mut s,
+            "type_text",
+            serde_json::json!({ "selector": btn_ref, "text": "x" }),
+        )
+        .await;
+        assert!(typed.get("isError").is_none(), "{typed}");
+    }
+
+    #[tokio::test]
+    async fn snapshot_ref_indexed_selector_round_trips() {
+        // Two "Pay" TextViews, no ids → first is Index{Text("Pay"), 0}
+        let layout = r#"<LinearLayout android:orientation="vertical"><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pay"/><TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pay"/></LinearLayout>"#;
+        let (mut s, _dir) = launched(layout).await;
+        let full = text(&call(&mut s, "snapshot", serde_json::json!({})).await);
+        let first_ref = full
+            .lines()
+            .find(|l| l.contains("\"Pay\""))
+            .and_then(|l| l.split_whitespace().next())
+            .unwrap()
+            .to_string();
+        let tapped = call(&mut s, "tap", serde_json::json!({ "selector": first_ref })).await;
+        assert!(tapped.get("isError").is_none(), "{tapped}");
     }
 
     // SUNMI tablet, 2026-11-21: after a device switch the session still
