@@ -806,6 +806,23 @@ impl PlatformDriver for ResilientDriver {
         .await
     }
 
+    async fn touch_forced(
+        &self,
+        device_id: &str,
+        element: &Element,
+        touch: crate::traits::Touch,
+    ) -> Result<()> {
+        let did = device_id.to_string();
+        let el = element.clone();
+        self.with_once(device_id, || {
+            let did = did.clone();
+            let el = el.clone();
+            let inner = self.inner.clone();
+            async move { inner.touch_forced(&did, &el, touch).await }
+        })
+        .await
+    }
+
     async fn input_text(&self, device_id: &str, element: &Element, text: &str) -> Result<()> {
         let did = device_id.to_string();
         let el = element.clone();
@@ -1094,6 +1111,8 @@ mod tests {
         Duration,
         /// restart_session calls.
         std::sync::atomic::AtomicUsize,
+        /// touch_forced calls (it succeeds where tap fails).
+        std::sync::atomic::AtomicUsize,
     );
 
     impl FailingFind {
@@ -1106,6 +1125,7 @@ mod tests {
                 make,
                 std::sync::atomic::AtomicUsize::new(0),
                 d,
+                std::sync::atomic::AtomicUsize::new(0),
                 std::sync::atomic::AtomicUsize::new(0),
             )
         }
@@ -1158,6 +1178,10 @@ mod tests {
         }
         async fn tap(&self, _: &str, _: &Element) -> Result<()> {
             self.fail()
+        }
+        async fn touch_forced(&self, _: &str, _: &Element, _: crate::traits::Touch) -> Result<()> {
+            self.4.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
         }
         async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
             Ok(())
@@ -1436,6 +1460,25 @@ mod tests {
         for p in probes {
             let _ = p.await;
         }
+    }
+
+    /// `force: true` reaches the device driver through this wrapper: the
+    /// trait default would turn it back into a plain tap, which the inner
+    /// driver's cover check refuses.
+    #[tokio::test]
+    async fn a_forced_touch_is_forwarded_not_turned_into_a_tap() {
+        let inner = Arc::new(FailingFind::new(|| VelocityError::AssertionFailed {
+            expected: "reachable".into(),
+            actual: "covered".into(),
+            selector: String::new(),
+            screenshot: None,
+        }));
+        let d = ResilientDriver::new(inner.clone());
+        d.touch_forced("d", &Element::default(), crate::traits::Touch::Tap)
+            .await
+            .expect("the forced touch reached the inner driver");
+        assert_eq!(inner.4.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(inner.calls(), 0, "no plain tap");
     }
 
     #[test]

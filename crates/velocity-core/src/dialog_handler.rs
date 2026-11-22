@@ -15,6 +15,8 @@ const IOS_DISMISS_LABELS: &[&str] = &[
     "Open",
     // Contacts, Photos, Camera, Microphone
     "OK",
+    // The broadest photo/contacts grant, but the only "allow" that ends the
+    // prompt: "Limit Access…" opens a picker the test would then be stuck in.
     "Allow Full Access",
     // Generic
     "Continue",

@@ -64,7 +64,7 @@ Each step has one action and optional modifiers:
 
 You rarely need `wait:`. Assertions and lookups wait up to the step timeout, and actions settle on their own (see [ARCHITECTURE.md#sync](ARCHITECTURE.md#sync)).
 
-An action needs its target to be enabled and still before it acts. A target that never gets there fails with "not actionable". `force: true` on the step, or `actionability: lenient` in the config, acts anyway.
+An action needs its target to be enabled and still before it acts. A target that never gets there fails with "not actionable". `force: true` on the step, or `actionability: lenient` in the config, acts anyway. On Android, `force: true` on `tap`, `doubleTap` or `longPress` also skips the check for a window covering the target (a keyboard, a system dialog, an overlay) and touches the element's center, for when that window list is wrong or stale. `inputText` and `clearText` keep the cover check even when forced: their focus tap through a keyboard would press a key.
 
 `assertNotVisible` fails when another app is in front, because that screen lacks the element too. `appInFront: false` allows it anyway.
 

@@ -1639,6 +1639,129 @@ async fn a_lenient_suite_taps_a_disabled_target_with_a_warning() {
     );
 }
 
+/// Plain touches are refused as covered (Android's cover check); a forced
+/// touch is counted and lands.
+struct CoveredUnlessForced(ScriptDriver, std::sync::atomic::AtomicUsize);
+
+#[async_trait::async_trait]
+impl PlatformDriver for CoveredUnlessForced {
+    async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
+        self.0.list_devices().await
+    }
+    async fn boot_device(&self, d: &str) -> Result<()> {
+        self.0.boot_device(d).await
+    }
+    async fn shutdown_device(&self, d: &str) -> Result<()> {
+        self.0.shutdown_device(d).await
+    }
+    async fn install_app(&self, d: &str, a: &str) -> Result<()> {
+        self.0.install_app(d, a).await
+    }
+    async fn launch_app(&self, d: &str, a: &str, c: bool) -> Result<()> {
+        self.0.launch_app(d, a, c).await
+    }
+    async fn stop_app(&self, d: &str, a: &str) -> Result<()> {
+        self.0.stop_app(d, a).await
+    }
+    async fn find_element(&self, d: &str, s: &Selector) -> Result<Element> {
+        self.0.find_element(d, s).await
+    }
+    async fn find_elements(&self, d: &str, s: &Selector) -> Result<Vec<Element>> {
+        self.0.find_elements(d, s).await
+    }
+    async fn get_hierarchy(&self, d: &str) -> Result<Element> {
+        self.0.get_hierarchy(d).await
+    }
+    async fn tap(&self, _: &str, _: &Element) -> Result<()> {
+        Err(covered())
+    }
+    async fn double_tap(&self, _: &str, _: &Element) -> Result<()> {
+        Err(covered())
+    }
+    async fn long_press(&self, _: &str, _: &Element, _: u64) -> Result<()> {
+        Err(covered())
+    }
+    async fn touch_forced(&self, _: &str, _: &Element, _: velocity_common::Touch) -> Result<()> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    async fn input_text(&self, d: &str, e: &Element, t: &str) -> Result<()> {
+        self.0.input_text(d, e, t).await
+    }
+    async fn clear_text(&self, d: &str, e: &Element) -> Result<()> {
+        self.0.clear_text(d, e).await
+    }
+    async fn swipe(&self, d: &str, dir: Direction) -> Result<()> {
+        self.0.swipe(d, dir).await
+    }
+    async fn swipe_coords(&self, d: &str, f: (i32, i32), t: (i32, i32)) -> Result<()> {
+        self.0.swipe_coords(d, f, t).await
+    }
+    async fn press_key(&self, d: &str, k: Key) -> Result<()> {
+        self.0.press_key(d, k).await
+    }
+    async fn screenshot(&self, d: &str) -> Result<Vec<u8>> {
+        self.0.screenshot(d).await
+    }
+    async fn screen_size(&self, d: &str) -> Result<(i32, i32)> {
+        self.0.screen_size(d).await
+    }
+    async fn get_element_text(&self, d: &str, e: &Element) -> Result<String> {
+        self.0.get_element_text(d, e).await
+    }
+    async fn is_element_visible(&self, d: &str, e: &Element) -> Result<bool> {
+        self.0.is_element_visible(d, e).await
+    }
+}
+
+fn covered() -> VelocityError {
+    VelocityError::AssertionFailed {
+        expected: "target reachable".into(),
+        actual: "covered by the system window (com.android.systemui)".into(),
+        selector: String::new(),
+        screenshot: None,
+    }
+}
+
+/// `force: true` reached only the executor's actionability checks; the
+/// Android driver's cover check still refused the touch.
+#[tokio::test]
+async fn force_reaches_the_driver_for_every_touch() {
+    let driver = CoveredUnlessForced(
+        ScriptDriver::new(vec![node("pay", "Pay", 0)]),
+        std::sync::atomic::AtomicUsize::new(0),
+    );
+    let sel = || Selector::Text("Pay".into());
+    let forced = |a: Action| {
+        let mut s = step(a);
+        s.modifiers.force = true;
+        s
+    };
+    let steps = vec![
+        forced(tap("Pay")),
+        forced(Action::DoubleTap { selector: sel() }),
+        forced(Action::LongPress {
+            selector: sel(),
+            duration_ms: Some(10),
+        }),
+    ];
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(&test_case(steps), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
+    assert_eq!(driver.1.load(Ordering::SeqCst), 3);
+    // Without force the same tap is refused.
+    let mut ex = TestExecutor::new(&driver, config(300), "app");
+    let r = ex
+        .execute_test(&test_case(vec![step(tap("Pay"))]), "d", "app")
+        .await
+        .unwrap();
+    assert_eq!(r.status, TestStatus::Failed);
+    assert_eq!(driver.1.load(Ordering::SeqCst), 3);
+}
+
 #[tokio::test]
 async fn force_taps_a_disabled_target_at_once() {
     // A React Native view that reports enabled=false but works.

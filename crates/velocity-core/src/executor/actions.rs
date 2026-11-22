@@ -396,6 +396,12 @@ impl<'a> TestExecutor<'a> {
             Action::Tap { selector } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                if self.step_force {
+                    return self
+                        .driver
+                        .touch_forced(device_id, &element, velocity_common::Touch::Tap)
+                        .await;
+                }
                 match self.driver.tap(device_id, &element).await {
                     // A row under a floating bottom bar (iOS 26 Settings'
                     // search bar) was refused with "scroll it into view
@@ -413,6 +419,12 @@ impl<'a> TestExecutor<'a> {
             Action::DoubleTap { selector } => {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
+                if self.step_force {
+                    return self
+                        .driver
+                        .touch_forced(device_id, &element, velocity_common::Touch::DoubleTap)
+                        .await;
+                }
                 self.driver.double_tap(device_id, &element).await
             }
             Action::LongPress {
@@ -422,6 +434,12 @@ impl<'a> TestExecutor<'a> {
                 let timeout = self.element_timeout_ms();
                 let element = self.find_actionable(device_id, selector, timeout).await?;
                 let ms = duration_ms.unwrap_or(1000);
+                if self.step_force {
+                    return self
+                        .driver
+                        .touch_forced(device_id, &element, velocity_common::Touch::LongPress(ms))
+                        .await;
+                }
                 self.driver.long_press(device_id, &element, ms).await
             }
             Action::Drag {
