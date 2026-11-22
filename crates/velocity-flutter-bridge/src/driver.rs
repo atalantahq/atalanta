@@ -85,13 +85,32 @@ impl FlutterDriver {
         })
     }
 
-    /// Send a command; an error reply fails it as `op`.
+    /// Send a command; an error reply fails it as `op`. Two codes are about
+    /// the request, not a device command that ran and failed: `unsupported`
+    /// (a key the bridge can't send) is a platform limit, exit 2 and never
+    /// retried, and `unknown_command` (an older Dart package) says what to
+    /// update. The bridge's message is redacted like a command's output.
     async fn call(
         &self,
         cmd: &FlutterCommand,
         op: &str,
     ) -> velocity_common::Result<Option<serde_json::Value>> {
-        self.send_cmd(cmd).await?.into_result(op, DEVICE)
+        match self.send_cmd(cmd).await? {
+            FlutterResponse::Error {
+                message,
+                code: Some(code),
+            } if code == "unsupported" => Err(VelocityError::Unsupported(format!(
+                "{op}: {} (Flutter headless)",
+                velocity_common::redact::redact(&message)
+            ))),
+            FlutterResponse::Error {
+                code: Some(code), ..
+            } if code == "unknown_command" => Err(VelocityError::Config(format!(
+                "the Flutter bridge doesn't know `{op}`: update the velocity_flutter_helper \
+                 Dart package (crates/velocity-flutter-bridge/dart) to this Velocity's version"
+            ))),
+            reply => reply.into_result(op, DEVICE),
+        }
     }
 
     /// Run an action. The Dart side settles (bounded) before it answers, so

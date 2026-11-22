@@ -513,3 +513,99 @@ async fn settles_at_once_and_reports_whether_the_screen_changed() {
     assert!(same.settled && !same.reacted, "{same:?}");
     assert_eq!(*taps.lock().unwrap(), 2);
 }
+
+// Review (November 2026): the bridge answers `unsupported` for a key it
+// can't send; that is a platform limit (exit 2, never retried), not a device
+// command that failed (exit 3).
+#[tokio::test]
+async fn a_key_the_bridge_cannot_send_is_unsupported() {
+    let (port, _) = serve(true, |cmd| match cmd["cmd"].as_str() {
+        Some("press_key") => json!({"status": "error", "code": "unsupported",
+            "message": "key home is not supported by the Flutter bridge"}),
+        _ => ok(),
+    })
+    .await;
+    let d = driver(port).await;
+    let err = d
+        .press_key("flutter-0", velocity_common::Key::Home)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, VelocityError::Unsupported(_)), "{err:?}");
+    assert_eq!(err.exit_code(), 2);
+    assert!(err.to_string().contains("home"), "{err}");
+    assert!(!err.kind().is_transient());
+}
+
+// An older Dart package lacks `reset`/`hit_test`: say what to update.
+#[tokio::test]
+async fn a_bridge_without_a_command_says_to_update_the_package() {
+    let (port, _) = serve(true, |cmd| match cmd["cmd"].as_str() {
+        Some("reset") => json!({"status": "error", "code": "unknown_command",
+            "message": "Unknown command: reset"}),
+        _ => ok(),
+    })
+    .await;
+    let d = driver(port).await;
+    let err = d.stop_app("flutter-0", "app").await.unwrap_err();
+    assert!(matches!(err, VelocityError::Config(_)), "{err:?}");
+    assert!(err.to_string().contains("velocity_flutter_helper"), "{err}");
+}
+
+// A command the bridge never answers times out, drops the connection, and
+// the next command reconnects (the Dart side keeps the app mounted).
+#[tokio::test]
+async fn a_timed_out_command_reconnects_for_the_next_one() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let hang = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let h = hang.clone();
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            let h = h.clone();
+            tokio::spawn(async move {
+                let (r, mut w) = sock.into_split();
+                let mut r = BufReader::new(r);
+                loop {
+                    let mut line = String::new();
+                    if r.read_line(&mut line).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    let cmd: Value = serde_json::from_str(&line).unwrap();
+                    if cmd["cmd"] == "get_hierarchy" && h.load(std::sync::atomic::Ordering::SeqCst)
+                    {
+                        continue; // never answers
+                    }
+                    let mut body = match cmd["cmd"].as_str() {
+                        Some("get_hierarchy") => json!({"status": "ok", "data": login_screen()}),
+                        _ => ok(),
+                    };
+                    body["id"] = cmd["id"].clone();
+                    let _ = w.write_all(format!("{body}\n").as_bytes()).await;
+                }
+            });
+        }
+    });
+    let d = FlutterDriver::new(
+        Platform::Android,
+        FlutterBridgeConfig {
+            port,
+            reply_timeout_secs: 1,
+            ..Default::default()
+        },
+    );
+    d.prepare("flutter-0").await.unwrap();
+    hang.store(true, std::sync::atomic::Ordering::SeqCst);
+    let started = std::time::Instant::now();
+    let err = d.get_hierarchy("flutter-0").await.unwrap_err();
+    assert!(err.to_string().contains("timed out"), "{err}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(
+        d.health_check().await,
+        velocity_common::HealthStatus::Unhealthy
+    );
+    hang.store(false, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(
+        d.get_hierarchy("flutter-0").await.unwrap().children.len(),
+        4
+    );
+}
