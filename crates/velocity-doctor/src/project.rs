@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use velocity_core::impact::ImpactMapping;
 
+use crate::env::Ran;
 use crate::{Area, Check, Ctx, Fix, Options, Platform, Status};
 
 const A: Area = Area::Project;
@@ -203,6 +204,17 @@ pub(crate) async fn checks(opts: &Options) -> Findings {
     f
 }
 
+/// Whether `app` can be put in a device shell command as it is: an Android
+/// package name is dotted identifiers, nothing else. A suite's `appId` is
+/// user-controlled YAML (a cloned repo's), and `adb shell` joins its
+/// arguments into one shell line.
+fn safe_package_name(app: &str) -> bool {
+    !app.is_empty()
+        && app
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+}
+
 /// Whether each project app is installed on a running device. Run after
 /// the platform areas so it can use their tools; quick (one call per app
 /// and device).
@@ -214,6 +226,7 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
     let t = ctx.opts.timeout;
     let mut lines = Vec::new();
     let mut missing = Vec::new();
+    let mut unreachable = Vec::new();
     let mut checked = 0;
     for (platform, app) in &ctx.apps {
         match platform {
@@ -221,6 +234,10 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
                 let Some(adb) = crate::android::find_adb(ctx).0 else {
                     continue;
                 };
+                if !safe_package_name(app) {
+                    unreachable.push(format!("{app}: not an Android package name, not looked up"));
+                    continue;
+                }
                 let listed = env
                     .run(&adb, &["devices"], t)
                     .await
@@ -230,11 +247,18 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
                     .into_iter()
                     .filter(|d| d.state == "device")
                 {
-                    checked += 1;
                     let mut argv: Vec<String> = velocity_android::adb::target_args(&d.serial);
                     argv.extend(["shell".into(), format!("pm path {app}")]);
                     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
-                    let out = env.run(&adb, &argv, t).await.stdout().unwrap_or_default();
+                    let ran = env.run(&adb, &argv, t).await;
+                    // `pm path` of a missing package exits 1 with no output;
+                    // a shell that never ran says nothing about the app.
+                    if !matches!(ran, Ran::Done(..)) {
+                        unreachable.push(format!("{app}: can't ask {}: {}", d.serial, ran.why()));
+                        continue;
+                    }
+                    checked += 1;
+                    let out = ran.stdout().unwrap_or_default();
                     if out.contains("package:") {
                         lines.push(format!("{app}: installed on {}", d.serial));
                     } else {
@@ -256,10 +280,19 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
                     .into_iter()
                     .filter(|s| s.booted)
                 {
-                    checked += 1;
                     let ran = env
                         .run(&xcrun, &["simctl", "get_app_container", &s.udid, app], t)
                         .await;
+                    if !matches!(ran, Ran::Done(..)) {
+                        unreachable.push(format!(
+                            "{app}: can't ask {} ({}): {}",
+                            s.name,
+                            s.udid,
+                            ran.why()
+                        ));
+                        continue;
+                    }
+                    checked += 1;
                     if ran.ok() {
                         lines.push(format!("{app}: installed on {} ({})", s.name, s.udid));
                     } else {
@@ -271,11 +304,14 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
         }
     }
     if checked == 0 {
-        return Some(Check::skip(
-            "project.app_installed",
-            A,
-            "no running device to look for the app on",
-        ));
+        return Some(
+            Check::skip(
+                "project.app_installed",
+                A,
+                "no running device to look for the app on",
+            )
+            .with_detail(unreachable.join("\n")),
+        );
     }
     let all_missing = lines.is_empty();
     let summary = if all_missing {
@@ -295,7 +331,12 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
                 String::new()
             }
     };
-    let all: Vec<String> = lines.iter().chain(missing.iter()).cloned().collect();
+    let all: Vec<String> = lines
+        .iter()
+        .chain(missing.iter())
+        .chain(unreachable.iter())
+        .cloned()
+        .collect();
     let detail = if all.len() > 1 {
         all.join("\n")
     } else {
@@ -400,5 +441,66 @@ esac"#,
         ctx.apps = vec![(Platform::Android, "com.other".into())];
         let c = apps_installed(&ctx).await.unwrap();
         assert_eq!(c.status, Status::Warn);
+    }
+
+    #[tokio::test]
+    async fn an_app_id_is_never_put_in_a_device_shell_line_unchecked() {
+        let t = Tools::new();
+        let log = t.path("adb.log");
+        t.tool(
+            "adb",
+            &format!(
+                r#"echo "$*" >> '{}'
+while [ "$1" = "-s" ]; do shift 2; done
+case "$1" in
+  devices) printf 'List of devices attached\nemulator-5554\tdevice\n';;
+esac"#,
+                log.display()
+            ),
+        );
+        let ctx = Ctx {
+            opts: opts(&t),
+            required: vec![],
+            apps: vec![(Platform::Android, "com.x; rm -rf /sdcard".into())],
+        };
+        let c = apps_installed(&ctx).await.unwrap();
+        assert_eq!(c.status, Status::Skip, "{c:?}");
+        let log = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(!log.contains("rm -rf"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn a_device_that_does_not_answer_is_not_reported_as_missing_the_app() {
+        let t = Tools::new();
+        t.tool(
+            "adb",
+            r#"while [ "$1" = "-s" ]; do shift 2; done
+case "$1" in
+  devices) printf 'List of devices attached\nemulator-5554\tdevice\n';;
+  shell) exit 3;;
+esac"#,
+        );
+        let ctx = Ctx {
+            opts: opts(&t),
+            required: vec![],
+            apps: vec![(Platform::Android, "com.example.app".into())],
+        };
+        // Exit 3 is a run that ended: only a missing package says "missing".
+        let c = apps_installed(&ctx).await.unwrap();
+        assert_eq!(c.status, Status::Warn, "{c:?}");
+        // A shell that can't even start is "unknown", not "not installed".
+        t.tool(
+            "adb",
+            r#"while [ "$1" = "-s" ]; do shift 2; done
+case "$1" in
+  devices) printf 'List of devices attached\nemulator-5554\tdevice\n';;
+  shell) sleep 5;;
+esac"#,
+        );
+        let mut ctx = ctx;
+        ctx.opts.timeout = std::time::Duration::from_millis(300);
+        let c = apps_installed(&ctx).await.unwrap();
+        assert_eq!(c.status, Status::Skip, "{c:?}");
+        assert!(c.detail.unwrap().contains("can't ask"));
     }
 }

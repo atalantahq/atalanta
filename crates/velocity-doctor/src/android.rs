@@ -130,15 +130,29 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
         .stdout()
         .map(|s| adb_version(&s))
         .unwrap_or_default();
+    // Restarting the one adb server drops every device of every tool on it:
+    // not while a live process holds a device lease (a run, the console, an
+    // MCP session).
+    let busy = crate::host::held_leases(ctx);
     let restart = || {
-        Fix::safe(
-            format!(
-                "{} kill-server && {} start-server",
+        if busy.is_empty() {
+            Fix::safe(
+                format!(
+                    "{} kill-server && {} start-server",
+                    adb.display(),
+                    adb.display()
+                ),
+                SafeAction::RestartAdbServer,
+            )
+        } else {
+            Fix::guidance(format!(
+                "restarting the adb server is withheld: it would cut off {}. Let those finish, \
+                 then `{} kill-server && {} start-server`",
+                busy.join(", "),
                 adb.display(),
                 adb.display()
-            ),
-            SafeAction::RestartAdbServer,
-        )
+            ))
+        }
     };
     let devices = match &listing {
         Ran::Done(o, took) if o.status.success() => {
@@ -275,6 +289,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
     if !online.is_empty() {
         let mut lines = Vec::new();
         let mut old = false;
+        let mut silent: Vec<&str> = Vec::new();
         for d in &online {
             let args = velocity_android::adb::target_args(&d.serial);
             let mut argv: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -296,7 +311,10 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
                         v.get(2).unwrap_or(&"")
                     ));
                 }
-                None => lines.push(format!("{}: can't read: {}", d.serial, ran.why())),
+                None => {
+                    silent.push(&d.serial);
+                    lines.push(format!("{}: can't read: {}", d.serial, ran.why()));
+                }
             }
         }
         let summary = lines.first().cloned().unwrap_or_default()
@@ -305,7 +323,16 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             } else {
                 String::new()
             };
-        let c = if old {
+        // Listed as `device` but not answering a shell: frozen, or still
+        // booting. It is not usable, whatever its API level.
+        let c = if !silent.is_empty() {
+            Check::warn("android.api", A, summary).with_fix(Fix::guidance(format!(
+                "{} is listed but doesn't answer `adb shell`: wait for it to finish booting, \
+                 or restart it (`adb -s {} reconnect`, or cold-boot the emulator)",
+                silent.join(", "),
+                silent[0]
+            )))
+        } else if old {
             Check::warn("android.api", A, summary).with_fix(Fix::guidance(
                 "Velocity's tree server needs API 21 or newer",
             ))
@@ -327,6 +354,20 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             "not checked (`--deep` pushes it to a device and handshakes)",
         ),
         None => Check::skip("android.tree_server", A, "no online device to check it on"),
+        // The opt-out Velocity itself honours (`TreeServer::new`): usually set
+        // because another tool owns the device's one UiAutomation connection.
+        Some(_)
+            if matches!(
+                ctx.env().var("VELOCITY_ANDROID_TREE_SERVER").as_deref(),
+                Some("0" | "false" | "off")
+            ) =>
+        {
+            Check::skip(
+                "android.tree_server",
+                A,
+                "disabled by VELOCITY_ANDROID_TREE_SERVER: nothing pushed or started",
+            )
+        }
         Some(d) => timed(|| tree_server(&adb, &d.serial)).await,
     });
 
@@ -427,6 +468,25 @@ async fn emulator(ctx: &Ctx, have_devices: bool) -> Check {
         ));
     };
     let ran = ctx.env().run(&emu, &["-list-avds"], ctx.opts.timeout).await;
+    if !ran.ok() {
+        // Not "no AVDs": the emulator itself didn't run (a broken install,
+        // a wrong architecture, a hang).
+        let status = if have_devices {
+            Status::Ok
+        } else {
+            Status::Warn
+        };
+        return Check::new(
+            "android.emulator",
+            A,
+            status,
+            format!("emulator found, but `-list-avds` failed: {}", ran.why()),
+        )
+        .with_detail(emu.display().to_string())
+        .with_fix(Fix::guidance(
+            "reinstall the Android Emulator from Android Studio's SDK Manager, or run it by hand to see why",
+        ));
+    }
     let avds: Vec<String> = ran
         .text()
         .unwrap_or_default()
@@ -605,5 +665,101 @@ esac"#;
         t.set("ANDROID_HOME", &sdk.to_string_lossy());
         let c = emulator(&ctx(&t, true), false).await;
         assert_eq!(c.summary, "2 AVDs: Pixel_7_API_34, Tablet");
+    }
+
+    #[tokio::test]
+    async fn a_device_that_does_not_answer_a_shell_is_not_reported_ok() {
+        let t = Tools::new();
+        t.tool(
+            "adb",
+            "while [ \"$1\" = \"-s\" ]; do shift 2; done
+case \"$1\" in
+  devices) printf 'List of devices attached\\nemulator-5554 device\\n';;
+  shell) echo 'error: closed' >&2; exit 1;;
+esac",
+        );
+        let (checks, usable) = checks(&ctx(&t, true)).await;
+        assert!(usable);
+        let api = checks.iter().find(|c| c.id == "android.api").unwrap();
+        assert_eq!(api.status, Status::Warn, "{api:?}");
+        assert!(api.summary.contains("can't read"), "{api:?}");
+    }
+
+    #[tokio::test]
+    async fn a_failing_emulator_binary_is_not_reported_as_having_no_avds() {
+        let mut t = Tools::new();
+        let sdk = t.path("sdk");
+        crate::env::fake::write_script(&sdk.join("emulator/emulator"), "echo boom >&2; exit 1");
+        t.set("ANDROID_HOME", &sdk.to_string_lossy());
+        let c = emulator(&ctx(&t, true), false).await;
+        assert_eq!(c.status, Status::Warn, "{c:?}");
+        assert!(c.summary.contains("failed"), "{c:?}");
+        assert!(!c.summary.contains("no AVDs"), "{c:?}");
+    }
+
+    #[tokio::test]
+    async fn deep_leaves_the_device_alone_when_the_tree_server_is_switched_off() {
+        let mut t = Tools::new();
+        let log = t.path("adb.log");
+        t.tool(
+            "adb",
+            &format!(
+                "echo \"$*\" >> '{}'
+while [ \"$1\" = \"-s\" ]; do shift 2; done
+case \"$1\" in
+  devices) printf 'List of devices attached\\nemulator-5554 device\\n';;
+  shell) printf '34\\n14\\nPixel 7\\n';;
+esac",
+                log.display()
+            ),
+        );
+        t.set("VELOCITY_ANDROID_TREE_SERVER", "off");
+        t.set("VELOCITY_LEASE_DIR", &t.path("leases").to_string_lossy());
+        let mut c = ctx(&t, true);
+        c.opts.deep = true;
+        let (checks, _) = checks(&c).await;
+        let tree = checks
+            .iter()
+            .find(|c| c.id == "android.tree_server")
+            .unwrap();
+        assert_eq!(tree.status, Status::Skip, "{tree:?}");
+        let log = std::fs::read_to_string(&log).unwrap();
+        assert!(!log.contains("push") && !log.contains("forward"), "{log}");
+    }
+
+    #[tokio::test]
+    async fn an_adb_restart_is_not_offered_while_a_live_process_holds_a_lease() {
+        let mut t = Tools::new();
+        t.tool("adb", "case \"$1\" in devices) sleep 30;; esac");
+        let leases = t.path("leases");
+        std::fs::create_dir_all(&leases).unwrap();
+        t.set("VELOCITY_LEASE_DIR", &leases.to_string_lossy());
+        let path = leases.join("emulator-5554.lock");
+        std::fs::write(
+            &path,
+            format!("pid={} cmd=velocity run\n", std::process::id()),
+        )
+        .unwrap();
+        let f = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        f.try_lock().unwrap();
+        let mut c = ctx(&t, true);
+        c.opts.timeout = Duration::from_millis(300);
+        let (checks, _) = checks(&c).await;
+        let s = checks
+            .iter()
+            .find(|c| c.id == "android.adb_server")
+            .unwrap();
+        assert_eq!(s.status, Status::Fail);
+        let fix = s.fix.as_ref().unwrap();
+        assert!(!fix.safe_auto && fix.action.is_none(), "{fix:?}");
+        assert!(
+            matches!(&fix.kind, crate::FixKind::Guidance(g) if g.contains("withheld") && g.contains("emulator-5554")),
+            "{fix:?}"
+        );
+        drop(f);
     }
 }

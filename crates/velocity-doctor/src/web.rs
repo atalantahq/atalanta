@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::{Area, AreaResult, Check, Ctx, Fix, Platform};
+use crate::{Area, AreaResult, Check, Ctx, Fix, Platform, Status};
 
 const A: Area = Area::Web;
 
@@ -60,10 +60,36 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             false,
         );
     };
-    let version = ctx
+    let ran = ctx
         .env()
         .run(&chrome, &["--version"], ctx.opts.timeout)
-        .await
+        .await;
+    if !ran.ok() {
+        // On the path but not runnable: a snap stub without snap, a wrong
+        // architecture, a broken install. Web tests would fail to launch it.
+        let status = if ctx.requires(Platform::Web) {
+            Status::Fail
+        } else {
+            Status::Warn
+        };
+        return (
+            vec![Check::new(
+                "web.chrome",
+                A,
+                status,
+                format!(
+                    "Chrome / Chromium found but `--version` failed: {}",
+                    ran.why()
+                ),
+            )
+            .with_detail(chrome.display().to_string())
+            .with_fix(Fix::guidance(
+                "run it by hand to see why, reinstall it, or point CHROME at a working binary",
+            ))],
+            false,
+        );
+    }
+    let version = ran
         .stdout()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
@@ -80,7 +106,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
 mod tests {
     use super::*;
     use crate::env::fake::Tools;
-    use crate::{Options, Status};
+    use crate::Options;
 
     fn ctx(t: &Tools, required: bool) -> Ctx {
         Ctx {
@@ -104,6 +130,18 @@ mod tests {
         let (c, usable) = checks(&ctx(&t, true)).await;
         assert!(usable);
         assert_eq!(c[0].summary, "Chromium 140.0.1");
+    }
+
+    #[tokio::test]
+    async fn a_chrome_that_cannot_run_is_not_reported_ok() {
+        let t = Tools::new();
+        t.tool("chromium", "echo 'requires the snap' >&2; exit 1");
+        let (c, usable) = checks(&ctx(&t, true)).await;
+        assert!(!usable);
+        assert_eq!(c[0].status, Status::Fail, "{c:?}");
+        assert!(c[0].summary.contains("--version"), "{c:?}");
+        let (c, _) = checks(&ctx(&t, false)).await;
+        assert_eq!(c[0].status, Status::Warn, "{c:?}");
     }
 
     #[tokio::test]
