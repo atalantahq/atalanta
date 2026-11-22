@@ -377,7 +377,10 @@ pub fn redact(s: &str) -> Cow<'_, str> {
     // (second-pass review). Lower-case `key=` in prose is left alone.
     if ENV_ASSIGNMENT.is_match(&out) {
         let replaced = ENV_ASSIGNMENT.replace_all(&out, |c: &regex::Captures| {
-            if is_secret_name(&c[2]) && &c[3] != "[redacted]" {
+            // Prefixed names only (`DB_PASSWORD`): a bare `KEY=VALUE` is
+            // the usual placeholder in help text, and the bare secret names
+            // have their own shapes above.
+            if c[2].contains('_') && is_secret_name(&c[2]) && &c[3] != "[redacted]" {
                 format!("{}{}=[redacted]", &c[1], &c[2])
             } else {
                 c[0].to_string()
@@ -1078,6 +1081,8 @@ mod tests {
 
     #[test]
     fn second_pass_prefixed_secret_name_assignment_is_masked() {
+        // The placeholder in help text stays readable.
+        assert!(matches!(redact("expected KEY=VALUE"), Cow::Borrowed(_)));
         assert!(is_secret_name("DB_PASSWORD"));
         // The name counts as secret, but the shape that masks a
         // `NAME=value` assignment only matches the bare names.
