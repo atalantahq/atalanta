@@ -147,7 +147,7 @@ impl Network {
 
     /// Watch `tab`'s requests and answer paused ones; turn Fetch on if
     /// the suite has rules.
-    pub async fn attach(&self, tab: &Tab) {
+    pub async fn attach(&self, tab: &Tab) -> Result<()> {
         self.watch_requests(&tab.page).await;
         self.watch_paused(&tab.page).await;
         // `tab` is a fresh page (a new session, or one restarted after
@@ -156,9 +156,22 @@ impl Network {
         // `Fetch.enable` and every mock was bypassed.
         self.fetch_on
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        let have_rules = !self
+            .rules
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty();
         if let Err(e) = self.sync_fetch(tab).await {
+            if have_rules {
+                // No device id here: `open_page` (which knows `device_id`)
+                // wraps this into `DeviceBootFailed`.
+                return Err(VelocityError::Internal(anyhow::anyhow!(
+                    "request interception could not start ({e}); web.block/mock rules would not apply, so the launch is refused"
+                )));
+            }
             warn!("velocity-web: mocks not installed: {e}");
         }
+        Ok(())
     }
 
     /// Cross-origin frames are tracked from here on (W4).
@@ -284,6 +297,14 @@ impl Network {
             }
         }
         if want {
+            // Test-only: make request interception fail so a web launch with
+            // `web.block`/mock rules is refused instead of failing open
+            // (`VELOCITY_WEB_TEST_FAIL_FETCH=1`, never set outside tests).
+            if velocity_common::env::var("VELOCITY_WEB_TEST_FAIL_FETCH").is_ok_and(|v| v == "1") {
+                return Err(VelocityError::Internal(anyhow::anyhow!(
+                    "test hook: sync_fetch refused"
+                )));
+            }
             let pattern = RequestPattern {
                 url_pattern: Some("*".into()),
                 ..Default::default()

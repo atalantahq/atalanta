@@ -1168,7 +1168,13 @@ impl WebDriver {
                 _ => tokio::time::sleep(Duration::from_millis(50)).await,
             }
         };
-        Some(self.set_up_tab(chrome, page, network).await)
+        match self.set_up_tab(chrome, page, network).await {
+            Ok(tab) => Some(tab),
+            Err(e) => {
+                tracing::warn!("velocity-web: new tab {id} not followed: {e}");
+                None
+            }
+        }
     }
 
     /// `device_id`'s network rules and requests, if its browser runs.
@@ -1393,7 +1399,7 @@ impl WebDriver {
         chrome: &Chrome,
         page: chromiumoxide::Page,
         network: &crate::network::Network,
-    ) -> Arc<Page> {
+    ) -> Result<Arc<Page>> {
         let device = self.config.device;
         let touch = device.is_some_and(|d| d.touch);
         let page = Arc::new(Page::new(page, chrome.alive.clone()).with_touch(touch));
@@ -1422,7 +1428,7 @@ impl WebDriver {
         }
         spawn_dialog_handler(&page).await;
         spawn_crash_watch(&page).await;
-        network.attach(&page).await;
+        network.attach(&page).await?;
         if frames_enabled() {
             // Cross-origin frames (W4): their own connection, attached
             // before the first navigation so no frame is missed.
@@ -1436,7 +1442,7 @@ impl WebDriver {
                 Err(e) => debug!("velocity-web: cross-origin frames not tracked: {e}"),
             }
         }
-        page
+        Ok(page)
     }
 
     /// Open `device_id`'s page in `chrome` (in `context`, if given), set it
@@ -1470,7 +1476,12 @@ impl WebDriver {
 
         let network = crate::network::Network::new(self.config.mocks.clone());
         let tabs = TabWatch::default();
-        let page = self.set_up_tab(chrome, page, &network).await;
+        let page = self.set_up_tab(chrome, page, &network).await.map_err(|e| {
+            VelocityError::DeviceBootFailed {
+                id: device_id.into(),
+                reason: e.to_string(),
+            }
+        })?;
         tabs.watch(chrome, &page).await;
         watch_downloads(chrome, context, &page).await;
 
