@@ -433,7 +433,6 @@ impl DeviceFarm {
     }
 }
 
-/// Simple glob matching supporting `*` as wildcard.
 /// The parts of a `--device` filter: one pattern, or a list of ids.
 fn filter_parts(filter: &str) -> Vec<String> {
     filter
@@ -485,31 +484,11 @@ pub fn unmatched_device_filter(
     Some(filter.trim().to_string())
 }
 
+/// `*` wildcard match over the whole text (both sides already lower case).
+/// The shared matcher: a hand-rolled one here took the first occurrence of
+/// the pattern's last part, so `emulator-*5` never matched `emulator-5555`.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    if !pattern.contains('*') {
-        return pattern == text;
-    }
-    let parts: Vec<&str> = pattern.split('*').collect();
-    let mut pos = 0;
-    for (i, part) in parts.iter().enumerate() {
-        if part.is_empty() {
-            continue;
-        }
-        match text[pos..].find(part) {
-            Some(idx) => {
-                if i == 0 && idx != 0 {
-                    return false; // Pattern doesn't start with *, must match from beginning
-                }
-                pos += idx + part.len();
-            }
-            None => return false,
-        }
-    }
-    // If pattern doesn't end with *, text must end at pos
-    if !pattern.ends_with('*') {
-        return pos == text.len();
-    }
-    true
+    velocity_common::glob_match(pattern, text)
 }
 
 #[cfg(test)]
@@ -555,6 +534,17 @@ mod tests {
         let remote = |p: &str| p.contains('/');
         assert!(unmatched_device_filter("10.0.0.5:5037/emulator-5556", &devs, remote).is_none());
     }
+    // V1: the glob took the first occurrence of its last part, so a pattern
+    // whose last part also occurs earlier in the id never matched.
+    #[test]
+    fn a_device_glob_matches_when_its_last_part_also_occurs_earlier() {
+        let d = dev("emulator-5555", "Pixel_7");
+        assert!(device_filter_matches("emulator-*5", &d));
+        assert!(device_filter_matches("emulator-5*5", &d));
+        assert!(!device_filter_matches("emulator-*4", &d));
+        assert!(device_filter_matches("*_7", &dev("x", "Pixel_7_7")));
+    }
+
     use velocity_common::{Platform, VelocityError};
 
     struct MockDriver {
