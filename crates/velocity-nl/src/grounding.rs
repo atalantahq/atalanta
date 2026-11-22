@@ -217,6 +217,77 @@ pub fn ground(
 
 pub use velocity_common::natural::check_goto;
 
+/// The checks a fresh plan passes, applied to an action read back from the
+/// plan cache (a file anyone can edit in a PR). `Err` says why the entry
+/// can't be used.
+///
+/// A value in a stored action is either a placeholder (`is_placeholder`:
+/// the step's data or one of its quoted values, filled in on replay) or text
+/// the step itself contains, exactly as at plan time: the cache is stored
+/// model output, so it never becomes a value on its own either. Waits and
+/// `goto` need the step to ask for them, and a `goto` stays on http(s).
+pub(crate) fn check_cached(
+    action: &Action,
+    intent: &str,
+    kind: NaturalKind,
+    has_data: bool,
+    is_placeholder: &dyn Fn(&str) -> bool,
+) -> std::result::Result<(), String> {
+    let value = |text: &str, op: Op, exact: bool| -> std::result::Result<(), String> {
+        if is_placeholder(text) {
+            // An entry made with data holds the data, never a literal.
+            return Ok(());
+        }
+        if has_data {
+            return Err(format!(
+                "{text:?} is not the step's data, but the step has data"
+            ));
+        }
+        let planned = PlannedStep {
+            op,
+            element: None,
+            text: text.to_string(),
+            direction: String::new(),
+            ms: 0,
+            key: Default::default(),
+        };
+        step_value(&planned, intent, None, "a stored value", exact)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    };
+    // A text selector that the model, not an element, chose.
+    let text_selector = |sel: &Selector, op: Op| -> std::result::Result<(), String> {
+        match sel {
+            Selector::TextContains(t) if is_placeholder(t) => Ok(()),
+            Selector::TextContains(t) if in_step(intent, unquote(t.trim()), false) => Ok(()),
+            Selector::TextContains(t) => Err(format!(
+                "{t:?} for {op:?} is not quoted from the step itself"
+            )),
+            _ => Ok(()),
+        }
+    };
+    match action {
+        Action::InputText { text, .. } => value(text, Op::InputText, true),
+        Action::AssertText { expected, .. } => value(expected, Op::AssertText, true),
+        Action::Goto { url } => {
+            if has_data && !mentions_navigation(intent) {
+                return Err("the step doesn't ask to navigate".into());
+            }
+            value(url, Op::Goto, true)?;
+            if !is_placeholder(url) {
+                check_goto(url, None, true)?;
+            }
+            Ok(())
+        }
+        Action::Wait { .. } if kind == NaturalKind::Act && !mentions_waiting(intent) => {
+            Err("the step doesn't ask to wait".into())
+        }
+        Action::AssertNotVisible { selector } => text_selector(selector, Op::AssertNotVisible),
+        Action::ScrollUntilVisible { selector, .. } => text_selector(selector, Op::Scroll),
+        _ => Ok(()),
+    }
+}
+
 /// A value for `step`: the step's data, else the model's text only when the
 /// step's own words contain it (verbatim when `exact`, else ignoring ASCII
 /// case, for text matched against the screen). Model text alone would let a

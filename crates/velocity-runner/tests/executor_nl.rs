@@ -742,11 +742,12 @@ async fn a_cached_action_without_its_effect_fails_without_a_second_action() {
 #[tokio::test]
 async fn a_natural_goto_stays_on_the_current_origin() {
     // D-17: a cached (or planned) goto to another origin is refused
-    // unless `nl.allowCrossOrigin: true`.
+    // unless `nl.allowCrossOrigin: true`. (The step names the URL: a cached
+    // goto to a URL the step doesn't contain never replays at all.)
     let calls = Arc::new(AtomicUsize::new(0));
     let nl = answering("goto-origin", vec![answer(Op::NotFound, None)], calls);
     nl.commit(
-        &first_step("open the deals page", NaturalKind::Act),
+        &first_step("open \"https://evil.example/deals\"", NaturalKind::Act),
         Action::Goto {
             url: "https://evil.example/deals".into(),
         },
@@ -757,7 +758,7 @@ async fn a_natural_goto_stays_on_the_current_origin() {
     let driver = ScriptDriver::new(vec![node("buy", "Buy", 0)]);
     driver.navigates.store(true, Ordering::SeqCst);
     *driver.page_url.lock().unwrap() = Some("https://shop.example/cart".into());
-    let test = test_case(vec![natural("open the deals page")]);
+    let test = test_case(vec![natural("open \"https://evil.example/deals\"")]);
     let mut ex = TestExecutor::new(&driver, config(300), "app").with_planner(nl.clone());
     let r = ex.execute_test(&test, "d", "app").await.unwrap();
     assert_eq!(r.status, TestStatus::Failed);
@@ -765,7 +766,7 @@ async fn a_natural_goto_stays_on_the_current_origin() {
     assert!(err.contains("nl.allowCrossOrigin"), "{err}");
     // Allowed by the suite.
     nl.commit(
-        &first_step("open the deals page", NaturalKind::Act),
+        &first_step("open \"https://evil.example/deals\"", NaturalKind::Act),
         Action::Goto {
             url: "https://evil.example/deals".into(),
         },
