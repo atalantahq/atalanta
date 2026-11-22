@@ -1314,8 +1314,9 @@ mod tests {
 }
 
 /// A web request answered without the network (`web.mocks`, `mockRequest`)
-/// or refused (`web.block`). `url` with `*`/`?` is a glob over the whole
-/// URL; without, a substring of it.
+/// or refused (`web.block`). `url` with a `*` is a glob over the whole
+/// URL (only `*` is a wildcard: `?` is the query string's, VEL-076);
+/// without one, a substring of it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MockRule {

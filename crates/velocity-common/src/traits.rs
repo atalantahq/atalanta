@@ -75,9 +75,9 @@ pub trait PlatformDriver: Send + Sync {
     }
     async fn launch_app(&self, device_id: &str, app_id: &str, clear_state: bool) -> Result<()>;
     /// Launch `app_id` on `device_id` with launch arguments (AUT-024).
-    /// Empty args fall through to [`Self::launch_app`]; non-empty args that a
-    /// platform doesn't yet support return a configuration error. Android and
-    /// iOS support lands in part 2.
+    /// Empty args fall through to [`Self::launch_app`]; non-empty args on a
+    /// platform that doesn't override this return a configuration error
+    /// (Android and iOS override it).
     async fn launch_app_with(
         &self,
         device_id: &str,
@@ -124,9 +124,6 @@ pub trait PlatformDriver: Send + Sync {
         None
     }
 
-    /// Something that changes whenever the installed build of `app_id`
-    /// changes (version, install time). `None` when unknown; the result
-    /// cache then never skips the app's tests.
     /// The exception that crashed `app_id` since its last launch, if it did.
     async fn crash_report(&self, _device_id: &str, _app_id: &str) -> Option<String> {
         None
@@ -206,6 +203,9 @@ pub trait PlatformDriver: Send + Sync {
     /// next freeze enters again.
     async fn unfreeze_status_bar(&self) {}
 
+    /// Something that changes whenever the installed build of `app_id`
+    /// changes (version, install time). `None` when unknown; the result
+    /// cache then never skips the app's tests.
     async fn app_fingerprint(&self, _device_id: &str, _app_id: &str) -> Option<String> {
         None
     }
