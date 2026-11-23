@@ -286,6 +286,8 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- **Web: a click that closes its own popup** (a "Done" button running `window.close()`) passes at once instead of failing as an internal error after the 10 s DevTools limit.
+- **`atalanta doctor --platform android` (or a project with only Android suites) is no longer blocked by iOS:** an iOS problem, such as a slow CoreSimulator, is a warning when iOS isn't one of the run's platforms.
 - **Second independent review (Android, iOS):** iOS clearState refuses a data-container path that isn't one (an empty answer from simctl would have cleared the host's `/Library` and `/tmp`); simctl refuses option-like bundle ids; only the word "locked" means a locked iPhone; float window sizes are read instead of becoming 390x844; App Store Connect queries are encoded. Android: punctuation-only text is checked as typed; `hideKeyboard` doesn't report success after a failed read; a tree read before an action is no longer cached after it; drags on large coordinates don't overflow.
 - **Second independent review (common, MCP):** a keychain command that left a background process holding its output no longer outlasts its deadline; every live event is masked (an exploration's own too), as is an explore task's summary in `task.json` and notifiers; a late success no longer closes an open circuit breaker; `DB_PASSWORD=…`-style assignments are masked.
 - **Android: actions under the soft keyboard hide it first**, scrolls stay above it, and a new `hideKeyboard` step dismisses it. Not yet run on every keyboard app.

@@ -54,7 +54,23 @@ pub(crate) fn xcrun(ctx: &Ctx) -> Option<PathBuf> {
     }
 }
 
+/// iOS's checks. When the run names its platforms (`--platform`, or the
+/// project's suites) and iOS is not one of them, a failure here is a
+/// warning: a slow CoreSimulator on a Mac whose suites are all Android
+/// blocked `atalanta doctor --platform android`.
 pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
+    let (mut out, usable) = checks_for(ctx).await;
+    if !ctx.required.is_empty() && !ctx.requires(Platform::Ios) {
+        for c in &mut out {
+            if c.status == Status::Fail {
+                c.status = Status::Warn;
+            }
+        }
+    }
+    (out, usable)
+}
+
+async fn checks_for(ctx: &Ctx) -> AreaResult {
     if std::env::consts::OS != "macos" {
         let c = Check::new(
             "ios.platform",
@@ -612,6 +628,24 @@ esac",
             matches!(&s.fix.as_ref().unwrap().kind, crate::FixKind::Run(c) if c.contains("killall")),
             "{s:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn ios_problems_only_warn_when_the_run_is_for_another_platform() {
+        let t = Tools::new();
+        xcode(&t, true);
+        t.tool("xcrun", "sleep 5");
+        let mut c = ctx(&t);
+        c.opts.timeout = Duration::from_secs(1);
+        c.required = vec![Platform::Android];
+        let (checks, _) = checks(&c).await;
+        let s = checks.iter().find(|c| c.id == "ios.simctl").unwrap();
+        assert_eq!(s.status, Status::Warn, "{s:?}");
+        // Nothing named a platform: still a failure.
+        c.required = vec![];
+        let (checks, _) = super::checks(&c).await;
+        let s = checks.iter().find(|c| c.id == "ios.simctl").unwrap();
+        assert_eq!(s.status, Status::Fail, "{s:?}");
     }
 
     #[tokio::test]
