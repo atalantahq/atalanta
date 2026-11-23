@@ -1,5 +1,5 @@
 [package]
-# `atalanta-mcp` is taken on crates.io; the library keeps its name.
+# Published as `atalanta-mcp-server`; the library keeps the name `atalanta_mcp`.
 name = "atalanta-mcp-server"
 version.workspace = true
 edition.workspace = true

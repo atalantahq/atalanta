@@ -76,8 +76,8 @@ ring = "0.17"
 
 # The workspace's own crates. Published together (`cargo publish --workspace`),
 # so each path dependency also carries the version crates.io resolves it to.
-# `atalanta-mcp` is taken on crates.io: that crate is published as
-# `atalanta-mcp-server` and keeps its `atalanta_mcp` library name.
+# The MCP crate is published as `atalanta-mcp-server` and keeps its
+# `atalanta_mcp` library name.
 atalanta-common = { path = "crates/atalanta-common", version = "=0.2.0" }
 atalanta-android = { path = "crates/atalanta-android", version = "=0.2.0" }
 atalanta-ios = { path = "crates/atalanta-ios", version = "=0.2.0" }

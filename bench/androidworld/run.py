@@ -577,7 +577,8 @@ def summarize(out: pathlib.Path) -> dict[str, Any]:
 
   ran = [r for r in rows if r['outcome'] not in ('notRun',)]
   steps = sum(r['steps'] for r in ran)
-  vel_s = sum(r['atalanta_seconds'] for r in ran)
+  # Runs recorded before the rename from Velocity carry the old key.
+  vel_s = sum(r.get('atalanta_seconds', r.get('velocity_seconds')) for r in ran)
   rate, n_templates = official(rows)
   s = {
       'meta': meta,
@@ -612,7 +613,7 @@ def summarize(out: pathlib.Path) -> dict[str, Any]:
       f'- mean steps {s["mean_steps"] and round(s["mean_steps"], 1)}, '
       f'mean s/step {s["mean_seconds_per_step"] and round(s["mean_seconds_per_step"], 1)}, '
       f'tokens {s["input_tokens"]}/{s["output_tokens"]}, est. cost ${s["total_cost_usd"]:.2f}',
-      f'- atalanta {meta.get("atalanta")}, harness {meta.get("harness_sha")}, seed {meta.get("seed")}, '
+      f'- atalanta {meta.get("atalanta") or meta.get("velocity")}, harness {meta.get("harness_sha")}, seed {meta.get("seed")}, '
       f'combinations {meta.get("n_task_combinations")}, verify {meta.get("verify")}',
       '', '| difficulty | official | strict | n |', '|---|---|---|---|',
   ]
