@@ -453,7 +453,7 @@ const TABS: &str = r#"<!doctype html><html><body>
 <button id="tb" onclick="show('B')">Tab B</button>
 <div id="panel"><h2>Panel A</h2></div>
 <script>function show(t){setTimeout(function(){
-document.getElementById('panel').innerHTML='<h2>Panel '+t+'</h2>'},400)}</script>
+document.getElementById('panel').innerHTML='<h2>Panel '+t+'</h2>'},1200)}</script>
 </body></html>"#;
 
 /// VEL-067: the web driver can tell when the page has finished reacting to
@@ -470,12 +470,14 @@ async fn settle_waits_for_a_delayed_render() {
         .unwrap();
     let tb = find(&d, "#tb").await;
     d.tap("web", &tb).await.unwrap();
-    // The render lands 400 ms after the click, long after the tap returns
-    // even on a loaded machine (a 150 ms delay raced the tap's own
-    // actionability checks under parallel test load); a 1.5 s reaction
-    // window still has to see it.
+    // The render lands 1.2 s after the click, after the tap returns and the
+    // settle's observer is attached even on a loaded CI runner (150 ms and
+    // then 400 ms both raced the tap's actionability checks plus the probe
+    // call under parallel test load, so the change landed before the
+    // observer and `reacted` was false); a 3 s reaction window still has to
+    // see it.
     let r = d
-        .settle_on_device("web", 1500, 100, 3000)
+        .settle_on_device("web", 3000, 100, 5000)
         .await
         .expect("the web driver settles on the page");
     assert!(r.settled && r.reacted, "{r:?}");
