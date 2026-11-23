@@ -72,7 +72,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 - **`atalanta explore "<goal>" --app-id <id>`**: an AI agent reaches a goal once and writes a YAML test that replays with no model calls ([EXPLORE.md](docs/EXPLORE.md)). [Details](docs/CHANGELOG-0.2.0.md#hl-explore)
 - **The console (`atalanta inspect --open`)**: a live, clickable mirror of every booted device and browser, with selectors, suite runs, explore sessions and diagnostics. [Details](docs/CHANGELOG-0.2.0.md#hl-console)
-- **MCP server upgrade**: 14 → 32 tools (five by default), `@e` refs, background tasks, and `atalanta mcp install` for seven clients. [Details](docs/CHANGELOG-0.2.0.md#hl-mcp)
+- **MCP server upgrade**: 14 → 33 tools with `--profile full` (five by default), `@e` refs, background tasks, and `atalanta mcp install` for seven clients. [Details](docs/CHANGELOG-0.2.0.md#hl-mcp)
 - **Failure evidence**: a failed test keeps `video.mp4`, logs and a self-contained `trace.html`; `--pause-on-failure` stops at the failing step. [Details](docs/CHANGELOG-0.2.0.md#hl-evidence)
 - **AI steps from 19 provider presets** for `do:`/`assert:`, `verify:` and `explore`; model output never becomes a selector or typed value ([AI-PROVIDERS.md](docs/AI-PROVIDERS.md)). [Details](docs/CHANGELOG-0.2.0.md#hl-providers)
 - **`atalanta init` and `atalanta doctor`**: `init` goes from a running app to a first passing test plus a GitHub Actions example. `doctor` checks adb, Xcode, devices, runner builds, Chrome, AI keys and your suites, and `--fix` applies the safe fixes.
@@ -131,7 +131,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 #### MCP and console
 
 - MCP `observe {what: a11y}` (full profile: `audit_accessibility`) audits the current screen with the accessibility rules and names each finding's element by its snapshot ref. Read-only.
-- MCP: 32 tools with read-only/destructive annotations, `--read-only`, `--notify`, `type_text` with `secret:`, session export, protocol versions up to 2025-11-25 and 2026-07-28. [Details](docs/CHANGELOG-0.2.0.md#mcp-added)
+- MCP: 33 tools (`--profile full`) with read-only/destructive annotations, `--read-only`, `--notify`, `type_text` with `secret:`, session export, protocol versions up to 2025-11-25 and 2026-07-28. [Details](docs/CHANGELOG-0.2.0.md#mcp-added)
 - Console: a mirror with input under the device's lease, an element overlay, flow recording, a Run panel, an Explore panel (steer the agent with *Inject*, then *Save to project*), task history, Diagnostics, and a `/review` page for screenshot baselines.
 
 #### Agents, API tests, CI and more
@@ -151,7 +151,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **`failures.md` on every run**: each failure with its step, `file:line`, log tail and evidence files, or "insufficient evidence". [Details](docs/CHANGELOG-0.2.0.md#failures-md)
 - **`atalanta verify-change "<description>"`** (and MCP `verify_change`): replays a trusted saved test, or explores a new gated one, and leaves PR evidence in one folder. [Details](docs/CHANGELOG-0.2.0.md#verify-change)
 - **Logins an agent can call without seeing the password**: `atalanta login`, `explore --after`, `${keychain:NAME}` and `${totp:NAME}` ([DSL.md](docs/DSL.md#logging-in)). [Details](docs/CHANGELOG-0.2.0.md#logins)
-- **Docs site and `llms.txt`**: mdBook build and GitHub Pages deploy (`docs.yml`), `docs/llms.txt`, and [docs/AGENTS.md](docs/AGENTS.md). [Details](docs/CHANGELOG-0.2.0.md#docs-site)
+- **Website and `llms.txt`**: the landing page and docs built from the repo's Markdown by `site/`, with a GitHub Pages deploy (`docs.yml`), `docs/llms.txt`, and [docs/AGENTS.md](docs/AGENTS.md). [Details](docs/CHANGELOG-0.2.0.md#docs-site)
 - **The Atalanta GitHub Action** (`action.yml`) and **`atalanta init --ci github`**; `install.sh --sha256` pins the archive ([CI.md](docs/CI.md#the-atalanta-action)). [Details](docs/CHANGELOG-0.2.0.md#action)
 - `device-smoke.yml` runs nightly (Android emulator and a new headless-Chrome smoke, `tests/smoke/web-smoke.yaml`) and weekly on the iOS simulator, then checks every job reported.
 - **`atalanta migrate maestro <dir> --dry-run`** converts every flow and writes nothing: how many flows convert cleanly, with steps skipped or changed, or not at all, and the Maestro commands that don't convert, ranked by the flows they affect (`--report-json` for JSON).

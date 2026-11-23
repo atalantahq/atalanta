@@ -1,6 +1,6 @@
 # Trust benchmark pilot (2026-11-07)
 
-A small run of the trust benchmark with a real model. It checks the harness end to end and finds what breaks before the frozen kill test ([../killtest/PREREG.md](../killtest/PREREG.md)).
+The harness, apps, goals and results of a small trust-benchmark run with a real model. Read it to see what the pilot measured and found, or to rerun it (see [Reproduce](#reproduce)). It checked the harness end to end and found what broke before the frozen kill test ([../killtest/PREREG.md](../killtest/PREREG.md)).
 
 **This is not the kill test.** The kill test needs at least 3 real apps (1 on iOS) with real logins, 20 pre-registered goals and published release pairs, all frozen before the first run. This pilot uses:
 - a 6-feature web app written for it;
@@ -8,13 +8,13 @@ A small run of the trust benchmark with a real model. It checks the harness end 
 - 11 goals chosen on the day;
 - no day-7 or release-N rerun.
 
-Its numbers measure the harness and the gates. They don't measure Atalanta on real apps.
+Its numbers measure the harness and the gates. They do not measure Atalanta on real apps.
 
 ## Setup
 
 | | |
 |---|---|
-| Atalanta | this tree, debug build, 2026-11-07 (rounds 1–4 differ only by the fixes listed below) |
+| Atalanta | this repository, debug build, 2026-11-07 (rounds 1–4 differ only by the fixes listed below) |
 | Model | `claude-sonnet-5-5` (goal), `claude-haiku-5-5` (steps), through `claude_bridge.py`: an OpenAI-compatible endpoint over the Claude Code CLI (`claude -p`, no tools, no project settings). Text only (`ATALANTA_NL_IMAGES=0`). |
 | Devices | Android emulator (API 34, arm64), iOS 26.0.1 simulator (iPhone 17), headless Chrome |
 | Apps | `app/` (Pilot Shop: sign-in, plans, cart, search, settings), `com.android.settings`, `com.apple.Preferences` |
@@ -82,6 +82,8 @@ Each item was found by a pilot round and fixed before the next. The CHANGELOG ha
 - **Not covered:** real devices, day-7 and release-N stability, apps with real backends, other models, screenshots to the checker.
 
 ## Reproduce
+
+Prerequisites: a built `atalanta` binary, `python3`, the `claude` CLI (or another provider, see [docs/AI-PROVIDERS.md](../../docs/AI-PROVIDERS.md)), and the devices for the lanes you run. Each lane is separate, so you can run only the one you have.
 
 ```bash
 cd bench/pilot

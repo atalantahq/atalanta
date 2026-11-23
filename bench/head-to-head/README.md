@@ -1,9 +1,9 @@
 # Atalanta vs Maestro, head to head
 
-Wall-clock time of one user-visible flow, run by each tool from its CLI, on
-the same Android emulator and the same app. It repeats an earlier manual
-Android comparison (Maestro 26–27 s, Atalanta 3.7 s) as a script anyone
-can rerun.
+A script that times one user-visible flow in Atalanta and in Maestro, each run
+from its CLI on the same Android emulator and the same app. Use it to check or
+repeat the speed comparison. It turns an earlier manual Android comparison
+(Maestro 26–27 s, Atalanta 3.7 s) into a script anyone can rerun.
 
 ## What is compared
 
@@ -38,7 +38,7 @@ That is what a developer or a CI job waits for.
   The earlier measurement used an arm64 image on Apple Silicon, headless.
   Pass `-d SERIAL` when more than one device is attached.
 - **The Settings app** (`com.android.settings`), which the image ships.
-- `adb`, `python3`, `bash` (3.2 is fine; `perl` is used for timing there).
+- `adb`, `python3` and `bash`. Bash 3.2 is fine; `perl` is used for timing there.
 
 ## How to run
 
@@ -49,9 +49,13 @@ bench/head-to-head/run.sh -n 9 -d emulator-5554 -o /tmp/h2h
 python3 bench/head-to-head/summarize.py bench/head-to-head/results/<stamp>/results.csv
 ```
 
-Each run directory (`results/<stamp>/` by default) holds `results.csv`, the
-summary `summary.md`, `env.txt` (tool versions, device, host), one log per
-run in `logs/` and each tool's JUnit report in `artifacts/`.
+Each run directory (`results/<stamp>/` by default) holds:
+
+- `results.csv`
+- `summary.md`
+- `env.txt` (tool versions, device, host)
+- `logs/`, one log per run
+- `artifacts/`, each tool's JUnit report
 
 `results.csv` columns: `phase` (`warmup` or `measured`), `iteration`, `order`
 (1 or 2 within the iteration), `tool`, `wall_ms`, `exit_code`, `device`,
@@ -70,23 +74,22 @@ run in `logs/` and each tool's JUnit report in `artifacts/`.
 4. **Same starting state before every run**: animation scales reset to 1.0,
    Settings force-stopped, home screen, 2 s idle.
 5. **Animations as each tool sets them.** Atalanta turns system animations off
-   for its run and restores them afterwards (it is its default; the script
-   makes sure `ATALANTA_KEEP_ANIMATIONS` is unset). Maestro leaves them on.
+   for its run and restores them afterwards. That is its default, and the
+   script makes sure `ATALANTA_KEEP_ANIMATIONS` is unset. Maestro leaves them on.
    Each tool is measured as a user gets it out of the box.
 6. **No retries.** Atalanta runs with `--retries 0`; Maestro does not retry.
 7. **Medians and p90** over the passing measured runs, per tool. A failed run
    is counted (`Passed` column) but not timed. With N=5, p90 sits between the
    two slowest runs; raise `-n` for a tighter tail.
 
-## What is NOT compared
+## What is not compared
 
-- **Per-step latency.** Only the end-to-end wall clock; the per-step breakdown
-  is in the research note above.
+- **Per-step latency.** Only the end-to-end wall clock is recorded.
 - **iOS.** Atalanta's WDA path could not finish the iOS flow in the earlier
   measurement; this harness is Android only.
 - **Reliability or flakiness** beyond the pass count of these few runs.
 - **Atalanta's daemon** (`run --daemon`, warm drivers between runs) and
-  **Maestro's** continuous or Studio modes: both run cold from the CLI.
+  **Maestro's** continuous or Studio modes. Both tools run cold from the CLI.
 - **Parallel runs, sharding, cloud services**, real devices, other apps, other
   API levels.
 - **Features**: reporting, selectors, healing, AI steps, ecosystem. This is a

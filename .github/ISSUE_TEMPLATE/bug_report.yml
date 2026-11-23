@@ -1,0 +1,65 @@
+name: Bug report
+description: Something fails, or behaves differently from the docs.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security vulnerabilities here. Follow [SECURITY.md](https://github.com/atalantahq/atalanta/blob/main/SECURITY.md).
+        Run `atalanta doctor` first: it names the fix for most first-run problems.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The command, and the smallest suite that shows the problem.
+      render: yaml
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Atalanta version
+      description: The output of `atalanta version`, and how you installed it (install script, Homebrew, npm, cargo, source).
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target
+      multiple: true
+      options:
+        - Android emulator
+        - Android device
+        - iOS simulator
+        - iOS device
+        - Web (Chrome)
+        - API only (no device)
+        - Console (atalanta inspect)
+        - MCP server
+        - Not target-specific
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS and version; device or simulator model and OS version; Xcode or Chrome version if relevant.
+      placeholder: macOS 26.0, Pixel 8 emulator API 34
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: >-
+        The failure message and exit code, and `atalanta doctor` output if it
+        reported anything. Check logs and screenshots for private data before
+        you attach them.
+      render: text

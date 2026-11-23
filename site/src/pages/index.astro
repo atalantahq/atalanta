@@ -1,0 +1,240 @@
+---
+import Base from '../layouts/Base.astro';
+import CodeWindow from '../components/CodeWindow.astro';
+import '../styles/landing.css';
+import { url } from '../lib/url';
+import { REPO_URL, VERSION } from '../lib/site';
+
+const install = 'cargo install --path atalanta-cli --locked';
+const brew = 'brew install atalantahq/tap/atalanta';
+const yamlSuite = `appId: com.example.shop
+tests:
+  - name: A new order shows in the app
+    steps:
+      - http:
+          method: POST
+          url: /orders
+          json: { sku: "A1", qty: 2 }
+          expect: { status: 201 }
+          capture: { ORDER_ID: id }
+      - launchApp
+      - tap: { text: "Orders" }
+      - assertVisible: { text: "\${ORDER_ID}" }`;
+const four = `atalanta doctor                      # check adb, Xcode, devices, Chrome and your suites
+atalanta init --run                  # read the launch screen, write a first test, run it
+atalanta explore "open Network & internet" --app-id com.android.settings
+atalanta run tests/ --parallel 4 --report junit,github --retries 1`;
+const lanes = [
+  { name: 'Android', info: 'Android: emulators on API 33 and 34, and one tablet. adb plus an on-device tree server.' },
+  { name: 'iOS', info: 'iOS: simulators on Xcode 26, and one wired iPhone 12. WebDriverAgent or Atalanta\'s own runner.' },
+  { name: 'Web', info: 'Web: Chrome over the DevTools Protocol, headless by default.' },
+  { name: 'API', info: 'API: http steps check status, headers, JSONPath values and timing. No device needed.' },
+];
+const agent = `atalanta mcp install
+atalanta snapshot
+atalanta tap @e7
+atalanta export --out flow.yaml`;
+---
+<Base description="Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome, with API steps in the same file. Open source, one static binary, pre-release.">
+  <canvas class="galaxy" aria-hidden="true"></canvas>
+
+  <!-- 1 -->
+  <section class="band hero">
+    <div class="hero-stage textured" data-hero-stage>
+      <canvas class="hero-track" aria-hidden="true"></canvas>
+      <div class="wrap">
+        <div class="hero-copy" data-copy>
+          <ul class="lanes rise" aria-label="Targets: each is a lane on the track">
+            {lanes.map((l, i) => <li><button type="button" data-lane={i} data-info={l.info}>{l.name}</button></li>)}
+          </ul>
+          <h1 class="rise">UI and API tests from one binary.</h1>
+          <p class="readout rise" data-readout aria-live="polite">Four lanes, one binary. Every build runs the race.</p>
+          <p class="lede rise">Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome, with API steps in the same file. An agent can write a test once; it then replays in CI with no model. Every failure keeps its video, logs and trace on your machine.</p>
+          <div class="actions rise">
+            <a class="btn primary" href={url('/docs/')}>Get started</a>
+            <a class="btn" href={url('/docs/status/')}>Verification status</a>
+            <a class="btn" href={REPO_URL}>GitHub</a>
+          </div>
+          <div class="install rise">
+            <div class="cmd" data-copy-target="code" data-copy-text={install}><span class="p" aria-hidden="true">$</span><code>{install}</code><span class="tag">from a checkout</span></div>
+            <div class="cmd" data-copy-target="code" data-copy-text={brew}><span class="p" aria-hidden="true">$</span><code>{brew}</code><span class="tag soon">first release</span></div>
+            <p class="note">Pre-release: {VERSION} is not published yet, so install from a checkout. Homebrew, npm and the install script go live with the first release.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wrap">
+      <div class="stats rise">
+        <div class="stat"><div class="n">2.7 ms</div><p>median read of the Android UI tree on an API 34 emulator (p90 5.8 ms), against 2.0 s for <code class="i">uiautomator dump</code></p></div>
+        <div class="stat"><div class="n">0</div><p>model calls when a saved test replays in CI</p></div>
+        <div class="stat"><div class="n">1</div><p>static binary: no JVM, no Node, no Appium server</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="band">
+    <div class="wrap split">
+      <div class="copy-block">
+        <h2 class="sec">One suite for the app and its API.</h2>
+        <p>An <code>http</code> step sends a request, checks status, headers, JSONPath values and timing, and captures values for later steps, UI steps included. A suite with only <code>http</code> steps runs without a device.</p>
+        <a class="more" href={url('/docs/dsl/')}>Writing suites</a>
+      </div>
+      <CodeWindow title="tests/orders.yaml" lang="yaml" code={yamlSuite} tilt />
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="band tint">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec">From zero to CI in four commands.</h2></div>
+      <CodeWindow title="terminal" code={four} />
+      <a class="more" href={url('/docs/')}>Overview</a>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="band">
+    <div class="wrap">
+      <h2 class="sec" style="max-width: 24ch">An AI-written test has to earn its place.</h2>
+      <p class="lede" style="margin-top: 20px"><code class="i">atalanta explore</code> lets an agent reach a goal once and writes the session as plain YAML. Before the test is marked trusted it must pass three gates.</p>
+      <ol class="steps">
+        <li><h3>Replay</h3><p>It replays 5 times with no model attached.</p></li>
+        <li><h3>Break</h3><p>It replays with the last tap moved to a neighbouring element, and must fail.</p></li>
+        <li><h3>Name the goal</h3><p>At least one assertion names a word of the goal.</p></li>
+      </ol>
+      <p class="small">From a small pilot (11 goals, 4 rounds with fixes between them): the final round caught 6 of 6 seeded regressions with no false passes, and a goal cost about $0.08 to explore. The wrong-path check has not yet been seen catching a weak test on its own.</p>
+      <a class="more" href={url('/docs/explore/#trust-gates')}>Trust gates</a>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="band tint">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec" style="max-width: 24ch">The model is never on the critical path.</h2></div>
+      <div class="cards">
+        <div class="card"><h3>It picks, code builds</h3><p>The model returns an operation and an element number. Code builds and checks every selector.</p></div>
+        <div class="card"><h3>Secrets stay names</h3><p>Secrets are read from environment variables, masked in reports, logs and traces, never sent to a model, and written into YAML only as <code>$&#123;NAME&#125;</code>.</p></div>
+        <div class="card"><h3>Replay needs no model</h3><p>A saved test runs in CI with zero model calls. A model call during replay is an internal error.</p></div>
+      </div>
+      <p class="aside">19 provider presets, including Anthropic, OpenAI, Azure OpenAI, Gemini, Bedrock, Vertex, Ollama and any OpenAI-compatible endpoint.</p>
+      <a class="more" style="margin-top: 8px" href={url('/docs/ai-providers/')}>AI providers</a>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="band">
+    <div class="wrap split">
+      <div class="copy-block">
+        <h2 class="sec">For coding agents.</h2>
+        <p><code>atalanta mcp install</code> registers the server with the MCP clients it finds and installs the agent rules. Five tools by default (<code>observe</code>, <code>act</code>, <code>run</code>, <code>artifacts</code>, <code>verify_change</code>); 33 with <code>--profile full</code>. Agents with a shell can skip MCP.</p>
+        <a class="more" href={url('/docs/mcp/')}>MCP server</a><a class="more" href={url('/docs/agents/')}>From a coding agent</a>
+      </div>
+      <CodeWindow title="terminal" code={agent} tilt />
+    </div>
+  </section>
+
+  <!-- 8 -->
+  <section class="band tint">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec">Runs on.</h2></div>
+      <div class="tbl status">
+        <table>
+          <thead><tr><th scope="col">Target</th><th scope="col">Status</th></tr></thead>
+          <tbody>
+            <tr><td>Android emulators</td><td class="st ok">Verified</td></tr>
+            <tr><td>iOS simulators</td><td class="st ok">Verified</td></tr>
+            <tr><td>Web (Chrome)</td><td class="st ok">Verified</td></tr>
+            <tr><td>API-only suites</td><td class="st ok">Verified</td></tr>
+            <tr><td>Android hardware</td><td class="st part">Tested on a real tablet</td></tr>
+            <tr><td>Real iPhones</td><td class="st part">Tested on an iPhone 12</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <a class="more" style="margin-top: 16px" href={url('/docs/status/')}>Verification status</a>
+    </div>
+  </section>
+
+  <!-- 8b -->
+  <section class="band">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec">Benchmarks.</h2></div>
+      <h3 style="margin: 0 0 14px">AndroidWorld</h3>
+      <div class="tbl status">
+        <table>
+          <thead><tr><th scope="col">Agent</th><th scope="col">Score</th></tr></thead>
+          <tbody>
+            <tr><td>Human</td><td>80.0%</td></tr>
+            <tr><td>Atalanta with Claude Sonnet 5.5</td><td>59.9%</td></tr>
+            <tr><td>M3A with GPT-4 Turbo (the AndroidWorld paper's best agent)</td><td>30.6%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">116 tasks across 20 Android apps, one run, about $0.22 of model cost per task.</p>
+      <h3 style="margin: 48px 0 6px">Unofficial runs</h3>
+      <p class="caption" style="margin: 0 0 18px">Done, but set up differently from the official benchmark, so not comparable to published scores.</p>
+      <div class="cards">
+        <div class="card"><h3>iOSWorld (iOS)</h3><p>19 of 27 single-app tasks and 13 of 60 multi-app tasks. Graded by Claude, not the GPT grader the benchmark uses.</p></div>
+        <div class="card"><h3>MiniWoB++ (web)</h3><p>About 70% of 130 web tasks, in our own harness with the time limit removed.</p></div>
+        <div class="card"><h3>Speed against Maestro</h3><p>The same 8-step Android test: 3.7 s in Atalanta, 26–27 s in Maestro. One manual run.</p></div>
+      </div>
+      <a class="more" style="margin-top: 24px" href={url('/docs/benchmarks/')}>Benchmarks</a>
+    </div>
+  </section>
+
+  <!-- 9 -->
+  <section class="band tint">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec">Built for CI.</h2></div>
+      <div class="cards four">
+        <div class="card"><h3>Parallel and sharded</h3><p><code>--parallel</code> across booted devices; shards balanced by past durations.</p></div>
+        <div class="card"><h3>Retries that mean something</h3><p>A failed test is retried on another device; a test that passes only on a retry is reported as flaky.</p></div>
+        <div class="card"><h3>Leases</h3><p>A per-device lock, so a run, the console and an agent never drive the same device.</p></div>
+        <div class="card"><h3>Reports</h3><p>JUnit, JSON, HTML, Allure and GitHub annotations.</p></div>
+      </div>
+      <p class="caption">Each kind of failure exits with its own code, so a pipeline can tell a failing test from a broken device or a bad configuration.</p>
+      <a class="more" style="margin-top: 8px" href={url('/docs/ci/')}>Setting up CI</a>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="band">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec">Security you can check.</h2></div>
+      <div class="cards">
+        <div class="card"><h3>Loopback by default</h3><p>The console listens on 127.0.0.1; every request needs the per-session token, and Host and Origin are checked.</p></div>
+        <div class="card"><h3>Verifiable releases</h3><p>Release archives ship with SHA256SUMS and a build provenance attestation.</p></div>
+        <div class="card"><h3>Open source</h3><p>AGPL-3.0. The security model and known gaps are documented.</p></div>
+      </div>
+      <a class="more" href={url('/docs/security/')}>Security model</a>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="band" id="community">
+    <div class="wrap">
+      <div class="band-head"><h2 class="sec">Get it, report it, change it.</h2></div>
+      <div class="cards">
+        <div class="card"><h3>Get Atalanta</h3><p>Build from a checkout with <code class="i">cargo install</code>, or use a <a href={`${REPO_URL}/releases`}>release</a> once one is out. Every install route is listed in the <a href={url('/docs/#install')}>install guide</a>.</p></div>
+        <div class="card"><h3>Report a bug or ask for a feature</h3><p>Open a <a href={`${REPO_URL}/issues/new?template=bug_report.yml`}>bug report</a> or a <a href={`${REPO_URL}/issues/new?template=feature_request.yml`}>feature request</a> on GitHub. Issues are public, searchable and in English. <a href={url('/docs/support/')}>Support</a> lists what to include. Report vulnerabilities privately under the <a href={url('/docs/security-policy/')}>security policy</a>.</p></div>
+        <div class="card"><h3>Contribute</h3><p>Changes come in as pull requests on <a href={`${REPO_URL}/pulls`}>GitHub</a>, and CI must pass with <code class="i">rustfmt</code> and <code class="i">clippy -D warnings</code>. <a href={url('/docs/contributing/')}>Contributing</a> covers the build, the tests and what a pull request needs. Atalanta is licensed <a href={`${REPO_URL}/blob/main/LICENSE`}>AGPL-3.0-only</a>.</p></div>
+      </div>
+      <a class="more" href={url('/docs/contributing/')}>How to contribute</a>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="band tint textured bottom closing">
+    <div class="wrap">
+      <blockquote class="quote" style="border: 0; padding: 0">Atalanta was the fastest runner in Greek myth. Anyone who wanted her hand had to race her first.</blockquote>
+      <p class="sub">So every build runs the race. The ones that pass get merged.</p>
+      <div class="actions">
+        <a class="btn primary" href={url('/docs/')}>Get started</a>
+        <a class="btn" href={REPO_URL}>GitHub</a>
+      </div>
+    </div>
+  </section>
+  <script>
+    import '../scripts/landing';
+  </script>
+</Base>

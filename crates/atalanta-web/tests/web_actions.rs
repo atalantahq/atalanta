@@ -280,11 +280,20 @@ async fn reveal_brings_a_container_below_the_fold_on_screen() {
     d.scroll_coords("web", (cx, cy + 60), (cx, cy - 60))
         .await
         .unwrap();
-    let top = d
-        .debug_eval_main("document.getElementById('inner2').scrollTop")
-        .await
-        .unwrap();
-    assert!(top.as_f64().unwrap_or(0.0) > 0.0, "scrollTop {top}");
+    // The wheel event is dispatched, not awaited: a loaded runner's Chrome
+    // scrolls a moment later (a run settles after a scroll; this doesn't).
+    let scroll_top = || async {
+        d.debug_eval_main("document.getElementById('inner2').scrollTop")
+            .await
+            .unwrap()
+            .as_f64()
+            .unwrap_or(0.0)
+    };
+    assert!(
+        common::eventually(|| async { scroll_top().await > 0.0 }).await,
+        "scrollTop {}",
+        scroll_top().await
+    );
     d.cleanup().await;
 }
 

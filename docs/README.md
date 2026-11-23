@@ -6,7 +6,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Crates, how a run and a step execute, live events, sync, selectors, dialogs, healing, natural-language steps, exploration and diagnostics, visual assertions, the console |
 | [DSL.md](DSL.md) | How to write suites, with examples |
 | [DSL-REFERENCE.md](DSL-REFERENCE.md) | Every action, modifier, selector key, config key and setting. Generated from the schema (`atalanta schema --markdown`); a test fails when it is out of date |
-| [DRIVERS.md](DRIVERS.md) | Android, iOS (simulators; real iPhones are coded but unverified), web, headless, Flutter, the in-app probes |
+| [DRIVERS.md](DRIVERS.md) | Android, iOS (simulators; one wired iPhone so far), web, headless, Flutter, the in-app probes |
 | [CLI.md](CLI.md) | Commands, `init`, `doctor`, `run`, `explore` and `inspect` flags, artifacts, failure evidence, exit codes |
 | [CI.md](CI.md) | Sharding and shared history, cancelled jobs, secrets, baselines, the opt-in device workflows |
 | [AI-PROVIDERS.md](AI-PROVIDERS.md) | Model providers for natural-language steps, `verify:` checks and `atalanta explore`: presets, environment variables, default models, capabilities, fallbacks |

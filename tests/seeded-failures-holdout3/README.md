@@ -1,8 +1,14 @@
 # Seeded failures, held-out set 3
 
-20 short suites (10 Android, 10 iOS), each with one planted defect whose real cause is in `manifest.yaml`.
-They were written from the apps and the DSL only, independent of the earlier seeded and holdout sets, to measure
-failure reports on cases nobody tuned against.
+20 short suites (10 Android, 10 iOS), each with one planted defect whose real
+cause is in `manifest.yaml`. They measure Atalanta's failure reports on cases
+nobody tuned against. Every seed is expected to fail, so use them to score
+failure reporting, not as regression tests.
+
+They were written from the apps and the DSL only, independent of the earlier
+seeded and holdout sets.
+
+## Layout
 
 - `base/`: 6 passing suites (3 per platform) the seeds were cut from. Each passed twice on a device.
 - `android/`, `ios/`: the seeds, named `<nn>-<slug>.yaml`, test name `holdout3_<platform>_<nn>`, tag `seeded-failure`.
@@ -11,9 +17,21 @@ failure reports on cases nobody tuned against.
 
 Categories (2 per platform each): selector-typo, wrong-screen, wrong-expected-value, wrong-app, stale-state.
 
-Devices: Android emulator API 33 (`emulator-5556`), iPhone 17 simulator, iOS 26. Read-only navigation of the Settings apps;
-the wrong-app seeds only launch Clock, Contacts or Files and never act in them.
+## Scope and devices
 
-Run one: `atalanta run tests/seeded-failures-holdout3/android/01-services-row.yaml -p android -d <device>`.
-Validate all: `atalanta validate tests/seeded-failures-holdout3/android` (and `ios`).
-Seeds were validated but not run when written.
+Devices: Android emulator API 33 (`emulator-5556`), iPhone 17 simulator, iOS 26.
+The suites navigate the Settings apps read-only. The wrong-app seeds only launch
+Clock, Contacts or Files and never act in them.
+
+The seeds were validated but not run when written.
+
+## Commands
+
+Run one:
+
+    atalanta run tests/seeded-failures-holdout3/android/01-services-row.yaml -p android -d <device>
+
+Validate all:
+
+    atalanta validate tests/seeded-failures-holdout3/android
+    atalanta validate tests/seeded-failures-holdout3/ios

@@ -1,8 +1,14 @@
 # AI providers
 
-Natural-language steps (`do:`, `assert:`, bare strings), `verify:` checks, `atalanta explore` (its goal model) and `atalanta nl-eval` use one model service. Pick it by name and set only its key's environment variable. The 19 presets live in `crates/atalanta-nl/src/provider.rs` (`PRESETS`); this page lists them.
+These features call a model:
 
-Whatever the provider, the model only picks an operation and an element number. Atalanta builds and checks the selector, fills in the values, and judges checks against the elements on screen ("the model picks; code decides").
+- natural-language steps (`do:`, `assert:`, bare strings) and `verify:` checks;
+- `atalanta explore`, through its goal model;
+- `atalanta nl-eval`.
+
+All of them use one model service. Pick it by name and set only its key's environment variable. The presets are defined in `crates/atalanta-nl/src/provider.rs` (`PRESETS`), and this page lists them.
+
+Whatever the provider, the model only picks an operation and an element number. Atalanta builds and checks the selector, fills in the values, and judges checks against the elements on screen ("the model picks; code decides"). What a model is sent and what it can cause are described in [EXPLORE.md](EXPLORE.md) and [AGENTS.md](AGENTS.md#what-either-path-never-does). A test that `atalanta explore` wrote replays with no model call.
 
 ## Choosing a provider
 
@@ -39,19 +45,20 @@ Each setting is read from the environment first, then from `config.ai`, then fro
 | Azure `api-version` | `AZURE_OPENAI_API_VERSION` | `apiVersion` |
 | Output mode override | `ATALANTA_NL_OUTPUT=json_schema\|tools\|text` | - |
 
-**Auto-detection.** If no provider is named, Atalanta uses the first provider in the table below whose key is set. It logs which one it chose and which other keys it found. Some cases never auto-detect:
+**Auto-detection.** If no provider is named, Atalanta uses the first provider in the table below whose key is set. It logs which one it chose and which other keys it found. These cases are never auto-detected:
 
 - Azure also needs `AZURE_OPENAI_ENDPOINT`.
-- Bedrock is auto-detected only from a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`). Plain AWS or Google credentials are common on developer machines, so Bedrock (with AWS keys) and Vertex are only used when named.
-- Local servers are only used when named.
+- Bedrock is auto-detected only from a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`).
+- Bedrock with AWS keys, and Vertex, are used only when named, because plain AWS or Google credentials are common on developer machines.
+- Local servers are used only when named.
 
-`ATALANTA_NL_API_KEY` together with `ATALANTA_NL_API_URL` is a generic OpenAI-compatible endpoint. With no usable provider, a committed `.atalanta/nl-cache.json` still replays, but nothing new is planned.
+`ATALANTA_NL_API_KEY` together with `ATALANTA_NL_API_URL` selects a generic OpenAI-compatible endpoint. With no usable provider, a committed `.atalanta/nl-cache.json` still replays, but nothing new is planned.
 
 **Keys** are only read from environment variables. `apiKeyEnv` must be a variable name: a value that looks like a key is refused, and the error doesn't echo it. Every key, AWS secret, session token and Google token is registered for redaction and never logged.
 
 ## Providers
 
-Default models are **provisional**: they were chosen for cost, not measured. See [Measuring the defaults](#measuring-the-defaults). Columns:
+Default models are **provisional**: they were chosen for cost, not measured (see [Measuring the defaults](#measuring-the-defaults)). The "Default model" column gives the model for steps and checks, with the goal model for `atalanta explore` in brackets. The capability columns are:
 
 - **Images**: screenshots are sent to `verify:` checks.
 - **JSON schema**: the answer is constrained with structured output.
@@ -83,8 +90,11 @@ Notes:
 
 - **Gemini** uses Google's OpenAI-compatible endpoint. Google's docs show it taking `response_format` structured output, `image_url` data URIs and tools, so the native `generateContent` API isn't needed.
 - **Azure**: with `AZURE_OPENAI_API_VERSION` (or `apiVersion`) set, requests go to `/openai/deployments/<deployment>/chat/completions?api-version=…`. Without it, they go to the version-less `/openai/v1/chat/completions` path, with the deployment as `model`.
-- **Bedrock** answers through one tool call with `toolChoice: auto` and an instruction to use the tool, because the 5.5 Claude models reject a forced tool choice. A model without tool use answers in JSON text. Model ids may need a cross-region inference profile prefix (`us.`, `global.`), depending on the account and region. SigV4 is implemented on `ring` and tested against AWS's published test vectors. SSO, `credential_process` and role profiles are not read: export temporary keys first (`aws configure export-credentials --format env`) or use a Bedrock API key.
-- **Vertex**: a `claude-*` model goes to `publishers/anthropic/models/<model>:rawPredict` with `anthropic_version: vertex-2023-10-16`. Any other model goes to `endpoints/openapi/chat/completions` as `google/<model>`. Structured output isn't confirmed for Claude on Vertex, so Claude is asked for JSON in text and parsed strictly. Service-account JWTs are signed RS256 with `ring`.
+- **Bedrock** answers through one tool call with `toolChoice: auto` and an instruction to use the tool, because the 5.5 Claude models reject a forced tool choice. A model without tool use answers in JSON text.
+  - Model ids may need a cross-region inference profile prefix (`us.`, `global.`), depending on the account and region.
+  - SigV4 is implemented on `ring` and tested against AWS's published test vectors.
+  - SSO, `credential_process` and role profiles are not read. Export temporary keys first (`aws configure export-credentials --format env`) or use a Bedrock API key.
+- **Vertex**: a `claude-*` model goes to `publishers/anthropic/models/<model>:rawPredict` with `anthropic_version: vertex-2023-10-16`. Any other model goes to `endpoints/openapi/chat/completions` as `google/<model>`. Structured output isn't confirmed for Claude on Vertex, so Claude is asked for JSON in text and the reply is parsed strictly. Service-account JWTs are signed RS256 with `ring`.
 - **Local servers** need no key and are never auto-detected.
 
 ## Fallbacks
@@ -105,7 +115,7 @@ The same rules apply for every provider:
 
 ## Measuring the defaults
 
-The defaults above were not measured: no keys were available when they were set. Before 1.0, a maintainer with keys runs the fixed task set across providers and records the results on this page:
+The defaults above have not been measured yet. Before 1.0 they will be run across providers and the results added here:
 
 ```bash
 atalanta nl-eval -k 5 --tasks builtin --recommend --json nl-models.json \

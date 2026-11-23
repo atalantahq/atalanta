@@ -2,49 +2,63 @@
 
 The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line each. This page keeps each long entry's full text as it stood on 2026-11-11: the measurements, the benchmark episodes that found the problem, and the reasoning. Each CHANGELOG line links to its entry here.
 
+Each entry says what changed, why, and what to do about it. An entry marked **[may fail suites]** changes behaviour that an existing suite or CI script can depend on.
+
 ## Behaviour changes that can fail existing suites
 
 <a id="ios-sheets"></a>
 
-- **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts.** A target behind a Sheet, Popover or in-app Alert, or behind the `PopoverDismissRegion` dimming view, is now refused as covered instead of being tapped (which used to hit the dimming view and dismiss the sheet). A bare selector prefers the match in front of the sheet. SwiftUI and UIKit page sheets are caught only through `PopoverDismissRegion`. Not yet run on a simulator or device.
+- **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts.** A target behind a Sheet, Popover or in-app Alert, or behind the `PopoverDismissRegion` dimming view, is now refused as covered. Before, the tap hit the dimming view and dismissed the sheet. A bare selector now prefers the match in front of the sheet. SwiftUI and UIKit page sheets are caught only through `PopoverDismissRegion`. Fix: close the sheet first, or tap a control inside it. Not yet run on a simulator or device.
 
 <a id="ios-back"></a>
 
-- **[may fail suites]** **iOS `pressKey: back` matches only a real Back button.** It taps a button whose label or id is exactly "Back", or id `BackButton`, and otherwise swipes from the left edge; the positional "left-most button in the left third" fallback is gone. Closing a sheet matches whole names only (`close`, `cancel`, `dismiss`, `✕`, `xmark`, `xmark.*`, `close_button`, `closeButton`): no `close *` prefix (it matched "Close account") and no bare `x`. Not yet run on a simulator or device.
+- **[may fail suites]** **iOS `pressKey: back` matches only a real Back button.** It taps a button whose label or id is exactly "Back", or whose id is `BackButton`. Otherwise it swipes from the left edge. The positional "left-most button in the left third" fallback is gone.
+
+  Closing a sheet matches whole names only: `close`, `cancel`, `dismiss`, `✕`, `xmark`, `xmark.*`, `close_button` and `closeButton`. The `close *` prefix is gone because it matched "Close account". A bare `x` is gone too. Fix: where a screen's back or close control has another name, tap it with its own selector. Not yet run on a simulator or device.
 
 <a id="explore-gates"></a>
 
-- **[may fail suites]** **`atalanta explore` trusts a test only after its gates.** It replays 5 times by default (was 1), with timing jitter after the first. Then the wrong-path replay taps a neighbour of the last tap and the test must fail, and at least one assertion must name goal text. An untrusted test is still written, but explore exits 1 and the report's `gates.trusted` is false; `--no-gates` skips them. See [docs/EXPLORE.md](EXPLORE.md#trust-gates).
+- **[may fail suites]** **`atalanta explore` trusts a test only after its gates.** It replays 5 times by default (was 1), with timing jitter after the first replay. The wrong-path replay then taps a neighbour of the last tap, and the test must fail. At least one assertion must name goal text. An untrusted test is still written, but explore exits 1 and the report's `gates.trusted` is false. Fix: review an untrusted test before keeping it, or pass `--no-gates` to skip the gates. See [docs/EXPLORE.md](EXPLORE.md#trust-gates).
 
 <a id="mcp-core"></a>
 
-- **[may fail suites]** **`atalanta mcp` serves five tools by default.** The core profile lists `observe`, `act`, `run`, `artifacts` and `verify_change`; the first four each stand for several of the full tools and run exactly what they would. Their definitions are about 850 tokens of the agent's context instead of about 5,000. `act` also returns what changed on screen. An agent or config that calls a full tool (`tap`, `snapshot`, `run_task`…) gets an error naming the core call; `--profile full` serves all 32 tools (the 31 of earlier 0.2.0 builds plus `verify_change`). The installed agent rules teach the core tools. See [docs/MCP.md](MCP.md#core-tools).
+- **[may fail suites]** **`atalanta mcp` serves five tools by default.** The core profile lists `observe`, `act`, `run`, `artifacts` and `verify_change`. The first four each stand for several full tools and run exactly what those tools would. Their definitions take about 850 tokens of the agent's context instead of about 5,000. `act` also returns what changed on screen.
+
+  An agent or config that calls a full tool (`tap`, `snapshot`, `run_task`…) gets an error naming the core call. Fix: call the core tool, or start the server with `--profile full`, which serves all 33 tools (the 32 individual tools plus `verify_change`). The installed agent rules teach the core tools. See [docs/MCP.md](MCP.md#core-tools).
 
 <a id="values-goal"></a>
 
-- **[may fail suites]** **`explore --values-from-goal` no longer copies screen text.** Text shown on a screen is untrusted (the app or a page wrote it), so copying it into a typed value now needs `--values-from-screen`. `--values-from-goal` alone accepts goal text and numbers. Pass both for the old behaviour; the AndroidWorld harness does.
+- **[may fail suites]** **`explore --values-from-goal` no longer copies screen text.** Text shown on a screen is untrusted, because the app or a page wrote it. Copying it into a typed value now needs `--values-from-screen`. `--values-from-goal` alone accepts goal text and numbers. Fix: pass both flags for the old behaviour. The AndroidWorld harness does.
 
 <a id="memory-check"></a>
 
-- **[may fail suites]** **The memory check fails the test.** With `config.performance.enabled`, a test whose peak total PSS rises more than `pssGrowthThresholdPct` (default 15) above its saved baseline now fails with `memory regression: …`, in the sequential and the parallel runner. It used to print a warning, in the sequential runner only. Only a clean pass updates the baseline, so the run after a breach fails too, until memory comes back down. The setting was `heapGrowthThresholdPct`, which is still read with a warning: it never measured heap. Android only.
+- **[may fail suites]** **The memory check fails the test.** With `config.performance.enabled`, a test whose peak total PSS rises more than `pssGrowthThresholdPct` (default 15) above its saved baseline now fails with `memory regression: …`. This applies in the sequential and the parallel runner. It used to print a warning, in the sequential runner only.
+
+  Only a clean pass updates the baseline, so the run after a breach fails too, until memory comes back down. Fix: find the growth, or raise the threshold. The setting was `heapGrowthThresholdPct`. It is still read, with a warning, and it never measured heap. Android only.
 
 <a id="iphone-loopback"></a>
 
-- **[may fail suites]** **Cabled iPhones bind loopback by default.** `ATALANTA_IOS_DEVICE_LOOPBACK` flips: it used to opt in with `=1`; now loopback is the default and `=0` opts out. That usbmuxd delivers to the phone's loopback hasn't been checked on a real iPhone yet (P5). If the runner never answers on a cabled iPhone, set `ATALANTA_IOS_DEVICE_LOOPBACK=0`.
+- **[may fail suites]** **Cabled iPhones bind loopback by default.** `ATALANTA_IOS_DEVICE_LOOPBACK` flips. It used to opt in with `=1`. Now loopback is the default and `=0` opts out. That usbmuxd delivers to the phone's loopback has not been checked on a real iPhone. Fix: if the runner never answers on a cabled iPhone, set `ATALANTA_IOS_DEVICE_LOOPBACK=0`.
 
 <a id="runner-token"></a>
 
-- **[may fail suites]** **AtalantaRunner needs a token.** A AtalantaRunner you start yourself (for `ATALANTA_WDA_URL`) must get `ATALANTA_RUNNER_TOKEN`, with the same value in `ios.runnerToken` for Atalanta. Scripts that call the runner directly must send `Authorization: Bearer <token>` and no `Origin` header. Without a token the runner exits at launch.
+- **[may fail suites]** **AtalantaRunner needs a token.** Without a token the runner exits at launch. Fix: give an AtalantaRunner you start yourself (for `ATALANTA_WDA_URL`) `ATALANTA_RUNNER_TOKEN`, with the same value in `ios.runnerToken` for Atalanta. Scripts that call the runner directly must send `Authorization: Bearer <token>` and no `Origin` header.
 
 <a id="tree-protocol"></a>
 
-- **[may fail suites]** **Tree server protocol 13.** An older Atalanta that finds a protocol 13 server running asks it to quit and starts its own, as for any other version. Third-party tools that talked to `@atalanta_tree` directly must authenticate first: since protocol 18 with the `HELLO`/`PROOF`/`AUTH` HMAC handshake (see Security), not the bare token.
+- **[may fail suites]** **Tree server protocol 13.** An older Atalanta that finds a protocol 13 server running asks it to quit and starts its own, as for any other version. Third-party tools that talked to `@atalanta_tree` directly must now authenticate first. Since protocol 18 that means the `HELLO`/`PROOF`/`AUTH` HMAC handshake (see Security), not the bare token.
 
   Note (2026-11-11): the heading said "protocol 13"; the current protocol is 18, and the replace-on-mismatch rule applies to every version.
 
 <a id="assert-not-visible"></a>
 
-- **[may fail suites]** **`assertNotVisible` is stricter.** In 0.1.0 it passed whenever the lookup failed for any reason. Now it waits for the element to go, and fails in three cases: the screen can't be read until the deadline, the app has crashed, or another app is in front. Fix: for a step that leaves the app on purpose, add `appInFront: false` to the `assertNotVisible` step. The check is skipped automatically after `openLink`/`goto`, `launchApp` of another app and `pressKey: home`.
+- **[may fail suites]** **`assertNotVisible` is stricter.** In 0.1.0 it passed whenever the lookup failed for any reason. Now it waits for the element to go. It fails in three cases:
+
+  - the screen can't be read until the deadline;
+  - the app has crashed;
+  - another app is in front.
+
+  Fix: for a step that leaves the app on purpose, add `appInFront: false` to the `assertNotVisible` step. The check is skipped automatically after `openLink`/`goto`, `launchApp` of another app and `pressKey: home`.
 
 <a id="actionable"></a>
 
@@ -52,7 +66,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="ios-covered"></a>
 
-- **[may fail suites]** **iOS taps on covered elements fail.** In 0.1.0, iOS tapped the centre of the element's frame, even under the keyboard, a navigation or tab bar, an alert, the status bar, or off screen. Now a fully covered target fails with "covered by …", and a partly covered one is tapped on its visible part. Fix: dismiss the keyboard or scroll first. Opt-out: `ATALANTA_IOS_TAP_GUARD=off` turns off every guard; `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off` turns off only the status-bar rule.
+- **[may fail suites]** **iOS taps on covered elements fail.** In 0.1.0, iOS tapped the centre of the element's frame, even under the keyboard, a navigation or tab bar, an alert or the status bar, or off screen. Now a fully covered target fails with "covered by …". A partly covered one is tapped on its visible part. Fix: dismiss the keyboard or scroll first. Opt-out: `ATALANTA_IOS_TAP_GUARD=off` turns off every guard, and `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off` turns off only the status-bar rule.
 
 <a id="merged-label"></a>
 
@@ -60,11 +74,17 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="strict-parsing"></a>
 
-- **[may fail suites]** **Stricter suite parsing.** Unknown keys inside an action (a misspelt `txet:`, or `timeoutMs` nested in the wrong map) are errors; in 0.1.0 they were silently ignored. `runFlow` with `when:` or another unknown key is an error; in 0.1.0 the condition was ignored and the flow always ran. Two tests with the same name are also an error. Fix: run `atalanta validate` on every suite, which exits 2 and names each problem.
+- **[may fail suites]** **Stricter suite parsing.** These are now errors:
+
+  - Unknown keys inside an action, such as a misspelt `txet:` or `timeoutMs` nested in the wrong map. In 0.1.0 they were silently ignored.
+  - `runFlow` with `when:` or another unknown key. In 0.1.0 the condition was ignored and the flow always ran.
+  - Two tests with the same name.
+
+  Fix: run `atalanta validate` on every suite, which exits 2 and names each problem.
 
 <a id="exit-codes-ci"></a>
 
-- **[may fail suites]** **Exit codes changed for CI scripts.** Configuration and usage errors exit 2, device problems (busy, unknown, lost) exit 3, unclassified errors and caught panics exit 5, and signals exit 129, 130 or 143. In 0.1.0 most of these exited 1. Fix: update scripts that treat any non-zero code as "tests failed", or that expect 1.
+- **[may fail suites]** **Exit codes changed for CI scripts.** Configuration and usage errors exit 2. Device problems (busy, unknown, lost) exit 3. Unclassified errors and caught panics exit 5. Signals exit 129, 130 or 143. In 0.1.0 most of these exited 1. Fix: update scripts that treat any non-zero code as "tests failed", or that expect 1.
 
 <a id="empty-selection"></a>
 
@@ -72,11 +92,11 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="android-typing"></a>
 
-- **[may fail suites]** **Android typing is checked.** Text goes in through the tree server, so any Unicode works. A field that reads back different text, other than formatting such as a mask, fails the step instead of being typed again; this includes text cut by `maxLength`. When the tree server can't run, the `adb shell input text` fallback refuses non-ASCII text, password fields and secrets. Fix: assert the formatted value, keep text within the field's limit, and check `atalanta doctor --deep` if the tree server doesn't start.
+- **[may fail suites]** **Android typing is checked.** Text goes in through the tree server, so any Unicode works. A field that reads back different text fails the step instead of being typed again. Formatting such as a mask is not counted as different. Text cut by `maxLength` is. When the tree server can't run, the `adb shell input text` fallback refuses non-ASCII text, password fields and secrets. Fix: assert the formatted value, keep text within the field's limit, and check `atalanta doctor --deep` if the tree server doesn't start.
 
 <a id="inspector-token"></a>
 
-- **[may fail suites]** **The inspector is local and token-protected.** In 0.1.0 it listened on every interface with permissive CORS. Now it binds `127.0.0.1`, every API call needs the token from the printed URL, and requests from other origins are refused. Scripts that called the API without the token get 401. Fix: use the printed URL, or pass `--host 0.0.0.0` for LAN access, which still needs the token.
+- **[may fail suites]** **The inspector is local and token-protected.** In 0.1.0 it listened on every interface with permissive CORS. Now it binds `127.0.0.1`, every API call needs the token from the printed URL, and requests from other origins are refused. Scripts that called the API without the token now get 401. Fix: use the printed URL, or pass `--host 0.0.0.0` for LAN access, which still needs the token.
 
 <a id="android-dialogs"></a>
 
@@ -116,7 +136,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="mcp-added"></a>
 
-- MCP: 32 tools (`--profile full`) with read-only and destructive annotations, `--read-only`, `--notify` (webhook, script, JSONL, desktop), `type_text` with `secret:` (an environment variable name), session export as YAML with assertions, and MCP protocol versions up to 2025-11-25 plus the stateless 2026-07-28 revision.
+- MCP: 33 tools (`--profile full`) with read-only and destructive annotations, `--read-only`, `--notify` (webhook, script, JSONL, desktop), `type_text` with `secret:` (an environment variable name), session export as YAML with assertions, and MCP protocol versions up to 2025-11-25 plus the stateless 2026-07-28 revision.
 
 <a id="agent-commands"></a>
 
@@ -124,7 +144,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="agent-lease"></a>
 
-- **An agent command holds the device for its whole length** (the action, the settle and the delta), so a second agent on the same device waits, or gets `DEVICE_BUSY` after 10 s (`ATALANTA_LEASE_WAIT_MS`, also what `atalanta run` now waits for a held device instead of failing at once), instead of acting between an action and the delta that reports it.
+- **An agent command holds the device for its whole length** (the action, the settle and the delta). A second agent on the same device waits, and gets `DEVICE_BUSY` after 10 s. It no longer acts between an action and the delta that reports it. The wait is `ATALANTA_LEASE_WAIT_MS`. `atalanta run` also waits that long for a held device instead of failing at once.
 
 <a id="agent-codes"></a>
 
@@ -132,7 +152,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="mcp-deadline"></a>
 
-- **MCP calls can't wedge the session.** Every device call has a deadline (55 s, `ATALANTA_MCP_CALL_TIMEOUT_MS`); past it the call is cut off, the driver session rebuilt, and the agent told the effect is unknown. A lost session or connection is rebuilt too, and a read retried once (actions never are).
+- **MCP calls can't wedge the session.** Every device call has a deadline (55 s, `ATALANTA_MCP_CALL_TIMEOUT_MS`). Past it, the call is cut off, the driver session is rebuilt, and the agent is told the effect is unknown. A lost session or connection is rebuilt too. A read is retried once. An action is never retried.
 
 <a id="drag"></a>
 
@@ -148,7 +168,14 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="verify-change"></a>
 
-- **`atalanta verify-change "<description>"`** (and the MCP tool `verify_change`): did this change do what it says on the device? A trusted saved flow for the description (keyed by sha256 of the app, the `--after` login, the goal and the platform) replays with no model; on a miss or a failed replay, `explore` writes a new one, saved only if it passes its trust gates. The verdict and the evidence go to one folder: `manifest.json`, `failures.md` (each failure with its step and the files it rests on), `comment.md` for `gh pr comment --body-file`, and the run's reports, video and screenshots. The cache-hit rate is kept and reported. `--script` plays a fixed plan instead of a model.
+- **`atalanta verify-change "<description>"`** (and the MCP tool `verify_change`): did this change do what it says on the device? A trusted saved flow for the description replays with no model. It is keyed by a sha256 of the app, the `--after` login, the goal and the platform. On a miss or a failed replay, `explore` writes a new flow, which is saved only if it passes its trust gates. The verdict and the evidence go to one folder:
+
+  - `manifest.json`;
+  - `failures.md`, with each failure, its step and the files it rests on;
+  - `comment.md`, for `gh pr comment --body-file`;
+  - the run's reports, video and screenshots.
+
+  The cache-hit rate is kept and reported. `--script` plays a fixed plan instead of a model.
 
 <a id="logins"></a>
 
@@ -156,15 +183,23 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="docs-site"></a>
 
-- **Docs site and `llms.txt`.** `docs/book.toml` and `docs/SUMMARY.md` build the docs with mdBook (with search); `.github/workflows/docs.yml` builds them on every docs change, after the snippet and generated-page checks, and deploys them to GitHub Pages on a release. `docs/llms.txt` indexes every page for AI agents, made from `docs/README.md` by a test. [docs/AGENTS.md](AGENTS.md) sets the CLI and skill path next to MCP for coding agents.
+- **Website and `llms.txt`.** `site/` builds the landing page and the docs as one static site (Astro, with Pagefind search) from `README.md`, `CHANGELOG.md` and `docs/*.md`; the Markdown stays the source and still reads correctly on GitHub. `.github/workflows/docs.yml` builds it on every docs or site change, after the snippet and generated-page checks, and deploys it to GitHub Pages on a release. A broken relative link, or a docs page missing from the sidebar, fails the build. `docs/llms.txt` indexes every page for AI agents, made from `docs/README.md` by a test. [docs/AGENTS.md](AGENTS.md) sets the CLI and skill path next to MCP for coding agents.
 
 <a id="action"></a>
 
-- **The Atalanta GitHub Action** (`action.yml`) and **`atalanta init --ci github`**. The Action installs a pinned release (optionally a pinned sha256), caches the AVD, brings up an Android emulator (one retry with a fresh AVD), an iOS simulator or headless Chrome, runs the suite or a shard, and uploads the results; a device that never came up exits 3, never as a test failure. `init --ci github` writes `.github/workflows/atalanta.yml` with two shards and a `results check` job; the example `init` writes now uses the Action too, instead of `install.sh` from `main` with no pin. `install.sh --sha256 HEX` (`ATALANTA_SHA256`) pins the archive. See [docs/CI.md](CI.md#the-atalanta-action).
+- **The Atalanta GitHub Action** (`action.yml`) and **`atalanta init --ci github`**. The Action installs a pinned release (optionally with a pinned sha256) and caches the AVD. It brings up an Android emulator (one retry with a fresh AVD), an iOS simulator or headless Chrome. It runs the suite or a shard and uploads the results. A device that never came up exits 3, never as a test failure.
+
+  `init --ci github` writes `.github/workflows/atalanta.yml` with two shards and a `results check` job. The example that `init` writes now uses the Action too, instead of `install.sh` from `main` with no pin. `install.sh --sha256 HEX` (`ATALANTA_SHA256`) pins the archive. See [docs/CI.md](CI.md#the-atalanta-action).
 
 <a id="http"></a>
 
-- **API testing: the `http` step and the `atalanta-api` crate.** A step sends a request (`method`, `url`, `headers`, `query`, a `json`/`body`/`form` body) and checks the response with `expect:` (`status`, `headers`, RFC 9535 JSONPath values under `json`, `body`, `maxMs`). Every check runs, and a failure lists each one that failed with the start of the body. Matchers are a plain value, or a map of `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `contains` (substring, element or object subset), `matches`, `exists`, `type`, `length` and `oneOf`. `capture:` sets `${NAME}` for the test's later steps, UI steps included, and a captured value whose name looks secret is masked like an environment variable's. Each test has its own cookie jar. `retry: { count, intervalMs }` polls a backend that catches up. `config.http` sets `baseUrl`, `headers`, `timeoutMs` and `insecure` for the suite. A suite whose selected tests have only `http` steps (with `wait`/`setConfig`) runs without a device, may leave out `appId`, and works with `--parallel`. See [docs/DSL.md](DSL.md#http-and-api-tests).
+- **API testing: the `http` step and the `atalanta-api` crate.** A step sends a request (`method`, `url`, `headers`, `query`, and a `json`, `body` or `form` body) and checks the response with `expect:`. The checks are `status`, `headers`, RFC 9535 JSONPath values under `json`, `body` and `maxMs`. Every check runs, and a failure lists each one that failed with the start of the body.
+
+  A matcher is a plain value, or a map of `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `contains` (substring, element or object subset), `matches`, `exists`, `type`, `length` and `oneOf`.
+
+  `capture:` sets `${NAME}` for the test's later steps, UI steps included. A captured value whose name looks secret is masked like an environment variable's. Each test has its own cookie jar. `retry: { count, intervalMs }` polls a backend that catches up. `config.http` sets `baseUrl`, `headers`, `timeoutMs` and `insecure` for the suite.
+
+  A suite whose selected tests have only `http` steps (with `wait` and `setConfig`) runs without a device, may leave out `appId`, and works with `--parallel`. See [docs/DSL.md](DSL.md#http-and-api-tests).
 
 <a id="env-file"></a>
 
@@ -172,7 +207,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="demos"></a>
 
-- **`atalanta explore` shows the model the project's own tests most like the goal** as demonstrations (LearnAct: one demonstration took a model from 19% to 52%). At most two tests and 1,500 characters, typed text only as `${NAME}`, never in `--benchmark`, off with `--no-demos`, looked for under `--demos-from` (default: the folder `--out` writes to). Grounding is unchanged. The prompt version is now `goal-3`.
+- **`atalanta explore` shows the model the project's own tests most like the goal** as demonstrations (LearnAct: one demonstration took a model from 19% to 52%). The limits are two tests and 1,500 characters. Typed text appears only as `${NAME}`. Demonstrations are never used in `--benchmark`. `--no-demos` turns them off, and `--demos-from` says where to look (default: the folder `--out` writes to). Grounding is unchanged. The prompt version is now `goal-3`.
 
 <a id="failure-kinds"></a>
 
@@ -190,7 +225,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="launch-app"></a>
 
-- **Android `launchApp`** stops the app and reads the clock in one shell, takes the pid with the focus check, keeps the probe's port forward per device, and reuses a screen state seen ready in the last 2 s. That is 9 → 7 adb round trips on a first launch and 7 → 3 right after another (fake adb). On an API 34 emulator a launch took about 230 ms less, and `scrollUntilVisible` with its row already shown went from 326 ms to 8 ms.
+- **Android `launchApp`** stops the app and reads the clock in one shell, takes the pid with the focus check, keeps the probe's port forward per device, and reuses a screen state seen ready in the last 2 s. Against a fake adb, that is 9 → 7 round trips on a first launch and 7 → 3 right after another. On an API 34 emulator a launch took about 230 ms less. `scrollUntilVisible` with its row already shown went from 326 ms to 8 ms.
 
 <a id="exit-codes"></a>
 
@@ -200,7 +235,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="ambiguous"></a>
 
-- **Ambiguous action selectors.** A tap or other action whose selector matches several elements warns that this will be an error in 1.0. The named setting `selectors.strict` chooses now: `1` (or `ATALANTA_SELECTORS_STRICT=1`, or `--set selectors.strict=1`) makes it an error today, and `0` keeps the current behaviour and silences the notice.
+- **Ambiguous action selectors.** A tap or other action whose selector matches several elements warns that this will be an error in 1.0. The setting `selectors.strict` chooses now. `1` (or `ATALANTA_SELECTORS_STRICT=1`, or `--set selectors.strict=1`) makes it an error today. `0` keeps the current behaviour and silences the notice.
 
 ## Fixed
 
@@ -230,7 +265,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="placeholder"></a>
 
-- **An empty Android field no longer reads as filled with its placeholder.** Android reports a field showing its placeholder with the placeholder as its text, and the tree server passed that on: Markor's emptied name field read `"my_note"`, so a `clearText` that worked looked like a no-op and the model cleared it again and again (AndroidWorld MarkorCreateNoteFromClipboard ran out of turns). Such a field's text is now empty; the placeholder stays its `hint`, which text selectors still match. Tree-server protocol 17.
+- **An empty Android field no longer reads as filled with its placeholder.** Android reports a field that shows its placeholder with the placeholder as its text, and the tree server passed that on. Markor's emptied name field read `"my_note"`. A `clearText` that worked looked like a no-op, so the model cleared the field again and again (AndroidWorld MarkorCreateNoteFromClipboard ran out of turns). Such a field's text is now empty. The placeholder stays its `hint`, which text selectors still match. Tree-server protocol 17.
 
 <a id="check-actions"></a>
 
@@ -246,7 +281,7 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="clear-cache"></a>
 
-- **Android reads the screen from a cleared accessibility cache (API 34+).** After tapping a file in Files, the "Open with" chooser had focus within 0.7 s, but on an API 34 emulator the tree server's reads kept returning the Files window for 2 to 7 s. Each read now clears UiAutomation's cache first, as Appium's UiAutomator2 server does before a page source. `UiAutomation.clearCache` exists only from API 34: on older devices this does nothing (the first version of this entry claimed it fixed AndroidWorld's API 33 emulator; it did not — those tasks were failing on a stale "always open with Chrome" default left by an earlier run). Tree-server protocol 16.
+- **Android reads the screen from a cleared accessibility cache (API 34+).** After tapping a file in Files, the "Open with" chooser had focus within 0.7 s, but on an API 34 emulator the tree server's reads kept returning the Files window for 2 to 7 s. Each read now clears UiAutomation's cache first, as Appium's UiAutomator2 server does before a page source. `UiAutomation.clearCache` exists only from API 34, so on older devices this does nothing. The first version of this entry claimed it fixed AndroidWorld's API 33 emulator. It did not: those tasks were failing on a stale "always open with Chrome" default left by an earlier run. Tree-server protocol 16.
 
 <a id="changed-number"></a>
 
@@ -282,11 +317,11 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 
 <a id="runner-port"></a>
 
-- An iOS runner is never launched into a taken port. A runner of the same simulator (either kind, or one whose token this process doesn't have) is stopped first; any other process holding the port is named in a device error. A runner that fails to come up 3 times within 2 minutes is no longer relaunched. The step fails with the new `RunnerFailing` device error (exit 3, not retried), naming the last failure. Before, a WebDriverAgent that couldn't bind its port aborted and was relaunched every few seconds.
+- **An iOS runner is never launched into a taken port.** A runner of the same simulator (either kind, or one whose token this process doesn't have) is stopped first. Any other process holding the port is named in a device error. A runner that fails to come up 3 times within 2 minutes is no longer relaunched. The step fails with the new `RunnerFailing` device error (exit 3, not retried), naming the last failure. Before, a WebDriverAgent that couldn't bind its port aborted and was relaunched every few seconds.
 
 <a id="perf-budget"></a>
 
-- `perf_budget` was flaky (`tap` read 6 or 7 trees). The cause was the healing snapshot file that earlier runs, or the other test running at the same time, left in the crate directory, not timing: the first lookup of a selector reads one extra tree to record its snapshot. Each test now keeps that state in a temp dir, budgets the steady state, and checks that the first run costs at most that one read.
+- **The `perf_budget` test was flaky** (`tap` read 6 or 7 trees). The cause was not timing. Earlier runs, or the other test running at the same time, left a healing snapshot file in the crate directory, and the first lookup of a selector reads one extra tree to record its snapshot. Each test now keeps that state in a temp dir, budgets the steady state, and checks that the first run costs at most that one read.
 
 ## Security
 
@@ -329,3 +364,5 @@ The `## [Unreleased]` entries in [CHANGELOG.md](../CHANGELOG.md) are one line ea
 <a id="verification"></a>
 
 - **Verification:** Android 14 emulators, iOS 26 simulators and headless Chrome on macOS were exercised for this release. Real iPhones have never been tested. Android hardware has been used once: a SUNMI tablet (Android 14), Settings only, on 2026-11-08. `docs/STATUS.md` lists what has been verified, and on what.
+
+  Note (2026-11-23): this entry is as of 2026-11-11. Since then an iPhone 12 (2026-11-21) and the SUNMI tablet again (2026-11-21) were used. [STATUS.md](STATUS.md#real-hardware) has the current record.

@@ -16,8 +16,10 @@ name: Release
 # turns each on with a repository variable (Settings > Secrets and
 # variables > Actions > Variables):
 #   PUBLISH_CRATES=true   needs secret CARGO_REGISTRY_TOKEN
-#   PUBLISH_NPM=true      needs secret NPM_TOKEN (an npm automation token for
-#                         the @atalantahq scope)
+#   PUBLISH_NPM=true      needs secret NPM_TOKEN (a granular npm token with
+#                         read and write on the @atalantahq scope and "Bypass
+#                         2FA" ticked; npm caps write tokens at 90 days and
+#                         retired automation tokens in December 2025)
 #   PUBLISH_HOMEBREW=true needs secret HOMEBREW_TAP_TOKEN (contents:write on
 #                         atalantahq/homebrew-tap)
 # Windows is not supported, so there is no Windows build.

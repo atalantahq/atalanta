@@ -1,6 +1,6 @@
 # Writing suites
 
-A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. This page explains how the pieces fit. [DSL-REFERENCE.md](DSL-REFERENCE.md) lists every key, and is generated from the schema. `atalanta validate` checks a suite without running it. For editor completion:
+A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. `atalanta validate` checks a suite without running it. For editor completion:
 
 ```bash
 atalanta schema -o atalanta.schema.json
@@ -8,6 +8,8 @@ atalanta schema -o atalanta.schema.json
 ```
 
 ## A suite
+
+The example below has one flow and two tests. The second test depends on the first.
 
 ```yaml
 appId: com.example.shop
@@ -46,13 +48,13 @@ The test-level keys are:
 
 `launchApp: { clearState: true }` wipes the app's own data: `pm clear` on Android, the app's data container on an
 iOS simulator. It does not touch data the app keeps outside itself. Examples are files in shared storage (Android
-`/sdcard/Documents`), and on iOS the system stores behind Reminders, Calendar and Contacts. On a real iPhone it
+`/sdcard/Documents`) and, on iOS, the system stores behind Reminders, Calendar and Contacts. On a real iPhone it
 can't wipe anything. A test that creates such data should delete it, or give it a unique name (`${RUN}` from
 `--env RUN=...`).
 
 ## Steps
 
-Each step has one action and optional modifiers:
+A step is one action or assertion. It may carry modifiers that change how it waits and what a failure means:
 
 ```yaml
 - tap: { text: "Pay" }
@@ -64,13 +66,15 @@ Each step has one action and optional modifiers:
 
 You rarely need `wait:`. Assertions and lookups wait up to the step timeout, and actions settle on their own (see [ARCHITECTURE.md#sync](ARCHITECTURE.md#sync)).
 
-An action needs its target to be enabled and still before it acts. A target that never gets there fails with "not actionable". `force: true` on the step, or `actionability: lenient` in the config, acts anyway. On Android, `force: true` on `tap`, `doubleTap` or `longPress` also skips the check for a window covering the target (a keyboard, a system dialog, an overlay) and touches the element's center, for when that window list is wrong or stale. `inputText` and `clearText` keep the cover check even when forced: their focus tap through a keyboard would press a key.
+An action needs its target to be enabled and still before it acts. A target that never gets there fails with "not actionable". `force: true` on the step, or `actionability: lenient` in the config, acts anyway.
+
+On Android, `force: true` on `tap`, `doubleTap` or `longPress` also skips the check for a window covering the target. A cover can be a keyboard, a system dialog or an overlay. The tap then touches the element's centre. Use this when the window list is wrong or stale. `inputText` and `clearText` keep the cover check even when forced, because their focus tap through a keyboard would press a key.
 
 `assertNotVisible` fails when another app is in front, because that screen lacks the element too. `appInFront: false` allows it anyway.
 
 ## Selectors
 
-A selector is a map. Every key in it must match.
+A selector names the element a step acts on. It is a map, and every key in it must match. Use the first row that fits: a stable id is the most durable, and position and text are the most fragile.
 
 | Want | Selector |
 |---|---|
@@ -88,15 +92,21 @@ When a selector matches several elements, Atalanta uses the first in tree order 
 
 ## Variables and secrets
 
+Use variables for anything that differs between environments or must not appear in the repository.
+
 - `${VAR}`, `${VAR:-default}` and `${VAR:?message}` are read from `--env K=V`, then from the environment. `$${` writes a literal `${`.
 - Values of variables with secret-looking names are masked in all output and reports. So are the variables listed in `ATALANTA_SECRETS`.
 - An `http` step's `capture:` sets variables while the test runs (see [HTTP and API tests](#http-and-api-tests)).
-- `${keychain:NAME}` reads the OS keychain: service `atalanta` (`ATALANTA_KEYCHAIN_SERVICE`), account `NAME`, with `security find-generic-password` on macOS and `secret-tool lookup` on Linux. Store one with `security add-generic-password -s atalanta -a NAME -w` or `secret-tool store --label atalanta service atalanta account NAME`. `ATALANTA_KEYCHAIN_CMD` names another program, called as `<cmd> <service> <account>` and printing the secret (a password-manager CLI, a CI secret store). A command that doesn't answer within `ATALANTA_COMMAND_TIMEOUT_MS` (60 s) is killed and the secret counts as missing. The value is always masked.
-- `${totp:NAME}` types the current 6-digit one-time code (RFC 6238: SHA-1, 30 s) for the base32 secret in `NAME`, the one an authenticator app is set up with. `NAME` may be a variable or `keychain:NAME`. The code is worked out when its step runs, so it is fresh; the secret and the code are masked.
+- `${keychain:NAME}` reads the OS keychain, and the value is always masked.
+  - It uses service `atalanta` (`ATALANTA_KEYCHAIN_SERVICE`) and account `NAME`. It reads with `security find-generic-password` on macOS and `secret-tool lookup` on Linux.
+  - Store one with `security add-generic-password -s atalanta -a NAME -w` or `secret-tool store --label atalanta service atalanta account NAME`.
+  - `ATALANTA_KEYCHAIN_CMD` names another program, such as a password-manager CLI or a CI secret store. It is called as `<cmd> <service> <account>` and prints the secret.
+  - A command that doesn't answer within `ATALANTA_COMMAND_TIMEOUT_MS` (60 s) is killed, and the secret counts as missing.
+- `${totp:NAME}` types the current 6-digit one-time code (RFC 6238: SHA-1, 30 s). `NAME` holds the base32 secret an authenticator app is set up with. It may be a variable or `keychain:NAME`. The code is worked out when its step runs, so it is fresh. The secret and the code are masked.
 
 ### Logging in
 
-Keep the login in a suite of its own (`login.yaml`) with every credential as a `${NAME}`:
+Keep the login in a suite of its own (`login.yaml`), with every credential as a `${NAME}`. Agents and other suites can then reuse it without handling the password:
 
 ```yaml
 appId: com.example.app
@@ -116,8 +126,8 @@ tests:
 
 ## Launch arguments
 
-`launchApp` can pass arguments to the app, for example to point a test build at a staging server or turn on a test
-login (the same form as Maestro's):
+`launchApp` can pass arguments to the app. Use them to point a test build at a staging server or to turn on a test
+login. The form is the same as Maestro's:
 
 ```yaml
 - launchApp:
@@ -142,14 +152,15 @@ extras) is a configuration error rather than a launch without the arguments.
 
 ## Flows
 
-`runFlow: <id>` inlines a flow's steps. Flows can call flows, but not in a cycle.
+A flow is a named group of steps that several tests share, such as a login. `runFlow: <id>` inlines a flow's steps. Flows can call flows, but not in a cycle.
 
 ### Parameters
 
-`runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow. Inside the flow (and the
-flows it runs), `${NAME}` takes the call's value; nowhere else does, so a test's own `${USER}` still comes from the
-environment. A nested call passes its caller's parameters on unless it sets its own, and a value can use the caller's
-parameters (`env: { GREETING: "hi ${USER}" }`).
+`runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow.
+
+- Inside the flow and the flows it runs, `${NAME}` takes the call's value. Nowhere else does, so a test's own `${USER}` still comes from the environment.
+- A nested call passes its caller's parameters on unless it sets its own.
+- A value can use the caller's parameters (`env: { GREETING: "hi ${USER}" }`).
 
 ```yaml
 flows:
@@ -163,13 +174,16 @@ tests:
       - runFlow: { flow: login, env: { USER: admin@example.com, PASSWORD: "${ADMIN_PASSWORD}" } }
 ```
 
-Parameters are filled in when the suite loads, so each of the flow's steps is still its own step in reports and traces,
-with its own timeout. A parameter the call doesn't pass comes from the environment, as any `${NAME}` does; with no value
-there either, it is an error then, not a literal `${NAME}` typed into the app. A name an `http` step captures is left for
-the run unless the call passes it. A parameter with a secret-like name (`PASSWORD`, `TOKEN`, …) is masked in reports
-like any secret. MCP's `run_flow` takes the same parameters as `env`.
+Parameters are filled in when the suite loads, so each of the flow's steps is still its own step in reports and traces, with its own timeout.
+
+- A parameter the call doesn't pass comes from the environment, as any `${NAME}` does. With no value there either, it is an error, not a literal `${NAME}` typed into the app.
+- A name an `http` step captures is left for the run, unless the call passes it.
+- A parameter with a secret-like name (`PASSWORD`, `TOKEN`, …) is masked in reports like any secret.
+- MCP's `run_flow` takes the same parameters as `env`.
 
 ## Natural-language steps
+
+A natural-language step states an intent in plain words, and a model finds the element to act on. Everything else on this page works with no model.
 
 ```yaml
 tests:
@@ -182,13 +196,15 @@ tests:
       - "open the cart"                       # a bare string is a `do:`
 ```
 
-These need a model key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any provider in [AI-PROVIDERS.md](AI-PROVIDERS.md) (`config.ai: { provider: gemini }`). The model only chooses an operation and an element from a numbered list; Atalanta builds and checks the selector itself.
+These need a model key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or the key for any provider in [AI-PROVIDERS.md](AI-PROVIDERS.md) (`config.ai: { provider: gemini }`). The model only chooses an operation and an element from a numbered list. Atalanta builds and checks the selector itself.
 
 - **Typed values** come from `data:` or from quotes in the step. They are never invented.
 - **`waitUntil:`** names a condition to wait for after the action.
-- **Caching.** Plans are cached in `.atalanta/nl-cache.json` once the run has verified them, so a stable screen replays without calling the model. Test data is never part of the key: the same step with another `data:` value (or `${VAR}`) replays and types the new value.
+- **Caching.** Plans are cached in `.atalanta/nl-cache.json` once the run has verified them, so a stable screen replays without calling the model. Test data is never part of the key. The same step with another `data:` value (or `${VAR}`) replays and types the new value.
 
 ### AI verification (`verify:`)
+
+`verify:` asks a model whether the final screen, or a checkpoint along the way, matches what you described. It is off by default, so CI makes no extra model calls unless you turn it on.
 
 ```yaml
 config:
@@ -218,6 +234,8 @@ The details are in [ARCHITECTURE.md](ARCHITECTURE.md#natural-language-steps).
 
 ## Screenshots
 
+`assertScreenshot` compares the screen with a saved baseline image. Use it for layout and visual regressions that selectors cannot see.
+
 ```yaml
 - assertScreenshot: home
 - assertScreenshot:
@@ -234,6 +252,8 @@ Baselines live next to the suite in `atalanta-baselines/<platform>[-headless]/<W
 - **Accepting.** `atalanta baselines accept <name|all>` writes the actual screen over the baseline.
 
 ## Web
+
+Set `platform: web` to test a site in Chrome or Chromium. Steps and selectors work as on a device, with a few additions listed after the example.
 
 ```yaml
 appId: web
@@ -342,8 +362,6 @@ No response (connection refused, DNS, TLS, timeout) fails the test (exit 1), lik
 
 > Status: verified in headless Chrome only. Not yet run on an emulator, a simulator or a real reorderable list ([STATUS.md](STATUS.md)).
 
-For example:
-
 ```yaml
 appId: com.example.groceries
 tests:
@@ -354,13 +372,26 @@ tests:
       - assertVisible: { text: "Eggs, Milk" }
 ```
 
-It presses the centre of `from` and holds it for `holdMs` (default 700, past the platforms' long-press time, so the list picks the row up). It then moves onto the centre of `to` over `moveMs` (default 900), rests 250 ms so the list drops the row instead of flinging it, and lifts. Android uses `input motionevent` (Android 10+; `input draganddrop` before), iOS W3C pointer actions with a pause (or WebDriverAgent's `dragfromtoforduration`), and the web the mouse with the button held. A `swipe` is a quick stroke and picks nothing up.
+A `drag` works in four phases:
+
+1. It presses the centre of `from` and holds it for `holdMs` (default 700, past the platforms' long-press time, so the list picks the row up).
+2. It moves onto the centre of `to` over `moveMs` (default 900).
+3. It rests 250 ms, so the list drops the row instead of flinging it.
+4. It lifts.
+
+Each platform injects the gesture its own way:
+
+- Android uses `input motionevent` (Android 10+; `input draganddrop` before).
+- iOS uses W3C pointer actions with a pause, or WebDriverAgent's `dragfromtoforduration`.
+- The web uses the mouse with the button held.
+
+A `swipe` is a quick stroke and picks nothing up.
 
 ## Host commands (`exec`)
 
 > Status: verified with headless Chrome on macOS. Not yet run with `adb` against a device ([STATUS.md](STATUS.md)).
 
-`exec` runs a program on the machine running Atalanta, such as an `adb` command or a script that seeds test data. It checks how the program ended and keeps its output. It is off unless the suite lists the program:
+`exec` runs a program on the machine running Atalanta, such as an `adb` command or a script that seeds test data. It checks how the program ended and keeps its output. It is off unless the suite lists the program in `config.exec.allow`:
 
 ```yaml
 appId: com.example.app
@@ -385,6 +416,8 @@ tests:
 
 ## Accessibility audit
 
+The audit checks the screens a test already reads against a small set of fixed accessibility rules. It is off by default. Turn it on to catch missing names and small touch targets early, and read the limits below before treating a clean result as a pass.
+
 ```yaml
 config:
   accessibility:
@@ -393,7 +426,12 @@ config:
     density: 2.625   # Android px per dp; unset: the screen's short side is 411 dp
 ```
 
-With `audit: true`, each test checks the screens it reads anyway with a set of fixed rules (`atalanta_common::a11y`). The audit uses the trees the run already has: the cached tree after an element lookup on Android and iOS, plus the trees that natural steps, `verify:` checks and failed steps read. It never reads the screen itself, so it adds no device round trip. Each distinct screen is audited once per test. Each problem is reported once per test however many screens show it, as a test warning (`accessibility: error name-missing: …`), so every reporter shows it. A test lists at most 20 findings, and one closing note counts the rest. With `fail: true`, an error-severity finding fails a test whose steps passed, on its last step.
+With `audit: true`, each test applies the rules (`atalanta_common::a11y`) to screens it reads anyway.
+
+- **Input.** The audit uses the trees the run already has: the cached tree after an element lookup on Android and iOS, plus the trees that natural steps, `verify:` checks and failed steps read. It never reads the screen itself, so it adds no device round trip.
+- **Frequency.** Each distinct screen is audited once per test. Each problem is reported once per test, however many screens show it.
+- **Output.** A finding is a test warning (`accessibility: error name-missing: …`), so every reporter shows it. A test lists at most 20 findings, and one closing note counts the rest.
+- **Failing.** With `fail: true`, an error-severity finding fails a test whose steps passed, on its last step.
 
 | Rule | Severity | Flags | Source |
 |---|---|---|---|
@@ -405,6 +443,7 @@ With `audit: true`, each test checks the screens it reads anyway with a set of f
 | `field-placeholder-only` | warning | an iOS or web field named only by its placeholder, which goes once text is typed | WCAG 2.2 SC 3.3.2 |
 
 The rules aim for few false positives, so each one skips what the tree can't show:
+
 - The trees carry no `clickable` flag, so an element counts as a control only when its role says so (`role:`, the table in [README](README.md)). A Compose clickable `View` with no `Role` is never audited.
 - Hidden, disabled and off-screen elements are not checked for target size, and the iOS keyboard and status bar are skipped entirely.
 - Some controls are sized by the system: a `UISwitch` (51×31 pt) and a native web checkbox or radio (2.5.8's user-agent exception).
@@ -413,6 +452,7 @@ The rules aim for few false positives, so each one skips what the tree can't sho
 - A web control inside a `<label>` counts as named.
 
 Limits:
+
 - Without `density`, Android treats the screen's short side as 411 dp. That errs lenient on phones and strict on tablets and unfolded foldables, which should set `density`.
 - The web driver reports a node's DOM `id` as its label when it has no `aria-label`, so on the web an `id` hides a missing name.
 - The web looks elements up in the page, not on a tree, so a web run is audited only on the trees it reads for other reasons.
@@ -420,7 +460,7 @@ Limits:
 
 ## Configuration
 
-`config:` holds suite-wide settings. Every key is in [DSL-REFERENCE.md](DSL-REFERENCE.md#config). The ones most suites touch:
+`config:` holds suite-wide settings. Every key is in [DSL-REFERENCE.md](DSL-REFERENCE.md#config). These are the ones most suites touch:
 
 - `platform`, `app`, `driver` (`device`/`headless`), `framework` (`native`/`react_native`/`flutter`)
 - `sync`: timeouts and settle timings. `retry.count`. `actionability`.

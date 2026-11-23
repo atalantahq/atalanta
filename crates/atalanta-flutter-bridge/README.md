@@ -1,11 +1,13 @@
 # atalanta-flutter-bridge
 
-Rust client for driving Flutter apps in headless mode via an in-app Dart bridge.
+Rust client and Dart package for running Atalanta suites against a Flutter app
+headless, without a device. Read this if you test a Flutter app with
+`--driver headless --framework flutter`, or work on that driver.
 
-The bridge is a Dart package (`dart/`) that the app under test embeds; it
+The bridge is a Dart package (`dart/`) that the app under test embeds. It
 serves newline-delimited JSON over TCP on 127.0.0.1. The Rust client
-(`src/process.rs`) only *connects* to a running bridge — it does not spawn
-it, and so never shuts it down: `stopApp` unmounts the app and the next
+(`src/process.rs`) only *connects* to a running bridge. It does not spawn the
+bridge, so it never shuts it down: `stopApp` unmounts the app and the next
 `launchApp` mounts it again.
 
 ## Embedding the bridge
@@ -36,7 +38,7 @@ Start it with `flutter test test/atalanta_test.dart`, then run tests with:
 atalanta run tests/ --driver headless --framework flutter
 ```
 
-Call `run(tester)` from the test body, not inside `tester.runAsync`: it does
+Call `run(tester)` from the test body, not inside `tester.runAsync`. It does
 its socket I/O in `runAsync` itself and handles one command at a time in the
 test body, where pumping and virtual time work. After each action it settles
 for at most 2 s of virtual time (`settleTimeout`), so an endless animation
@@ -73,14 +75,18 @@ can't be read (`0.0.0-unknown`, which an SDK installed by a shallow
 (logged at debug level), never failed. Device mode is not affected: it
 doesn't use the Dart package.
 
-Element actions name their target (node id from the last hierarchy, element
-id, centre). Text goes to the text field under the target (or the field a label
-belongs to, also once the label has floated); a tap on a target
-that something else covers fails with `not_hittable`.
-Each hierarchy carries a `generation`; a node from any other snapshot is
-ignored, and a node's point follows its element if it has moved since.
-Trees deeper than 512 levels keep their deeper nodes, hung off their
-ancestor at depth 512.
+## Element actions
+
+Element actions name their target by node id from the last hierarchy, element
+id or centre point.
+
+- Text goes to the text field under the target, or to the field a label
+  belongs to (also once the label has floated).
+- A tap on a target that something else covers fails with `not_hittable`.
+- Each hierarchy carries a `generation`. A node from any other snapshot is
+  ignored, and a node's point follows its element if it has moved since.
+- Trees deeper than 512 levels keep their deeper nodes, hung off their
+  ancestor at depth 512.
 
 ## Screen size and screenshots
 
@@ -89,8 +95,8 @@ The driver uses the logical surface size the bridge reports on `init`
 on-screen filter. Set `headless: { devicePixelRatio: 2.625 }` in the suite
 config (`device_pixel_ratio` in the bridge config) to size the surface as
 `headless.width` x `headless.height` physical px at that ratio instead
-(1080x2340 at 2.625 is a 411x891 logical phone). Unset keeps dpr 1. Screenshots capture the whole view
-(dialogs and overlays included) at logical size, so their pixels match the
+(1080x2340 at 2.625 is a 411x891 logical phone). Unset keeps dpr 1.
+Screenshots capture the whole view (dialogs and overlays included) at logical size, so their pixels match the
 hierarchy's bounds.
 
 ## Visibility

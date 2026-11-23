@@ -1,8 +1,6 @@
 # Contributing to Atalanta
 
-Thanks for your interest in contributing to Atalanta! This document provides guidelines for contributing.
-
-## Getting Started
+## Getting started
 
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/<your-username>/atalanta.git`
@@ -11,14 +9,14 @@ Thanks for your interest in contributing to Atalanta! This document provides gui
 5. Run tests: `cargo test --workspace`
 6. Submit a pull request
 
-## Development Setup
+## Development setup
 
 ### Prerequisites
 
-- Rust 1.89 or newer (the workspace's `rust-version`; CI tests with the version pinned as `RUST_VERSION` in `.github/workflows/ci.yml`). Install via [rustup](https://rustup.rs).
-- For Android testing: Android SDK platform-tools with `adb` on `PATH`, and an emulator (`atalanta devices up --android 1` boots one from an existing AVD).
+- Rust 1.89 or newer, the workspace's `rust-version`. CI tests with the version pinned as `RUST_VERSION` in `.github/workflows/ci.yml`. Install it with [rustup](https://rustup.rs).
+- For Android testing: Android SDK platform-tools with `adb` on `PATH`, and an emulator. `atalanta devices up --android 1` boots one from an existing AVD.
 - For iOS testing: macOS with Xcode and its command line tools. WebDriverAgent is cloned at a pinned tag and built on the first iOS run (about a minute, once per Xcode).
-- For the web driver's tests: Chrome. Without it about 150 web tests skip themselves and still report a pass; CI installs Chrome and fails on any such skip.
+- For the web driver's tests: Chrome. Without it about 150 web tests skip themselves and still report a pass. CI installs Chrome and fails on any such skip.
 - `atalanta doctor` (or `cargo run -p atalanta-cli -- doctor`) checks all of this.
 
 ### Building
@@ -27,9 +25,9 @@ Thanks for your interest in contributing to Atalanta! This document provides gui
 cargo build --workspace
 ```
 
-The console's web UI is not built by cargo: run `npm ci && npm run build` in `crates/atalanta-inspector/frontend` once, or the inspector serves its API with a "UI not built" page.
+Cargo does not build the console's web UI. Run `npm ci && npm run build` in `crates/atalanta-inspector/frontend` once. Without it the inspector serves its API and a "UI not built" page.
 
-### Running Tests
+### Running tests
 
 ```bash
 cargo test --workspace
@@ -44,7 +42,7 @@ cargo run -p atalanta-cli -- validate tests/fixtures/simple_login.yaml
 cargo run -p atalanta-cli -- run tests/smoke/android-settings.yaml   # needs a booted Android emulator
 ```
 
-## Code Guidelines
+## Code guidelines
 
 - Before every commit: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings` (CI fails on any warning).
 - Add tests for new functionality. Device behaviour that was not run on a device goes in `docs/STATUS.md`.
@@ -74,12 +72,16 @@ Atalanta is a Cargo workspace. The full map is [CLAUDE.md](CLAUDE.md) (architect
 | `atalanta-migrate` | Maestro to Atalanta YAML converter |
 | `atalanta-cli` | The `atalanta` command |
 
-## Reporting Issues
+## Reporting issues
 
-- Use GitHub Issues
+- Use GitHub Issues; the bug report form asks for what is listed below. [SUPPORT.md](SUPPORT.md) says where else to go. For a security problem, do not open an issue: follow [SECURITY.md](SECURITY.md).
 - Include reproduction steps
-- Include platform details (OS, device/simulator info)
-- Include Atalanta version (`atalanta version`)
+- Include platform details (OS, device or simulator)
+- Include the Atalanta version (`atalanta version`)
+
+## Conduct
+
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

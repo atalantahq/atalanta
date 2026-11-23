@@ -1,0 +1,24 @@
+---
+import { url } from '../lib/url';
+import { REPO_URL, CONTACT, LICENSE } from '../lib/site';
+---
+<footer class="footer">
+  <div class="wrap">
+    <span>Atalanta · {LICENSE}</span>
+    <nav aria-label="Footer">
+      <a href={url('/docs/')}>Docs</a>
+      <a href={url('/docs/cli/')}>CLI</a>
+      <a href={url('/docs/security/')}>Security</a>
+      <a href={url('/docs/status/')}>Verification status</a>
+      <a href={url('/docs/changelog/')}>Changelog</a>
+      <a href={`${REPO_URL}/issues/new?template=bug_report.yml`}>Report a bug</a>
+      <a href={`${REPO_URL}/issues/new?template=feature_request.yml`}>Request a feature</a>
+      <a href={url('/docs/contributing/')}>Contributing</a>
+      <a href={url('/docs/support/')}>Support</a>
+      <a href={REPO_URL}>GitHub</a>
+      <a href={url('/llms.txt')}>llms.txt</a>
+      <a href={`mailto:${CONTACT}`}>{CONTACT}</a>
+    </nav>
+  </div>
+  <p class="wrap credit">The Android robot is reproduced or modified from work created and shared by Google and used according to terms described in the Creative Commons 3.0 Attribution License.</p>
+</footer>

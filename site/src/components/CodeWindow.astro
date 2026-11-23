@@ -1,0 +1,10 @@
+---
+import { Code } from 'astro:components';
+import { shikiThemes } from '../lib/shiki';
+interface Props { title: string; code: string; lang?: string; tilt?: boolean }
+const { title, code, lang = 'bash', tilt = false } = Astro.props;
+---
+<figure class:list={["codewin", { tilt }]} data-copy-target=".astro-code" data-copy-text={code}>
+  <figcaption>{title}</figcaption>
+  <Code code={code} lang={lang} themes={shikiThemes} defaultColor={false} />
+</figure>

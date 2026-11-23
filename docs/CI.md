@@ -1,10 +1,34 @@
 # Atalanta in CI
 
-Exit codes are listed in [CLI.md](CLI.md#exit-codes): 1 means a test failed, 2 a usage or config error, 3 a device or infrastructure problem, 4 the suite timeout, 5 an internal error. A pipeline can retry on 3 and fail on everything else.
+Contents:
+
+- [Exit codes in a pipeline](#exit-codes-in-a-pipeline)
+- [The Atalanta Action](#the-atalanta-action)
+- [Sharding](#sharding)
+- [No silent passes](#no-silent-passes)
+- [Sharing history between jobs](#sharing-history-between-jobs-no-server)
+- [Cancelled and timed-out jobs](#cancelled-and-timed-out-jobs)
+- [Secrets](#secrets)
+
+## Exit codes in a pipeline
+
+The full table is in [CLI.md](CLI.md#exit-codes). A pipeline needs only these:
+
+| Code | Meaning | Pipeline action |
+|---|---|---|
+| 0 | Everything passed | Continue |
+| 1 | A test failed | Fail the job |
+| 2 | Usage or configuration error | Fail the job |
+| 3 | Device or infrastructure problem | Retry the job |
+| 4 | Suite timeout (`--timeout`) | Fail the job |
+| 5 | Internal error | Fail the job |
+| 129, 130, 143 | SIGHUP, SIGINT, SIGTERM | See [cancelled jobs](#cancelled-and-timed-out-jobs) |
+
+A pipeline can retry on 3 and fail on everything else.
 
 ## The Atalanta Action
 
-`atalanta init --ci github` writes `.github/workflows/atalanta.yml`: the suite in two shards through the Atalanta Action, then a job that checks every shard reported. Without `--ci`, `init` writes the same workflow as an example under the suite's `ci/` folder.
+The Atalanta Action installs a pinned release of Atalanta on a GitHub runner and runs a suite. `atalanta init --ci github` writes `.github/workflows/atalanta.yml`, which runs the suite in two shards through the Action and then a job that checks every shard reported. Without `--ci`, `init` writes the same workflow as an example under the suite's `ci/` folder.
 
 ```yaml
       - uses: atalantahq/atalanta@v0.2.0
@@ -18,23 +42,50 @@ Exit codes are listed in [CLI.md](CLI.md#exit-codes): 1 means a test failed, 2 a
 ```
 
 - **Install.** The Action runs its own `install.sh`, the one from the same tag, with the version given. The installer checks the archive against the release's `SHA256SUMS`, and against `sha256` when given. Nothing is fetched from `main`.
-- **Android.** KVM is turned on, and the AVD and its snapshot are cached under a key made of the runner OS, API level, image target and architecture. The suite runs inside `reactivecircus/android-emulator-runner`, and its first act there is to note that the emulator booted. When the emulator never booted, the Action tries once more with a fresh AVD (`boot-attempts`, at most 2). If that fails too, the job exits **3**, an infrastructure failure, never a test failure, so a pipeline can retry 3 and believe everything else.
-- **iOS.** `atalanta devices up --ios 1` boots a simulator, retried `boot-attempts` times; one that never boots is exit 3 too.
-- **Web.** Headless Chrome; nothing to boot.
+- **Android.** The Action turns on KVM and caches the AVD and its snapshot. The cache key is made of the runner OS, API level, image target and architecture. The suite runs inside `reactivecircus/android-emulator-runner`, and its first step there records that the emulator booted. When the emulator never booted, the Action tries once more with a fresh AVD (`boot-attempts`, at most 2). If that fails too, the job exits **3**. That is an infrastructure failure, never a test failure, so a pipeline can retry 3 and treat every other code as final.
+- **iOS.** `atalanta devices up --ios 1` boots a simulator and is retried `boot-attempts` times. A simulator that never boots is exit 3 too.
+- **Web.** Headless Chrome. There is nothing to boot.
 - **Results.** The results folder is uploaded as `atalanta-results-<platform>-shard-M-of-N` (or `-all`), and the job's exit code is Atalanta's.
 
-Inputs: `version` (required), `sha256`, `platform` (required), `suite` (optional; not used in check mode), `shard`, `args`, `results-dir`, `upload`, `api-level` (34), `target` (google_apis), `arch` (x86_64), `boot-attempts` (2), `check-shards` (check mode: the number of shards a matrix ran; the Action installs Atalanta only, runs no tests, and fails unless every shard reported).
+Inputs:
+
+| Input | Required | Default | Meaning |
+|---|---|---|---|
+| `version` | yes | | Release to install (X.Y.Z) |
+| `platform` | yes | | `android`, `ios` or `web` |
+| `sha256` | no | | Checksum of the archive, to pin the exact build |
+| `suite` | no | | Suite file or folder (not used in check mode) |
+| `shard` | no | | `M/N` |
+| `args` | no | | More `atalanta run` flags, split on spaces |
+| `results-dir` | no | `atalanta-results` | Where the reports go |
+| `upload` | no | `true` | Upload the results folder as an artifact |
+| `api-level` | no | `34` | Android emulator API level |
+| `target` | no | `google_apis` | Android system image target |
+| `arch` | no | `x86_64` | Android emulator architecture |
+| `boot-attempts` | no | `2` | Tries to bring the device up before exit 3 |
+| `check-shards` | no | | Check mode: the number of shards a matrix ran. The Action installs Atalanta only, runs no tests, and fails unless every shard reported |
+
+## Sharding
+
+Sharding splits one suite across several CI jobs, each running a part of it.
+
+- `--shard M/N` (1-based) runs the Mth of N shards. `--shard-index` and `--shard-total` are the 0-based form.
+- Without timing data, tests are balanced by count, with a stable hash for tie-breaks.
+- `--shard-timings FILE` balances by duration, from a history JSON or JUnit XML. Give every shard the same file, or the shards will disagree on the partition.
+- `atalanta shard-plan --total N` shows each shard's tests and the plan fingerprint without a device.
+- After the matrix, a [check job](#no-silent-passes) confirms that every shard reported.
+
 
 ## No silent passes
 
-A run that tests nothing must not go green. Atalanta refuses these:
+A run that tests nothing must not go green. Atalanta refuses these cases:
 
 - **A selection that matches nothing** (`--tags`, `--filter` typos): exit 2.
 - **A shard out of range** (`--shard 3/2`): exit 2.
-- **A shard that owns no test** (more shards than tests, or dependency groups that can't be split): exit 2, naming the shard. Selection after the partition (`--last-failed`, `--changed-since`) can still leave a shard empty on purpose; `--fail-if-none` covers that.
+- **A shard that owns no test** (more shards than tests, or dependency groups that cannot be split): exit 2, naming the shard. Selection after the partition (`--last-failed`, `--changed-since`) can still leave a shard empty on purpose. `--fail-if-none` covers that.
 - **A planned test with no result** (a worker that stopped, a bug): it is reported failed as an internal error (exit 5), never dropped.
 
-What one job can't see is a job that died before uploading, or uploaded an empty or damaged folder. With the Atalanta Action, use check mode instead of hand-writing that job: after the sharded matrix, add a `results` job that sets `check-shards` to the matrix size:
+A single job cannot see a job that died before uploading, or one that uploaded an empty or damaged folder. With the Atalanta Action, use check mode instead of writing that job by hand. After the sharded matrix, add a `results` job that sets `check-shards` to the matrix size:
 
 ```yaml
   results:                       # after the matrix: every shard reported?
@@ -46,9 +97,16 @@ What one job can't see is a job that died before uploading, or uploaded an empty
         with: { version: 0.2.0, platform: android, check-shards: 4 }
 ```
 
-The Action installs Atalanta only, runs no tests, downloads every shard's `atalanta-results-<platform>-shard-M-of-N` artifact and runs `atalanta results check --expect-shards N`. It exits 1 when fewer or more results files than `--expect-shards` arrived, a shard number is missing or twice, a shard ran no test, a `results.json` doesn't parse or has no `junit.xml` with a test suite next to it, or the shards disagree on the partition: each shard records its plan's fingerprint in `results.json` (`shard_plan`), and two different fingerprints (different checkouts, filters or `--shard-timings` files) mean a test may have run twice or not at all. With one plan, a test planned in two shards, or plans that don't add up to the whole, fail too.
+In check mode the Action installs Atalanta only, runs no tests, downloads every shard's `atalanta-results-<platform>-shard-M-of-N` artifact and runs `atalanta results check --expect-shards N`. The check exits 1 when any of these hold:
 
-On other CI systems (or without the Action), download every shard's artifacts and check them the same way:
+- Fewer or more results files than `--expect-shards` arrived.
+- A shard number is missing or appears twice.
+- A shard ran no test.
+- A `results.json` does not parse, or has no `junit.xml` with a test suite next to it.
+- The shards disagree on the partition. Each shard records its plan's fingerprint in `results.json` (`shard_plan`). Two different fingerprints (different checkouts, filters or `--shard-timings` files) mean a test may have run twice or not at all.
+- With one plan, a test is planned in two shards, or the plans do not add up to the whole.
+
+On other CI systems, or without the Action, download every shard's artifacts and check them the same way:
 
 ```yaml
   results:
@@ -63,11 +121,13 @@ On other CI systems (or without the Action), download every shard's artifacts an
 
 ## Sharing history between jobs (no server)
 
-Atalanta keeps `atalanta-history.json` in the artifacts folder. It holds
-per-test durations (for `--shard-timings` and longest-first ordering),
-recent outcomes (flaky flags, `--last-failed`, `--changed-since`), and
-outcomes per device profile. On CI each job starts with an empty
-workspace, so the history has to travel as an artifact:
+Atalanta keeps `atalanta-history.json` in the artifacts folder. It holds:
+
+- per-test durations, for `--shard-timings` and longest-first ordering;
+- recent outcomes, for flaky flags, `--last-failed` and `--changed-since`;
+- outcomes per device profile.
+
+On CI each job starts with an empty workspace, so the history has to travel as an artifact:
 
 1. Every job uploads its `atalanta-results/atalanta-history.json`.
 2. The next run downloads them all, and either
@@ -89,7 +149,7 @@ every matrix job starts from the same base, so each job's file also holds
 an unchanged base copy of the other devices' profiles. Ranking a profile
 by the test-wide `last_run` would let the job that finished last overwrite
 the other devices' new outcomes with its stale copies. A file with no
-profile times for a test at all (written by a Atalanta without
+profile times for a test at all (written by an Atalanta without
 `byDeviceLastRun`) uses its test-wide `last_run` for each of that test's
 profiles; a file with times for some profiles but not this one ranks
 below any file that has one, then by its `last_run`. The merged file
@@ -160,17 +220,24 @@ jobs:
 
 ### Rolling flake rate
 
-After the merge, gate on each test's flake rate so a creeping flake fails the pipeline:
+After the merge, gate on each test's flake rate so that a creeping flake fails the pipeline:
 
 ```yaml
       - run: atalanta history flaky --file merged/atalanta-history.json --max-rate 0.05
 ```
 
-`atalanta history flaky` prints each test's flakiness over its last 20 runs (`--window`), sorted worst first (runs that passed only on retry plus pass/fail flips between consecutive runs, the same measure `atalanta run` reports), marks tests above `--max-rate` with `*`, and exits 1 when any test with at least 5 runs exceeds it — a CI gate without devices. Tests with fewer than 5 runs get a rate but never trip the threshold. The JSON output carries a `flips` field too. Exit 2 when `--window` is under 5 or `--max-rate` is outside 0..1. Use `--json` to feed the result to another step.
+`atalanta history flaky` needs no device, so it works as a CI gate. It does the following:
+
+- Prints each test's flakiness over its last 20 runs (`--window`), worst first. Flakiness counts runs that passed only on retry plus pass/fail flips between consecutive runs, the same measure `atalanta run` reports.
+- Marks tests above `--max-rate` with `*`.
+- Exits 1 when any test with at least 5 runs exceeds `--max-rate`. Tests with fewer than 5 runs get a rate but never trip the threshold.
+- Exits 2 when `--window` is under 5 or `--max-rate` is outside 0..1.
+
+Use `--json` to feed the result to another step. The JSON output carries a `flips` field too.
 
 ## Cancelled and timed-out jobs
 
-- SIGTERM (a cancelled job) exits 143, SIGINT 130 and SIGHUP 129. The
+- A cancelled job sends SIGTERM, and Atalanta exits 143. SIGINT exits 130 and SIGHUP 129. The
   reports are still written. JUnit carries the
   `atalanta.termination` property (`interrupted:SIGTERM`), and every test
   that did not run has `<skipped message="not run: interrupted by
@@ -183,11 +250,13 @@ After the merge, gate on each test's flake rate so a creeping flake fails the pi
   call that can't be cancelled), Atalanta writes the reports from the tests
   that had finished by then. The rest are reported as `not run: … (the
   run did not stop within 20s)`. Then it cleans up and exits.
-- Timeouts nest: a step's own `timeoutMs`, then `--test-timeout` (one
-  attempt of one test; it fails that test, exit 1, and the run goes on),
-  then `--timeout` (the whole run; exit 4, the rest skipped), then the
-  CI job's own limit (SIGTERM, 143). Set `--test-timeout` well under
-  `--timeout` so one stuck test can't use up the job.
+- Timeouts nest, from the innermost out:
+  1. A step's own `timeoutMs`.
+  2. `--test-timeout`: one attempt of one test. It fails that test (exit 1) and the run goes on.
+  3. `--timeout`: the whole run. It exits 4 and skips the rest.
+  4. The CI job's own limit: SIGTERM, exit 143.
+
+  Set `--test-timeout` well under `--timeout` so one stuck test cannot use up the job.
 - `atalanta run --daemon` waits its turn when the daemon is busy with
   another run, and says so (`=> queued: …`) after 2 s. A daemon that dies
   mid-run makes the client exit 3, so retry-on-3 pipelines retry it.
@@ -202,16 +271,17 @@ After the merge, gate on each test's flake rate so a creeping flake fails the pi
 
 ## Secrets
 
-Secret values (see the README) are masked in everything Atalanta prints
-and writes. Every line of a multi-line secret (a PEM key, a JSON
-credential) is also masked on its own, because output is printed a line at
-a time. In GitHub Actions, `::add-mask::` is sent once per line of 8 or more
-characters, since GitHub masks single lines only.
+Secret values are masked in everything Atalanta prints and writes: logs, reports, traces and events. Secrets reach a suite as variables (`${NAME}`), so a pipeline passes them as environment variables from its own secret store. Never write a secret into a suite file. See the README and [DSL.md](DSL.md#logging-in) for how a suite names a secret.
+
+- Every line of a multi-line secret (a PEM key, a JSON credential) is also masked on its own, because output is printed a line at a time.
+- In GitHub Actions, `::add-mask::` is sent once per line of 8 or more characters, because GitHub masks single lines only.
+- `--env-file PATH` loads `KEY=VALUE` lines and is never loaded unless named ([CLI.md](CLI.md#execution)).
+- The Atalanta Action passes its inputs to the installer as variables, never spliced into a script.
 
 ## Colour
 
 One switch decides colour for everything Atalanta prints: the CLI, the
-runner's result lines and the log lines on stderr.
+runner's result lines and the log lines on stderr. The first rule below that applies wins.
 
 1. `--color always|never` (any command) wins.
 2. `NO_COLOR` set to a non-empty value turns colour off.
@@ -219,15 +289,15 @@ runner's result lines and the log lines on stderr.
 4. `CLICOLOR=0` or `TERM=dumb` turns it off.
 5. Otherwise colour is on when the output is a terminal.
 
-A `atalanta run --daemon` client's decision is used for its run.
+An `atalanta run --daemon` client's decision is used for its run.
 
 ## Atalanta's own workflows
 
-What runs on this repository (`.github/workflows/`). Every job starts with
-`step-security/harden-runner` (egress audit), checks out without persisting
-credentials (except the two jobs that need them: ci.yml `Changes` for
-paths-filter's `git fetch`, and release.yml's tap push), and every action
-is pinned to a commit SHA.
+The workflows in Atalanta's own repository (`.github/workflows/`). You don't need this to use the tool.
+
+- Every job starts with `step-security/harden-runner` (egress audit).
+- Every job checks out without persisting credentials, except two that need them: ci.yml `Changes` for paths-filter's `git fetch`, and release.yml's tap push.
+- Every action is pinned to a commit SHA.
 
 | Workflow | When | Jobs |
 |---|---|---|
@@ -242,7 +312,7 @@ is pinned to a commit SHA.
 
 ## Opt-in workflows
 
-These workflows need devices or other toolchains. They never run on an
+These workflows in Atalanta's repository need devices or other toolchains. They never run on an
 ordinary push or pull request. Run them from the Actions tab
 (`workflow_dispatch`), or add a label to a pull request:
 
@@ -252,5 +322,5 @@ ordinary push or pull request. Run them from the Actions tab
 | `flutter-bridge.yml` | `flutter-ci` | The Dart bridge package (`analyze` + `test`) on Flutter 3.19.6, the SDK floor, and on current stable. Also `cargo test -p atalanta-flutter-bridge`. |
 | `probes.yml` | `probes-ci` | Android: the sync probe's host checks, the tree server's `build.sh` (host checks and the d8 jar), and a Gradle build of the sync probe (AGP 8.3 and Kotlin 1.9, through a throwaway settings file). iOS: the sync probe's swiftc host checks, an `xcodebuild` of the Swift package, and a `build-for-testing` of AtalantaRunner. |
 
-These workflows have been checked for YAML syntax only. They have not
-been run on GitHub's runners yet.
+Unverified: these workflows have been checked for YAML syntax only. They have not
+been run on GitHub's runners.

@@ -1,12 +1,16 @@
-# The docs site (row 0.8 of the v4 plan): mdBook over docs/, with search and
-# docs/llms.txt at its root. Every pull request that touches the docs builds
-# it and checks the examples and generated pages; a published release
-# deploys it to GitHub Pages (Settings > Pages > Source: GitHub Actions).
+# The website: the landing page and the docs, built by site/ (Astro, with
+# Pagefind search) from README.md, CHANGELOG.md and docs/*.md, with
+# docs/llms.txt at its root. Every pull request that touches the docs or the
+# site builds it and checks the examples and generated pages; a published
+# release deploys it to GitHub Pages (Settings > Pages > Source: GitHub
+# Actions). The repository variables SITE_URL and SITE_BASE_PATH set the
+# address it is built for (default https://atalanta.sh at /; a project page
+# without a custom domain needs SITE_BASE_PATH=/atalanta/).
 name: Docs
 
 on:
   pull_request:
-    paths: ["docs/**", "README.md", "crates/atalanta-core/src/schema.rs", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "site/**", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "Cargo.toml", "crates/atalanta-core/src/schema.rs", ".github/workflows/docs.yml"]
   release:
     types: [published]
   workflow_dispatch:
@@ -49,13 +53,24 @@ jobs:
         run: |
           cargo test -p atalanta-core --locked --test doc_examples --test dsl_reference --test llms_txt
           cargo test -p atalanta-mcp-server --locked --lib the_mcp_doc_lists_every_tool
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      # No npm cache: like the Rust cache above, the site a release deploys
+      # is built cold. `npm ci` installs exactly site/package-lock.json.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          tool: mdbook@0.4.52
-      - run: mdbook build docs
+          node-version: "24"
+      # A relative link to a file that does not exist, or a docs page missing
+      # from the sidebar config, fails this build.
+      - name: Build the site
+        working-directory: site
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://atalanta.sh' }}
+          BASE_PATH: ${{ vars.SITE_BASE_PATH || '/' }}
+        run: |
+          npm ci
+          npm run build
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
-          path: target/docs-site
+          path: site/dist
 
   deploy:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'

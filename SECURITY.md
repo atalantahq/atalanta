@@ -1,4 +1,6 @@
-# Security Policy
+# Security policy
+
+How to report a vulnerability, what is in scope, and how to verify a download. The threat model is in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Supported versions
 
@@ -36,7 +38,7 @@ Only the maintainers can see the report. Please include:
   (for example "a web page I visit can tap on my emulator");
 - whether you plan to disclose it publicly, and when.
 
-If you can't use GitHub's reporting form, open an issue that asks for a
+If you cannot use GitHub's reporting form, open an issue that asks for a
 private contact channel. Don't include any details of the problem in it.
 
 ## What to expect
@@ -51,8 +53,8 @@ These are targets for a project maintained by volunteers, not guarantees:
 | Fix released for a medium or low-severity issue | in the next scheduled release, normally within 90 days |
 
 We will keep you informed while we work on it. We will agree a disclosure
-date with you, publish a GitHub Security Advisory (with a CVE where
-appropriate) when the fix ships, and credit you unless you'd rather not be
+date with you. When the fix ships, we will publish a GitHub Security Advisory
+(with a CVE where appropriate) and credit you unless you would rather not be
 named.
 
 ## Scope
@@ -83,9 +85,9 @@ Out of scope:
   Someone who can already run `adb`, `xcrun` or Atalanta commands as you
   already has that control;
 - risks the documentation describes as accepted, such as binding the
-  inspector to a non-loopback address with `--host`, or a cabled iPhone's
-  runner listening on Wi-Fi without `ios.runnerToken`. A way around the
-  protection those modes still have *is* in scope;
+  inspector to a non-loopback address with `--host`, or binding a cabled
+  iPhone's runner to every interface with `ATALANTA_IOS_DEVICE_LOOPBACK=0`.
+  A way around the protection those modes still have *is* in scope;
 - what AI providers do with the data you choose to send them (see
   `docs/AI-PROVIDERS.md`);
 - third-party tools Atalanta calls but does not ship, such as `adb`,
@@ -128,8 +130,9 @@ Out of scope:
 
 ## The Android tree server handshake
 
-The tree server Atalanta starts on an Android device (protocol 18) listens
-on an abstract socket whose name any app can bind. Before anything is sent,
+The tree server Atalanta starts on an Android device listens
+on an abstract socket whose name any app can bind. The handshake below has
+been in place since protocol 18; the current protocol is 19. Before anything is sent,
 the host challenges it: `HELLO <nonce>`, answered with an HMAC-SHA256 of
 the nonces under a per-start token only the shell user can read. Only then
 does the host authenticate with an HMAC of its own (`AUTH`); the token never
@@ -190,7 +193,7 @@ to `target/security/`. Fuzzing needs `rustup toolchain install nightly
 `RUSTFLAGS="--cfg fuzzing" cargo check --manifest-path fuzz/Cargo.toml`
 type-checks the targets.
 
-`scripts/install-hooks.sh` opts this clone into git hooks
+`scripts/install-hooks.sh` opts this clone into optional git hooks
 (`scripts/hooks/`): pre-commit runs gitleaks on the staged changes plus
 `cargo fmt --check`, the unsafe inventory, shellcheck, actionlint and
 zizmor on what changed; pre-push runs gitleaks on the commits being pushed
@@ -226,8 +229,9 @@ with a written reason, in the narrowest place the tool offers:
   `undocumented_unsafe_blocks`); after review, raise the crate's line with
   `python3 scripts/unsafe-inventory.py --write` in the same change.
 
-Accepted findings as of 2026-11-11: RUSTSEC-2024-0449 (serde_yaml) and
-RUSTSEC-2026-0192 (ttf-parser), both "unmaintained" with no successor yet;
+Findings accepted as of 2026-11-20: RUSTSEC-2024-0449 (serde_yaml),
+RUSTSEC-2026-0192 (ttf-parser) and RUSTSEC-2026-0543 (chrono), all
+"unmaintained" with no upgrade available yet;
 GHSA-g3hv-75wg-m249 (minimatch, moderate, inside the frontend's eslint
 tooling only); the fake tokens and test keys listed in `.gitleaks.toml`;
 the zizmor and Semgrep annotations in the workflows and bench scripts.

@@ -1,6 +1,8 @@
 # Guide
 
-The long form of the [README](../README.md): what each part of Atalanta does and the flags and settings around it. The command reference is [CLI.md](CLI.md), the suite format [DSL.md](DSL.md) and [DSL-REFERENCE.md](DSL-REFERENCE.md), and what has been verified on devices [STATUS.md](STATUS.md).
+How Atalanta waits, selects, retries, shards and reports, and the flags and settings that control it. The command reference is [CLI.md](CLI.md) and the suite format is [DSL.md](DSL.md).
+
+Related pages: the command reference is [CLI.md](CLI.md), the suite format is [DSL.md](DSL.md) and [DSL-REFERENCE.md](DSL-REFERENCE.md), and what has been verified on devices is [STATUS.md](STATUS.md).
 
 ## Glossary
 
@@ -24,14 +26,14 @@ Terms these docs use, in the order a new user meets them.
 
 ## How it compares
 
-Checked on 2026-10-30. Competitor facts come from their docs and issue trackers; nothing was run against a competitor. Atalanta's own figures are from [STATUS.md](STATUS.md).
+Checked on 2026-10-30. Competitor facts come from their docs and issue trackers; nothing was run against a competitor. Atalanta's own figures come from [STATUS.md](STATUS.md).
 
 | | Atalanta | Maestro (CLI 2.12) | Appium (3.x) |
 | --- | --- | --- | --- |
 | Runtime | One static binary (Rust) | JVM | Node.js server plus a driver per platform |
 | Test format | YAML | YAML (plus JavaScript) | Code, in any client language |
-| Android | Emulators; real hardware once (one tablet, Settings only) | Emulators and devices | Emulators and devices |
-| iOS | Simulators; real iPhones coded but **never run** | Simulators only | Simulators and real devices |
+| Android | Emulators; real hardware on one tablet (Settings only) | Emulators and devices | Emulators and devices |
+| iOS | Simulators; real hardware on one wired iPhone 12 (Settings, a test app and the trust gates); the Wi-Fi runner **never run** on a device | Simulators only | Simulators and real devices |
 | Model calls when a saved test replays | None | `assertWithAI` calls a model on every run | n/a |
 | Local parallel runs | Yes (`--parallel`) | Yes (`--shard-split`, `--shard-all`) | Through the test runner or plugins (appium-device-farm) |
 | Sharding | Balanced by past durations (`--shard-timings`) | Round-robin by count | Not built in (the test runner's job) |
@@ -41,14 +43,11 @@ Checked on 2026-10-30. Competitor facts come from their docs and issue trackers;
 | Device clouds | None | Maestro Cloud | Every major cloud |
 | Migrate from Maestro | Partial: scripts and `copyTextFrom` don't convert; `when:` becomes an optional block, `setLocation` an `exec` step | n/a | n/a |
 
-Measured for Atalanta on 2026-10-25 (one Mac): `atalanta --version` and `validate` start in under 20 ms; peak memory during the Android smoke run was 15.5 MB, without video. No competitor start-up or memory figure was measured here, so none is given.
+Measured for Atalanta on 2026-10-25 (one Mac): `atalanta --version` and `validate` start in under 20 ms, and peak memory during the Android smoke run was 15.5 MB without video. No competitor start-up or memory figure was measured, so none is given.
 
 ## Fast Android trees
 
-On Android, Atalanta runs a tiny UI-tree server on the device (pushed automatically,
-no APK) instead of shelling out to `uiautomator dump` for every screen read. On an API 34
-emulator a dump drops from ~2 s to ~3 ms and a two-test suite from 69 s to 3.7 s. It falls
-back to `uiautomator dump` on any problem; set `ATALANTA_ANDROID_TREE_SERVER=0` to turn it off.
+On Android, Atalanta pushes a small UI-tree server to the device (no APK) instead of running `uiautomator dump` for every screen read. On an API 34 emulator a dump drops from about 2 s to about 3 ms, and a two-test suite from 69 s to 3.7 s. On any problem Atalanta falls back to `uiautomator dump`. Set `ATALANTA_ANDROID_TREE_SERVER=0` to turn the server off.
 
 ## Test dependencies, resets and impact selection
 
@@ -65,18 +64,19 @@ tests:
     steps: [...]
 ```
 
-`--changed-since <ref>` reads `atalanta-impact.yaml` (`tests:` / `flows:` mapped to path
-patterns) and runs the affected tests plus anything that failed or flaked recently, is new,
-or hasn't run in a week. Manifest, plist, resource, build-file or suite changes run everything.
-The changed files are what the branch changed since it forked from `<ref>` (`<ref>...HEAD`,
-the merge base), plus uncommitted edits and untracked files, from the repository root whatever
-your `diff.relative` says. A shallow CI clone has no merge base: use `fetch-depth: 0` on
-`actions/checkout`. A test nothing maps (no `tests:` entry, no mapped flow) **runs**;
-`impact: { unmapped: skip }` in the map leaves it to the history rules instead. An empty
-selection passes; `--fail-if-none` makes it exit 2 (it counts only what git and the map select,
-not the history picks, so every shard of a sharded run decides alike). Patterns: `*`, `?`, `**`, `{a,b}`, a
-directory, or a bare file name; `[` and `]` are literal (`app/[id].tsx`), and a leading `./`
-is ignored.
+`--changed-since <ref>` reads `atalanta-impact.yaml`, which maps `tests:` and `flows:` to path patterns. It runs:
+
+- the tests the changed files can affect;
+- tests that failed or flaked recently;
+- tests that are new, or have not run in a week.
+
+A change to a manifest, plist, resource, build file or suite runs everything.
+
+The changed files are what the branch changed since it forked from `<ref>` (`<ref>...HEAD`, the merge base), plus uncommitted edits and untracked files. They are taken from the repository root whatever your `diff.relative` says. A shallow CI clone has no merge base, so use `fetch-depth: 0` on `actions/checkout`.
+
+- **Unmapped tests:** a test that nothing maps (no `tests:` entry, no mapped flow) **runs**. `impact: { unmapped: skip }` in the map leaves it to the history rules instead.
+- **Empty selection:** an empty selection passes. `--fail-if-none` makes it exit 2. It counts only what git and the map select, not the history picks, so every shard of a sharded run decides alike.
+- **Patterns:** `*`, `?`, `**`, `{a,b}`, a directory, or a bare file name. `[` and `]` are literal (`app/[id].tsx`), and a leading `./` is ignored.
 
 ```yaml
 # atalanta-impact.yaml
@@ -91,16 +91,26 @@ runAll: [config/flags.json]
 
 ## Rust-native performance
 
-Atalanta is a single static binary with no runtime dependencies: no JVM warm-up, no garbage-collection pauses, no `node_modules`. `atalanta --version` and `validate` finish in under 20 ms (measured 2026-10-25). Device start-up is another matter: the first iOS run builds WebDriverAgent (about a minute, once per Xcode), and launching an app takes about a second on an Android emulator.
+Atalanta is a static binary with no runtime dependencies: no JVM, no garbage collector, no `node_modules`. `atalanta --version` and `validate` finish in under 20 ms (measured 2026-10-25). Device start-up is separate. The first iOS run builds WebDriverAgent, which takes about a minute once per Xcode version, and launching an app takes about a second on an Android emulator.
 
 ## Built-in flakiness tolerance
 
-Every interaction waits for its element to appear, and every assertion waits for its condition (an element to go, text to settle). The default timeout is configurable, and `timeoutMs` overrides it per step. A test that passes only on retry is reported as **FLAKY**, not passed, and `atalanta-history.json` tracks each test's recent outcomes and flip rate. Self-healed selectors are always reported with the element they chose; a heal never passes silently, and an ambiguous heal is refused. The driver layer adds retry policies with exponential backoff, and circuit breakers that stop cascading failures when a device becomes unresponsive.
+Reports and history are under [Flakiness, reports and healing](#flakiness-reports-and-healing).
 
+- **Waiting:** every interaction waits for its element, and every assertion waits for its condition (an element to go, text to settle). The default timeout is configurable, and `timeoutMs` overrides it per step.
+- **Flaky label:** a test that passes only on retry is reported as **FLAKY**, not passed. `atalanta-history.json` tracks each test's recent outcomes and flip rate.
+- **Healing:** a self-healed selector is always reported with the element it chose. A heal never passes silently, and an ambiguous heal is refused.
+- **Driver layer:** it adds retry policies with exponential backoff, and circuit breakers that stop cascading failures when a device becomes unresponsive.
 
 ## Parallel-first execution
 
-Run across every booted device, locally. Work goes through one queue, longest tests first; a failed test is retried on a **different** device (so a flaky test and a bad device can be told apart), retries share a run-wide budget, and a device that keeps failing for infrastructure reasons is quarantined and re-probed until it recovers. Devices are leased across processes, so two runs (or a run and an MCP agent) on one host never drive the same device (see "What a lease covers" below).
+`--parallel N` runs across up to N booted devices on the local host. The scheduler works as follows:
+
+- Work goes through one queue, longest tests first.
+- A failed test is retried on a **different** device, so a flaky test and a bad device can be told apart.
+- Retries share a run-wide budget.
+- A device that keeps failing for infrastructure reasons is quarantined and re-probed until it recovers.
+- Devices are leased across processes, so two runs, or a run and an MCP agent, on one host never drive the same device (see "What a lease covers" below).
 
 ```bash
 atalanta run tests/app.yaml --parallel 4
@@ -109,17 +119,22 @@ atalanta run tests/app.yaml --shard 1/3 --shard-timings junit-reports/   # balan
 atalanta shard-plan tests/app.yaml --total 3                  # every shard's tests, no devices
 ```
 
-`--shard M/N` is 1-based like Playwright, jest and nextest; `--shard-index I --shard-total N`
-(0-based) still works, but not both together (exit 2). `--shard-timings` takes a
-`atalanta-history.json` (or a folder holding one), a JUnit XML report, or a folder of JUnit
-reports (failed and skipped cases don't count; `time="12,5"` with a decimal comma is 12.5 s, while `1,200` (a lone comma before exactly three digits) is 1200 s, English thousands grouping; a
-report over 64 MB is skipped with a warning); every shard must get the same file. It is read
-once, and a file that can't be read fails the run (exit 2). Each shard prints
-`Shard 2/3: 13 of 40 tests; plan=<fingerprint>`: shards that agree on the partition print the
-same fingerprint, and `atalanta shard-plan` prints it too (give it the same `--tags`, `--filter`,
-`--env` and `--set` as the run). History-based selection
-(`--last-failed`, and the "failed recently / new / stale" part of `--changed-since`) is applied
-after sharding, so a test one shard's history picks is run by the shard that owns it.
+`--shard M/N` is 1-based, like Playwright, jest and nextest. `--shard-index I --shard-total N` (0-based) still works, but not together with `--shard` (exit 2).
+
+`--shard-timings` takes any of these:
+
+- an `atalanta-history.json`, or a folder holding one;
+- a JUnit XML report;
+- a folder of JUnit reports.
+
+Rules for timing files:
+
+- Failed and skipped cases do not count.
+- `time="12,5"` (a decimal comma) is 12.5 s. `1,200` (a lone comma before exactly three digits) is 1200 s, English thousands grouping.
+- A report over 64 MB is skipped with a warning.
+- Every shard must get the same file. It is read once, and a file that can't be read fails the run (exit 2).
+
+Each shard prints `Shard 2/3: 13 of 40 tests; plan=<fingerprint>`. Shards that agree on the partition print the same fingerprint. `atalanta shard-plan` prints it too; give it the same `--tags`, `--filter`, `--env` and `--set` as the run. History-based selection (`--last-failed`, and the "failed recently / new / stale" part of `--changed-since`) is applied after sharding, so the shard that owns a test runs it.
 
 On the web, `--parallel N` gives N independent browsers, the devices `web-0` … `web-{N-1}`
 (one browser is the device `web`), each with its own cookies, storage, cache and mocks. By default
@@ -131,29 +146,33 @@ the run, on Ctrl-C too, and a second Ctrl-C or SIGTERM kills Chrome and removes 
 this run's own browsers, so two concurrent `atalanta run --parallel` web runs don't wait on each
 other.
 
-`--device <id>` is checked against the devices the driver lists before anything starts (exit 3
-if it isn't there). Without `--parallel` it is the device itself: a device's exact id or name,
-ignoring case (so a typo like `emulator-555` is caught). With `--parallel` it is the rule the
-pool uses to pick devices: ignoring case, a single value matches any device whose name or id
-contains it (or a `*` glob), and a comma list names exact ids. If the listing fails or takes over 15 s (adb or devicectl wedged), the check is
-skipped with a warning; so is a remote adb id (`host:port/serial`) when `ATALANTA_ADB_SERVERS`
-isn't set. In `--parallel` runs a device that drops off mid-run gets ~10 s to come
-back; after that it is out of the run and its tests move to other devices. Device leases follow
-cargo's rules: a lease dir on NFS runs without cross-process leases (with a warning), so does a
-filesystem without lock support; any other lease error exits 3 and says to set
-`ATALANTA_LEASE_DIR`. `ATALANTA_LEASES=off` turns cross-process leasing off (one device per
-container).
+`--device <id>` is checked against the devices the driver lists before anything starts. If the device is not there, the run exits 3. How the value is read depends on `--parallel`:
 
-What a lease covers: Atalanta processes on **one host** that use **one lease dir**. The default dir
-is per user (`~/.atalanta/leases`), so two users on one farm node don't see each other's leases.
-Give them a shared dir instead: `ATALANTA_LEASE_DIR=/var/lib/atalanta/leases` with the dir
-group-writable (`chmod 2770` and a shared group, or `1777` like `/tmp`); lock files made there are
-group- (or world-) readable and writable, so both users contend for one lock. Leases do **not**
-span hosts: two machines that reach one device through a shared adb server (`adb -H`,
-`ATALANTA_ADB_SERVERS`) each lock on their own disk and can drive it at once. Give each host its
-own devices there.
+- **Without `--parallel`:** it is the device itself, matched by exact id or name, ignoring case. A typo like `emulator-555` is caught.
+- **With `--parallel`:** it is the rule the pool uses to pick devices, ignoring case. A single value matches any device whose name or id contains it (or a `*` glob). A comma list names exact ids.
 
-CI in one command: `atalanta run tests/app.yaml --parallel 4 --provision --app build/app.apk` boots the missing devices (headless, read-only instances of one AVD; or `atalanta-<type>-<n>` simulator clones, reused most recently used first) while it hashes the build, then installs it on every device at once. The install is skipped where that exact build (SHA-256 of the `.apk`, or of the `.app` bundle's files) is already installed and unchanged since. `app:` in the suite config does the same as `--app`. `atalanta devices up --android 4 --ios 2 [--app …]` provisions ahead of time, and `atalanta devices down` stops only what Atalanta started for the same owner (recorded in `~/.atalanta/provisioned.json`; the owner is `--owner`, `$ATALANTA_OWNER` or the CI job id, so one CI job's `down` never stops another job's emulator; `--all` stops every owner's). Nothing boots below ~35% / 3 GB free memory or 3 GB free disk; the refusal says why.
+The check is skipped with a warning when the device listing fails or takes over 15 s (adb or devicectl wedged). It is also skipped for a remote adb id (`host:port/serial`) when `ATALANTA_ADB_SERVERS` is not set.
+
+In `--parallel` runs, a device that drops off mid-run gets about 10 s to come back. After that it is out of the run, and its tests move to other devices.
+
+Leasing failures follow cargo's rules. A lease directory on NFS, or on a filesystem without lock support, runs without cross-process leases and prints a warning. Any other lease error exits 3 and says to set `ATALANTA_LEASE_DIR`. `ATALANTA_LEASES=off` turns cross-process leasing off (one device per container).
+
+**What a lease covers.** A lease covers Atalanta processes on **one host** that use **one lease directory**. The default directory is per user (`~/.atalanta/leases`), so two users on one farm node do not see each other's leases. To share leases between users:
+
+1. Set `ATALANTA_LEASE_DIR=/var/lib/atalanta/leases`.
+2. Make the directory group-writable (`chmod 2770` and a shared group) or sticky and world-writable (`1777`, like `/tmp`).
+
+Lock files made there are group- (or world-) readable and writable, so both users contend for one lock.
+
+Leases do **not** span hosts. Two machines that reach one device through a shared adb server (`adb -H`, `ATALANTA_ADB_SERVERS`) each lock on their own disk and can drive it at once. Give each host its own devices in that setup.
+
+**CI in one command.** `atalanta run tests/app.yaml --parallel 4 --provision --app build/app.apk` does the following:
+
+- It boots the missing devices while it hashes the build. Android devices are headless, read-only instances of one AVD. iOS devices are `atalanta-<type>-<n>` simulator clones, reused most recently used first.
+- It installs the build on every device at once. The install is skipped where that exact build (SHA-256 of the `.apk`, or of the `.app` bundle's files) is already installed and unchanged since.
+- `app:` in the suite config does the same as `--app`.
+
+To provision ahead of time, run `atalanta devices up --android 4 --ios 2 [--app …]`. `atalanta devices down` stops only what Atalanta started for the same owner, recorded in `~/.atalanta/provisioned.json`. The owner is `--owner`, `$ATALANTA_OWNER` or the CI job id, so one CI job's `down` never stops another job's emulator. `--all` stops every owner's. Nothing boots below about 35% / 3 GB free memory or 3 GB free disk, and the refusal says why.
 
 ## Speed
 
@@ -196,9 +215,7 @@ Cache keys are salted, because steps hold interpolated values such as PINs. Outs
 
 ## Natural-language test steps
 
-Write steps in plain English and let an LLM resolve them to concrete actions at run
-time — the [passmark](https://github.com/bug0inc/passmark) model, built into the
-runner:
+Steps written in plain English that a model resolves to actions at run time, following the [passmark](https://github.com/bug0inc/passmark) model. They need a model API key on the first run and none on cached replays. Suites without them need no key.
 
 ```yaml
 appId: "https://demo.vercel.store"
@@ -224,23 +241,18 @@ tests:
   builds the selector itself (stable id, then accessibility label, then exact text,
   indexed only when needed) and rejects answers that don't fit the screen. If the
   target isn't there, the step fails; the model doesn't guess.
-- **Intelligent caching** — each step is planned once and cached to
-  `.atalanta/nl-cache.json`, per platform. Reruns replay with no model call and no
-  screen capture.
-- **Self-healing** — if a cached action stops working (its element is gone), it is
-  re-planned against the current screen and retried in the same run, and the re-plan
-  is reported. Two cases are not re-planned in the step: a cached action that ran and
-  changed nothing, though it changed the screen when it was planned, fails (a second
-  action after the first one acted could do anything); and a failed `assert:` fails,
-  because re-planning a check on the current screen could pass it on another element.
-  Both drop their cache entry, so the next attempt (a retry or the next run) plans them
-  afresh.
+- **Caching:** each step is planned once and cached to `.atalanta/nl-cache.json`, per platform. Reruns replay with no model call and no screen capture.
+- **Re-planning:** if a cached action stops working because its element is gone, it is re-planned against the current screen and retried in the same run. The re-plan is reported. Two cases are not re-planned within the step, and both fail it:
+  - A cached action that ran and changed nothing, though it changed the screen when it was planned. A second action after the first one acted could do anything.
+  - A failed `assert:`. Re-planning a check on the current screen could pass it on another element.
+
+  Both cases drop their cache entry, so the next attempt (a retry or the next run) plans the step afresh.
 - **Values come from the test.** A typed value, an expected text, a URL or a scroll
   target must be the step's `data` or be quoted in the step; text on the screen never
   becomes one. A `goto` must be an `http`/`https` URL on the current page's origin
   (`nl.allowCrossOrigin: true` lifts the origin rule), and a key press is one of
   enter, back or home.
-- **Mixes freely** with the explicit selector DSL — use whichever is clearer per step.
+- **Mixing:** natural-language steps can sit beside explicit selector steps. Use whichever is clearer per step.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, …
@@ -268,10 +280,11 @@ of the cache key.
 `description` holds on the final screen (and at `assert:`/`checkpoint:` steps). It is `off` by
 default, so CI replays make no model calls. A verdict that cites no element on the screen is
 "unknown", never a pass ([docs/DSL.md](DSL.md#ai-verification-verify)).
-Natural steps work on every platform (web, iOS, Android); suites without them run
-unchanged and need no API key.
+Natural-language steps work on every platform (web, iOS, Android).
 
 ## Selectors
+
+Selector syntax is in [DSL.md](DSL.md#selectors).
 
 ```yaml
 - tap: { text: "Pay", className: "Button" }          # every field must match
@@ -405,22 +418,24 @@ config:
 - `--flaky-confidence 0.99` (with `--parallel`) runs copies of tests history flags as flaky on different devices, n = ⌈ln(1 − 0.99) / ln(p_fail)⌉ of them; the test passes if any copy does, and is reported as flaky when one failed.
 - Self-healing has three modes, `healing.mode: auto | report | off`. `auto` (the default locally) uses the healed element and passes; `report` (the default when CI is detected) works out the heal but fails the step with the proposed patch and the exact `atalanta heal --accept --config <suite>` command; `off` doesn't heal. A healed test shows as `PASSED (healed n)` on the console and in every report (a JUnit `atalanta.healed` property, HTML, JSON `healed`/`label`, GitHub annotations and summary, an Allure tag).
 - Healed selectors from passing tests (and, in `report` mode, the proposed ones) are queued in `.atalanta/healed-selectors.json`; `atalanta heal -c suite.yaml` shows them in your own selector form, `--accept` writes them into the suite, `--discard` drops them, and `--reject <N|selector|all>` drops one (by its number in the listing, or its original selector such as `'text: "Log in"'`) for good: the pair goes into `.atalanta/heal-rejected.json` in the current directory, where runs read it, and is never proposed again for that app (the entry records the app id the heal was made for; another app with the same selector still heals, and an entry from an older Atalanta without one applies to every app); the other heals stay pending. CI is detected from `CI`, `GITHUB_ACTIONS`, `JENKINS_URL`, `TF_BUILD`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI` and the like; a value of `false`, `0` or empty doesn't count.
-- **Memory check** (Android only; host tests only, the profiler has never run on a device: [STATUS.md](STATUS.md)): with `config: { performance: { enabled: true } }` Atalanta samples the app's memory (`dumpsys meminfo`, every `intervalMs`) and fails a test whose peak total PSS is more than `pssGrowthThresholdPct` (default 15) above its saved baseline, with `memory regression: …`. Only a clean pass updates the baseline, so the run after a breach fails too until memory comes back down. The other drivers report no memory.
+- **Memory check** (Android only. Covered by host tests only; the profiler has never run on a device: [STATUS.md](STATUS.md)): with `config: { performance: { enabled: true } }` Atalanta samples the app's memory (`dumpsys meminfo`, every `intervalMs`) and fails a test whose peak total PSS is more than `pssGrowthThresholdPct` (default 15) above its saved baseline, with `memory regression: …`. Only a clean pass updates the baseline, so the run after a breach fails too until memory comes back down. The other drivers report no memory.
 - `atalanta lint` flags another engine's selector syntax (Playwright's `>>`, `text=` and `:has-text()`, jQuery's `:contains()`): an error in `css:`, which the browser would reject, a warning in a text or id value.
 - `atalanta lint` flags fixed `wait:` steps; `atalanta migrate waits suite.yaml --write` removes the ones before a step that already waits for its element.
 
 ## Migrate from Maestro
 
-Already using Maestro? Convert your flows and see what didn't carry over. Simple flows convert as they are. Flows that rely on JavaScript (`runScript`, `evalScript`, `${…}` expressions) or `copyTextFrom`/`pasteText` need rewriting by hand: Atalanta has no equivalent yet, and the converter says what to use instead (an `http` or `exec` step's `capture:`). `runFlow when: {visible: …}` / `notVisible:` becomes a flow that checks the condition first and runs as an optional block; other `when:` conditions run as an optional block with a warning. `setLocation` becomes an optional `exec` step per platform (`adb emu geo fix`, `xcrun simctl location`). So do `setPermissions` (`pm grant`/`revoke`, `simctl privacy`), `addMedia` (`adb push` and a media scan, `simctl addmedia`), and the single-platform `clearKeychain` (`simctl keychain reset`), `setAirplaneMode` and `setOrientation` (Android `adb shell` only); `adb` and `xcrun` go into `config.exec.allow`. A flow's header `env:` becomes defaults (`${NAME}` → `${NAME:-value}`, which `--env` still overrides). Run the dry run first:
+Simple flows convert as they are. Flows that rely on JavaScript (`runScript`, `evalScript`, `${…}` expressions) or `copyTextFrom`/`pasteText` need rewriting by hand: Atalanta has no equivalent, and the converter says what to use instead (an `http` or `exec` step's `capture:`). `runFlow when: {visible: …}` / `notVisible:` becomes a flow that checks the condition first and runs as an optional block; other `when:` conditions run as an optional block with a warning. `setLocation` becomes an optional `exec` step per platform (`adb emu geo fix`, `xcrun simctl location`). So do `setPermissions` (`pm grant`/`revoke`, `simctl privacy`), `addMedia` (`adb push` and a media scan, `simctl addmedia`), and the single-platform `clearKeychain` (`simctl keychain reset`), `setAirplaneMode` and `setOrientation` (Android `adb shell` only); `adb` and `xcrun` go into `config.exec.allow`. A flow's header `env:` becomes defaults (`${NAME}` → `${NAME:-value}`, which `--env` still overrides). Run the dry run first:
 
 ```bash
 atalanta migrate maestro ./maestro-flows/ --dry-run   # what would not convert, nothing written
 atalanta migrate maestro ./maestro-flows/
 ```
 
-`--dry-run` converts every flow without writing and ranks the Maestro commands that don't convert cleanly by how many flows they affect, so you know before switching what you'd rewrite (`--report-json` for the same as JSON). The full run then converts your existing Maestro YAML flows to Atalanta format automatically. `openLink:` opens deep links on every platform. A step's `optional: true` stays `optional: true` (a failure becomes a warning), and `assertWithAI` becomes a natural-language `assert:` with `optional: true` (unless the flow says `optional: false`); it is checked against the element tree rather than a screenshot, so it needs a model key (`ANTHROPIC_API_KEY` or another provider's). `killApp` becomes `stopApp`, and a counted `repeat` is unrolled up to 100 times. A `while:` loop, `runScript` and `evalScript` are skipped with a note; a script that made HTTP calls becomes an [`http` step](DSL.md#http-and-api-tests) with `capture:`. Variables a flow read from a `.env` file come from `atalanta run --env-file .env`. `eraseText` becomes one `pressKey: backspace` per character (50 by default, up to 100), and a `tapOn` point is converted only when it is in absolute pixels and has no selector (a point with a selector is inside that element).
+`--dry-run` converts every flow without writing and ranks the Maestro commands that don't convert cleanly by how many flows they affect, so you know before switching what you'd rewrite (`--report-json` for the same as JSON). The full run converts the Maestro YAML flows to Atalanta format. `openLink:` opens deep links on every platform. A step's `optional: true` stays `optional: true` (a failure becomes a warning), and `assertWithAI` becomes a natural-language `assert:` with `optional: true` (unless the flow says `optional: false`); it is checked against the element tree rather than a screenshot, so it needs a model key (`ANTHROPIC_API_KEY` or another provider's). `killApp` becomes `stopApp`, and a counted `repeat` is unrolled up to 100 times. A `while:` loop, `runScript` and `evalScript` are skipped with a note; a script that made HTTP calls becomes an [`http` step](DSL.md#http-and-api-tests) with `capture:`. Variables a flow read from a `.env` file come from `atalanta run --env-file .env`. `eraseText` becomes one `pressKey: backspace` per character (50 by default, up to 100), and a `tapOn` point is converted only when it is in absolute pixels and has no selector (a point with a selector is inside that element).
 
 ## Command cheat sheet
+
+The full reference is [CLI.md](CLI.md).
 
 ```text
 atalanta doctor [--fix] [--json]             Is this machine ready? (tools, devices, runner caches, keys, suites)
@@ -485,6 +500,8 @@ atalanta validate <suite>                    Validate a suite
 
 ## Configuration
 
+[DSL-REFERENCE.md](DSL-REFERENCE.md) is the complete schema.
+
 ```yaml
 appId: com.example.app
 config:
@@ -543,7 +560,7 @@ Web `<select>`: `inputText` on a `<select>` (or on its `<label>`) chooses the op
 
 Mobile web: `web.device` emulates a phone or tablet in Chrome with a Chromium device descriptor: its viewport, device pixel ratio, user agent, mobile layout (the meta viewport applies) and touch (`(pointer: coarse)`, touch events; taps, double taps and long presses are sent as touches, and `swipe` is a finger stroke of `touchmove`s that comes to rest before it lifts, so it scrolls by its length and drags touch carousels). Every name in Playwright's device list works (about 200: `iPhone 15`, `iPhone 17 Pro Max`, `Pixel 9 Pro XL`, `Galaxy S24`, `iPad Pro 11`, `Desktop Chrome`, …, and each as `<name> landscape`; the list ships as data under Apache-2.0, see `NOTICE`); `iPad` is kept as an alias of `iPad (gen 7)`. Names match ignoring case and spaces; an unknown name is a config error that names the nearest ones. `web.width`/`web.height` override the profile's viewport. This is the responsive layout in Chromium, not Safari. Without a profile pages are desktop pages, with no touch.
 
-Web swipes: `swipe: up` is the finger moving up, as on Android and iOS, so the page scrolls down and shows what is below (the mouse wheel at the viewport centre, so the scroller under it moves). Before, a web `swipe: up` scrolled the page up: web suites written against that flip their directions; `validate` and `run` print a note on each web `swipe: <direction>`, and on a web `swipe` with no direction (down), for one release. Maestro flows migrate unchanged, since Maestro's directions are the finger's too.
+Web swipes: `swipe: up` is the finger moving up, as on Android and iOS, so the page scrolls down and shows what is below (the mouse wheel at the viewport centre, so the scroller under it moves). Earlier versions scrolled the page up on a web `swipe: up`, so web suites written against that behaviour must flip their directions. `validate` and `run` print a note on each web `swipe: <direction>`, and on a web `swipe` with no direction (down), for one release. Maestro flows migrate unchanged, since Maestro's directions are the finger's too.
 
 In-app sync probe: after its `hello`, Atalanta sends the probe the suite's `web.networkIgnore` globs (as regexes: a pattern with `*` covers the whole URL, any other is a substring; case-sensitive, as on the web; runs of `*` count as one, and the regex can't backtrack badly on a long URL), so requests to those URLs never keep a mobile app busy either, and `sync.maxTimerMs` when set. The ignore list joins the probe's own list for the app's lifetime; `maxTimerMs` holds for this run's connection only. What counts as a timer: on iOS one-shot `NSTimer`s scheduled with `+scheduledTimer...` and `performSelector:withObject:afterDelay:` (cancelled ones drop out), plus work posted with `AtalantaSyncProbe.asyncAfter`; plain `dispatch_after` / `DispatchQueue.asyncAfter` can't be observed with public API and is not tracked. On Android (probe protocol 4) delayed main-looper messages (`Handler.postDelayed` / `postAtTime`), read by walking the main `MessageQueue` (else parsed from `Looper.dump`, else reported as `unknown`), except barriers and the cursor blink and other framework re-posters (matched on the callback class; `View.postDelayed` through the view root's handler counts). A callback instance re-posted as it fires two times in a row (a poller; a coroutine `delay()` loop is matched by class and period, three times over 2 s) stops counting; a debounce never does. A timer counts only when it was first seen due within the horizon.
 
@@ -561,9 +578,9 @@ Element state: every driver that knows it reports `focused`, `selected`, `obscur
 
 Cross-origin iframes (a Stripe or Adyen card field, an OAuth button, an embedded checkout) are part of the page on web: Atalanta attaches to each out-of-process frame over its own DevTools session (`Target.setAutoAttach`, flat sessions), runs its in-page library there, and a selector that finds nothing on the page itself (or only hidden matches) looks in those frames. Found elements have their boxes in the page's coordinates, so `tapOn`, `inputText`, `assertVisible` and `assertText` work on them, and the frames' requests count for the network-idle wait. Not covered: the element tree (`get_hierarchy`, layout relations like `below:`) stays the page's own, and `web.mocks`/`mockRequest` don't apply to requests made inside such frames. `web.frames: 0` (`ATALANTA_WEB_FRAMES=0`) leaves them opaque, as before.
 
-A tap on an element in such a frame is checked on the page too: when something on the top page covers the frame at the click point (a cookie banner, a sticky footer) the step fails "obscured by <div>", as it does for an element of the page, and a click the frame never received is retried and then fails. Lookups that fall back to the frames take at most about 2 s for all of them together. A frame still loading is waited for once, then skipped until its document is ready; one slow answer (a long task) is not a hang: a frame is left out of lookups, with one warning, only after 3 lookups in a row it didn't answer, and then for 3 s at a time, after which a ping decides whether it is asked again. While any frame is skipped, a lookup that finds nothing is unknown, not "not found": the error names the skipped frames, and `assertNotVisible` keeps waiting until its timeout instead of passing. A tap on an `<iframe>` inside a cross-origin frame works (its click arrives in the inner frame, which the outer one can't see). A cross-origin frame removed while its document is still loading no longer keeps the network-idle wait busy. Also not covered: an `<iframe>` rotated or scaled with a CSS transform (its elements' boxes are placed by its top-left corner only).
+A tap on an element in such a frame is checked on the page too: when something on the top page covers the frame at the click point (a cookie banner, a sticky footer) the step fails "obscured by <div>", as it does for an element of the page, and a click the frame never received is retried and then fails. Lookups that fall back to the frames take at most about 2 s for all of them together. A frame still loading is waited for once, then skipped until its document is ready; one slow answer (a long task) is not a hang: a frame is left out of lookups, with one warning, only after 3 lookups in a row it didn't answer, and then for 3 s at a time, after which a ping decides whether it is asked again. While any frame is skipped, a lookup that finds nothing is unknown, not "not found": the error names the skipped frames, and `assertNotVisible` keeps waiting until its timeout instead of passing. A tap on an `<iframe>` inside a cross-origin frame works (its click arrives in the inner frame, which the outer one can't see). A cross-origin frame removed while its document is still loading does not keep the network-idle wait busy. Also not covered: an `<iframe>` rotated or scaled with a CSS transform (its elements' boxes are placed by its top-left corner only).
 
-Behaviour changes with the cross-origin frames on, any of which can turn a suite red **[FAILS]**:
+With cross-origin frame support on (the default), these behaviour changes can turn a suite red:
 - A selector that matches only hidden elements on the page now resolves to a visible match in a cross-origin frame: `assertNotVisible: "Submit"` with a hidden "Submit" on the page and a visible one in an embedded frame used to pass and now fails.
 - Lookups of every element (`findAll`) include frame matches: screenshot `mask:` selectors also mask matching elements inside cross-origin frames (a baseline taken before now diffs), the strict-selector ambiguity list can name frame matches, and an `index:` past the page's own count resolves into a frame instead of failing.
 - Negative lookups (`assertNotVisible`, `waitUntilNotVisible`, `extendedWaitUntil` waiting for an element) on pages with cross-origin frames make a round trip per frame per poll (bounded as above), so they are slower.
@@ -605,21 +622,21 @@ Most settings are in the table `atalanta settings` prints (each with its `ATALAN
 
 ## Troubleshooting
 
-The first-run failures people hit, with what to do next. `atalanta doctor` is the first step for anything about the machine or a device: it names each fix as a command, and `--fix` applies the safe ones.
+`atalanta doctor` is the first step for anything about the machine or a device: it names each fix as a command, and `--fix` applies the safe ones.
 
-| You see | Do this |
-|---|---|
-| `Failed to execute adb` | adb is not installed or not on `PATH`. `atalanta doctor -p android` says where the SDK is and prints the `export PATH=…` line; `ATALANTA_ADB_PATH` points at another adb. |
-| `ADB connection lost`, or `Circuit breaker is open for device …` (the driver stopped answering, so Atalanta stopped sending it commands) | `atalanta doctor --fix` restarts a wedged adb server and reconnects offline devices. Then run again. |
-| `WDA … failed to build with Xcode …` | Usually not the WebDriverAgent tag: an unaccepted Xcode licence, `xcode-select` pointing at the command line tools only, or no simulator runtime. `atalanta doctor -p ios` checks all three and prints the fix. |
-| `Failed to clone WebDriverAgent` (a CI runner without access to GitHub) | Point `ATALANTA_WDA_URL` at a WebDriverAgent you run yourself, or let the runner reach github.com once so the build is cached. |
-| The first iOS run sits for a minute in `xcodebuild` | Expected once per Xcode version: Atalanta builds WebDriverAgent on the first iOS run, then reuses the build. |
-| `Element not found: … after …ms` | `atalanta trace view atalanta-results` shows the screen at the failure with the nearest elements; `atalanta inspect --open` lets you hover the element and copy its selector. |
-| `Element … is not actionable: …` | The target never held still, stayed disabled or was covered. Wait for it first (`assertVisible`), or put `force: true` on the step to act anyway; `config.actionability: lenient` makes the whole suite act with a warning. |
-| `Sync timeout: UI did not stabilize …` (the screen kept changing: a spinner, an animation, a ticking clock) | `settle: none` on that step, or a larger `config.sync.settleCapMs`. |
-| `Missing required environment variable(s): X` | `--env X=value`, `--env-file .env`, or export it in the shell. |
-| A test passes locally and fails in CI on the first step | The device is not booted yet, or another job holds it: `atalanta devices up --android 1` in the job, and see the exit codes in [CI.md](CI.md) (3 is a device problem; retry it). |
-| `atalantahq/atalanta@v0.2.0` not found in a workflow `atalanta init --ci github` wrote | Atalanta 0.2.0 has not been released yet, so the Action tag does not exist. Until it does, build from a checkout ([README](../README.md#install)). |
+| Symptom | Cause | What to do |
+|---|---|---|
+| `Failed to execute adb` | adb is not installed or not on `PATH`. | Run `atalanta doctor -p android`. It says where the SDK is and prints the `export PATH=…` line. `ATALANTA_ADB_PATH` points at another adb. |
+| `ADB connection lost`, or `Circuit breaker is open for device …` | The driver stopped answering, so Atalanta stopped sending it commands. | Run `atalanta doctor --fix`, which restarts a wedged adb server and reconnects offline devices. Then run again. |
+| `WDA … failed to build with Xcode …` | Usually not the WebDriverAgent tag. Likely causes are an unaccepted Xcode licence, `xcode-select` pointing at the command line tools only, or no simulator runtime. | Run `atalanta doctor -p ios`. It checks all three and prints the fix. |
+| `Failed to clone WebDriverAgent` | The CI runner cannot reach GitHub. | Point `ATALANTA_WDA_URL` at a WebDriverAgent you run yourself, or let the runner reach github.com once so the build is cached. |
+| The first iOS run sits for a minute in `xcodebuild` | Atalanta builds WebDriverAgent on the first iOS run, once per Xcode version. | Wait. Later runs reuse the build. |
+| `Element not found: … after …ms` | The selector matches nothing on the screen at that moment. | Run `atalanta trace view atalanta-results` to see the screen at the failure with the nearest elements. `atalanta inspect --open` lets you hover the element and copy its selector. |
+| `Element … is not actionable: …` | The target never held still, stayed disabled or was covered. | Wait for it first (`assertVisible`), or put `force: true` on the step to act anyway. `config.actionability: lenient` makes the whole suite act with a warning. |
+| `Sync timeout: UI did not stabilize …` | The screen kept changing: a spinner, an animation, a ticking clock. | Put `settle: none` on that step, or raise `config.sync.settleCapMs`. |
+| `Missing required environment variable(s): X` | The suite uses `${X}` and nothing sets it. | Pass `--env X=value` or `--env-file .env`, or export it in the shell. |
+| A test passes locally and fails in CI on the first step | The device is not booted yet, or another job holds it. | Run `atalanta devices up --android 1` in the job. Exit code 3 is a device problem; retry it (see [CI.md](CI.md)). |
+| `atalantahq/atalanta@v0.2.0` not found in a workflow that `atalanta init --ci github` wrote | Atalanta 0.2.0 has not been released, so the Action tag does not exist. | Until it does, build from a checkout ([README](../README.md#install)). |
 
 ## Platform requirements
 

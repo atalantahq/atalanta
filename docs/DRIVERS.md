@@ -1,7 +1,6 @@
 # Drivers
 
-Every platform implements `PlatformDriver` (`crates/atalanta-common/src/traits.rs`). The
-executor talks only to that trait. Its methods fall into these groups:
+Every platform implements `PlatformDriver` (`crates/atalanta-common/src/traits.rs`), and the executor talks only to that trait. Its methods fall into these groups:
 
 - **Lifecycle:** `prepare`, `cleanup`, `health_check`, `restart_session`.
 - **Devices:** `list_devices`, `boot_device`, `shutdown_device`.
@@ -14,15 +13,22 @@ executor talks only to that trait. Its methods fall into these groups:
 
 Every driver is wrapped in `ResilientDriver` (`resilience.rs`). It adds retries for transient errors and a circuit breaker per device.
 
-> **Verification status.** The device paths are tested on the host against fake adb, WDA,
-> devicectl and usbmuxd. On 2026-10-25 the Android and iOS drivers were also run on an Android 14
-> emulator and iOS 26 simulators (Xcode 26.0.1); no real device has been used. The web driver is
-> tested against real headless Chrome on macOS. Items below marked *(unverified on devices)* have
-> never run on hardware. See [STATUS.md](STATUS.md).
+## Verification status
+
+Most verification is on emulators, simulators and headless Chrome. Two real devices have been used, each for a narrow set of checks. What has been run, and where:
+
+| Platform | Run against | Not run |
+|---|---|---|
+| Android | Android emulators (API 33 and 34); one SUNMI tablet (Android 14), the Settings app only (2026-11-08 and 2026-11-21); the host tests use a fake adb | Any other real device; any app other than Settings on hardware |
+| iOS | iOS 26 simulators, Xcode 26.0.1 (2026-10-25); one wired iPhone 12, iOS 26.5.2 (2026-11-21 and 2026-11-22: Settings, the `launchApp` arguments test app and the trust gates); the host tests use fake WDA, devicectl and usbmuxd | On a real device: the Wi-Fi runner, the crash watcher, AtalantaRunner and `ios.verifyTap`. Any iPad |
+| Web | Real headless Chrome on macOS, and on Linux in CI | Any browser other than Chrome or Chromium |
+| Headless | `flutter test` on the host | Anything on a device |
+
+Items marked *(unverified on devices)* below have never run on hardware. See [STATUS.md](STATUS.md) for the full list.
 
 ## Choosing a driver
 
-Atalanta looks for the platform in this order:
+Atalanta picks the platform from the first of these that is set:
 
 1. `--platform`
 2. `config.platform`
@@ -30,9 +36,9 @@ Atalanta looks for the platform in this order:
    - a simulator UUID or an iPhone UDID means iOS;
    - `web` means the web;
    - anything else (`emulator-5554`, a USB serial, `host:port/serial`) means Android.
-4. If none of these gives one, it uses iOS.
+4. iOS, when none of these gives one.
 
-`driver: device|headless` (`--driver`) and `framework: native|react_native|flutter` (`--framework`; otherwise detected from the app build) pick the implementation:
+Two more settings pick the implementation. `driver: device|headless` (`--driver`) chooses a real or emulated target. `framework: native|react_native|flutter` (`--framework`) names the app's framework and is otherwise detected from the app build. The combinations are:
 
 | driver | framework | Implementation |
 |---|---|---|
@@ -46,6 +52,8 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
 
 ## Android (`crates/atalanta-android`)
 
+Supported: emulators and, in code, USB and remote devices. Only an emulator has been run. Needs `adb` on PATH (or `ATALANTA_ADB_PATH`).
+
 - **Transport:**
   - `adb` from PATH, or `ATALANTA_ADB_PATH`.
   - `ATALANTA_ADB_MODE=tcp` speaks the adb wire protocol directly. Installs and forwards still use the binary.
@@ -57,9 +65,17 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
   - It also injects input, takes screenshots, lists windows and counts accessibility events.
   - Fallback: `uiautomator dump` and `adb shell input`/`screencap`, with backoff. `android.treeServer: 0` forces the fallback.
   - The server holds the device's only UiAutomation slot. Another automation tool on the same device conflicts with it.
-  - Protocol 18 (R-2 in [SECURITY.md](SECURITY.md)): every connection runs a mutual HMAC handshake first. The host sends `HELLO <nonce>`, the server answers `PROOF` (an HMAC keyed with the token), and only then does the host send `AUTH` with its own HMAC; the token itself never crosses the socket. The token is new each time the server starts and is left in `/data/local/tmp/atalanta-tree.token` for shell (or root) only; the host reads it through adb. The host refuses servers older than 18 (asking them to `QUIT` and waiting for them to go), and a server that can't prove the token is reported as an app squatting on `@atalanta_tree`. The first line that isn't a command, such as an HTTP request line from a browser's blind POST to the forwarded port, closes the connection.
-  - Protocol 19: `WINDOWS` names the active window, so the tap guard counts another app's window in front (freeform or desktop windowing) as a cover; popups are dumped only from the active app's own windows (or the framework's); windows and rotation come from the active window's display (API 30+); a request id carries the host's wait (`#<id>@<ms>`), so a resend never parks a server thread longer than the host waits. The host keeps a session in place while it reconnects or resends, and removes an `adb forward` its cancelled caller left. *(Unverified on a device.)*
-  - Protocol 12 adds `ENCODERS` (the device's H.264 encoders). The same jar carries the **video server** (`com.atalanta.tree.VideoServer`), started as its own `app_process` like scrcpy's server: a virtual display (Android 14+; SurfaceControl before) mirrors the screen into a MediaCodec H.264 encoder (720p long edge, 2 Mbit/s, 30 fps max, a key frame a second), streamed with scrcpy's 12-byte packet header over its own `adb forward`, after a mutual HMAC handshake over a per-start token the server leaves in `/data/local/tmp/<socket>.token` (video server 2; see R-3 in [SECURITY.md](SECURITY.md); unverified on a device). The host keeps the last `artifacts.videoSeconds` in memory and muxes a failed test's clip to MP4 itself (`mp4.rs`); `AndroidDriver::video_stream` exposes the live stream (`video.rs`). If the encoder can't be used, `adb shell screenrecord` records each test instead. See [CLI.md](CLI.md#failure-evidence).
+  - **Authentication (protocol 18).** Every connection starts with a mutual HMAC handshake. The host sends `HELLO <nonce>`. The server answers `PROOF`, an HMAC keyed with the token. Only then does the host send `AUTH` with its own HMAC, so the token itself never crosses the socket.
+  - **Token.** It is new each time the server starts. It is left in `/data/local/tmp/atalanta-tree.token`, readable by shell (or root) only, and the host reads it through adb.
+  - **Old or impostor servers.** The host refuses servers older than 18: it asks them to `QUIT` and waits for them to go. A server that can't prove the token is reported as an app squatting on `@atalanta_tree`.
+  - **Stray clients.** The first line that isn't a command closes the connection. An example is the HTTP request line from a browser's blind POST to the forwarded port. See [SECURITY.md](SECURITY.md).
+  - **Window handling (protocol 19).** `WINDOWS` names the active window, so the tap guard counts another app's window in front (freeform or desktop windowing) as a cover. Popups are dumped only from the active app's own windows (or the framework's). Windows and rotation come from the active window's display (API 30+). A request id carries the host's wait (`#<id>@<ms>`), so a resend never parks a server thread longer than the host waits. The host keeps a session in place while it reconnects or resends, and removes an `adb forward` its cancelled caller left. *(Unverified on a device.)*
+  - **Video server.** The same jar carries `com.atalanta.tree.VideoServer`, started as its own `app_process`, like scrcpy's server. Protocol 12 added `ENCODERS`, which lists the device's H.264 encoders. *(Unverified on a device.)*
+    - A virtual display (Android 14+; SurfaceControl before) mirrors the screen into a MediaCodec H.264 encoder: 720p long edge, 2 Mbit/s, 30 fps at most, a key frame a second.
+    - The stream uses scrcpy's 12-byte packet header, over its own `adb forward`.
+    - It starts with a mutual HMAC handshake over a per-start token that the server leaves in `/data/local/tmp/<socket>.token` ([SECURITY.md](SECURITY.md)).
+    - The host keeps the last `artifacts.videoSeconds` in memory and muxes a failed test's clip to MP4 itself (`mp4.rs`). `AndroidDriver::video_stream` exposes the live stream (`video.rs`).
+    - If the encoder can't be used, `adb shell screenrecord` records each test instead. See [CLI.md](CLI.md#failure-evidence).
 - **Logs:** per test, `logcat -v threadtime -T <device time>` (`logcat.rs`): the whole log and the app's pids plus the crash buffer; the app's crashes, native crashes and ANRs go into the failure message.
 - **Compose:** `id:` also matches a Compose `testTag`, read through accessibility extra data. Turn it off with `android.composeTestTag: 0`. *(Unverified on devices.)*
 - **Input:**
@@ -78,11 +94,13 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
 
 ## iOS (`crates/atalanta-ios`)
 
+Supported: simulators, which carry most of the verification, and real iPhones and iPads. One wired iPhone 12 has been run; iPads and the Wi-Fi runner have not. Needs macOS, Xcode (`xcrun`, `xcodebuild`) and git for the WDA clone.
+
 - **Simulators:** `xcrun simctl`. `atalanta devices up --ios N` clones a golden simulator.
 - **Automation:** WebDriverAgent over HTTP.
   - On first use Atalanta clones WDA at a pinned tag, builds it once per Xcode under `~/.atalanta/wda`, and runs one per simulator.
   - **Pinned commits:** v16.14.1 (where the simulator platform ships `lib_TestingInterop.dylib`) and v16.12.10 (otherwise). A clone of a pinned tag must be at the commit Atalanta pins: a fresh clone at another commit stops the bootstrap, a cached clone at another commit is cloned again, and a cached build is reused only when it records the pinned commit (`atalanta-wda-ref` next to the build). `ATALANTA_WDA_REF` picks another tag, unchecked.
-  - **Listening address.** On a simulator (which shares the Mac's network) WDA's HTTP server is bound to `127.0.0.1` (`USE_IP`). Its MJPEG screen stream (`MJPEG_SERVER_PORT`, WDA's port + 1100; the console's iOS mirror) ignores `USE_IP` upstream and has no authentication, so Atalanta patches `FBWebServer.m` in its clone to give the stream the same interface before building (`mjpeg-use-ip` in `atalanta-wda-ref`; a build from before the patch is rebuilt once). A WDA you start yourself, or one launched by an older Atalanta and kept with `ATALANTA_KEEP_WDA`, still serves it on every interface. On a cabled iPhone both bind the phone's loopback, which the usbmux forward reaches; `ATALANTA_IOS_DEVICE_LOOPBACK=0` binds every interface instead (WDA then has no authentication: Atalanta warns). Until 2026-10-25 every interface was the default.
+  - **Listening address.** On a simulator (which shares the Mac's network) WDA's HTTP server is bound to `127.0.0.1` (`USE_IP`). Its MJPEG screen stream (`MJPEG_SERVER_PORT`, WDA's port + 1100; the console's iOS mirror) ignores `USE_IP` upstream and has no authentication, so Atalanta patches `FBWebServer.m` in its clone to give the stream the same interface before building (`mjpeg-use-ip` in `atalanta-wda-ref`; a build from before the patch is rebuilt once). A WDA you start yourself, or one launched by an older Atalanta and kept with `ATALANTA_KEEP_WDA`, still serves it on every interface. On a cabled iPhone both bind the phone's loopback, which the usbmux forward reaches; `ATALANTA_IOS_DEVICE_LOOPBACK=0` binds every interface instead (WDA then has no authentication: Atalanta warns). Before 2026-10-25 binding every interface was the default.
   - `ATALANTA_WDA_URL` uses a WDA you run yourself. `ATALANTA_KEEP_WDA=1` leaves it running between runs; the launching run records which build it ran, so a later run that reattaches knows its ref.
   - **One runner per simulator and port.** A kept runner is adopted only by a run that asks for the same runner kind and build (and, for AtalantaRunner, has its token). Any other run stops it first (`simctl terminate`), whatever its kind, and launches its own. Before launching, Atalanta checks that nothing listens on the port: a runner of the same simulator is stopped; another process is named in a device error (exit 3), never killed. A runner that fails to come up 3 times within 2 minutes is not launched again, and the step fails with a device error naming the last failure, instead of a relaunch every few seconds (a WDA that can't bind its port aborts at once). A run takes the device's lease before it prepares the driver, so it never touches a runner on a device another Atalanta process holds.
   - **Session settings**, sent after each session starts: `snapshotMaxDepth` (`ios.snapshotMaxDepth`, default 60) and `accessibilityDeadline` (`ios.accessibilityDeadlineMs`). Past the deadline WDA aborts the request with an error. The 5000 ms default goes only to a device whose WDA Atalanta built from v16.14.1 or later; an older or externally started WDA gets no deadline unless the setting is set.
@@ -90,7 +108,7 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
 - **AtalantaRunner** (`ios.runner: atalanta` / `ATALANTA_IOS_RUNNER=atalanta`):
   - Atalanta's own XCUITest runner (`probes/ios/AtalantaRunner`). It serves the subset of WDA's HTTP API Atalanta uses and builds much faster than WDA.
   - Built with `xcodebuild` and run on iOS 26 simulators (Xcode 26.0.1, 2026-10-25): a cold build took 25 s against WDA's 47 s. *Unverified on real iPhones.*
-  - Every request needs the bearer token Atalanta makes per launch (`ios.runnerToken` replaces it), a loopback `Host` with the runner's port, and no `Origin` or cross-site `Sec-Fetch-Site` (R-1 in [SECURITY.md](SECURITY.md)). The runner doesn't start without a token, so one you launch yourself for `ATALANTA_WDA_URL` needs `ATALANTA_RUNNER_TOKEN`, and Atalanta needs the same value in `ios.runnerToken`.
+  - Every request needs the bearer token Atalanta makes per launch (`ios.runnerToken` replaces it), a loopback `Host` with the runner's port, and no `Origin` or cross-site `Sec-Fetch-Site` ([SECURITY.md](SECURITY.md)). The runner doesn't start without a token, so one you launch yourself for `ATALANTA_WDA_URL` needs `ATALANTA_RUNNER_TOKEN`, and Atalanta needs the same value in `ios.runnerToken`.
 - **Real iPhones and iPads** *(unverified on devices)*:
   - `xcrun devicectl` installs, launches and copies crash logs.
   - The runner's port is forwarded over an in-process usbmuxd connection (what `iproxy` does).
@@ -110,12 +128,13 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
   - The host places it in its tree by that path: the target or something inside it passes; anything else is drawn over the target and the tap fails, naming it. When XCTest's element is a container of the target, or can't be placed, the deepest node at the point decides, skipping only nodes the snapshot reports with user interaction off (not being an accessibility element or not "hittable" to XCTest does not count: a plain `UIView` dimming overlay is both and still swallows the touch).
   - A point owned by SpringBoard (status bar, system alert) or another process fails, except inside a web view, whose page WebKit's WebContent process draws. When the deepest node decides and it is the bare root of another, empty window (SwiftUI keeps one after the content window on iOS 26), it is looked through. WebDriverAgent has no hit test: the frame rule alone applies, with one warning.
   - Each verified tap costs one app snapshot.
-- **Crash watcher** *(unverified on hardware)*: on a real iPhone, the app's state is polled every second after launch, on its own short-timeout connection, reading the session without waiting for the device's request lock (a slow `/source` no longer delays it); a crash makes later steps fail at once (see "Sticky crash" in [ARCHITECTURE.md](ARCHITECTURE.md)). `restoreState` and `launchApp` still run.
+- **Crash watcher** *(unverified on hardware)*: on a real iPhone, the app's state is polled every second after launch, on its own short-timeout connection, reading the session without waiting for the device's request lock (a slow `/source` read does not delay it); a crash makes later steps fail at once (see "Sticky crash" in [ARCHITECTURE.md](ARCHITECTURE.md)). `restoreState` and `launchApp` still run.
 - **System alerts:** handled unless `ios.systemAlerts: 0`.
 - **Failure evidence** (simulators): `simctl io recordVideo --codec h264` per test, stopped with SIGINT (which finalizes the file) and kept on failure; `simctl spawn log stream --style compact --level info` for the app's process. Real devices have neither yet.
-- **Needs:** macOS, Xcode (`xcrun`, `xcodebuild`), and git for the WDA clone.
 
 ## Web (`crates/atalanta-web`)
+
+Supported: Chrome or Chromium on macOS, headless by default. Needs Chrome or Chromium installed. Linux is untested.
 
 - **Browser:** Chrome or Chromium only, over the DevTools protocol (`chromiumoxide`).
   - Settings: `web.chromePath`, `headless` (default true), `width`/`height` (default 1280×800).
@@ -146,6 +165,8 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
 
 ## Headless (`crates/atalanta-headless`, `crates/atalanta-flutter-bridge`)
 
+Headless drivers run without a device. Native headless is an approximate renderer for smoke checks. Flutter headless runs your app's own widget tests, and you start the Dart side.
+
 - **Native headless:**
   - A CPU renderer (Taffy layout, tiny-skia paint) for Android layout XML (also read out of an APK) and iOS `.xib`/`.storyboard`. It needs no emulator.
   - It is an approximate smoke renderer:
@@ -160,7 +181,7 @@ React Native and Flutter on a device use the ordinary native driver. `framework`
 
 ## In-app sync probes
 
-These are optional debug-build libraries. They tell Atalanta when the app is idle. See [ARCHITECTURE.md#sync](ARCHITECTURE.md#sync).
+Use a probe when polling the screen is not enough to tell that the app is idle. Probes are optional libraries for debug builds, and they tell Atalanta when the app is idle. See [ARCHITECTURE.md#sync](ARCHITECTURE.md#sync).
 
 - **iOS** `probes/ios/AtalantaSyncProbe` (SwiftPM):
   - Call `AtalantaSyncProbe.start()`. It tracks run loop work, animations, URL requests, timers and `performSelector:afterDelay:` work.

@@ -6,18 +6,28 @@ atalanta run open-network-internet.yaml                                     # pl
 # commit it; CI runs it like any other suite
 ```
 
-An agent works through a goal on a real device, one operation per turn. The session is written out as a deterministic Atalanta test with real assertions, replayed straight away with **no model calls** to prove it holds, and repaired once if the replay fails. The model is paid for while exploring; CI never calls it.
+`atalanta explore` turns a plain-English goal into a regular Atalanta test.
 
-This is the opposite trade-off to agents that call a model on every step of every run (Google's ARTEMIS: Android only, 3 to 40 s per step, and its maintainer declined record-and-replay). Here the model runs once per test and the replay runs at the deterministic runner's speed.
+An agent works through the goal on a real device, one operation per turn. The session is written out as a deterministic test with real assertions. The test is replayed straight away with **no model calls** to prove it holds, and repaired once if the replay fails. The model is paid for while exploring, and CI never calls it.
+
+This is the opposite trade-off to agents that call a model on every step of every run (Google's ARTEMIS: Android only, 3 to 40 s per step, and its maintainer declined record-and-replay). Here the model runs once per test, and the replay runs at the deterministic runner's speed.
+
+Where to find the answers an adopter usually asks first:
+
+- **What the model is sent:** the Observe step under [How it works](#how-it-works), [Context for long runs](#context-for-long-runs), [Demonstrations from the project's tests](#demonstrations-from-the-projects-tests) and [Cost](#cost).
+- **What it can cause:** [Values](#values), the grounding rule under How it works, and [Trust gates](#trust-gates).
+- **What it costs:** [Budgets and stuck detection](#budgets-and-stuck-detection) and [Cost](#cost).
+- **What runs with no model:** the replay, CI, and [`--script`](#without-a-model---script).
+- **What is unmeasured:** [Limits](#limits).
 
 ## How it works
 
-Code: `crates/atalanta-explore` (the loop, the YAML writer, the replay) and `crates/atalanta-nl/src/goal.rs` (the goal prompt and its wire formats). The loop drives the same executor as `atalanta run`, so it gets the same sync, settle, dialog handling and actionability checks.
+The code is in `crates/atalanta-explore` (the loop, the YAML writer, the replay) and `crates/atalanta-nl/src/goal.rs` (the goal prompt and its wire formats). The loop drives the same executor as `atalanta run`, so it gets the same sync, settle, dialog handling and actionability checks.
 
 Each turn has five steps:
 
-1. **Observe.** The element tree is read and listed as numbered lines, as for natural-language steps (`ScreenIndex`), with the states the driver reports (`checked`/`unchecked`, `selected`, `focused`, `disabled`) and an empty field's `hint`. A screenshot is attached when the provider takes images and `--screenshots` asks for one: `poor` (the default: only when fewer than 4 elements are listed), `always`, or `never`. It is shrunk to at most 1,000 px on its long side before it is sent (code's own pixel checks keep the full image), and the final check follows the same mode.
-2. **Plan.** The goal model answers one JSON object: `op` (`tap`, `longPress`, `inputText`, `clearText`, `scroll`, `swipe`, `drag`, `back`, `home`, `enter`, `openApp`, `launch`, `wait`, `assert`, `answer` or `done`), an `element` number, a `value` *name* (for `drag`, the number of the element to drop on), a `direction`, `ms`, an `outcome` (for `done`: `success` or `giveUp`), a `reason`, an `expect` (see below), and a `memo`: a short note the model keeps for itself (facts gathered on earlier screens, what is left), shown back to it next turn and never acted on by code. `scroll` with an element number scrolls inside that list or picker. The prompt's version (`GOAL_PROMPT_VERSION`, now `goal-8`) is in the JSON report.
+1. **Observe.** The element tree is read and listed as numbered lines, as for natural-language steps (`ScreenIndex`), with the states the driver reports (`checked`/`unchecked`, `selected`, `focused`, `disabled`) and an empty field's `hint`. A screenshot is attached when the provider takes images and `--screenshots` asks for one. The modes are `poor` (the default: only when fewer than 4 elements are listed), `always` and `never`. The screenshot is shrunk to at most 1,000 px on its long side before it is sent, while code's own pixel checks keep the full image. The final check follows the same mode.
+2. **Plan.** The goal model answers one JSON object: `op` (`tap`, `longPress`, `inputText`, `clearText`, `scroll`, `swipe`, `drag`, `back`, `home`, `enter`, `openApp`, `launch`, `wait`, `assert`, `answer` or `done`), an `element` number, a `value` *name* (for `drag`, the number of the element to drop on), a `direction`, `ms`, an `outcome` (for `done`: `success` or `giveUp`), a `reason`, an `expect` (see below), and a `memo`: a short note the model keeps for itself (facts gathered on earlier screens, what is left), shown back to it next turn and never acted on by code. `scroll` with an element number scrolls inside that list or picker. The prompt's version (`GOAL_PROMPT_VERSION`, currently `goal-8`) is in the JSON report.
 3. **Ground.** Code builds everything that has to be right:
    - the selector, from the element number (`robust_selector`: id, then accessibility label, then unique text, with `index:` only for twins);
    - the typed value, looked up by name (see Values);
@@ -26,7 +36,7 @@ Each turn has five steps:
 4. **Act.** The action runs through the executor, which settles the screen afterwards.
 5. **Check the expectation, record.** Code judges the model's `expect` against the screen the action led to (below), and the action is kept with the screen before and after it.
 
-"The model picks; code decides": model text never becomes a selector or a typed value. The `reason` field only reaches logs and history.
+"The model picks; code decides": model text never becomes a selector or a typed value. This is the *grounding* rule. The `reason` field only reaches logs and history.
 
 ### Expected post-conditions (`expect`)
 
@@ -77,7 +87,14 @@ One demonstration of a similar task took a model from 19.3% to 51.7% success in 
 
 ### Verification (`--verify off|final|checkpoints|strict`, default `final`)
 
-When the model answers `done` with `success`, the checker model is asked whether the goal holds on a fresh read of the final screen and the run's log. The claim carries only data: the goal, the log (code's own lines, every app text in it quoted) and the answer, the log and the answer each in a block tagged with a hash of its content, so a screen text can't close it or pose as a rule. The rules for judging an end state are in the checker's system prompt, which calls those blocks data. It must cite real evidence: elements from the list, or, only when the final screen can't show the result (the goal was done in another app or on an earlier screen), the turns of the log that show it done. A "holds" that cites neither (or only turns the log doesn't have) is `unknown`, not a pass (the `verify:` rule in [DSL.md](DSL.md)). A goal that holds on the screen gets the cited elements as its final assertions; one that holds by the log alone gets none from the screen, its reason says `holds by the log (#n)`, and the report's `finalBasis` is `log` instead of `screen`. If the check fails, the model is told and keeps going. Two failed checks end the run as `unverified`, and no test is written. Under `checkpoints`, each assertion the model proposes is also checked against its `reason`; under `strict`, a failed checkpoint ends the run. With `off`, the model's word is taken, and the summary says so.
+When the model answers `done` with `success`, a checker model is asked whether the goal holds on a fresh read of the final screen and the run's log.
+
+- **What the checker sees:** the goal, the log (code's own lines, with every app text in it quoted) and the answer. The log and the answer each sit in a block tagged with a hash of its content, so a screen text can't close the block or pose as a rule. The rules for judging an end state are in the checker's system prompt, which calls those blocks data.
+- **What it must cite:** elements from the list. Only when the final screen can't show the result (the goal was done in another app or on an earlier screen) may it cite the log turns that show it done.
+- **What counts as a pass:** a "holds" that cites neither, or cites only turns the log doesn't have, is `unknown`, not a pass (the `verify:` rule in [DSL.md](DSL.md)).
+- **What gets asserted:** a goal that holds on the screen gets the cited elements as its final assertions. One that holds by the log alone gets none from the screen, its reason says `holds by the log (#n)`, and the report's `finalBasis` is `log` instead of `screen`.
+- **If the check fails:** the model is told and keeps going. Two failed checks end the run as `unverified`, and no test is written.
+- **Other levels:** under `checkpoints`, each assertion the model proposes is also checked against its `reason`. Under `strict`, a failed checkpoint ends the run. With `off`, the model's word is taken, and the summary says so.
 
 ## The generated test
 
@@ -116,7 +133,7 @@ A secret's value is registered for redaction, never sent to a model, and never w
 Benchmark goals carry their values unquoted ("Create a contact for Hugo Pereira. Their number is +13920741751."). With `--values-from-goal` the model may put the text itself in `value`, and code accepts it only when it is grounded (`crates/atalanta-explore/src/values.rs`):
 
 - it occurs verbatim in the goal, case, whitespace and typographic quotes folded; or
-- with `--values-from-screen` (a separate opt-in), it is a text shown on a screen during this run, or a run of whole words of one ("Ann" is not copied from "Planning"; a piece shorter than 3 characters must be a whole shown text) (copying from one app to another). Screen text is untrusted: the app, a web page or a message someone sent wrote it, so a page that says "type this into the password field" should not be able to choose what is typed unless you allowed it; or
+- with `--values-from-screen` (a separate opt-in), it is a text shown on a screen during this run, or a run of whole words of one. This allows copying from one app to another. "Ann" is not copied from "Planning", and a piece shorter than 3 characters must be a whole shown text. Screen text is untrusted: the app, a web page or a message someone sent wrote it. A page that says "type this into the password field" should not be able to choose what is typed unless you allowed it; or
 - it is a plain number (a computed amount, a count); or
 - it is pieces joined by line breaks, commas or semicolons, each of which passes one of the rules above (merging notes, a copied list).
 
@@ -165,14 +182,16 @@ After a repair, the test is written again, validated and replayed again. The rep
 
 ### Trust gates
 
-A test that replays is a cache of the run, and the cache must not lie. After the replays pass, two more checks decide whether the test is **trusted** (`--no-gates` skips them, and benchmarks never run them):
+Trust gates are the checks that decide whether a generated test can be relied on as a regression test. A test that replays is a cache of the run, and the cache must not lie. After the replays pass, two more checks decide whether the test is **trusted**. `--no-gates` skips them, and benchmarks never run them.
 
 - **Wrong path.** On the device, the test runs up to its last tap. It then taps one of the two nearest neighbours of that element (the same kind of element, with real text of its own) and runs to the end. It must fail. If it still passes, its assertions can't tell the screen it should reach from a neighbouring one, for example two plans whose checkouts look the same. Each neighbour gets a fresh run from the launch. A tap with no neighbour is reported as not checked.
 - **Goal text.** At least one assertion must name a word of the goal (stop words like "open" and "page" don't count), so the test checks what the goal asked for and not only that some screen showed.
 
-Hand-written tests and tests exported from an agent session (`atalanta export`, the MCP server's `export_session_flow`) were never explored, so explore's gates never ran on them. They can be gated the same way with `atalanta gate FILE --goal "..."`: it replays the file's one test, runs the wrong-path replay and the goal-text rule, and prints `trusted` or `not trusted` with the reasons ([CLI.md](CLI.md#gate)). A test is worth committing as a regression test only once it is trusted.
+Hand-written tests and tests exported from an agent session (`atalanta export`, the MCP server's `export_session_flow`) were never explored, so explore's gates never ran on them. They can be gated the same way with `atalanta gate FILE --goal "..."`. It replays the file's one test, runs the wrong-path replay and the goal-text rule, and prints `trusted` or `not trusted` with the reasons ([CLI.md](CLI.md#gate)). A test is worth committing as a regression test only once it is trusted.
 
-Each assertion explore writes has also had to fail on the screen before its step (the writer's own rule). The summary prints a `gates:` line: `trusted`, or `not trusted` and why. An untrusted test is still written, so it can be reviewed and fixed, but the exit code is 1 and the JSON report's `gates.trusted` is false. Five passing replays mean "burned in", not "proven stable": 95% confidence needs about 170 reruns (ICST 2021).
+Each assertion explore writes has also had to fail on the screen before its step (the writer's own rule). The summary prints a `gates:` line: `trusted`, or `not trusted` and why. An untrusted test is still written, so it can be reviewed and fixed, but the exit code is 1 and the JSON report's `gates.trusted` is false.
+
+Five passing replays mean "burned in", not "proven stable": 95% confidence needs about 170 reruns (ICST 2021).
 
 ## Steering a run: CLI, MCP, console and library
 
@@ -217,7 +236,16 @@ A step's `expect` names elements by text as `target` does: `{"appears": "Saved"}
 
 ## Cost
 
-Exploration costs one goal-model call per turn, plus one checker call per `done(success)` (and per assertion under `checkpoints`). A turn sends the system prompt and the run's stable part (goal, values, apps, demonstrations), both cache-marked on the Anthropic wire and first on every wire so a prefix cache can reuse them; then the current screen list (typically 1 to 3k tokens for a phone screen), the screenshot if any (at most 1,000 px), and the turn's own part (at most 12 history lines, the memo, the notes). It gets about 60 output tokens back. A 10-turn exploration is therefore roughly 20 to 40k input tokens. Pass `--price IN,OUT` to see the estimate (or `IN,OUT,CACHE_READ[,CACHE_WRITE]` for a provider whose cache rates differ), and `--max-cost` to cap it. Replays and CI cost nothing.
+Exploration costs one goal-model call per turn, plus one checker call per `done(success)` (and per assertion under `checkpoints`). Replays and CI make no model calls and cost nothing.
+
+A turn sends, in this order:
+
+1. The system prompt and the run's stable part (goal, values, apps, demonstrations). Both are cache-marked on the Anthropic wire and placed first on every wire, so a prefix cache can reuse them.
+2. The current screen list, typically 1 to 3k tokens for a phone screen.
+3. The screenshot, if any (at most 1,000 px).
+4. The turn's own part: at most 12 history lines, the memo and the notes.
+
+About 60 output tokens come back. A 10-turn exploration is therefore roughly 20 to 40k input tokens. Pass `--price IN,OUT` to see the estimate (or `IN,OUT,CACHE_READ[,CACHE_WRITE]` for a provider whose cache rates differ), and `--max-cost` to cap it.
 
 `inputTokens` in the report and the `finished` event counts every prompt token; `cacheReadTokens` and `cacheWriteTokens` say how many of them were read from and written to the provider's prompt cache (Anthropic; OpenAI-compatible endpoints report reads only). The estimate bills cache reads at a tenth of the input price and cache writes at 1.25 times it (Anthropic's ratios) unless `--price` names the cache rates.
 

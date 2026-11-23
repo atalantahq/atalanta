@@ -1,8 +1,10 @@
 # Atalanta: context for AI agents
 
-Atalanta is a UI testing framework for Android, iOS and the web, written in Rust. Tests are YAML suites in a Maestro-like DSL. It ships as one `atalanta` binary, and it has an MCP server so AI agents can drive devices. License: AGPL-3.0-only.
+This page is a map of the repository for AI agents and new contributors: where each part of Atalanta lives and which rules to keep. Terms are defined in the [glossary](docs/GUIDE.md#glossary).
 
-Read the code before trusting any doc. This file was checked against the code on 2026-11-11; [docs/](docs/README.md) pages carry their own dates.
+Atalanta is a UI testing framework for Android, iOS and the web, written in Rust. Tests are YAML suites in a Maestro-like DSL. It ships as one `atalanta` binary, and it has an MCP server so AI agents can drive devices. Licence: AGPL-3.0-only.
+
+Trust the code over any doc. This file was checked against the code on 2026-11-11. Pages under [docs/](docs/README.md) carry their own dates.
 
 ## Where things are
 
@@ -24,7 +26,7 @@ Read the code before trusting any doc. This file was checked against the code on
   - `crates/atalanta-android`: adb plus an embedded on-device tree server; the same jar has a scrcpy-style screen video server (`video.rs`, `mp4.rs`) and logcat capture (`logcat.rs`) for failure evidence.
   - `crates/atalanta-ios`: simctl and devicectl, plus WebDriverAgent (built from a pinned clone, patched so its MJPEG stream honours `USE_IP`) or Atalanta's own runner.
   - `crates/atalanta-web`: Chrome over CDP.
-  - `crates/atalanta-headless` and `crates/atalanta-flutter-bridge`: headless.
+  - `crates/atalanta-headless` (renders Android XML and iOS XIB layouts with no device) and `crates/atalanta-flutter-bridge` (runs Flutter widget tests with `flutter test` on the host).
 - `crates/atalanta-inspector`: an axum web UI and API (the console in `src/console/`: live device mirror, input under the device lease, suite runs and explore sessions as child processes with live events, saving an explored test into the project, doctor diagnostics, tasks), a token-protected `/review` page for screenshot baselines, and an embedded React build.
 - `crates/atalanta-mcp`: JSON-RPC over stdio. It serves 5 tools by default (`profile.rs`: `observe`, `act`, `run`, `artifacts`, `verify_change`) and 33 with `--profile full`, background tasks (`run_task`: a suite run, or an exploration with `goal`, steered by `task_inject`), compact snapshots with session refs, `diagnose` (`atalanta-doctor`), and `atalanta mcp install` for agent clients.
 - `crates/atalanta-migrate`: converts Maestro flows to Atalanta.

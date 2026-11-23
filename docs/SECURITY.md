@@ -1,36 +1,46 @@
 # Security model
 
-This document reviews every place where Atalanta opens a socket, talks to a
-remote service, or writes files. For each one it says what the component binds
-to, how it authenticates, and what three attackers could do:
+Every place where Atalanta opens a socket, talks to a remote service, or writes
+files: what the component binds to, how it authenticates, and what three
+attackers could do:
 
 - **a web page** open in any browser on the same machine, using CSRF-style
   blind requests or DNS rebinding against `127.0.0.1`;
 - **another host on the LAN** or Wi-Fi;
 - **another local user or process** on the same machine or device.
 
-It was written from the code as of the 0.2 release line. Where the code and
-this document disagree, trust the code and report the gap (see
-[SECURITY.md](../SECURITY.md)).
+It was written from the code of the 0.2 release line. Where the code and this
+page disagree, trust the code and report the gap. The root
+[SECURITY.md](../SECURITY.md) covers supported versions, how to report a
+vulnerability, scope, how to verify a release, and the automated checks.
+
+Several components below are marked "not run on a device". That means the
+mitigation is implemented and tested against stand-ins or an emulator, but has
+not been run on that hardware. [STATUS.md](STATUS.md) lists what was run.
 
 **Baseline assumption.** Whoever runs `atalanta` already controls the devices
-it drives: `adb` shell, XCTest and the Chrome DevTools Protocol are full
+it drives. `adb` shell, XCTest and the Chrome DevTools Protocol are full
 control by design. The goal is that Atalanta never extends that control to
-anyone else, such as a web page, the network, or another user.
+anyone else: a web page, the network, or another user.
+
+**Reading the risk labels.** Labels such as R-1 and I-2 identify findings.
+I is for the inspector, M for MCP and A for AI providers; R numbers cover
+the device servers and runners. A finding marked fixed is kept with its date so you can see what
+changed. Open gaps are listed under "Residual risks" in each section.
 
 ## Summary
 
 | Surface | Binds to | Auth | Web page | LAN | Local user |
 | --- | --- | --- | --- | --- | --- |
-| Inspector / console (`atalanta inspect`) | `127.0.0.1:9876` (default); `--host` overrides | 128-bit session token + Host/Origin/Sec-Fetch-Site checks | blocked | only with `--host` and the token | needs the token |
+| Inspector / console (`atalanta inspect`) | `127.0.0.1:9876` (default); `--host` overrides | 128-bit session token plus `Host`, `Origin` and `Sec-Fetch-Site` checks | blocked | only with `--host` and the token | needs the token |
 | MCP server (`atalanta mcp`) | stdio only | the parent process | n/a | n/a | n/a |
 | MCP `open_inspector` | `127.0.0.1:9876-9885` | inspector token | blocked | no | needs the token |
-| Android tree server (on device) | abstract socket `@atalanta_tree` | peer-uid check (shell/root only), then a per-start token (`AUTH`, protocol 13) | see adb forward | no | apps blocked |
-| Android video server (on device) | abstract socket `@atalanta_video_<pid>_<n>` | peer-uid check, then a per-start token (mutual HMAC handshake, video server 2); first authenticated client only | see adb forward | no | apps blocked |
+| Android tree server (on device) | abstract socket `@atalanta_tree` | peer-uid check (shell/root only), then a per-start token, proved in a mutual HMAC handshake (protocol 18 and later) | see adb forward | no | apps blocked |
+| Android video server (on device) | abstract socket `@atalanta_video_<pid>_<n>` | peer-uid check, then a per-start token in a mutual HMAC handshake (video server 2); first authenticated client only | see adb forward | no | apps blocked |
 | `adb forward tcp:0` to the tree server (host side) | `127.0.0.1:<random>` | the tree server's token | blocked (R-2 fixed 2026-10-25) | no | only with adb access (R-3 mitigated) |
-| `adb forward tcp:0` to the video server (host side) | `127.0.0.1:<random>` | the video server's token | blocked (closed, the server waits for the next client) | no | only with adb access (R-3 mitigated 2026-11-11) |
+| `adb forward tcp:0` to the video server (host side) | `127.0.0.1:<random>` | the video server's token | blocked (the connection is closed and the server waits for the next client) | no | only with adb access (R-3 mitigated 2026-11-11) |
 | Android sync probe (in the app) | `127.0.0.1:19401` on the device | none | n/a | no | other apps can query |
-| iOS AtalantaRunner (simulator) | `127.0.0.1:8100+` (`USE_IP`) | per-launch bearer token + Host/Origin/Sec-Fetch-Site checks | blocked (R-1 fixed 2026-10-25) | no | needs the token (file `0600`) |
+| iOS AtalantaRunner (simulator) | `127.0.0.1:8100+` (`USE_IP`) | per-launch bearer token plus `Host`, `Origin` and `Sec-Fetch-Site` checks | blocked (R-1 fixed 2026-10-25) | no | needs the token (file `0600`) |
 | iOS WebDriverAgent (simulator) | `127.0.0.1:8100+` (`USE_IP`) | **none** (third-party) | **blind writes possible (R-1W)** | no | yes |
 | iOS runner on a cabled iPhone | the phone's loopback (R-4 fixed 2026-10-25); every interface only with `ATALANTA_IOS_DEVICE_LOOPBACK=0` | AtalantaRunner: per-launch token; WDA: none | through the usbmux forward, as on a simulator | no (unless opted out; then WDA is open) | AtalantaRunner: needs the token |
 | iOS runner over Wi-Fi | the phone's Wi-Fi address | bearer token required (`ios.allowWifiRunner`, AtalantaRunner only) | no | needs the token | needs the token |
@@ -41,15 +51,71 @@ anyone else, such as a web page, the network, or another user.
 | AI providers | outbound HTTPS | API key from environment | n/a | n/a | n/a |
 | Notifiers (`--notify webhook=`) | outbound HTTP(S) | none | n/a | n/a | n/a |
 
+Every outbound destination, with what is sent to it, is listed under
+[Data and network egress](#data-and-network-egress).
+
+## Data and network egress
+
+This section lists every case in which Atalanta contacts a host other than the
+device, simulator or browser under test, and what it sends. Read it to decide
+which features may be used with your data. Atalanta has no hosted service and
+no account. It contains no telemetry, analytics, crash reporting or update
+check.
+
+| Destination | When | What is sent | How to avoid it |
+|---|---|---|---|
+| A model provider's API, or the `baseUrl` you configure | A suite has natural-language steps or `verify:` checks, or you run `atalanta explore` or `atalanta nl-eval --model` | Natural-language steps: the step text and the numbered list of on-screen elements with their text. `verify:` checks: the claim, the element list and a screenshot. `explore`: the goal, the history of earlier turns, the names of the values it may use, the element list and, in some cases, a screenshot (below) | Set no provider key and use none of these features. A saved test replays with no model. `ATALANTA_NL_CACHE=read-only` replays a committed plan cache without calling a model |
+| `oauth2.googleapis.com` | The `vertex` provider is used | The Google credentials you supplied, exchanged for a short-lived token | Do not use the `vertex` provider |
+| `github.com/appium/WebDriverAgent` | The first iOS run that uses WebDriverAgent, once per Xcode | A `git clone`. No test data | Use AtalantaRunner (`ATALANTA_IOS_RUNNER=atalanta`) or point at a runner you started (`ATALANTA_WDA_URL`) |
+| `api.appstoreconnect.apple.com` | Signing for a real iPhone with an App Store Connect key (`ATALANTA_ASC_*`) | Device and bundle id registration, authenticated with a token that lives 15 minutes | Do not set the `ATALANTA_ASC_*` variables |
+| GitHub releases | You run `install.sh`, or the GitHub Action, which runs it | A download of the release archive and `SHA256SUMS` | Install from a checkout, Homebrew or npm instead |
+| A webhook URL you give | `atalanta mcp --notify webhook=<url>`, when a background task ends | A POST describing the finished task | Omit `--notify` |
+| The URLs in your `http` steps | An `http` step runs | The request you wrote, with the headers and body you wrote | Write no `http` steps |
+
+The npm launcher starts the installed binary and makes no request of its own.
+
+**Screenshots.** Pixels cannot be redacted. A screenshot sent to a provider
+shows whatever the app shows.
+
+- `verify:` checks send one unless `images: false` or `ATALANTA_NL_IMAGES=0`.
+- `explore` sends one when the screen lists fewer than four elements (the
+  default mode, `--screenshots poor`), on every turn with
+  `--screenshots always`, and never with `--screenshots never`. Each is scaled
+  to at most 1,000 px on its long side.
+- Natural-language steps send none.
+
+**What is never sent to a provider.**
+
+- Provider keys, AWS secrets and Google tokens. They are registered with the
+  redactor when they are read.
+- The values of `${VAR}` variables whose names look secret, or that are
+  listed in `ATALANTA_SECRETS`. They are masked in the element list, the
+  claim, the goal and the history. A secret used as step data is sent as a
+  placeholder that gives only its length.
+- With `nl.dataPolicy: describe`, any step data: the model is told what kind
+  of value it is, not the value.
+
+Text on screen that is not a registered secret is sent as it is. Section 6
+covers the providers in detail, and section 7 the files Atalanta writes.
+
 ## 1. Inspector and console (`crates/atalanta-inspector`)
 
+This section covers the local web server behind `atalanta inspect`. Read it
+before exposing the console beyond your own machine.
+
 **What it is.** An axum server that serves the React console (embedded with
-`rust-embed`) and an API under `/api`. The API covers device lists,
-screenshots, the hierarchy, tap/type/swipe/key input, the live mirror and
-WebSocket (`/api/ws/{device}`, `/api/mirror/{device}`), saving flows,
-starting `atalanta run` and `atalanta explore` child processes, reading their
-output files, and accepting or rejecting screenshot baselines. `/review` is
-a server-rendered page for baselines.
+`rust-embed`) and an API under `/api`. The API can:
+
+- list devices and read screenshots and the hierarchy;
+- send tap, type, swipe and key input;
+- stream the live mirror and a WebSocket (`/api/ws/{device}`,
+  `/api/mirror/{device}`);
+- save flows;
+- start `atalanta run` and `atalanta explore` child processes and read their
+  output files;
+- accept or reject screenshot baselines.
+
+`/review` is a server-rendered page for baselines.
 
 **Binding.** `atalanta inspect` binds `127.0.0.1:9876` by default
 (`InspectorServer::bind`). `--host <ip>` binds any address, and a
@@ -78,8 +144,8 @@ binds `127.0.0.1`.
   `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, and
   `Cache-Control: no-store` on the API. `/review` sends a strict CSP.
 - **Files.** Paths from requests are confined to their directory. Flows are
-  saved under `--tests-dir` (once `--flows-dir`) as new `.yaml` files only, with relative,
-  normal components and no `..` (`routes/recording.rs`). Suites and plan
+  saved under `--tests-dir` (formerly `--flows-dir`) as new `.yaml` files only,
+  with relative paths and no `..` (`routes/recording.rs`). Suites and plan
   files resolve inside the project directory and symlinks that leave it are
   refused (`console/project.rs::confine`). Task files are confined to the
   task's folder, and baselines are addressed by id, not path.
@@ -89,10 +155,11 @@ binds `127.0.0.1`.
 
 **Attacker analysis.**
 
-- *Web page:* it can't read responses (no CORS headers, CORP), and can't
-  send an authenticated request, because the cookie is `SameSite=Strict`, a
-  cross-site `Origin` or `Sec-Fetch-Site` is refused, and it doesn't know the
-  token. DNS rebinding fails the `Host` check.
+- *Web page:* it can't read responses, because the server sends no CORS
+  headers and sets CORP. It can't send an authenticated request, because the
+  cookie is `SameSite=Strict`, a cross-site `Origin` or `Sec-Fetch-Site` is
+  refused, and it doesn't know the token. DNS rebinding fails the `Host`
+  check.
 - *LAN:* nothing is reachable with the default bind. With `--host 0.0.0.0`
   the server is plain HTTP: anyone who can see the traffic (shared Wi-Fi)
   can read the token from the URL or cookie and then drive the device, run
@@ -102,22 +169,24 @@ binds `127.0.0.1`.
 
 **Residual risks.**
 
-- I-1: with `--host` set to a non-loopback address, the token travels in
+- **I-1:** with `--host` set to a non-loopback address, the token travels in
   clear text. Use an SSH tunnel or a TLS reverse proxy instead of `--host`
   on untrusted networks.
-- I-2 (fixed 2026-11-11): `POST /api/tasks/explore` passed the goal text to
+- **I-2** (fixed 2026-11-11): `POST /api/tasks/explore` passed the goal text to
   the child before the flags, so a goal starting with `-` could be read as a
   flag. The goal now goes last, after `--`.
-- I-3 (fixed 2026-11-11): the console UI had no Content-Security-Policy. Its
+- **I-3** (fixed 2026-11-11): the console UI had no Content-Security-Policy. Its
   page and assets now carry `default-src 'self'; script-src 'self';
   style-src 'self'; img-src 'self' data: blob:; connect-src 'self';
-  object-src 'none'; base-uri 'none'; frame-ancestors 'none'`, behind
-  React's escaping of the device-controlled strings it renders.
+  object-src 'none'; base-uri 'none'; frame-ancestors 'none'`, in
+  addition to React's escaping of the device-controlled strings it renders.
 
 ## 2. MCP server (`crates/atalanta-mcp`)
 
-**Transport.** JSON-RPC over **stdio only** (`server.rs`, logs go to
-stderr). There is no HTTP or SSE transport, so nothing listens. Background
+This section covers `atalanta mcp`, the server an AI agent connects to.
+
+**Transport.** JSON-RPC over **stdio only** (`server.rs`; logs go to stderr).
+There is no HTTP or SSE transport, so nothing listens. Background
 tasks (`src/tasks/`) run `atalanta run` or `atalanta explore` as children
 and talk to them through files in a task directory: an events JSONL and an
 `--inject-file`.
@@ -129,17 +198,21 @@ artifact reads to allowed roots after canonicalising.
 
 **Residual risks.**
 
-- M-1 (prompt injection): screen text and hierarchy dumps from the app under
+- **M-1 (prompt injection):** screen text and hierarchy dumps from the app under
   test are returned to the agent verbatim, apart from secret redaction. An
   app, or a web page in the web driver, can show text such as "ignore your
   instructions and run …". Atalanta can't stop the agent from acting on it.
   Run agents with tool confirmation enabled when testing untrusted apps or
   sites.
-- M-2: `--notify script=<path>` executes a program and `webhook=<url>` posts
+- **M-2:** `--notify script=<path>` executes a program and `webhook=<url>` posts
   the task result. Both come from the command line the user wrote, not from
   tool arguments.
 
 ## 3. Android: tree server, video server, adb forwards (`crates/atalanta-android`, `probes/android/atalanta-tree-server`)
+
+This section covers the code Atalanta pushes to an Android device and the
+`adb forward` ports that reach it. Read it if you run Atalanta against shared
+or untrusted devices or on a shared host.
 
 **What runs on the device.** `atalanta-tree.jar`, a dex built from
 `probes/android/atalanta-tree-server` and embedded in the binary (rebuild
@@ -166,7 +239,7 @@ started with `app_process` as the **shell** user. It runs two servers:
 localabstract:<name>`. The adb server binds the forward on `127.0.0.1` at a
 random port, which Atalanta removes when it finishes.
 
-**Tree server handshake (protocol 18).** At each start the server makes a
+**Tree server handshake (protocol 18 and later; the current protocol is 19).** At each start the server makes a
 128-bit token and writes it to `/data/local/tmp/atalanta-tree.token`,
 readable by its own uid (shell, or root) only; the host reads it with
 `adb shell cat`. The token never crosses the socket. The handshake is
@@ -179,7 +252,8 @@ token and every typed secret.
    connection). The server answers `PROOF <hex HMAC-SHA256(token,
    "atalanta-tree server <boot nonce> <client nonce>")>`. The host compares
    it in constant time and sends nothing more to a server that can't prove
-   it holds the token; it says another app may have bound the socket name.
+   it holds the token. It reports that another app may have bound the socket
+name.
 3. The host sends `AUTH <hex HMAC-SHA256(token, "atalanta-tree client <boot
    nonce> <client nonce>")>` (a different message, so a server's proof is
    never a client's); the server answers `OK 0`.
@@ -190,18 +264,18 @@ and the connection is closed, so nothing after it is read. The host refuses
 servers older than protocol 18 (they can't prove anything) and replaces a
 running server that isn't its own version. When the server can't bind the
 socket because another process holds the name, the host reports that
-instead of quietly falling back to `uiautomator`. Not yet run on a device
-(see [STATUS.md](STATUS.md)).
+instead of quietly falling back to `uiautomator`. Not run on a device (see
+[STATUS.md](STATUS.md)).
 
 **Residual risks.**
 
 - **R-2 (medium): cross-protocol requests from a web page. Fixed
-  2026-10-25** (protocol 13, above): the request line of a browser's blind
-  `POST` (`POST / HTTP/1.1`) closes the connection before the headers or
-  body are read, and a page can't read the device file holding the token.
-  Checked on the API 34 emulator (see [STATUS.md](STATUS.md)). The original
-  finding, for the record: The tree
-  server reads newline-separated commands and answers `ERR unknown command`
+  2026-10-25** (protocol 13, mutual handshake since protocol 18). The request
+  line of a browser's blind `POST` (`POST / HTTP/1.1`) closes the connection
+  before the headers or body are read, and a page can't read the device file
+  holding the token. Checked on the API 34 emulator (see
+  [STATUS.md](STATUS.md)). The original finding, for the record: the tree
+  server read newline-separated commands and answers `ERR unknown command`
   to anything else *without closing the connection*. A browser `fetch()` to
   `http://127.0.0.1:<port>/` with a `text/plain` body sends lines such as
   `POST / HTTP/1.1` and the headers, which are refused, but then the body
@@ -209,30 +283,32 @@ instead of quietly falling back to `uiautomator`. Not yet run on a device
   and lives only for the run, so the page would have to scan for it.
   Chrome's Local Network Access permission blocks public pages from
   reaching loopback; Safari and Firefox don't. Responses can't be read
-  cross-origin, so the impact is input injection, not data theft.
-  **Recommended fix:** close the connection on the first line that isn't a
-  known command, or on any line that looks like HTTP (`^[A-Z]+ \S+
-  HTTP/1\.[01]$`). Better still, require a per-session nonce as the first
-  line, passed to `app_process` on its command line (visible only to shell
-  and root on the device).
+  cross-origin, so the impact was input injection, not data theft.
+  The fix is the one that shipped: any line that isn't a known command
+  closes the connection, and every command needs the token handshake first.
 - **R-3 (low): other local users. Mitigated 2026-10-25** for the tree
   server: a process that connects to the forwarded port also needs the
   token, which only a process that can run `adb shell` can read. That
   process can already drive the device through adb itself
   (`127.0.0.1:5037`, no authentication, outside Atalanta's control), so the
   forward no longer adds access. The **video server's** forward got the
-  same treatment on 2026-11-11 (video server 2, security review #10): a
+  same treatment on 2026-11-11 (video server 2): a
   per-start token file and a mutual handshake before the stream, so
   another local process can neither read the screen nor keep the client
-  slot. Not yet run on a device.
+  slot. Not run on a device.
 - The sync probe that apps embed (`probes/android/atalanta-sync-probe`,
   debug builds only) listens on the device's `127.0.0.1:19401` with no
   authentication. Any app on the device can ask whether the app is idle,
-  read its package name and pid, and change the probe's ignore lists, which
-  only affects how long Atalanta waits. Never ship the probe in a release
-  build.
+  read its package name and pid, and change the probe's ignore lists. The
+  ignore lists only affect how long Atalanta waits. Never ship the probe in a
+  release build.
 
 ## 4. iOS: AtalantaRunner, WebDriverAgent, usbmuxd (`crates/atalanta-ios`, `probes/ios/AtalantaRunner`)
+
+This section covers the HTTP servers Atalanta starts on or for iOS devices.
+There are two runners: AtalantaRunner (Atalanta's own, token-protected) and
+WebDriverAgent (WDA, third-party, no authentication). Choose with
+`ios.runner`.
 
 **Simulators.** The runner (AtalantaRunner, or WebDriverAgent cloned at a
 pinned tag whose commit hash is verified, see `wda_bootstrap.rs`) runs inside
@@ -243,7 +319,7 @@ stream (patched by `patch_mjpeg_bind` to honour `USE_IP`) bind loopback only.
 **Cabled iPhones.** The host reaches the runner through Atalanta's own
 usbmuxd forward (`usbmux.rs`, listening on `127.0.0.1`). On the phone, the
 runner binds its **loopback** (`USE_IP=127.0.0.1`), which the usbmux
-forward reaches (since 2026-10-25, R-4). `ATALANTA_IOS_DEVICE_LOOPBACK=0`
+forward reaches (since 2026-10-25; see R-4). `ATALANTA_IOS_DEVICE_LOOPBACK=0`
 binds every interface instead, for a phone whose usbmuxd doesn't deliver
 to loopback; with WebDriverAgent Atalanta then warns that anyone on the
 phone's network can drive it.
@@ -274,44 +350,36 @@ is never reused: Atalanta stops it and launches its own.
 WebDriverAgent has no authentication and no `Host` or `Origin` checks, and
 Atalanta doesn't patch them in (it is a large third-party server; only its
 MJPEG bind is patched). Atalanta binds it to loopback everywhere: simulators
-and, since R-4, cabled iPhones.
+and, since the R-4 fix, cabled iPhones.
 
 **Residual risks.**
 
 - **R-1 (medium): web pages can send commands to a simulator's runner.
-  Fixed 2026-10-25 for AtalantaRunner** (above; checked on the iPhone 17
-  simulator with curl, see [STATUS.md](STATUS.md)). **Residual R-1W:**
-  WebDriverAgent is still open to blind cross-site writes, and to reads
-  through DNS rebinding, from a page in a browser on the Mac while a run is
-  going. Use `ios.runner: atalanta` where that matters. Chrome's Local
-  Network Access prompt blocks public pages from reaching loopback; Safari
-  and Firefox don't. The original finding:
-  AtalantaRunner checks neither `Host` nor `Origin`, parses the body as JSON
-  whatever its `Content-Type`, and ignores the session id on action routes.
-  A page open in any browser on the Mac can therefore send no-cors
-  `text/plain` POSTs to `http://127.0.0.1:8100/...` to tap, type, swipe,
-  set the pasteboard or launch apps on the simulator while a run is going.
-  With DNS rebinding (no `Host` check) it can also *read* `/source` and
-  screenshots. The same applies to WebDriverAgent, and to a cabled device
-  through the loopback usbmux forward.
-  **Recommended fix:** in AtalantaRunner, refuse requests whose `Host`
-  isn't `127.0.0.1`, `localhost` or `[::1]` (with any port), and any request
-  that carries `Origin` or `Sec-Fetch-*` headers. The host should also always
-  generate a random per-launch `ATALANTA_RUNNER_TOKEN`, simulators included,
-  rather than only when the user configures one. Prefer
-  `ios.runner: atalanta` over WebDriverAgent.
+  Fixed 2026-10-25 for AtalantaRunner** (see above; checked on the iPhone 17
+  simulator with curl, see [STATUS.md](STATUS.md)).
+  **R-1W (open): WebDriverAgent is still exposed.** A page in a browser on
+  the Mac can send blind cross-site writes to it, and can read from it
+  through DNS rebinding, while a run is going. Use `ios.runner: atalanta`
+  where that matters. Chrome's Local Network Access prompt blocks public
+  pages from reaching loopback; Safari and Firefox don't. The original
+  finding: AtalantaRunner checked neither `Host` nor `Origin`, parsed the
+  body as JSON whatever its `Content-Type`, and ignored the session id on
+  action routes. A page open in any browser on the Mac could therefore send
+  no-cors `text/plain` POSTs to `http://127.0.0.1:8100/...` to tap, type,
+  swipe, set the pasteboard or launch apps on the simulator while a run was
+  going. With DNS rebinding it could also *read* `/source` and screenshots.
+  The same applies today to WebDriverAgent, and to a cabled device through
+  the loopback usbmux forward when WebDriverAgent is the runner.
 - **R-4 (high): a cabled iPhone's runner is reachable on Wi-Fi. Fixed
   2026-10-25:** loopback is the default for cabled iPhones and every runner
-  launch gets a token. **Not yet run on a real iPhone**: that usbmuxd
-  delivers to the phone's loopback is the P5 assumption, unverified on
+  launch gets a token. **Not run on a real iPhone**: that usbmuxd
+  delivers to the phone's loopback is an assumption not yet verified on
   hardware. If it doesn't, the runner never answers; set
   `ATALANTA_IOS_DEVICE_LOOPBACK=0` (AtalantaRunner then stays
-  token-protected, WDA doesn't). The original finding: Without `ATALANTA_IOS_DEVICE_LOOPBACK=1` and a token, anyone on
-  the phone's network can drive it, and WDA's MJPEG port streams its screen
-  while a run is going. **Recommended fix:** make loopback binding the
-  default for cabled devices once the wired smoke run confirms that usbmuxd
-  delivers to the phone's loopback (tracked as P5 in the code), and generate
-  a token automatically.
+  token-protected, WDA doesn't). The original finding: without
+  `ATALANTA_IOS_DEVICE_LOOPBACK=1` and a token, anyone on the phone's network
+  could drive it, and WDA's MJPEG port streamed its screen while a run was
+  going.
 - The iOS sync probe and the Flutter bridge listen on loopback with no
   authentication. On a simulator that is the Mac's loopback, so local
   processes and web pages (blindly) can reach them. Their commands are
@@ -320,6 +388,8 @@ and, since R-4, cabled iPhones.
   release builds.
 
 ## 5. Web driver (`crates/atalanta-web`)
+
+This section covers how the web driver launches and talks to Chrome.
 
 Chrome is started by `chromiumoxide` with `--remote-debugging-port=0`. Chrome
 picks a random loopback port and enforces its own Host and Origin checks on
@@ -336,6 +406,11 @@ sessions.
 
 ## 6. AI providers (`crates/atalanta-nl`, `crates/atalanta-explore`, `crates/atalanta-doctor`)
 
+This section covers what Atalanta sends to AI providers and how it handles
+their credentials. It applies when a suite uses natural-language steps,
+`verify:` checks or `atalanta explore`. See [AI-PROVIDERS.md](AI-PROVIDERS.md)
+for setup.
+
 **Keys.** Keys are read only from environment variables. `apiKeyEnv` in
 config must be a variable name, a value that looks like a key is refused,
 and the error doesn't echo it. Every key, AWS secret or session token and
@@ -348,13 +423,17 @@ use.
 
 **What is sent.**
 
-- *Planning* (NL steps, `explore` turns) sends text only: the goal or step,
-  and a numbered list of on-screen elements and their text, passed
-  through `redact()` first.
+- *Natural-language steps* send text only: the step, and a numbered list of
+  on-screen elements and their text, passed through `redact()` first.
+- *`explore` turns* send the goal, the history and the same element list,
+  also redacted. They add a **screenshot** when the screen lists fewer than
+  four elements, on every turn with `--screenshots always`, and never with
+  `--screenshots never`.
 - *`verify:` checks* also send a **screenshot** unless `images: false` or
-  `ATALANTA_NL_IMAGES=0`. Screenshots are pixels and are **not redacted**:
-  whatever the app shows, such as names, emails, balances or an unmasked
-  field, goes to the provider.
+  `ATALANTA_NL_IMAGES=0`.
+- Screenshots are pixels and are **not redacted**: whatever the app shows,
+  such as names, emails, balances or an unmasked field, goes to the
+  provider.
 - Model output is never used directly as a selector or a typed value. The
   planner returns an operation and an element number, values are referenced
   by `${VAR}` name, and `grounding.rs` builds and checks the selector in
@@ -375,17 +454,20 @@ shorter than 8 characters are masked only as whole words.
 
 **Residual risks.**
 
-- A-1: screenshots, videos and the text of non-secret fields are not
+- **A-1:** screenshots, videos and the text of non-secret fields are not
   redacted, in model requests or in artifacts. Use test accounts and test
   data.
-- A-2: a secret held in a variable whose name doesn't look secret (for
+- **A-2:** a secret held in a variable whose name doesn't look secret (for
   example `${CUSTOMER_REF}`) is only masked if its shape matches. List such
   variables in `ATALANTA_SECRETS`.
-- A-3: suites can interpolate any host environment variable (`${VAR}`), so a
+- **A-3:** suites can interpolate any host environment variable (`${VAR}`), so a
   suite from an untrusted source could type an environment secret into the
   app under test. Treat suites as code.
 
 ## 7. Files Atalanta writes
+
+This section lists what Atalanta writes to disk, which matters if you publish
+CI output.
 
 - **Artifacts and evidence** (`--artifacts-dir`, default `atalanta-results/`):
   JUnit, JSON, HTML and Allure reports, traces (`steps.json`, per-step
@@ -407,6 +489,10 @@ shorter than 8 characters are masked only as whole words.
 
 ## 8. Supply chain
 
+This section covers how the code you install is built and checked. The root
+[SECURITY.md](../SECURITY.md#verifying-what-you-install) has the verification
+commands.
+
 - Rust dependencies are checked with `cargo deny check licenses advisories
   bans sources` (`deny.toml`). Licence and third-party inventories are in
   `docs/licenses/` and `NOTICE`.
@@ -421,10 +507,14 @@ shorter than 8 characters are masked only as whole words.
   source with `scripts/check-tree-jar.sh`. That needs JDK 17 and Android
   build-tools whose d8 matches the version stamped in the jar.
 - WebDriverAgent is cloned at a pinned tag and the commit hash is verified
-  before it is built.
+  before it is built. A tag you set yourself (`ios.wdaRef` or
+  `ATALANTA_WDA_REF`) is not one of the pinned ones: it is built without
+  that check, with a warning.
 - Release archives are built by the tag's release workflow, listed in a
   `SHA256SUMS` asset and carry GitHub build provenance attestations
-  (`gh attestation verify <file> --repo atalantahq/atalanta`). The installer
+  (`gh attestation verify <file> --repo atalantahq/atalanta`). `SHA256SUMS`
+  is itself attested through Sigstore and shipped as
+  `SHA256SUMS.sigstore.json`. The installer
   (`install.sh`) downloads over HTTPS, refuses to install unless the archive
   matches `SHA256SUMS`, and checks the attestation too with
   `--verify-attestation`. The checksum file comes from the same release as
@@ -433,7 +523,9 @@ shorter than 8 characters are masked only as whole words.
 
 ## 9. Agents: the Rule of Two
 
-Atalanta drives devices for AI agents, and an agent reads screens that anyone can write to: a web page, a push notification, a message in the app. Prompt-level defences don't hold against adaptive attacks (USENIX Security 2026; NAACL 2025), so the defence is structural: what a session *can* do, whatever the model is told. Following Meta's "Agents Rule of Two" (2025), a session may have at most two of:
+This section covers what an AI agent session can and cannot do, for a reviewer deciding whether to let an agent drive devices.
+
+An agent reads screens that anyone can write to: a web page, a push notification, a message in the app. Prompt-level defences don't hold against adaptive attacks (USENIX Security 2026; NAACL 2025), so the defence is structural. It limits what a session *can* do, whatever the model is told. Following Meta's "Agents Rule of Two" (2025), a session may have at most two of:
 
 - **[A]** reading untrusted screen text into the model;
 - **[B]** holding secrets;
@@ -455,23 +547,26 @@ What holds this up, each with a test:
 - **Secrets never reach the model.** `explore --after` replays the login before the first planning turn, and the secret appears in none of the prompts, events or reports (`after_a_stored_login_the_model_starts_logged_in_and_never_sees_the_secret`).
 - **No irreversible tool in the default or read-only profiles** (`only_the_full_profile_lists_a_tool_that_changes_the_machine`).
 - **Model-chosen paths stay in the project** (`tools::paths`, the `run_task` escape tests, `run_task_suite_must_be_inside_the_project`). A `suite` file in the tasks folder (written by a task the agent started, including the lines `task_inject` appends) gets the same checks as an inline `yaml` (`a_suite_in_the_tasks_folder_gets_the_inline_checks`).
-- **A suite the agent writes reads no host secret** (`crates/atalanta-mcp/src/authored.rs`, review 05 #1). Outside `--profile full`, `run_task {yaml}` is refused when a `${…}` names anything but a name its own `http` steps capture or, in typed text only, an allowed secret (`atalanta_core::env::placeholders` lists them, visiting the same strings interpolation fills); when `config.ai` sets the provider, `apiKeyEnv`, `baseUrl`, `region`, `project` or `apiVersion`; or when a mock serves a host file. Its `atalanta run` child starts from an empty environment plus an allow-list (`authored::child_env`), so a variable the check missed is not there to read (`an_agent_written_suite_can_not_send_a_host_secret_in_the_core_profile`, `a_child_with_its_own_environment_inherits_nothing_else`). Residual: an allowed secret typed into a page the agent opened can be sent on by that page, as with `act {secret}`; AI-provider credentials stay in the child's environment, reachable only by the provider the user configured.
+- **A suite the agent writes reads no host secret** (`crates/atalanta-mcp/src/authored.rs`). Outside `--profile full`, `run_task {yaml}` is refused when a `${…}` names anything but a name its own `http` steps capture or, in typed text only, an allowed secret (`atalanta_core::env::placeholders` lists them, visiting the same strings interpolation fills); when `config.ai` sets the provider, `apiKeyEnv`, `baseUrl`, `region`, `project` or `apiVersion`; or when a mock serves a host file. Its `atalanta run` child starts from an empty environment plus an allow-list (`authored::child_env`), so a variable the check missed is not there to read (`an_agent_written_suite_can_not_send_a_host_secret_in_the_core_profile`, `a_child_with_its_own_environment_inherits_nothing_else`). Residual: an allowed secret typed into a page the agent opened can be sent on by that page, as with `act {secret}`; AI-provider credentials stay in the child's environment, reachable only by the provider the user configured.
 
-The adaptive red-team round (an attacker model writing screens against these rules) is in the backlog, to run once `explore` is promoted at launch.
+**Not yet done:** an adaptive red-team test, in which an attacker model writes screens against these rules. Until it is run, the rules above are enforced and unit-tested, but have not been tested against an adaptive attacker.
 
 ## Recommendations, in priority order
 
-1. ~~Fix R-1~~ (done 2026-10-25 for AtalantaRunner). For WebDriverAgent
-   (R-1W), prefer `ios.runner: atalanta`, or patch a `Host`/`Origin` check
-   into its `FBWebServer` as the MJPEG bind is patched.
-2. ~~Fix R-4~~ (done 2026-10-25). Run the wired smoke on a real iPhone to
-   confirm usbmuxd delivers to loopback (P5).
-3. ~~Fix R-2~~ (done 2026-10-25, protocol 13; mutual handshake in protocol
-   18). ~~Give the video server the same token (residual of R-3).~~ (done
-   2026-11-11, video server 2)
-4. ~~Pass the explore goal after `--` (I-2), and add a CSP to the console
-   UI (I-3).~~ (done 2026-11-11)
-5. ~~Keep `cargo deny` in CI and resolve the open RustSec advisories.~~
-   (done 2026-11-11: advisories pass, with the two unmaintained crates that
-   have no successor ignored with reasons in `deny.toml`; security.yml
-   checks them on every dependency change and weekly)
+This list tracks the follow-ups from the findings above. Items 1 and 2 are
+open. Items 3 to 5 are done and are kept so a reviewer can see the history.
+
+1. **Open:** R-1W. Prefer `ios.runner: atalanta`, or patch a `Host`/`Origin`
+   check into WebDriverAgent's `FBWebServer`, as its MJPEG bind is patched.
+   (R-1 itself is fixed for AtalantaRunner, 2026-10-25.)
+2. **Open:** run the wired smoke test on a real iPhone to confirm that
+   usbmuxd delivers to loopback. (R-4 is fixed, 2026-10-25.)
+3. Done: R-2 (2026-10-25, protocol 13; mutual handshake in protocol 18) and
+   the video server token, the residual of R-3 (2026-11-11, video server 2).
+4. Done: pass the explore goal after `--` (I-2) and add a CSP to the console
+   UI (I-3) (2026-11-11).
+5. Done: keep `cargo deny` in CI and resolve the open RustSec advisories
+   (2026-11-11). Advisories pass with the unmaintained crates that have no
+   successor ignored, each with a reason in `deny.toml` (`serde_yaml`,
+   `ttf-parser`, and since 2026-11-20 `chrono`). security.yml checks them on
+   every dependency change and weekly.

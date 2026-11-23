@@ -1,0 +1,41 @@
+name: Feature request
+description: Something Atalanta does not do yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to test or automate, and where Atalanta gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The behaviour you want. A sketch of the YAML, command or output helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: A workaround, another tool, or nothing.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Suite format (DSL)
+        - Android
+        - iOS
+        - Web
+        - API tests
+        - CLI and CI
+        - Console
+        - MCP and agents
+        - Explore and natural-language steps
+        - Reports and failure evidence
+        - Docs
+        - Other

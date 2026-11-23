@@ -1,8 +1,17 @@
 # Architecture
 
-Atalanta is a Rust workspace that builds one binary, `atalanta`. Tests are YAML suites. The engine runs them through a platform driver (Android, iOS, the web, or a headless renderer) and the runner orchestrates the devices and writes the reports.
+How a run and a step execute: why a step waits, when a selector is healed, where a failure's evidence comes from. To write tests, see [DSL.md](DSL.md).
 
-Related docs:
+Atalanta is a Rust workspace that builds one binary, `atalanta`. Tests are YAML suites. The runner schedules the tests onto devices and writes the reports. The executor runs each test's steps through a platform driver: Android, iOS, the web, or a headless renderer.
+
+**The model in short.**
+
+- A run parses and validates the suite, then selects and schedules tests, runs them on leased devices, and reports.
+- A step finds its target, checks that the target is actionable, acts through the driver, and then settles: it waits for the screen to stop changing.
+- Failures keep evidence (screenshot, trace, optionally video and logs) next to the report.
+- Natural-language steps and `atalanta explore` use a model only to choose an operation and an element number. Code builds the selector and checks it.
+
+Related pages:
 
 - [DSL.md](DSL.md) and [DSL-REFERENCE.md](DSL-REFERENCE.md): the suite format.
 - [DRIVERS.md](DRIVERS.md): platforms.
@@ -12,6 +21,8 @@ Related docs:
 - [STATUS.md](STATUS.md): what has been verified where.
 
 ## Crates
+
+Each crate has one job. The dependency direction runs from the CLI down to `atalanta-common`.
 
 ```text
 atalanta-cli               the `atalanta` binary: argument parsing, commands, exit codes, signals
@@ -46,6 +57,8 @@ There are also native components that cargo does not build (see [DRIVERS.md](DRI
 
 ## A run, end to end
 
+A run goes through seven stages, from reading the YAML to exiting with a code.
+
 1. **Parse.** `atalanta-core::parser` reads the YAML into a `TestSuite`.
    - Unknown step keys are errors, with a "did you mean".
    - Unknown `config:` keys are warnings (`config_keys.rs`, derived from the serde structs).
@@ -76,11 +89,18 @@ There are also native components that cargo does not build (see [DRIVERS.md](DRI
    - `atalanta-history.json` (durations and outcomes) and traces for failed tests.
    - The exit code comes from the results: see [CLI.md](CLI.md#exit-codes).
 
-**Live events.** With `ATALANTA_EVENTS_FILE` set, the executor appends one JSON line per test and step start and end to that file (`atalanta_common::live_events`: `testStarted` with the step count, `stepStarted` with index and total, `stepFinished` with status, duration and error, `testFinished`), and `atalanta explore` adds its own turn events. A supervisor tails it: the MCP server's `run_task` (task progress) and the console's Run and Explore panels. It is the only progress channel; the executor's hook is four one-line calls.
+**Live events.** With `ATALANTA_EVENTS_FILE` set, the executor appends one JSON line for each test and step start and end (`atalanta_common::live_events`):
+
+- `testStarted`, with the step count;
+- `stepStarted`, with the index and total;
+- `stepFinished`, with status, duration and error;
+- `testFinished`.
+
+`atalanta explore` adds its own turn events. A supervisor tails the file: the MCP server's `run_task` for task progress, and the console's Run and Explore panels. It is the only progress channel. The executor's hook is four one-line calls.
 
 ## Executing a step
 
-For each step, `TestExecutor` does the following.
+One step through `TestExecutor`, then the rules that apply to every step.
 
 1. **Before the action.**
    - Dismisses system dialogs, unless the step targets something inside one.
@@ -114,9 +134,9 @@ Retries live in the runner (`retry.rs`, at most 10). A test that passes on a ret
 
 ## Sync
 
-The goal is to act only when the app is ready, without fixed sleeps. The code is in `sync.rs` (`AdaptiveSyncEngine`) and `native_sync.rs` (`SyncManager`).
+Sync is how Atalanta decides the app is ready for the next step, so suites need no fixed sleeps. The code is in `sync.rs` (`AdaptiveSyncEngine`) and `native_sync.rs` (`SyncManager`).
 
-**Polling** compares UI-tree hashes:
+**Polling** is the default method. It compares UI-tree hashes:
 
 1. The action has *reacted* once the tree changes, or once `reactionMs` (300) passes with no change.
 2. The screen is *settled* once it is quiet for `quietMs` (150).
@@ -137,7 +157,14 @@ A loading spinner that appeared after the action holds the settle.
 - Android: port 19401. It tracks the main looper, animations and delayed main-looper messages due within the horizon (1.5 s, or `sync.maxTimerMs`). Network calls are counted by `AtalantaOkHttpInterceptor` when the app adds it to its OkHttp client; otherwise the app reports its own.
 - React Native (both probes): with `framework: react_native` the probe also waits for JS timers within the horizon, Fabric mounts, native animations, RN network calls and RN loading.
 
-Both probes speak protocol 4: `config` takes `"framework"`, and the reply carries `framework` (null when the probe has no tracking for it) and `unknown` (trackers that couldn't read their state). The `hello` must name the app under test. `web.networkIgnore` patterns are sent to the probe. *All of this is host-checked with fakes only: unverified on devices and in a real React Native app* (see [STATUS.md](STATUS.md)).
+Both probes speak protocol 4:
+
+- `config` takes `"framework"`.
+- The reply carries `framework` (null when the probe has no tracking for it) and `unknown` (trackers that couldn't read their state).
+- The `hello` must name the app under test.
+- `web.networkIgnore` patterns are sent to the probe.
+
+*All of this is host-checked with fakes only. It is unverified on devices and in a real React Native app* (see [STATUS.md](STATUS.md)).
 
 **Per step:** `settle: none | auto | { reactionMs, quietMs, capMs }`.
 
@@ -145,7 +172,7 @@ Both probes speak protocol 4: `config` takes `"framework"`, and the reply carrie
 
 ## Selectors
 
-Matching is in `atalanta-common/src/selector_match.rs`. The cache and healing wrapper is `atalanta-core/src/selector.rs`. Every key is listed in [DSL-REFERENCE.md](DSL-REFERENCE.md#selectors).
+How a selector is matched against the screen. For how to write one, see [DSL.md](DSL.md#selectors). Matching is in `atalanta-common/src/selector_match.rs`. The cache and healing wrapper is `atalanta-core/src/selector.rs`. Every key is listed in [DSL-REFERENCE.md](DSL-REFERENCE.md#selectors).
 
 - **Text matching.** Text is normalised: zero-width characters are dropped and whitespace is collapsed.
   - `text:` is tried exactly, then case-folded.
@@ -157,7 +184,7 @@ Matching is in `atalanta-common/src/selector_match.rs`. The cache and healing wr
 
 ## Dialogs
 
-`dialog_handler.rs` dismisses **system** dialogs only:
+Permission prompts would block every test, so Atalanta dismisses them. `dialog_handler.rs` dismisses **system** dialogs only:
 
 - iOS: SpringBoard permission alerts.
 - Android: the permission controller and system-package alert dialogs.
@@ -168,7 +195,7 @@ Config: `dialog: { enabled, maxDismissals, customDismissLabels }`.
 
 ## Self-healing
 
-`healing.rs`. When a selector finds nothing at its deadline, the healer scores the on-screen elements. The score is a weighted similarity, Similo-style, against snapshots of the element from earlier passing runs (`.atalanta/healer-snapshots.json`). A candidate is used only if all of these hold:
+Healing repairs a selector that no longer matches after a UI change, and it declines when it is unsure. It lives in `healing.rs`. When a selector finds nothing at its deadline, the healer scores the on-screen elements. The score is a weighted similarity, Similo-style, against snapshots of the element from earlier passing runs (`.atalanta/healer-snapshots.json`). A candidate is used only if all of these hold:
 
 - it reaches `confidenceThreshold` (0.8);
 - it beats the runner-up by 0.05;
@@ -186,7 +213,7 @@ Heals are written to `.atalanta/healed-selectors.json`. `atalanta heal --accept`
 
 ## Natural-language steps
 
-`do:`/`act:` and `assert:`/`expect:` steps, and bare string steps, go through `atalanta-nl`. The executor sees it only through the `NaturalStepResolver` trait in `atalanta-common/src/natural.rs`, so `atalanta-core` does not depend on `atalanta-nl` or its HTTP clients; the CLI and the runner attach a `NaturalResolver`.
+`do:`/`act:` and `assert:`/`expect:` steps, and bare string steps, go through `atalanta-nl`. The executor sees it only through the `NaturalStepResolver` trait in `atalanta-common/src/natural.rs`. This keeps `atalanta-core` free of `atalanta-nl` and its HTTP clients. The CLI and the runner attach a `NaturalResolver`. For writing these steps, see [DSL.md](DSL.md#natural-language-steps).
 
 **The model picks and code decides.**
 
@@ -208,7 +235,7 @@ Heals are written to `.atalanta/healed-selectors.json`. `atalanta heal --accept`
 - **Written only once verified.** The executor holds a plan whose action and `waitUntil` passed, and commits it when the next step passes or the test passes (`PendingPlan`). With `verify:` on, it commits only when the whole test, checks included, passes. A test that fails drops its unverified plans.
 - **No test data in the key.** The key is the step as written (`${VAR}`s unresolved, quoted values that were typed replaced by slots), whether it has `data:`, the platform and the occurrence. Values are placeholders in the stored action and are filled in on replay. A selector that holds only part of a value is bound to a fingerprint of it, so another value re-plans. Secrets never reach the file.
 - **Old cache files.** A v2 file is ignored with a warning and rewritten.
-- **Self-healing.** A cached action that stops working is invalidated and re-planned once, and the new plan is cached only after it verifies.
+- **Repair.** A cached action that stops working is invalidated and re-planned once, and the new plan is cached only after it verifies.
 - **Concurrency.** Saves merge with the file on disk under a lock (`fsutil::with_lock`).
 - **CI modes.** `ATALANTA_NL_CACHE=read-only|frozen|prune`. With no API key, an existing cache is replayed read-only.
 
@@ -220,12 +247,14 @@ Heals are written to `.atalanta/healed-selectors.json`. `atalanta heal --accept`
 
 ## Exploration and diagnostics
 
+These two features sit on top of the executor and share its grounding rule.
+
 - **`atalanta explore`** (`crates/atalanta-explore`) runs an agent loop on the same executor: each turn the goal model returns an operation and an element number (`atalanta-nl/src/goal.rs`), code grounds and runs it, and the session is written as deterministic YAML with assertions, replayed with no planner attached, and repaired once if a replay fails. See [EXPLORE.md](EXPLORE.md).
 - **`atalanta doctor`** (`crates/atalanta-doctor`): `run_checks(&Options) -> Report` (host, Android, iOS, web, AI, project; every external command with a deadline) and `apply_safe_fixes`. The MCP `diagnose` tool and the console's diagnostics call it in process.
 
 ## Visual assertions
 
-`assertScreenshot` (`executor/screenshot.rs`, `visual.rs`, `baselines.rs`):
+Visual assertions compare the screen with a saved baseline image. For usage, see [DSL.md](DSL.md#screenshots). The code is in `executor/screenshot.rs`, `visual.rs` and `baselines.rs`.
 
 - **Baselines** are kept at `<suite dir>/atalanta-baselines/<platform>[-headless]/<W>x<H>/<name>.png`, where W×H is the device's full capture.
 - **Capturing.** A first frame that matches passes at once. Otherwise Atalanta waits for two identical frames in a row. A screen that never holds still fails and is never written as a baseline.
@@ -240,12 +269,18 @@ Heals are written to `.atalanta/healed-selectors.json`. `atalanta heal --accept`
 
 ## Inspector
 
-`atalanta inspect` (`crates/atalanta-inspector`) serves:
+The inspector is the local web UI and API behind `atalanta inspect`. It is for building selectors, watching a device and reviewing screenshots, not for CI. It lives in `crates/atalanta-inspector` and serves:
 
-- **A React UI**, built by CI and the release job into `frontend/dist` and embedded with rust-embed. `build.rs` never runs npm, so a source build without `dist/` serves the API and a "UI not built" page (D-42).
+- **A React UI**, built by CI and the release job into `frontend/dist` and embedded with rust-embed. `build.rs` never runs npm, so a source build without `dist/` serves the API and a "UI not built" page.
 - **A JSON API** under `/api`: devices, screenshots, hierarchy, actions, selector generation, flow saving, and a WebSocket live view.
 - **`/review`**: a server-rendered screenshot review page that needs no frontend build. `atalanta baselines review --serve` serves it without a device.
-- **The console** (`src/console/`): a live mirror over `/api/mirror/<device>` (H.264 from the Android video server for WebCodecs; WDA MJPEG on iOS simulators; the CDP screencast on the web; changed screenshots otherwise), input on the mirror under the device's lease (`control.rs`), and a task queue (`tasks.rs`) running `atalanta run` and `atalanta explore --json` children with live events (`ATALANTA_EVENTS_FILE`), the page's instructions appended to explore's `--inject-file`, a finished exploration's YAML saved into the project on request, and artifacts served from the task's folder. Diagnostics are `atalanta doctor`'s checks in process. `routing.rs` puts the Android, iOS and web drivers behind one `PlatformDriver`, by device id. The CLI plugs in the real hooks (`atalanta-cli/src/commands/inspect.rs`: live sources, leases, `ExploreChild`, the doctor); the defaults need no device and answer 501 for explore and diagnostics.
+- **The console** (`src/console/`):
+  - A live mirror over `/api/mirror/<device>`. The source is H.264 from the Android video server (for WebCodecs), WDA MJPEG on iOS simulators, the CDP screencast on the web, and changed screenshots otherwise.
+  - Input on the mirror, taken under the device's lease (`control.rs`).
+  - A task queue (`tasks.rs`) that runs `atalanta run` and `atalanta explore --json` as child processes, with live events (`ATALANTA_EVENTS_FILE`). The page's instructions are appended to explore's `--inject-file`. A finished exploration's YAML is saved into the project on request. Artifacts are served from the task's folder.
+  - Diagnostics, which are `atalanta doctor`'s checks run in process.
+  - `routing.rs`, which puts the Android, iOS and web drivers behind one `PlatformDriver`, chosen by device id.
+  - The CLI plugs in the real hooks (`atalanta-cli/src/commands/inspect.rs`: live sources, leases, `ExploreChild`, the doctor). The defaults need no device and answer 501 for explore and diagnostics.
 
 **Security:**
 
@@ -257,6 +292,8 @@ Heals are written to `.atalanta/healed-selectors.json`. `atalanta heal --accept`
 
 ## Errors and resilience
 
+Device tools fail in ways that are not the test's fault. Atalanta tells these apart and handles each:
+
 - **Error kinds.** `AtalantaError` (`atalanta-common/src/error.rs`) classifies each error as transient (retried by `ResilientDriver`), permanent or ambiguous, and maps it to an exit code.
 - **Circuit breaker.** Each device has one. It opens after repeated failures (`ATALANTA_BREAKER_THRESHOLD`), and an open breaker is an infrastructure failure (exit 3).
 - **Command deadline.** Device commands time out after `ATALANTA_COMMAND_TIMEOUT_MS` (60 s).
@@ -264,7 +301,7 @@ Heals are written to `.atalanta/healed-selectors.json`. `atalanta heal --accept`
 
 ## Settings
 
-Named driver and runtime settings live in one table (`atalanta-common/src/settings.rs`). Each has a key, an environment variable, a default and its allowed values. They can be set:
+Settings are the named switches that tune drivers and the runtime, such as `android.treeServer` or `web.networkIdle`. They live in one table (`atalanta-common/src/settings.rs`). Each has a key, an environment variable, a default and its allowed values. They can be set:
 
 - in the suite (`config: settings:`);
 - per run (`--set`);

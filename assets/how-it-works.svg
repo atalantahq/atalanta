@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>How Atalanta works: write a test, verify it, run it on devices, read the report</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52525b"/>
+    </marker>
+    <style>
+      .card { fill: #14171f; stroke: #262a35; stroke-width: 1.5; }
+      .step { fill: #22d3ee; font-size: 13px; font-weight: 700; letter-spacing: 1.5px; }
+      .h { fill: #f4f4f5; font-size: 22px; font-weight: 700; }
+      .t { fill: #a1a1aa; font-size: 15px; }
+      .code { fill: #fcd34d; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+      .line { stroke: #52525b; stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+  <rect width="1200" height="380" rx="16" fill="#0b0d12"/>
+
+  <!-- 1 Write -->
+  <rect class="card" x="30" y="40" width="255" height="300" rx="12"/>
+  <text class="step" x="54" y="76">1 · WRITE</text>
+  <text class="h" x="54" y="108">A YAML test</text>
+  <text class="t" x="54" y="140">By hand, or let an agent</text>
+  <text class="t" x="54" y="162">drive the app for a goal</text>
+  <text class="t" x="54" y="184">and save what it did.</text>
+  <text class="code" x="54" y="232">tap: { text: "About" }</text>
+  <text class="code" x="54" y="262">atalanta explore</text>
+  <text class="code" x="54" y="282" dx="16">"open Settings"</text>
+
+  <path class="line" d="M290 190 H318" marker-end="url(#arrow)"/>
+
+  <!-- 2 Verify -->
+  <rect class="card" x="325" y="40" width="255" height="300" rx="12"/>
+  <text class="step" x="349" y="76">2 · VERIFY</text>
+  <text class="h" x="349" y="108">Checked, then saved</text>
+  <text class="t" x="349" y="140">An agent-written test is</text>
+  <text class="t" x="349" y="162">kept only if it passes five</text>
+  <text class="t" x="349" y="184">replays with no model, and</text>
+  <text class="t" x="349" y="206">fails when its last tap is</text>
+  <text class="t" x="349" y="228">moved to a neighbour.</text>
+  <text class="code" x="349" y="282">5/5 replays · mutant fails</text>
+
+  <path class="line" d="M585 190 H613" marker-end="url(#arrow)"/>
+
+  <!-- 3 Run -->
+  <rect class="card" x="620" y="40" width="255" height="300" rx="12"/>
+  <text class="step" x="644" y="76">3 · RUN</text>
+  <text class="h" x="644" y="108">On every device</text>
+  <text class="t" x="644" y="140">Android emulators, iOS</text>
+  <text class="t" x="644" y="162">simulators, Chrome and HTTP</text>
+  <text class="t" x="644" y="184">in the same suite. Parallel,</text>
+  <text class="t" x="644" y="206">sharded, no model calls.</text>
+  <text class="code" x="644" y="262">atalanta run tests/</text>
+  <text class="code" x="644" y="282" dx="16">--parallel 4</text>
+
+  <path class="line" d="M880 190 H908" marker-end="url(#arrow)"/>
+
+  <!-- 4 Report -->
+  <rect class="card" x="915" y="40" width="255" height="300" rx="12"/>
+  <text class="step" x="939" y="76">4 · REPORT</text>
+  <text class="h" x="939" y="108">See why it failed</text>
+  <text class="t" x="939" y="140">Video, device and app logs,</text>
+  <text class="t" x="939" y="162">and one trace.html with each</text>
+  <text class="t" x="939" y="184">step's screenshot and</text>
+  <text class="t" x="939" y="206">selector. JUnit for CI.</text>
+  <text class="code" x="939" y="262">trace.html · video.mp4</text>
+  <text class="code" x="939" y="282">junit.xml</text>
+</svg>

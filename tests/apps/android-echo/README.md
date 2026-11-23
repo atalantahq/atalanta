@@ -1,6 +1,8 @@
-# Atalanta Echo
+# Atalanta Echo (Android)
 
-Tiny Android test app that shows the intent extras it was launched with, so we can check end to end that Atalanta's `launchApp: arguments:` values reach an app.
+A tiny Android test app that shows the intent extras it was launched with. Use it to check end to end that the values in Atalanta's `launchApp: arguments:` reach an app. You need it only when working on or verifying that feature.
+
+Prerequisites: the Android SDK, and an emulator or device visible to `adb`.
 
 ## Build
 
@@ -8,8 +10,9 @@ Tiny Android test app that shows the intent extras it was launched with, so we c
 ./build.sh
 ```
 
-Needs the Android SDK (platforms/android-36 and build-tools/36.1.0 by default,
-overridable via `PLATFORM` / `BUILD_TOOLS`). Output: `build/atalanta-echo.apk`.
+The build needs `platforms/android-36` and `build-tools/36.1.0` by default;
+override them with `PLATFORM` and `BUILD_TOOLS`. The output is
+`build/atalanta-echo.apk`.
 
 ## Install
 

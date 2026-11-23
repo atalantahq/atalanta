@@ -1,12 +1,19 @@
 # Reproducing Atalanta's AndroidWorld run
 
-Everything here was run on an Apple Silicon Mac (macOS, 24 GB RAM). The
-results and caveats are in [docs/BENCHMARKS.md](../../docs/BENCHMARKS.md#androidworld).
+This is the procedure for re-running the AndroidWorld benchmark with Atalanta
+as the agent, for anyone who wants to check how the published result was
+produced. The results and caveats are in
+[docs/BENCHMARKS.md](../../docs/BENCHMARKS.md#androidworld).
+
+Everything here was run on an Apple Silicon Mac (macOS, 24 GB RAM). Steps 1 to
+4 need no model key; step 5 does and spends real money (see `--max-cost`).
+Commands run from the repository root unless a block starts with `cd`.
 
 ## 1. Harness
 
-AndroidWorld at commit `55ddaf5edc6f6c25673aed343907d5b9dca66f84`
-(google-research/android_world, 2026-10-23), Python 3.11 in its own venv:
+Use AndroidWorld at commit `55ddaf5edc6f6c25673aed343907d5b9dca66f84`
+(google-research/android_world, 2026-10-23), with Python 3.11 in its own venv.
+`ext/` is git-ignored:
 
 ```bash
 git clone https://github.com/google-research/android_world ext/android_world
@@ -32,11 +39,11 @@ emulator -avd AndroidWorldAvd -port 5556 -grpc 8556 -no-snapshot -no-window -no-
 ```
 
 Console port 5556 and gRPC 8556 keep it apart from another emulator on
-5554/8554. AndroidWorld's own `run.py` hard-codes gRPC 8554; the scripts here
-pass both ports to its `env_launcher` (`--console-port`, `--grpc-port`).
+5554/8554. AndroidWorld's own `run.py` hard-codes gRPC 8554, so the scripts
+here pass both ports to its `env_launcher` (`--console-port`, `--grpc-port`).
 
-One-time app setup (AndroidWorld downloads its APKs from Google's bucket and
-configures them, ~4 minutes):
+One-time app setup. AndroidWorld downloads its APKs from Google's bucket and
+configures them; this takes about 4 minutes:
 
 ```bash
 cd bench/androidworld
@@ -44,6 +51,8 @@ cd bench/androidworld
 ```
 
 ## 3. Atalanta
+
+Build the release binary and point the scripts at it:
 
 ```bash
 cargo build --release -p atalanta-cli
@@ -63,31 +72,37 @@ $PY run.py run --out runs/plumbing --script-dir plumbing \
 
 ## 5. The scored run
 
-AndroidWorld's protocol, as its `run.py` and `suite_utils` define it: all 116
-tasks of the `android_world` family, `--n-task-combinations 1`, task seed 30,
-step budget `int(10 * complexity)` per task, success = the agent said done
-and the task's own device check passes.
+The protocol is AndroidWorld's, as its `run.py` and `suite_utils` define it:
+
+- all 116 tasks of the `android_world` family;
+- `--n-task-combinations 1` and task seed 30;
+- a step budget of `int(10 * complexity)` per task;
+- success means the agent said done and the task's own device check passes.
 
 ```bash
 export ANTHROPIC_API_KEY=...           # or the key of the provider you pass
 $PY run.py run --out runs/full-sonnet-5-5 --model anthropic:claude-sonnet-5-5 --max-cost 150
 ```
 
-`--max-cost` stops before starting a task once the running estimate (list
-prices, cache reads counted at the full input price: an upper bound) passes
-it. Interrupted or stopped: rerun the same command; finished instances are
-skipped. `run.py summarize --out runs/full-sonnet-5-5` rewrites the summary.
+`--max-cost` stops before starting a task once the running estimate passes it.
+The estimate uses list prices and counts cache reads at the full input price,
+so it is an upper bound. If a run is interrupted or stopped, rerun the same
+command; finished instances are skipped. `run.py summarize --out
+runs/full-sonnet-5-5` rewrites the summary.
 
-Outputs in `--out`: `run.json` (model, provider, prices, Atalanta version,
-harness SHA, seed, combinations, prompt settings), `results.jsonl` (one line
-per instance: success, steps, wall time, tokens, cost, outcome, answer,
-error), `summary.json` / `summary.md` (overall, per difficulty, per app),
-and `episodes/<task>_<i>/` (Atalanta's events JSONL trajectory, its JSON
-report, stderr).
+Outputs in `--out`:
 
-Other providers: any `atalanta` preset works (`--model openai:…`,
-`gemini:…`, …); pass `--price IN,OUT` for a cost estimate when the model
-isn't in `run.py`'s price table.
+- `run.json`: model, provider, prices, Atalanta version, harness SHA, seed,
+  combinations, prompt settings.
+- `results.jsonl`: one line per instance with success, steps, wall time,
+  tokens, cost, outcome, answer, error.
+- `summary.json` and `summary.md`: overall, per difficulty, per app.
+- `episodes/<task>_<i>/`: Atalanta's events JSONL trajectory, its JSON report
+  and stderr.
+
+Other providers: any `atalanta` preset works (`--model openai:…`, `gemini:…`,
+and so on). Pass `--price IN,OUT` for a cost estimate when the model is not in
+`run.py`'s price table.
 
 ## Resuming, and how the published run was checked
 
@@ -126,3 +141,11 @@ grep -rl 'sk-ant-' runs/ logs/ || echo 'no key in outputs'
 Every line of `results.jsonl` is kept (a re-run instance appears twice;
 the later line is scored); `summary.json` and `summary.md` count only the
 latest line per instance.
+
+## Troubleshooting
+
+- Set `GRPC_VERBOSITY=ERROR` before gRPC loads (`aw_env.py` does this). Otherwise gRPC log lines end up in the adb output android_env parses, and app restores fail at random.
+- On a failed adb call android_env runs `adb kill-server`. `aw_env.py` turns off only that restart, so other devices on the same adb server stay connected. `AW_ALLOW_ADB_RESTART=1` turns it back on.
+- Atalanta's tree server must not turn off accessibility services, or AndroidWorld's success checks lose the screen tree. The adapter sets `ATALANTA_ANDROID_KEEP_A11Y=1`.
+- android_env's accessibility forwarder sometimes crashes on connect and leaves a "keeps stopping" dialog. The adapter closes that one dialog before each task.
+- If a task hangs in AndroidWorld's check or teardown, set `GRPC_ENABLE_FORK_SUPPORT=0`. The runner's per-task watchdog turns such a hang into an exception, and exceptions run again on resume.

@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/atalantahq/atalanta/blob/main/SECURITY.md
+    about: Report privately. Do not open a public issue for a security problem.
+  - name: Troubleshooting
+    url: https://github.com/atalantahq/atalanta/blob/main/docs/GUIDE.md#troubleshooting
+    about: First-run failures and what to do next.
+  - name: Verification status
+    url: https://github.com/atalantahq/atalanta/blob/main/docs/STATUS.md
+    about: What has been run on which devices, and what has not.
