@@ -252,8 +252,11 @@ jobs:
             app="$(cd "$(dirname "$CHROME_BIN")/../.." && pwd)"
             dest="$RUNNER_TEMP/chrome/Google Chrome.app"
             mkdir -p "$RUNNER_TEMP/chrome"
-            ditto "$app" "$dest"
-            xattr -cr "$dest" 2>/dev/null || true
+            # Copy without the attributes (on macos-15-intel `xattr -cr`
+            # alone left them on app_mode_loader), then clear any left,
+            # symlinks included (-s).
+            ditto --norsrc --noextattr --noqtn --noacl "$app" "$dest"
+            xattr -crs "$dest" 2>/dev/null || true
             codesign --verify --deep --strict "$dest" \
               || { echo "::error::Chrome's signature does not verify at $dest"; exit 1; }
             CHROME_BIN="$dest/Contents/MacOS/$(basename "$CHROME_BIN")"
