@@ -5,7 +5,7 @@
 # where the value lives and why it is not a secret. Keep it narrow: allow a
 # specific value or file, never a whole rule or a directory of real code.
 #
-# Reviewed 2026-11-11 against the full history (`gitleaks git .`) and the
+# Reviewed 2026-11-23 against the full history (`gitleaks git .`) and the
 # working tree (`gitleaks dir .`): every finding was one of the values below.
 # A new finding is a real secret until someone shows otherwise. If one ever
 # turns out to be real, rotate it first; rewriting history does not un-leak it.
@@ -44,6 +44,10 @@ regexes = [
     # AWS-shaped key id and an api-key value that must be masked.
     '''^AKIAABCDEFGHIJKLMNOP$''',
     '''^abcdef123456$''',
+    # crates/atalanta-common/src/redact.rs: the made-up value in the
+    # `DB_PASSWORD=…` and `AWS_SECRET_ACCESS_KEY=…` lines the prefixed-name
+    # masking test expects hidden (second November review).
+    '''^sp-Zk3jq9xw1$''',
 ]
 
 [[allowlists]]
@@ -51,7 +55,8 @@ description = "Throwaway RSA key for the GCP service-account JWT tests"
 # Generated for the tests (see the TEST_KEY comment in
 # crates/atalanta-nl/src/gcp.rs), paired only with the fake
 # tester@atalantahq.iam.gserviceaccount.com; it authenticates nothing.
-paths = ['''^crates/atalanta-nl/fixtures/test-service-account-key\.pem$''']
+# Commits from before the rename hold the same file under velocity-nl.
+paths = ['''^crates/(atalanta|velocity)-nl/fixtures/test-service-account-key\.pem$''']
 
 [[allowlists]]
 description = "PEM template around a key generated at test time"
