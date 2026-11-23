@@ -1,5 +1,6 @@
 Atalanta
-Copyright the Atalanta authors. Licensed under the Apache License, Version 2.0.
+Copyright the Atalanta authors. Licensed under the GNU Affero General Public License, version 3 only
+(AGPL-3.0-only); the full text is in LICENSE.
 
 This file lists third-party material that is copied into, adapted into, or
 compiled into Atalanta. Rust crate dependencies are listed with their

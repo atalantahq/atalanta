@@ -12,6 +12,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 The project was called Velocity until 2026-11-23, and 0.1.0 was tagged under that name; it was never published. Everything that carried the name changed with it: the binary is `atalanta`, the crates are `atalanta-*`, environment variables are `ATALANTA_*`, the `ios.runner` value is `atalanta`, and the folders are `atalanta-results/`, `.atalanta/` and `~/.atalanta/`. The entries below use the new names throughout, including for 0.1.0.
 
+### Licence
+
+Atalanta is now licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only); the unpublished 0.1.0 was Apache-2.0. Third-party code and data copied into the repository keep their own licences (see `NOTICE`).
+
 ### Behaviour changes that can fail existing suites
 
 - **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts** (and their dimming view) instead of dismissing the sheet. Not yet run on a simulator or device. [Details](docs/CHANGELOG-0.2.0.md#ios-sheets)

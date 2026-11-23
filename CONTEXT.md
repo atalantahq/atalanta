@@ -1,6 +1,6 @@
 # Atalanta: context for AI agents
 
-Atalanta is a UI testing framework for Android, iOS and the web, written in Rust. Tests are YAML suites in a Maestro-like DSL. It ships as one `atalanta` binary, and it has an MCP server so AI agents can drive devices. License: Apache-2.0.
+Atalanta is a UI testing framework for Android, iOS and the web, written in Rust. Tests are YAML suites in a Maestro-like DSL. It ships as one `atalanta` binary, and it has an MCP server so AI agents can drive devices. License: AGPL-3.0-only.
 
 Read the code before trusting any doc. This file was checked against the code on 2026-11-11; [docs/](docs/README.md) pages carry their own dates.
 

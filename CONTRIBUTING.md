@@ -83,4 +83,4 @@ Atalanta is a Cargo workspace. The full map is [CLAUDE.md](CLAUDE.md) (architect
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache License 2.0.
+By contributing, you agree that your contributions will be licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only).

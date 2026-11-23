@@ -2,10 +2,11 @@
 #
 #   cargo deny check licenses advisories bans sources
 #
-# Atalanta is Apache-2.0. The allow-list below is the set of licenses that
-# actually occur in Cargo.lock (see docs/licenses/THIRD-PARTY-RUST.md), all of
-# them permissive and compatible with shipping a single Apache-2.0 binary.
-# Anything new (in particular GPL/LGPL/AGPL/SSPL or an unlicensed crate)
+# Atalanta is AGPL-3.0-only. The allow-list below is that licence (for the
+# workspace's own crates) plus the set of licenses that actually occur in
+# Cargo.lock (see docs/licenses/THIRD-PARTY-RUST.md), all of them permissive
+# and compatible with shipping the binary under the AGPL.
+# Anything new (in particular GPL/LGPL/SSPL or an unlicensed crate)
 # fails the check and has to be looked at by a human before it is allowed.
 
 [graph]
@@ -39,6 +40,8 @@ ignore = [
 [licenses]
 confidence-threshold = 0.93
 allow = [
+    # Atalanta's own crates (license.workspace).
+    "AGPL-3.0-only",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "MIT",
@@ -70,7 +73,7 @@ exceptions = [
 # LGPL are deliberately NOT in the allow-list.
 
 [licenses.private]
-# The workspace crates are Apache-2.0 via license.workspace; still check them.
+# The workspace crates are AGPL-3.0-only via license.workspace; still check them.
 ignore = false
 
 # ---------------------------------------------------------------------------

@@ -175,4 +175,4 @@ Whatever the provider, model output never becomes a selector or a typed value: c
 - **npm.** `npx @atalantahq/cli --version` runs it without installing.
 - **From source.** `brew install --HEAD atalantahq/tap/atalanta` builds `main` with the console UI. A plain `cargo build` from a checkout has no console UI until you run `npm ci && npm run build` in `crates/atalanta-inspector/frontend`; until then it serves the API and a page saying so.
 
-Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). License: Apache 2.0 ([LICENSE](LICENSE)).
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). License: GNU AGPL v3 ([LICENSE](LICENSE)).

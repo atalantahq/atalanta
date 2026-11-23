@@ -20,4 +20,4 @@ Windows is not supported. If your install skips optional dependencies (`--omit=o
 
 Other ways to install: the [install script](https://github.com/atalantahq/atalanta#install), Homebrew (`brew install atalantahq/tap/atalanta`) or `cargo install atalanta-cli`.
 
-Licensed under Apache-2.0.
+Licensed under AGPL-3.0-only.

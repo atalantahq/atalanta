@@ -10,7 +10,7 @@
     "url": "git+https://github.com/atalantahq/atalanta.git",
     "directory": "npm/cli"
   },
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "bin": {
     "atalanta": "bin/atalanta.js"
   },

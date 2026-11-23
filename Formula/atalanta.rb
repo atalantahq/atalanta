@@ -3,7 +3,7 @@
 class Atalanta < Formula
   desc "Fast, reliable mobile UI testing framework"
   homepage "https://github.com/atalantahq/atalanta"
-  license "Apache-2.0"
+  license "AGPL-3.0-only"
 
   # `brew install --HEAD` builds main from source, web UI included.
   head do
