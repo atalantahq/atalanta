@@ -61,6 +61,12 @@ pub struct Tab {
     /// tell, and every later call failed as an internal error after
     /// [`CDP_TIMEOUT`] (review 10 #6).
     crashed: AtomicBool,
+    /// Chrome destroyed the page's target: `window.close()`, often from the
+    /// very click being sent. A call still waiting for its answer never got
+    /// one and failed as an internal error after [`CDP_TIMEOUT`]; it now
+    /// stops when the tab closes.
+    closed: AtomicBool,
+    closed_notify: tokio::sync::Notify,
 }
 
 /// Kept as `Page` so the helpers below read as before.
@@ -74,6 +80,31 @@ impl Tab {
             touch: false,
             frames: std::sync::Mutex::new(None),
             crashed: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+            closed_notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// The page's target is gone (the tab or popup closed).
+    pub fn mark_closed(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.closed_notify.notify_waiters();
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    /// Resolves once the page's target is gone.
+    async fn wait_closed(&self) {
+        loop {
+            let notified = self.closed_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.is_closed() {
+                return;
+            }
+            notified.await;
         }
     }
 
@@ -328,7 +359,14 @@ impl Tab {
         if self.is_crashed() {
             return Err(lost(RENDERER_CRASHED));
         }
-        match tokio::time::timeout(limit, fut).await {
+        if self.is_closed() {
+            return Err(tab_closed());
+        }
+        let answer = tokio::select! {
+            answer = tokio::time::timeout(limit, fut) => answer,
+            () = self.wait_closed() => return Err(tab_closed()),
+        };
+        match answer {
             Ok(Ok(v)) => Ok(v),
             Ok(Err(e)) if !self.is_alive() || is_connection_error(&e) => {
                 self.alive.store(false, Ordering::SeqCst);
@@ -677,9 +715,29 @@ async fn tap(page: &Page, x: f64, y: f64, hold: Option<Duration>) -> Result<()> 
     touch(page, false, x, y).await
 }
 
+/// The error of a call on a tab that closed before it answered.
+fn tab_closed() -> AtalantaError {
+    AtalantaError::Internal(anyhow::anyhow!(
+        "the tab closed before Chrome answered the DevTools call"
+    ))
+}
+
+/// A press or tap whose page closed meanwhile was delivered: the page
+/// closed because of it (a popup's "Done" button calls `window.close()`).
+fn done_unless_open(page: &Page, sent: Result<()>) -> Result<()> {
+    match sent {
+        Err(_) if page.is_closed() => Ok(()),
+        sent => sent,
+    }
+}
+
 /// Dispatch a left-click (move, mousePressed, mouseReleased) at `(x, y)`;
 /// a tap on a touch profile.
 pub async fn click(page: &Page, x: f64, y: f64) -> Result<()> {
+    done_unless_open(page, click_once(page, x, y).await)
+}
+
+async fn click_once(page: &Page, x: f64, y: f64) -> Result<()> {
     if page.touch() {
         return tap(page, x, y, None).await;
     }
@@ -693,6 +751,10 @@ pub async fn click(page: &Page, x: f64, y: f64) -> Result<()> {
 
 /// Dispatch a double-click at `(x, y)`; two taps on a touch profile.
 pub async fn double_click(page: &Page, x: f64, y: f64) -> Result<()> {
+    done_unless_open(page, double_click_once(page, x, y).await)
+}
+
+async fn double_click_once(page: &Page, x: f64, y: f64) -> Result<()> {
     if page.touch() {
         tap(page, x, y, None).await?;
         tokio::time::sleep(Duration::from_millis(60)).await;
@@ -721,6 +783,10 @@ pub async fn double_click(page: &Page, x: f64, y: f64) -> Result<()> {
 /// Hold mousedown for `duration_ms` then release (long press); a held
 /// finger on a touch profile.
 pub async fn long_press(page: &Page, x: f64, y: f64, duration_ms: u64) -> Result<()> {
+    done_unless_open(page, long_press_once(page, x, y, duration_ms).await)
+}
+
+async fn long_press_once(page: &Page, x: f64, y: f64, duration_ms: u64) -> Result<()> {
     if page.touch() {
         return tap(page, x, y, Some(Duration::from_millis(duration_ms))).await;
     }

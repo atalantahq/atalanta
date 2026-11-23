@@ -1431,6 +1431,7 @@ impl WebDriver {
         }
         spawn_dialog_handler(&page).await;
         spawn_crash_watch(&page).await;
+        spawn_close_watch(chrome, &page).await;
         network.attach(&page).await?;
         if frames_enabled() {
             // Cross-origin frames (W4): their own connection, attached
@@ -2427,6 +2428,38 @@ impl TabWatch {
     fn forget(&self, id: &str) {
         self.lock().ours.remove(id);
     }
+}
+
+/// Marks `page` closed when Chrome destroys its target, so a call waiting
+/// on it (the click whose handler ran `window.close()`) stops then instead
+/// of after `CDP_TIMEOUT`.
+async fn spawn_close_watch(chrome: &Chrome, page: &Arc<Page>) {
+    use chromiumoxide::cdp::browser_protocol::target::EventTargetDestroyed;
+    let events = chrome
+        .browser
+        .lock()
+        .await
+        .event_listener::<EventTargetDestroyed>()
+        .await;
+    let mut events = match events {
+        Ok(events) => events,
+        Err(e) => {
+            debug!("atalanta-web: cannot watch for the tab closing: {e}");
+            return;
+        }
+    };
+    let id = page.page.target_id().inner().clone();
+    let page = Arc::downgrade(page);
+    tokio::spawn(async move {
+        while let Some(ev) = events.next().await {
+            if ev.target_id.inner() == &id {
+                if let Some(page) = page.upgrade() {
+                    page.mark_closed();
+                }
+                break;
+            }
+        }
+    });
 }
 
 /// Marks `page` crashed when its renderer goes ("Aw, Snap!"), so its next
