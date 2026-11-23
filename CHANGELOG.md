@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
 0.2.0 is a large release. Suites written for 0.1.0 keep their format (`appId`, `config`, `flows`, `tests`), but several checks are now stricter. Read [Behaviour changes that can fail existing suites](#behaviour-changes-that-can-fail-existing-suites) and [Migrating from 0.1.0](#migrating-from-010) before you upgrade a CI pipeline.
 
 ### Renamed from Velocity
@@ -504,10 +506,6 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 7. Decide on self-healing in CI. Its default there is `report`: a test that passes only through a heal fails and prints the `atalanta heal --accept` command. Set `healing.mode: auto` or `off` to choose otherwise.
 8. For the inspector, open the tokened URL it prints. Add `--host 0.0.0.0` only if you need LAN access.
 9. For MCP clients, run `atalanta mcp install` to register the server and the agent rules. List the secrets agents may type in `ATALANTA_SECRETS`.
-
-## [0.2.0] - unreleased
-
-Everything planned for 0.2.0 is under [Unreleased] above. `scripts/bump-version.sh 0.2.0 --date` moves it here and dates this heading; delete this paragraph then. (CI needs a non-empty `[0.2.0]` section while the workspace version is 0.2.0.)
 
 ## [0.1.0] - 2026-03-16
 

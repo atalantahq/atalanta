@@ -15,7 +15,7 @@ function readVersion(): string {
 export const REPO_URL = 'https://github.com/atalantahq/atalanta';
 export const RAW_URL = 'https://raw.githubusercontent.com/atalantahq/atalanta/main';
 export const VERSION = readVersion();
-export const RELEASE_STATE = 'pre-release';
+export const RELEASE_STATE = 'released';
 export const CONTACT = 'atalanta@atomicmail.io';
 export const LICENSE = 'AGPL-3.0';
 export const SITE_NAME = 'Atalanta';

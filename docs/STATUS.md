@@ -1,6 +1,6 @@
 # Verification status
 
-Atalanta is pre-release. What has been run, where, and what has not. Last updated 2026-11-23.
+Atalanta 0.2.0 is the first release. What has been run, where, and what has not. Last updated 2026-11-23.
 
 Each feature has one of four states:
 
@@ -107,7 +107,8 @@ Each feature has one of four states:
 |---|---|---|
 | Opt-in CI workflows (device smoke, Flutter bridge, probes) | Syntax checked | Never run on GitHub |
 | GitHub Action (`action.yml`) | Host tests | Never run on GitHub |
-| Release packages (install script, Homebrew, npm, crates.io) | Not published | The first release |
+| Release binaries, install script, Homebrew | Released in 0.2.0 | |
+| npm and crates.io packages | Not published | Publishing |
 
 ## Real hardware
 

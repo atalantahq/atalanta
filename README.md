@@ -23,7 +23,7 @@ Atalanta runs test suites on Android emulators, iOS simulators and Chrome. It is
 [![Platforms](https://img.shields.io/badge/platforms-Android%20%C2%B7%20iOS%20%C2%B7%20Chrome-blue)](docs/DRIVERS.md)
 [![Rust](https://img.shields.io/badge/rust-1.89%2B-blue?logo=rust)](Cargo.toml)
 
-Atalanta is pre-release: 0.2.0 has not been published yet. [docs/STATUS.md](docs/STATUS.md) lists what has been verified, and on which devices.
+The latest release is [0.2.0](https://github.com/atalantahq/atalanta/releases/latest). [docs/STATUS.md](docs/STATUS.md) lists what has been verified, and on which devices.
 
 ## What it does
 
@@ -47,11 +47,15 @@ Atalanta is pre-release: 0.2.0 has not been published yet. [docs/STATUS.md](docs
 
 ## Quick start
 
-Until the first release, build from a checkout:
+Install on macOS or Linux:
 
 ```bash
-cargo install --path atalanta-cli --locked
+brew install atalantahq/tap/atalanta
+# or
+curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh
 ```
+
+Or build from a checkout: `cargo install --path atalanta-cli --locked`.
 
 Start an emulator or simulator with your app installed, then:
 
@@ -145,7 +149,7 @@ Atalanta's YAML takes ideas from Maestro, so moving over is short: `atalanta mig
 
 ## Limits
 
-- Pre-release. Tested on 100+ real Android devices and multiple iPhones; [STATUS.md](docs/STATUS.md) lists specifics.
+- Pre-1.0: minor releases can change behaviour. Tested on 100+ real Android devices and multiple iPhones; [STATUS.md](docs/STATUS.md) lists specifics.
 - Windows is not supported. WSL2 works as Linux.
 - Web tests run on Chrome and Chromium only.
 

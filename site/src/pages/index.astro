@@ -5,7 +5,7 @@ import '../styles/landing.css';
 import { url } from '../lib/url';
 import { REPO_URL, VERSION } from '../lib/site';
 
-const install = 'cargo install --path atalanta-cli --locked';
+const install = 'curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh';
 const brew = 'brew install atalantahq/tap/atalanta';
 const yamlSuite = `appId: com.example.shop
 tests:
@@ -35,7 +35,7 @@ atalanta snapshot
 atalanta tap @e7
 atalanta export --out flow.yaml`;
 ---
-<Base description="Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome, with API steps in the same file. Open source, one static binary, pre-release.">
+<Base description="Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome, with API steps in the same file. Open source, one static binary.">
   <canvas class="galaxy" aria-hidden="true"></canvas>
 
   <!-- 1 -->
@@ -56,9 +56,9 @@ atalanta export --out flow.yaml`;
             <a class="btn" href={REPO_URL}>GitHub</a>
           </div>
           <div class="install rise">
-            <div class="cmd" data-copy-target="code" data-copy-text={install}><span class="p" aria-hidden="true">$</span><code>{install}</code><span class="tag">from a checkout</span></div>
-            <div class="cmd" data-copy-target="code" data-copy-text={brew}><span class="p" aria-hidden="true">$</span><code>{brew}</code><span class="tag soon">first release</span></div>
-            <p class="note">Pre-release: {VERSION} is not published yet, so install from a checkout. Homebrew, npm and the install script go live with the first release.</p>
+            <div class="cmd" data-copy-target="code" data-copy-text={install}><span class="p" aria-hidden="true">$</span><code>{install}</code><span class="tag">macOS, Linux</span></div>
+            <div class="cmd" data-copy-target="code" data-copy-text={brew}><span class="p" aria-hidden="true">$</span><code>{brew}</code><span class="tag">Homebrew</span></div>
+            <p class="note">{VERSION} binaries for macOS (Apple silicon, Intel) and Linux (x86_64, arm64), with checksums and provenance, are on the <a href={`${REPO_URL}/releases/latest`}>releases page</a>.</p>
           </div>
         </div>
       </div>

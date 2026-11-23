@@ -26,4 +26,4 @@
 
 ## What to expect
 
-Atalanta is an open-source project in pre-release. Issues are answered as maintainer time allows, and there is no guaranteed response time. The one exception is security reports, which have the response targets in [SECURITY.md](SECURITY.md). Supported versions are listed there too.
+Atalanta is an open-source project before 1.0. Issues are answered as maintainer time allows, and there is no guaranteed response time. The one exception is security reports, which have the response targets in [SECURITY.md](SECURITY.md). Supported versions are listed there too.
