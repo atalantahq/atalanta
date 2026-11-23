@@ -441,13 +441,13 @@ final class Router {
         // A stroke (swipe or scroll): it used to keep only the last point and
         // tap there, so every swipe and scroll through /actions was a tap.
         if let start = downAt, downXY != nil, moved > 10 {
-            let atalanta = moveSecs > 0 ? max(200, moved / moveSecs) : 1_500
+            let velocity = moveSecs > 0 ? max(200, moved / moveSecs) : 1_500
             // Ending slowly (Atalanta's scroll stroke) = hold before lifting,
             // so the content stops where the finger does; a swipe flings.
             let hold = (firstSpeed > 0 && lastSpeed < firstSpeed / 3) ? 0.1 : 0
             start.press(forDuration: 0.05,
                         thenDragTo: target,
-                        withAtalanta: XCUIGestureAtalanta(atalanta),
+                        withVelocity: XCUIGestureVelocity(velocity),
                         thenHoldForDuration: hold)
             return .ok(NSNull())
         }

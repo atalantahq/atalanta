@@ -100,4 +100,21 @@ mod tests {
             );
         }
     }
+
+    /// The Velocity -> Atalanta rename once broke these XCTest names.
+    #[test]
+    fn the_runner_calls_xctest_by_its_real_names() {
+        let swift = super::FILES
+            .iter()
+            .find(|(p, _)| p.ends_with(".swift"))
+            .unwrap()
+            .1;
+        assert!(swift.contains("withVelocity: XCUIGestureVelocity("));
+        for renamed in ["withAtalanta", "XCUIGestureAtalanta", "XCUIAtalanta"] {
+            assert!(
+                !swift.contains(renamed),
+                "AtalantaRunner.swift has {renamed}"
+            );
+        }
+    }
 }
