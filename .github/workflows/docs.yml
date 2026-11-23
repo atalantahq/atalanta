@@ -55,7 +55,7 @@ jobs:
           cargo test -p atalanta-mcp-server --locked --lib the_mcp_doc_lists_every_tool
       # No npm cache: like the Rust cache above, the site a release deploys
       # is built cold. `npm ci` installs exactly site/package-lock.json.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] -- v4 caches only with `cache:`, unset
         with:
           node-version: "24"
       # A relative link to a file that does not exist, or a docs page missing
