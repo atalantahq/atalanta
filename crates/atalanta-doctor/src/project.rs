@@ -241,8 +241,9 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
                     unreachable.push(format!("{app}: not an Android package name, not looked up"));
                     continue;
                 }
+                // Same slack as the android area: it may start the adb server.
                 let listed = env
-                    .run(&adb, &["devices"], t)
+                    .run(&adb, &["devices"], t + std::time::Duration::from_secs(2))
                     .await
                     .stdout()
                     .unwrap_or_default();
