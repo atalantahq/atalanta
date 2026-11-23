@@ -14,7 +14,7 @@ id = "RUSTSEC-2024-0449"
 ignoreUntil = 2027-05-11
 reason = "serde_yaml/unsafe-libyaml unmaintained (no CVE); migration tracked in docs/research/PLAN-v3.md, mirrored in deny.toml"
 
-# ttf-parser through cosmic-text/fontdb (velocity-headless): "unmaintained"
+# ttf-parser through cosmic-text/fontdb (atalanta-headless): "unmaintained"
 # notice; its replacement needs cosmic-text to move first. Same as deny.toml.
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0192"

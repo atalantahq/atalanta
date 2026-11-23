@@ -1,11 +1,11 @@
-//! Regressions found in the November 2026 review of `velocity-migrate`,
+//! Regressions found in the November 2026 review of `atalanta-migrate`,
 //! through the public API: each input is a Maestro flow a hostile or just
 //! unusual repository could hold.
 
 use std::fs;
 use std::path::PathBuf;
 
-use velocity_migrate::{FileMigrationResult, MaestroMigrator, Severity};
+use atalanta_migrate::{FileMigrationResult, MaestroMigrator, Severity};
 
 fn scratch(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("vel-mig-review-{}-{name}", std::process::id()));
@@ -21,7 +21,7 @@ fn migrate(name: &str, files: &[(&str, &str)]) -> (FileMigrationResult, String) 
     for (f, body) in files {
         fs::write(d.join(f), body).unwrap();
     }
-    let out = d.join("out.velocity.yaml");
+    let out = d.join("out.atalanta.yaml");
     let r = MaestroMigrator::new()
         .migrate_file(
             &d.join(files[0].0).to_string_lossy(),
@@ -42,7 +42,7 @@ fn warned(r: &FileMigrationResult, needle: &str) -> bool {
 #[test]
 fn nested_repeats_are_bounded() {
     // 100 x 100 x 100 steps from nine lines: a million steps, 30 s, and a
-    // file `velocity run` refuses (100 000 steps at most).
+    // file `atalanta run` refuses (100 000 steps at most).
     let flow = "appId: x\n---\n- repeat:\n    times: 100\n    commands:\n      - repeat:\n          times: 100\n          commands:\n            - repeat:\n                times: 100\n                commands:\n                  - tapOn: a\n";
     let (r, _) = migrate("repeat3", &[("a.yaml", flow)]);
     assert!(r.steps_migrated <= 100_000, "{} steps", r.steps_migrated);
@@ -50,7 +50,7 @@ fn nested_repeats_are_bounded() {
 }
 
 #[test]
-fn a_flow_chain_velocity_run_refuses_is_not_a_success() {
+fn a_flow_chain_atalanta_run_refuses_is_not_a_success() {
     let n = 40;
     let mut files: Vec<(String, String)> = Vec::new();
     for i in 0..n {

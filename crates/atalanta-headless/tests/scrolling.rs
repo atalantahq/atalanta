@@ -1,9 +1,9 @@
 //! Headless scrolling: swipes and `scrollUntilVisible` move scroll containers, so
 //! content below the fold (not visible since VEL-109) can be reached.
 
-use velocity_common::{Direction, Element, Platform, PlatformDriver, Selector};
-use velocity_core::executor::TestExecutor;
-use velocity_headless::{HeadlessConfig, HeadlessDriver};
+use atalanta_common::{Direction, Element, Platform, PlatformDriver, Selector};
+use atalanta_core::executor::TestExecutor;
+use atalanta_headless::{HeadlessConfig, HeadlessDriver};
 
 const NS: &str = r#"xmlns:android="http://schemas.android.com/apk/res/android""#;
 const DEV: &str = "headless-0";
@@ -62,7 +62,7 @@ async fn scroll_until_visible_reaches_a_footer_below_the_fold() {
         "starts below the fold"
     );
 
-    let suite = velocity_core::parser::parse_suite_from_str(
+    let suite = atalanta_core::parser::parse_suite_from_str(
         r#"
 appId: app
 config:
@@ -90,7 +90,7 @@ tests:
     let r = ex.execute_test(&suite.tests[0], DEV, "app").await.unwrap();
     assert_eq!(
         r.status,
-        velocity_common::TestStatus::Passed,
+        atalanta_common::TestStatus::Passed,
         "{:?}",
         r.error_message
     );
@@ -371,7 +371,7 @@ async fn a_form_field_below_the_fold_is_reached_by_scrolling() {
         "starts below the fold"
     );
 
-    let suite = velocity_core::parser::parse_suite_from_str(
+    let suite = atalanta_core::parser::parse_suite_from_str(
         r#"
 appId: app
 config:
@@ -399,7 +399,7 @@ tests:
     let r = ex.execute_test(&suite.tests[0], DEV, "app").await.unwrap();
     assert_eq!(
         r.status,
-        velocity_common::TestStatus::Passed,
+        atalanta_common::TestStatus::Passed,
         "{:?}",
         r.error_message
     );

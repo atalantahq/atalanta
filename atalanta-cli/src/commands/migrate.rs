@@ -1,16 +1,16 @@
+use atalanta_migrate::{MaestroMigrator, Severity};
 use clap::Subcommand;
 use colored::Colorize;
-use velocity_migrate::{MaestroMigrator, Severity};
 
 #[derive(Subcommand)]
 pub enum MigrateCommand {
-    /// Migrate Maestro YAML tests to Velocity format
+    /// Migrate Maestro YAML tests to Atalanta format
     Maestro {
         /// Input directory containing Maestro YAML files
         dir: String,
 
-        /// Output directory for Velocity YAML files
-        #[arg(short, long, default_value = "./velocity-migrated")]
+        /// Output directory for Atalanta YAML files
+        #[arg(short, long, default_value = "./atalanta-migrated")]
         output: String,
 
         /// Output migration report as JSON
@@ -40,7 +40,7 @@ pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
     match command {
         MigrateCommand::Waits { file, write } => {
             let yaml = std::fs::read_to_string(&file).map_err(|e| usage_err!("{file}: {e}"))?;
-            let (out, removed) = velocity_migrate::waits::remove_redundant_waits(&yaml);
+            let (out, removed) = atalanta_migrate::waits::remove_redundant_waits(&yaml);
             if removed.is_empty() {
                 println!("{} No redundant waits in {file}", "=>".cyan().bold());
                 return Ok(0);
@@ -50,7 +50,7 @@ pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
                 println!("  {file}:{}  wait {} ms before {}", r.line, r.ms, r.before);
             }
             // Never write a file that no longer parses.
-            velocity_core::parser::parse_suite_from_str(&out)
+            atalanta_core::parser::parse_suite_from_str(&out)
                 .map_err(|e| anyhow::anyhow!("rewrite would not parse, nothing written: {e}"))?;
             if write {
                 std::fs::write(&file, out)?;
@@ -77,7 +77,7 @@ pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
             dry_run: true,
         } => {
             let report = MaestroMigrator::new().dry_run_directory(&dir)?;
-            let summary = velocity_migrate::summarize_dry_run(&report);
+            let summary = atalanta_migrate::summarize_dry_run(&report);
             if report_json {
                 println!("{}", serde_json::to_string_pretty(&summary)?);
                 return Ok(0);
@@ -136,7 +136,7 @@ pub fn execute(command: MigrateCommand) -> anyhow::Result<i32> {
             let report = migrator.migrate_directory(&dir, &output)?;
 
             if report_json {
-                let json = velocity_migrate::generate_report_json(&report);
+                let json = atalanta_migrate::generate_report_json(&report);
                 println!("{json}");
                 return Ok(if report.files_failed > 0 { 1 } else { 0 });
             }

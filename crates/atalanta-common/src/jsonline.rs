@@ -19,7 +19,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
 
-use crate::VelocityError;
+use crate::AtalantaError;
 
 /// Largest reply line accepted (a screenshot is base64 PNG, a few MiB).
 pub const MAX_REPLY: usize = 64 * 1024 * 1024;
@@ -67,7 +67,7 @@ impl Reply {
     pub fn into_result(self, op: &str, target: &str) -> crate::Result<Option<Value>> {
         match self {
             Reply::Ok { data } => Ok(data),
-            Reply::Error { message, code } => Err(VelocityError::CommandFailed {
+            Reply::Error { message, code } => Err(AtalantaError::CommandFailed {
                 device_id: target.to_string(),
                 command: op.to_string(),
                 detail: match code {
@@ -327,7 +327,7 @@ mod tests {
         }))
         .unwrap();
         let e = r.into_result("tap", "flutter-0").unwrap_err();
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
         assert!(e.to_string().contains("not_hittable: covered"), "{e}");
         assert_eq!(
             Reply::from_value(serde_json::json!({"status":"ok"}))

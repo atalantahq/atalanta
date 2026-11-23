@@ -57,13 +57,13 @@ def render(meta):
         "run `scripts/third-party-rust.py --write` after dependency changes (CI fails when this "
         "file is stale). `cargo deny check licenses` (see `deny.toml`) enforces the allow-list.",
         "",
-        "Velocity itself is AGPL-3.0-only. Where a crate offers a choice of licences "
-        "(for example `MIT OR Apache-2.0`), Velocity uses it under a permissive option.",
+        "Atalanta itself is AGPL-3.0-only. Where a crate offers a choice of licences "
+        "(for example `MIT OR Apache-2.0`), Atalanta uses it under a permissive option.",
     ]
     if choice:
         lines += [
             "",
-            "Crates whose choice includes a copyleft option Velocity does not take: "
+            "Crates whose choice includes a copyleft option Atalanta does not take: "
             + ", ".join(f"`{p['name']} {p['version']}` (`{p['license']}`)" for p in choice)
             + ".",
         ]

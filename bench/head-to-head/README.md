@@ -1,16 +1,16 @@
-# Velocity vs Maestro, head to head
+# Atalanta vs Maestro, head to head
 
 Wall-clock time of one user-visible flow, run by each tool from its CLI, on
 the same Android emulator and the same app. It repeats the Android comparison
 in [docs/research/speed-profile-2026-10-06.md](../../docs/research/speed-profile-2026-10-06.md#head-to-head-with-maestro-230-same-flows-same-devices)
-(Maestro 26–27 s, Velocity 3.7 s) as a script anyone can rerun.
+(Maestro 26–27 s, Atalanta 3.7 s) as a script anyone can rerun.
 
 ## What is compared
 
 The flow from [tests/smoke/android-settings.yaml](../../tests/smoke/android-settings.yaml),
 8 steps on the built-in Settings app, written once for each tool:
 
-| # | Velocity ([flows/settings.velocity.yaml](flows/settings.velocity.yaml)) | Maestro ([flows/settings.maestro.yaml](flows/settings.maestro.yaml)) |
+| # | Atalanta ([flows/settings.atalanta.yaml](flows/settings.atalanta.yaml)) | Maestro ([flows/settings.maestro.yaml](flows/settings.maestro.yaml)) |
 | --- | --- | --- |
 | 1 | `stopApp` | `stopApp` |
 | 2 | `launchApp` (`clearState: false`) | `launchApp` (`clearState: false`, `stopApp: false`) |
@@ -27,8 +27,8 @@ That is what a developer or a CI job waits for.
 
 ## Requirements
 
-- **Velocity release binary**: `cargo build --release -p velocity-cli`
-  (`target/release/velocity`; override with `VELOCITY_BIN`). Debug builds are
+- **Atalanta release binary**: `cargo build --release -p atalanta-cli`
+  (`target/release/atalanta`; override with `ATALANTA_BIN`). Debug builds are
   not comparable.
 - **Maestro 2.3.0**, pinned: `curl -Ls "https://get.maestro.mobile.dev" | MAESTRO_VERSION=2.3.0 bash`.
   `run.sh` refuses another version unless `MAESTRO_VERSION` is set to it, and
@@ -43,7 +43,7 @@ That is what a developer or a CI job waits for.
 ## How to run
 
 ```bash
-cargo build --release -p velocity-cli
+cargo build --release -p atalanta-cli
 bench/head-to-head/run.sh                 # N=5, the only online device
 bench/head-to-head/run.sh -n 9 -d emulator-5554 -o /tmp/h2h
 python3 bench/head-to-head/summarize.py bench/head-to-head/results/<stamp>/results.csv
@@ -62,18 +62,18 @@ run in `logs/` and each tool's JUnit report in `artifacts/`.
 1. **Same device, same app, same flow.** One emulator for the whole run; the
    script checks it is booted, on API 34 and has Settings installed.
 2. **Warm-up run discarded.** One run of each tool first (Maestro installs its
-   driver APKs, Velocity pushes its tree server). Recorded as `warmup` and
+   driver APKs, Atalanta pushes its tree server). Recorded as `warmup` and
    ignored by `summarize.py`.
-3. **N=5 alternating runs.** Iteration 1 runs Velocity then Maestro, iteration
-   2 Maestro then Velocity, and so on, so neither tool always runs on the
+3. **N=5 alternating runs.** Iteration 1 runs Atalanta then Maestro, iteration
+   2 Maestro then Atalanta, and so on, so neither tool always runs on the
    device the other just warmed.
 4. **Same starting state before every run**: animation scales reset to 1.0,
    Settings force-stopped, home screen, 2 s idle.
-5. **Animations as each tool sets them.** Velocity turns system animations off
+5. **Animations as each tool sets them.** Atalanta turns system animations off
    for its run and restores them afterwards (it is its default; the script
-   makes sure `VELOCITY_KEEP_ANIMATIONS` is unset). Maestro leaves them on.
+   makes sure `ATALANTA_KEEP_ANIMATIONS` is unset). Maestro leaves them on.
    Each tool is measured as a user gets it out of the box.
-6. **No retries.** Velocity runs with `--retries 0`; Maestro does not retry.
+6. **No retries.** Atalanta runs with `--retries 0`; Maestro does not retry.
 7. **Medians and p90** over the passing measured runs, per tool. A failed run
    is counted (`Passed` column) but not timed. With N=5, p90 sits between the
    two slowest runs; raise `-n` for a tighter tail.
@@ -82,10 +82,10 @@ run in `logs/` and each tool's JUnit report in `artifacts/`.
 
 - **Per-step latency.** Only the end-to-end wall clock; the per-step breakdown
   is in the research note above.
-- **iOS.** Velocity's WDA path could not finish the iOS flow in the earlier
+- **iOS.** Atalanta's WDA path could not finish the iOS flow in the earlier
   measurement; this harness is Android only.
 - **Reliability or flakiness** beyond the pass count of these few runs.
-- **Velocity's daemon** (`run --daemon`, warm drivers between runs) and
+- **Atalanta's daemon** (`run --daemon`, warm drivers between runs) and
   **Maestro's** continuous or Studio modes: both run cold from the CLI.
 - **Parallel runs, sharding, cloud services**, real devices, other apps, other
   API levels.

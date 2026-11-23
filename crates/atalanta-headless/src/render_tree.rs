@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use taffy::prelude::{AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent, JustifySelf};
 
-/// A length in a [`NodeStyle`]: Velocity's own plain-data type, converted to taffy's
+/// A length in a [`NodeStyle`]: Atalanta's own plain-data type, converted to taffy's
 /// tagged-pointer `Dimension` only inside the layout pass. Keeping taffy's type out of
 /// the render tree is what makes `RenderNode` `Send + Sync` without `unsafe`.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

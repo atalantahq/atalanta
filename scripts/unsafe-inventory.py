@@ -39,7 +39,7 @@ def crates():
             d = os.path.join(ROOT, base, name)
             if os.path.isfile(os.path.join(d, "Cargo.toml")):
                 out.append((name, d))
-    for name in ("velocity-cli", "fuzz"):
+    for name in ("atalanta-cli", "fuzz"):
         d = os.path.join(ROOT, name)
         if os.path.isfile(os.path.join(d, "Cargo.toml")):
             out.append((name, d))

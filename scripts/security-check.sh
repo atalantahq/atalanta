@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Velocity's security checks locally, the same ones
+# Run Atalanta's security checks locally, the same ones
 # .github/workflows/security.yml runs (it calls this script, one check per
 # job, so the flags and allowlists live in one place).
 #
@@ -107,7 +107,7 @@ check_npm_audit() {
         fi
     done < <(git ls-files '*package-lock.json')
     # npm/cli has no package-lock.json: its only dependencies are
-    # Velocity's own per-platform packages, built by the release job.
+    # Atalanta's own per-platform packages, built by the release job.
     if [ "$bad" -eq 0 ]; then
         pass
     else
@@ -163,7 +163,7 @@ check_semgrep() {
     # (--metrics=off, no login). Secrets are gitleaks' job, unsafe Rust the
     # unsafe check's, so p/secrets and the INFO-level audit rules are left
     # out. The excluded rule:
-    #   unencrypted-socket: every socket Velocity opens is on loopback (or an
+    #   unencrypted-socket: every socket Atalanta opens is on loopback (or an
     #   abstract socket over adb), authenticated by the HMAC handshake where
     #   it carries commands (docs/SECURITY.md); TLS is not the control there.
     # Triaged findings are `// nosemgrep: <rule-id>` comments with a reason.

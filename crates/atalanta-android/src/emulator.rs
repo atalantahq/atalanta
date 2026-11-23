@@ -1,4 +1,4 @@
-//! Headless emulators for `velocity devices up --android N`.
+//! Headless emulators for `atalanta devices up --android N`.
 //!
 //! Since emulator 28.0.16 several instances of one AVD can run at once when
 //! they are started with `-read-only`: each gets a copy-on-write overlay
@@ -10,27 +10,27 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use atalanta_common::process::{default_timeout, output_with_timeout};
+use atalanta_common::{AtalantaError, Result};
 use tokio::process::Command;
 use tracing::debug;
-use velocity_common::process::{default_timeout, output_with_timeout};
-use velocity_common::{Result, VelocityError};
 
 /// First console port the emulator uses; instances take even ports above it.
 pub const FIRST_PORT: u16 = 5554;
 /// The emulator only accepts console ports 5554–5682.
 pub const LAST_PORT: u16 = 5682;
 
-/// The `emulator` binary: `VELOCITY_EMULATOR_PATH`, the SDK
+/// The `emulator` binary: `ATALANTA_EMULATOR_PATH`, the SDK
 /// (`ANDROID_HOME`, `ANDROID_SDK_ROOT`, Android Studio's default location),
 /// else `emulator` on PATH.
 pub fn emulator_path() -> PathBuf {
-    if let Ok(p) = velocity_common::env::var("VELOCITY_EMULATOR_PATH") {
+    if let Ok(p) = atalanta_common::env::var("ATALANTA_EMULATOR_PATH") {
         return PathBuf::from(p);
     }
-    let home = velocity_common::env::var("HOME").unwrap_or_default();
+    let home = atalanta_common::env::var("HOME").unwrap_or_default();
     let roots = [
-        velocity_common::env::var("ANDROID_HOME").ok(),
-        velocity_common::env::var("ANDROID_SDK_ROOT").ok(),
+        atalanta_common::env::var("ANDROID_HOME").ok(),
+        atalanta_common::env::var("ANDROID_SDK_ROOT").ok(),
         Some(format!("{home}/Library/Android/sdk")),
         Some(format!("{home}/Android/Sdk")),
     ];
@@ -43,7 +43,7 @@ pub fn emulator_path() -> PathBuf {
 }
 
 fn adb_path() -> String {
-    velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".to_string())
+    atalanta_common::env::var("ATALANTA_ADB_PATH").unwrap_or_else(|_| "adb".to_string())
 }
 
 async fn adb(args: &[&str], timeout: Duration) -> Result<String> {
@@ -51,9 +51,9 @@ async fn adb(args: &[&str], timeout: Duration) -> Result<String> {
     cmd.args(args);
     let out = output_with_timeout(&mut cmd, timeout)
         .await
-        .map_err(|e| VelocityError::Config(format!("adb {}: {e}", args.join(" "))))?;
+        .map_err(|e| AtalantaError::Config(format!("adb {}: {e}", args.join(" "))))?;
     if !out.status.success() {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "adb {}: {}",
             args.join(" "),
             String::from_utf8_lossy(&out.stderr).trim()
@@ -69,8 +69,8 @@ pub async fn list_avds() -> Result<Vec<String>> {
     let out = output_with_timeout(&mut cmd, default_timeout())
         .await
         .map_err(|e| {
-            VelocityError::Config(format!(
-                "could not run {}: {e} (set VELOCITY_EMULATOR_PATH or ANDROID_HOME)",
+            AtalantaError::Config(format!(
+                "could not run {}: {e} (set ATALANTA_EMULATOR_PATH or ANDROID_HOME)",
                 emulator_path().display()
             ))
         })?;
@@ -103,7 +103,7 @@ fn parse_emulator_serials(out: &str) -> Vec<String> {
         .collect()
 }
 
-/// `emulator-NNNN`: only these are ever started or stopped by Velocity.
+/// `emulator-NNNN`: only these are ever started or stopped by Atalanta.
 pub fn is_emulator_serial(serial: &str) -> bool {
     serial
         .strip_prefix("emulator-")
@@ -134,10 +134,10 @@ pub fn launch_read_only(avd: &str, port: u16, log: &Path) -> Result<std::process
         let _ = std::fs::create_dir_all(dir);
     }
     let out = std::fs::File::create(log)
-        .map_err(|e| VelocityError::Config(format!("{}: {e}", log.display())))?;
+        .map_err(|e| AtalantaError::Config(format!("{}: {e}", log.display())))?;
     let err = out
         .try_clone()
-        .map_err(|e| VelocityError::Config(format!("{}: {e}", log.display())))?;
+        .map_err(|e| AtalantaError::Config(format!("{}: {e}", log.display())))?;
     let mut cmd = std::process::Command::new(emulator_path());
     cmd.args(["-avd", avd])
         .args(launch_flags(port))
@@ -150,7 +150,7 @@ pub fn launch_read_only(avd: &str, port: u16, log: &Path) -> Result<std::process
         cmd.process_group(0);
     }
     debug!(avd, port, "starting emulator");
-    cmd.spawn().map_err(|e| VelocityError::DeviceBootFailed {
+    cmd.spawn().map_err(|e| AtalantaError::DeviceBootFailed {
         id: format!("emulator-{port}"),
         reason: format!("could not start {}: {e}", emulator_path().display()),
     })
@@ -179,7 +179,7 @@ pub async fn wait_booted(
     timeout: Duration,
 ) -> Result<Duration> {
     let start = Instant::now();
-    let fail = |reason: String| VelocityError::DeviceBootFailed {
+    let fail = |reason: String| AtalantaError::DeviceBootFailed {
         id: serial.to_string(),
         reason,
     };
@@ -211,7 +211,7 @@ pub async fn wait_booted(
 }
 
 /// The AVD an emulator runs (`adb emu avd name`), to make sure a serial
-/// still belongs to the instance Velocity started before stopping it.
+/// still belongs to the instance Atalanta started before stopping it.
 pub async fn avd_name(serial: &str) -> Option<String> {
     let out = adb(
         &["-s", serial, "emu", "avd", "name"],
@@ -228,7 +228,7 @@ pub async fn avd_name(serial: &str) -> Option<String> {
 /// Stop the emulator behind `serial` (`adb emu kill`).
 pub async fn kill(serial: &str) -> Result<()> {
     if !is_emulator_serial(serial) {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "{serial} is not an emulator; refusing to stop it"
         )));
     }

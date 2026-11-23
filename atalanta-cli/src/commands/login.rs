@@ -1,9 +1,9 @@
-//! `velocity login <suite>` (row 1.5, AI-021 / VOI-001): run a stored login
+//! `atalanta login <suite>` (row 1.5, AI-021 / VOI-001): run a stored login
 //! flow so an agent can start from a logged-in app without ever handling
 //! the password. claude-code #78160: agents refuse to type passwords, and
 //! 13 of 17 real-app tests stopped at login.
 //!
-//! It is `velocity run` on one test (the first, or `--test`), with the
+//! It is `atalanta run` on one test (the first, or `--test`), with the
 //! app left as the flow leaves it. Its `${NAME}`s come from the
 //! environment, `--env`, `${keychain:NAME}` (the OS keychain) or
 //! `${totp:NAME}` (a one-time code), and every value is masked in the
@@ -33,7 +33,7 @@ pub struct LoginArgs {
     env: Vec<String>,
 
     /// Where the reports go
-    #[arg(long, default_value = "velocity-results/login", value_name = "DIR")]
+    #[arg(long, default_value = "atalanta-results/login", value_name = "DIR")]
     artifacts_dir: String,
 }
 
@@ -48,7 +48,7 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<i32> {
     let test = match args.test.clone() {
         Some(t) => t,
         None => {
-            let suite = velocity_core::parse_suite(&args.suite)
+            let suite = atalanta_core::parse_suite(&args.suite)
                 .map_err(|e| usage_err!("{}: {e}", args.suite))?;
             match suite.tests.first() {
                 Some(t) => t.name.clone(),
@@ -61,7 +61,7 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<i32> {
     Box::pin(super::run::execute(run.args)).await
 }
 
-/// `velocity run` arguments for the login: just that test, its own reports,
+/// `atalanta run` arguments for the login: just that test, its own reports,
 /// no result cache (a login must really run), no retries of a wrong
 /// password (an account may lock).
 fn run_argv(suite: &str, test: &str, args: &LoginArgs) -> Vec<String> {
@@ -107,7 +107,7 @@ mod tests {
     /// test named "[smoke] log in?" match nothing (exit 2, "no test matches").
     #[test]
     fn a_test_name_with_brackets_or_a_question_mark_is_still_selected() {
-        let suite = velocity_core::parser::parse_suite_from_str(
+        let suite = atalanta_core::parser::parse_suite_from_str(
             "appId: x\ntests:\n  - name: \"[smoke] log in?\"\n    steps:\n      - wait: { ms: 1 }\n  - name: \"[smoke] log out\"\n    steps:\n      - wait: { ms: 1 }\n",
         )
         .unwrap();
@@ -119,7 +119,7 @@ mod tests {
                 .find_map(|a| a.strip_prefix("--filter="))
                 .expect("--filter=…");
             if name.starts_with('[') {
-                let picked = velocity_runner::filter_by_name(&suite.tests, filter);
+                let picked = atalanta_runner::filter_by_name(&suite.tests, filter);
                 assert_eq!(picked.len(), 1, "{filter:?}");
                 assert_eq!(picked[0].name, name);
             }

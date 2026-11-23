@@ -13,7 +13,7 @@ final class NetworkTracker {
         Self.swizzle(
             cls: URLSessionTask.self,
             original: #selector(URLSessionTask.resume),
-            replacement: #selector(URLSessionTask.velocity_resume)
+            replacement: #selector(URLSessionTask.atalanta_resume)
         )
     }
 
@@ -46,7 +46,7 @@ final class NetworkTracker {
 }
 
 extension URLSessionTask {
-    @objc func velocity_resume() {
+    @objc func atalanta_resume() {
         // resume() may legally be called more than once on the same task.
         // Track only the first call: repeat calls would over-increment the
         // pending counter (app reported busy forever) and replace the
@@ -63,7 +63,7 @@ extension URLSessionTask {
             addObserver(observer, forKeyPath: "state", options: [.new], context: nil)
         }
 
-        velocity_resume() // calls original (swizzled)
+        atalanta_resume() // calls original (swizzled)
     }
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Opt in to Velocity's git hooks (scripts/hooks/): pre-commit runs gitleaks
+# Opt in to Atalanta's git hooks (scripts/hooks/): pre-commit runs gitleaks
 # on the staged changes plus the fast format/lint/unsafe checks; pre-push
 # runs gitleaks on the commits being pushed and, when a lockfile changed,
 # the dependency checks. Tools that are not installed are skipped.

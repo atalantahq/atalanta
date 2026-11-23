@@ -1,7 +1,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use velocity_common::Element;
+use atalanta_common::Element;
 
 /// Result of comparing two hierarchy trees.
 #[derive(Debug, Clone)]
@@ -157,7 +157,7 @@ fn count_nodes(element: &Element) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Rect;
+    use atalanta_common::Rect;
 
     fn make_element(text: &str, children: Vec<Element>) -> Element {
         Element {

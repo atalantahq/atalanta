@@ -1,5 +1,5 @@
 [package]
-name = "velocity-android"
+name = "atalanta-android"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,10 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "android", "adb", "uiautomator", "automation"]
 categories = ["development-tools::testing"]
-description = "Android driver for Velocity: ADB shell commands + uiautomator a11y tree parsing"
+description = "Android driver for Atalanta: ADB shell commands + uiautomator a11y tree parsing"
 
 [dependencies]
-velocity-common = { workspace = true }
+atalanta-common = { workspace = true }
 tokio = { workspace = true }
 quick-xml = { workspace = true }
 tracing = { workspace = true }

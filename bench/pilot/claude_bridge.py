@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """An OpenAI-compatible endpoint backed by the Claude Code CLI (`claude -p`).
 
-For machines with Claude Code logged in but no API key: Velocity's
+For machines with Claude Code logged in but no API key: Atalanta's
 `openai-compatible` provider talks to this, and each request becomes one
 `claude -p` call with no tools, no project settings and no MCP servers.
 Structured output (`response_format: json_schema`) is passed through
@@ -9,9 +9,9 @@ Structured output (`response_format: json_schema`) is passed through
 through the CLI's stream-json input, so screenshots reach the model.
 
     python3 claude_bridge.py --port 8787 --log calls.jsonl
-    VELOCITY_NL_PROVIDER=openai-compatible \
-    VELOCITY_NL_API_URL=http://127.0.0.1:8787/v1 \
-    VELOCITY_NL_MODEL=claude-sonnet-5-5 VELOCITY_NL_IMAGES=0 velocity explore …
+    ATALANTA_NL_PROVIDER=openai-compatible \
+    ATALANTA_NL_API_URL=http://127.0.0.1:8787/v1 \
+    ATALANTA_NL_MODEL=claude-sonnet-5-5 ATALANTA_NL_IMAGES=0 atalanta explore …
 
 Every call is appended to --log as one JSON line: the model, the prompt
 and reply text (the transcript the login-secrecy check reads), tokens,
@@ -85,7 +85,7 @@ def ask(body):
         "--strict-mcp-config", "--no-session-persistence",
         "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
     ]
-    # The client's own reasoning_effort (Velocity sends "low") unless the
+    # The client's own reasoning_effort (Atalanta sends "low") unless the
     # bridge was started with --effort: hidden thinking was 79% of the paid
     # output tokens at the CLI's default (review 14 F2).
     effort = ARGS.effort or body.get("reasoning_effort")
@@ -175,7 +175,7 @@ def main():
     p.add_argument("--log")
     p.add_argument("--effort", default="low",
                    help="the CLI's --effort (low, medium, high, xhigh, max; '' for the CLI's "
-                        "default). Velocity's native Anthropic path plans at low effort; "
+                        "default). Atalanta's native Anthropic path plans at low effort; "
                         "without it most paid output tokens were hidden reasoning")
     p.add_argument("--map", action="append", default=[],
                    help="NAME=MODEL: serve requests for NAME with MODEL")

@@ -84,19 +84,19 @@ fn the_suite_parser_never_panics() {
             }
             s.into_iter().collect()
         };
-        let r = std::panic::catch_unwind(|| velocity_core::parser::parse_suite_from_str(&input));
+        let r = std::panic::catch_unwind(|| atalanta_core::parser::parse_suite_from_str(&input));
         assert!(r.is_ok(), "the parser panicked on case {n}:\n{input}");
     }
     // Deep nesting is refused, not a stack overflow.
     for open in ["[", "{a: "] {
         let deep = format!("appId: x\ntests: {}", open.repeat(5000));
-        let r = std::panic::catch_unwind(|| velocity_core::parser::parse_suite_from_str(&deep));
+        let r = std::panic::catch_unwind(|| atalanta_core::parser::parse_suite_from_str(&deep));
         assert!(matches!(r, Ok(Err(_))), "{open} x5000");
     }
 }
 
-fn interpolate(s: &str, vars: &HashMap<String, String>) -> velocity_common::Result<String> {
-    velocity_core::env::interpolate(s, vars)
+fn interpolate(s: &str, vars: &HashMap<String, String>) -> atalanta_common::Result<String> {
+    atalanta_core::env::interpolate(s, vars)
 }
 
 /// `${}` interpolation on random input: no panic; text without `${` is

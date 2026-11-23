@@ -1,8 +1,8 @@
-//! Natural-language test steps for Velocity.
+//! Natural-language test steps for Atalanta.
 //!
 //! Lets tests be written in plain English (passmark-style) —
 //! `- "Tap the login button"` or `- assert: "the welcome screen is visible"` —
-//! and resolves each step to a concrete [`velocity_common::Action`] at run time
+//! and resolves each step to a concrete [`atalanta_common::Action`] at run time
 //! using an LLM planner. The planner only picks an operation and the number of
 //! an element from the screen list; code builds the selector, checks it, and
 //! fills in the test's values ([`grounding`]). The first resolution for a step
@@ -17,10 +17,10 @@
 //! checker (`verify:`) is in [`checker`].
 //!
 //! ```no_run
-//! # use velocity_nl::{AiSettings, NaturalResolver};
-//! # async fn demo() -> velocity_common::Result<()> {
+//! # use atalanta_nl::{AiSettings, NaturalResolver};
+//! # async fn demo() -> atalanta_common::Result<()> {
 //! if let Some(ai) = AiSettings::from_env()? {
-//!     let resolver = NaturalResolver::new(ai.planner()?, ".velocity/nl-cache.json")
+//!     let resolver = NaturalResolver::new(ai.planner()?, ".atalanta/nl-cache.json")
 //!         .with_checker(ai.checker()?);
 //!     # let _ = resolver;
 //! }
@@ -46,6 +46,7 @@ pub mod sigv4;
 pub(crate) mod testutil;
 
 pub use anthropic::AnthropicPlanner;
+pub use atalanta_common::natural::{CachedHit, NaturalStepResolver};
 pub use bedrock::BedrockPlanner;
 pub use cache::NlCache;
 pub use checker::{verify_claim, CheckAnswer, CheckRequest, ScreenChecker};
@@ -59,4 +60,3 @@ pub use resolver::{
     plan_step, plan_step_on_screen, plan_step_outcome, step_shape, CacheMode, NaturalResolver,
     NaturalStep, PendingPlan, PlanFailure, StepKeys,
 };
-pub use velocity_common::natural::{CachedHit, NaturalStepResolver};

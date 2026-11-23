@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use velocity_common::evidence::{AttachmentKind, LogLine};
-use velocity_common::{Element, StepStatus, SuiteResult, TestResult, TestStatus};
-use velocity_core::trace::{describe_failure, load_trace, TestTrace};
+use atalanta_common::evidence::{AttachmentKind, LogLine};
+use atalanta_common::{Element, StepStatus, SuiteResult, TestResult, TestStatus};
+use atalanta_core::trace::{describe_failure, load_trace, TestTrace};
 
 /// Characters of each log line shown in the error block, at most.
 const LOG_LINE_CHARS: usize = 300;
@@ -46,7 +46,7 @@ fn section(t: &TestResult, base: &Path) -> (String, bool) {
         .as_deref()
         .or(step.and_then(|st| st.error_message.as_deref()))
         .unwrap_or("(no error message)");
-    let error = velocity_common::redact::redact(error);
+    let error = atalanta_common::redact::redact(error);
     let _ = writeln!(s, "- **Error:** {}", error.trim());
 
     let mut evidence: Vec<String> = Vec::new();
@@ -110,7 +110,7 @@ fn section(t: &TestResult, base: &Path) -> (String, bool) {
             .filter(|l| l.t >= start - 500 && l.t <= start + duration as i64)
             .map(|l| {
                 let text: String = l.text.chars().take(LOG_LINE_CHARS).collect();
-                format!("{:>7} ms  {}", l.t, velocity_common::redact::redact(&text))
+                format!("{:>7} ms  {}", l.t, atalanta_common::redact::redact(&text))
             })
             .collect();
         (!out.is_empty()).then_some((log_name.clone(), out))
@@ -279,7 +279,7 @@ fn seen_earlier(
             .into_iter()
             .flatten()
             .any(|t| {
-                let t = velocity_common::selector_match::normalize(t).to_lowercase();
+                let t = atalanta_common::selector_match::normalize(t).to_lowercase();
                 if contains {
                     t.contains(w)
                 } else {
@@ -290,7 +290,7 @@ fn seen_earlier(
     }
     // As the selector matcher compares: a non-breaking space in "Languages
     // & input" hid it from this lookback, though the step had matched it.
-    let w = velocity_common::selector_match::normalize(wanted).to_lowercase();
+    let w = atalanta_common::selector_match::normalize(wanted).to_lowercase();
     let pos = trace
         .steps
         .iter()
@@ -372,7 +372,7 @@ fn collect_texts(el: &Element, out: &mut Vec<String>) {
     }
 }
 
-/// Picks the explanation for a failed test, mirroring `velocity-mcp`'s
+/// Picks the explanation for a failed test, mirroring `atalanta-mcp`'s
 /// `failure.rs` `hint` wording for not-found traces.
 fn explanation(ctx: &ExplanationCtx) -> (String, bool) {
     let lower = ctx.lower;
@@ -527,7 +527,7 @@ struct ExplanationCtx<'a> {
     description: &'a Option<(
         TestTrace,
         HashMap<String, Element>,
-        velocity_core::trace::FailureDescription,
+        atalanta_core::trace::FailureDescription,
     )>,
     log_block: &'a Option<(String, Vec<String>)>,
 }
@@ -537,7 +537,7 @@ struct ExplanationCtx<'a> {
 fn try_next(lower: &str, infrastructure: bool) -> Option<&'static str> {
     if infrastructure {
         return Some(
-            "`velocity doctor --fix` (restarts adb, reconnects offline devices), then run again",
+            "`atalanta doctor --fix` (restarts adb, reconnects offline devices), then run again",
         );
     }
     if lower.contains("timed out after") && lower.contains("--test-timeout") {
@@ -552,7 +552,7 @@ fn try_next(lower: &str, infrastructure: bool) -> Option<&'static str> {
         return Some("`settle: none` on the step if the screen animates for ever (a spinner, a video), or raise `sync.settleCapMs`");
     }
     if lower.contains("element not found") || lower.contains("not found:") {
-        return Some("`velocity trace view` shows the screen and the nearest elements; `velocity inspect` picks a selector");
+        return Some("`atalanta trace view` shows the screen and the nearest elements; `atalanta inspect` picks a selector");
     }
     None
 }
@@ -593,20 +593,20 @@ pub fn render(result: &SuiteResult, base: &Path) -> String {
 }
 
 /// Write `<dir>/failures.md`; its path.
-pub fn write(result: &SuiteResult, dir: &str) -> velocity_common::Result<String> {
+pub fn write(result: &SuiteResult, dir: &str) -> atalanta_common::Result<String> {
     let path = format!("{dir}/failures.md");
     std::fs::create_dir_all(dir)
         .and_then(|_| std::fs::write(&path, render(result, Path::new(dir))))
-        .map_err(|e| velocity_common::VelocityError::io(format!("failed to write {path}"), e))?;
+        .map_err(|e| atalanta_common::AtalantaError::io(format!("failed to write {path}"), e))?;
     Ok(path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atalanta_common::{Rect, Selector, StepResult};
+    use atalanta_core::trace::{StepTrace, TestTrace, TraceEvidence};
     use std::time::Duration;
-    use velocity_common::{Rect, Selector, StepResult};
-    use velocity_core::trace::{StepTrace, TestTrace, TraceEvidence};
 
     fn failed(name: &str, err: &str) -> TestResult {
         let mut t = TestResult::failed(name, err.into(), Duration::from_secs(1));
@@ -747,12 +747,12 @@ mod tests {
             ],
             ..Default::default()
         };
-        let hash = velocity_core::trace::tree_hash(&tree);
+        let hash = atalanta_core::trace::tree_hash(&tree);
         let trace = TestTrace {
             version: 1,
             test: "traced".into(),
             device: "d".into(),
-            platform: Some(velocity_common::Platform::Android),
+            platform: Some(atalanta_common::Platform::Android),
             attempt: 0,
             status: TestStatus::Failed,
             steps: vec![StepTrace {
@@ -877,12 +877,12 @@ mod tests {
             ],
             ..Default::default()
         };
-        let hash = velocity_core::trace::tree_hash(&tree);
+        let hash = atalanta_core::trace::tree_hash(&tree);
         let trace = TestTrace {
             version: 1,
             test: "traced".into(),
             device: "d".into(),
-            platform: Some(velocity_common::Platform::Android),
+            platform: Some(atalanta_common::Platform::Android),
             attempt: 0,
             status: TestStatus::Failed,
             steps: vec![StepTrace {
@@ -1001,12 +1001,12 @@ mod tests {
             ],
             ..Default::default()
         };
-        let hash = velocity_core::trace::tree_hash(&tree);
+        let hash = atalanta_core::trace::tree_hash(&tree);
         let trace = TestTrace {
             version: 1,
             test: "traced".into(),
             device: "d".into(),
-            platform: Some(velocity_common::Platform::Android),
+            platform: Some(atalanta_common::Platform::Android),
             attempt: 0,
             status: TestStatus::Failed,
             steps: vec![StepTrace {
@@ -1123,7 +1123,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        let hash = velocity_core::trace::tree_hash(&tree);
+        let hash = atalanta_core::trace::tree_hash(&tree);
         let before = Element {
             platform_id: "root".into(),
             element_type: "hierarchy".into(),
@@ -1147,12 +1147,12 @@ mod tests {
             }],
             ..Default::default()
         };
-        let before_hash = velocity_core::trace::tree_hash(&before);
+        let before_hash = atalanta_core::trace::tree_hash(&before);
         let trace = TestTrace {
             version: 1,
             test: "traced".into(),
             device: "d".into(),
-            platform: Some(velocity_common::Platform::Android),
+            platform: Some(atalanta_common::Platform::Android),
             attempt: 0,
             status: TestStatus::Failed,
             steps: vec![
@@ -1254,12 +1254,12 @@ mod tests {
             children: vec![],
             ..Default::default()
         };
-        let hash = velocity_core::trace::tree_hash(&tree);
+        let hash = atalanta_core::trace::tree_hash(&tree);
         let trace = TestTrace {
             version: 1,
             test: "traced".into(),
             device: "d".into(),
-            platform: Some(velocity_common::Platform::Android),
+            platform: Some(atalanta_common::Platform::Android),
             attempt: 0,
             status: TestStatus::Failed,
             steps: vec![StepTrace {
@@ -1483,7 +1483,7 @@ mod tests {
     fn a_green_run_says_none_and_secrets_stay_masked() {
         let ok = suite(vec![]);
         assert!(render(&ok, Path::new(".")).contains("None: 0 of 0 tests passed."));
-        velocity_common::redact::register_secret("hunter2-failures-md");
+        atalanta_common::redact::register_secret("hunter2-failures-md");
         let leak = failed(
             "login",
             "typed hunter2-failures-md into password: not found",

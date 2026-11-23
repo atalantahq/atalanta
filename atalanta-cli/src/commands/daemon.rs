@@ -1,15 +1,15 @@
-//! `velocity daemon`: keep devices warm between runs.
+//! `atalanta daemon`: keep devices warm between runs.
 //!
 //! The daemon holds one driver per platform for its whole life, so what a
 //! run would set up and tear down stays up: the Android tree server and
 //! animation guard, iOS WDA connections and sessions, the planner cache.
-//! `velocity run --daemon …` sends its arguments, working directory and
-//! environment over `~/.velocity/daemon.sock`; the daemon runs them and
+//! `atalanta run --daemon …` sends its arguments, working directory and
+//! environment over `~/.atalanta/daemon.sock`; the daemon runs them and
 //! streams the output back. The client's environment is installed with
-//! `velocity_common::env::install` for the run, never with `set_var`: the
+//! `atalanta_common::env::install` for the run, never with `set_var`: the
 //! daemon's other threads read the process environment meanwhile.
 //!
-//! It also serves the agent commands for the web (`velocity tap @e3 -p
+//! It also serves the agent commands for the web (`atalanta tap @e3 -p
 //! web`, `Request::Agent`): Chrome dies with the process that launched it,
 //! so a browser that lasts from one command to the next has to live here.
 //! Those commands start a daemon themselves when none answers
@@ -25,14 +25,14 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use atalanta_common::{Platform, ResilientDriver};
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
-use velocity_common::{Platform, ResilientDriver};
 
-const EXIT_MARKER: &str = "\u{0}VELOCITY-EXIT ";
+const EXIT_MARKER: &str = "\u{0}ATALANTA-EXIT ";
 /// Sent by the daemon when it starts serving a request, so a client can
 /// tell "queued behind another run" from "running, nothing printed yet".
-const START_MARKER: &str = "\u{0}VELOCITY-START";
+const START_MARKER: &str = "\u{0}ATALANTA-START";
 /// How long a client waits for the daemon to start its request before it
 /// says it is queued.
 const QUEUED_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
@@ -63,7 +63,7 @@ enum Request {
         env: Vec<(String, String)>,
         color: bool,
     },
-    /// One agent command (`tap`, `snapshot`, …), argv after `velocity`.
+    /// One agent command (`tap`, `snapshot`, …), argv after `atalanta`.
     Agent {
         cwd: String,
         argv: Vec<String>,
@@ -78,7 +78,7 @@ enum Request {
 
 /// `run` arguments, parsed on the daemon side.
 #[derive(Parser)]
-#[command(name = "velocity run", no_binary_name = true)]
+#[command(name = "atalanta run", no_binary_name = true)]
 struct RunOnly {
     #[command(flatten)]
     args: super::run::RunArgs,
@@ -106,7 +106,7 @@ pub async fn share(key: String, fresh: Arc<ResilientDriver>) -> Arc<ResilientDri
         fresh,
     );
     for d in evicted {
-        velocity_common::PlatformDriver::cleanup(&*d).await;
+        atalanta_common::PlatformDriver::cleanup(&*d).await;
     }
     driver
 }
@@ -143,7 +143,7 @@ fn pool_kind(key: &str) -> &str {
 
 /// The stop handle of the run the daemon is serving, so a client that
 /// disconnects stops its run instead of leaving it running unseen.
-static RUN_STOP: Mutex<Option<velocity_common::StopHandle>> = Mutex::new(None);
+static RUN_STOP: Mutex<Option<atalanta_common::StopHandle>> = Mutex::new(None);
 
 /// The client of the run being served went away. Sticky for the run: a
 /// client that left before the run had a stop handle (while it parsed,
@@ -156,7 +156,7 @@ const GONE_REASON: &str = "stopped: the client disconnected";
 
 /// A run is starting (inside the daemon: remember how to stop it, and stop
 /// it at once if its client has already gone).
-pub fn run_started(stop: &velocity_common::StopHandle) {
+pub fn run_started(stop: &atalanta_common::StopHandle) {
     if active() {
         let mut slot = RUN_STOP.lock().unwrap_or_else(|e| e.into_inner());
         *slot = Some(stop.clone());
@@ -192,8 +192,8 @@ const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// device at all.
 pub fn pool_key(
     platform: Platform,
-    mode: velocity_common::DriverMode,
-    framework: velocity_common::Framework,
+    mode: atalanta_common::DriverMode,
+    framework: atalanta_common::Framework,
     config: &impl Serialize,
 ) -> String {
     let config = serde_json::to_string(config).unwrap_or_default();
@@ -206,11 +206,11 @@ pub fn active() -> bool {
 }
 
 pub fn socket_path() -> PathBuf {
-    velocity_common::env::var("VELOCITY_DAEMON_SOCKET")
+    atalanta_common::env::var("ATALANTA_DAEMON_SOCKET")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            velocity_common::host::home_dir()
-                .join(".velocity")
+            atalanta_common::host::home_dir()
+                .join(".atalanta")
                 .join("daemon.sock")
         })
 }
@@ -298,7 +298,7 @@ fn peer_uid(fd: std::os::fd::RawFd) -> Option<u32> {
 /// environment (API keys) and the daemon runs whatever argv it gets, so
 /// both ends check: the socket's 0600 mode is set only after `bind`, and a
 /// socket path in a shared directory (or the old HOME-less
-/// `/tmp/.velocity/daemon.sock`) could be bound first by another user
+/// `/tmp/.atalanta/daemon.sock`) could be bound first by another user
 /// (audit 2026-11 FS-3).
 fn peer_is_us(fd: std::os::fd::RawFd) -> bool {
     // SAFETY: geteuid has no preconditions and can't fail.
@@ -313,7 +313,7 @@ fn connect_own(path: &std::path::Path) -> anyhow::Result<std::os::unix::net::Uni
     if !peer_is_us(s.as_raw_fd()) {
         anyhow::bail!(
             "the daemon socket {} is served by another user; refusing to send it this \
-             environment (remove it, or set VELOCITY_DAEMON_SOCKET to a path of your own)",
+             environment (remove it, or set ATALANTA_DAEMON_SOCKET to a path of your own)",
             path.display()
         );
     }
@@ -351,7 +351,7 @@ fn client_env() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Client side of `velocity run --daemon`. `Ok(None)`: no daemon is
+/// Client side of `atalanta run --daemon`. `Ok(None)`: no daemon is
 /// running; the caller runs locally.
 pub fn client_run(argv: Vec<String>) -> anyhow::Result<Option<i32>> {
     // All of it: suites read their own `${VARS}`, and the socket is the
@@ -361,7 +361,7 @@ pub fn client_run(argv: Vec<String>) -> anyhow::Result<Option<i32>> {
         argv,
         env: client_env(),
         // The client's decision (`--color`, NO_COLOR, its terminal), C4.
-        color: velocity_common::color::enabled(),
+        color: atalanta_common::color::enabled(),
     };
     client_stream(&req)
 }
@@ -371,17 +371,17 @@ pub fn client_agent(argv: Vec<String>, stdin: Option<String>) -> anyhow::Result<
     let req = Request::Agent {
         cwd: std::env::current_dir()?.to_string_lossy().into_owned(),
         argv,
-        // Secrets (`type --secret NAME`) and VELOCITY_SESSION are read
+        // Secrets (`type --secret NAME`) and ATALANTA_SESSION are read
         // from the client's environment.
         env: client_env(),
-        color: velocity_common::color::enabled(),
+        color: atalanta_common::color::enabled(),
         stdin,
     };
     client_stream(&req)
 }
 
-/// Start `velocity daemon start` detached from this process (its own
-/// process group, output in `~/.velocity/daemon.log`) and wait until it
+/// Start `atalanta daemon start` detached from this process (its own
+/// process group, output in `~/.atalanta/daemon.log`) and wait until it
 /// answers, for at most 10 s.
 pub fn spawn_background() -> anyhow::Result<()> {
     use std::os::unix::process::CommandExt;
@@ -408,7 +408,7 @@ pub fn spawn_background() -> anyhow::Result<()> {
         .stderr(log)
         .process_group(0)
         .spawn()?;
-    eprintln!("=> started velocity daemon (stop it with `velocity daemon stop`)");
+    eprintln!("=> started atalanta daemon (stop it with `atalanta daemon stop`)");
     let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < until {
         if send(&Request::Ping).is_ok() {
@@ -424,12 +424,12 @@ pub fn spawn_background() -> anyhow::Result<()> {
             }
             let log = std::fs::read_to_string(&log_path).unwrap_or_default();
             let last = log.lines().last().unwrap_or("").to_string();
-            anyhow::bail!("velocity daemon exited at start ({status}): {last}");
+            anyhow::bail!("atalanta daemon exited at start ({status}): {last}");
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     anyhow::bail!(
-        "velocity daemon did not start within 10 s; see {}",
+        "atalanta daemon did not start within 10 s; see {}",
         log_path.display()
     )
 }
@@ -445,7 +445,7 @@ fn client_stream(req: &Request) -> anyhow::Result<Option<i32>> {
         if !peer_is_us(raw.as_raw_fd()) {
             anyhow::bail!(
                 "the daemon socket {} is served by another user; refusing to send it this \
-                 environment (remove it, or set VELOCITY_DAEMON_SOCKET to a path of your own)",
+                 environment (remove it, or set ATALANTA_DAEMON_SOCKET to a path of your own)",
                 path.display()
             );
         }
@@ -551,7 +551,7 @@ fn take_daemon_lock(socket: &std::path::Path) -> anyhow::Result<Result<std::fs::
             Ok(Err(Taken::Locked(pid)))
         }
         Err(std::fs::TryLockError::Error(e)) => Err(anyhow::anyhow!(
-            "can't lock {}: {e} (set VELOCITY_DAEMON_SOCKET to a path on a local disk)",
+            "can't lock {}: {e} (set ATALANTA_DAEMON_SOCKET to a path on a local disk)",
             path.display()
         )),
     }
@@ -573,8 +573,8 @@ fn already_running(path: &std::path::Path, taken: &Taken) -> anyhow::Error {
     };
     anyhow::anyhow!(
         "a daemon is already running at {}{who}. \
-         Use it with `velocity run --daemon`, check it with `velocity daemon status`, \
-         or stop it with `velocity daemon stop` first",
+         Use it with `atalanta run --daemon`, check it with `atalanta daemon status`, \
+         or stop it with `atalanta daemon stop` first",
         path.display()
     )
 }
@@ -598,7 +598,7 @@ async fn serve() -> anyhow::Result<i32> {
     ACTIVE.store(true, Ordering::Relaxed);
     crate::signals::install();
     let seen = crate::signals::count();
-    eprintln!("=> velocity daemon listening on {}", path.display());
+    eprintln!("=> atalanta daemon listening on {}", path.display());
 
     loop {
         // SIGTERM / Ctrl-C stop the daemon through the normal cleanup
@@ -639,7 +639,7 @@ async fn serve() -> anyhow::Result<i32> {
         })
         .unwrap_or_default();
     for d in drivers {
-        velocity_common::PlatformDriver::cleanup(&*d).await;
+        atalanta_common::PlatformDriver::cleanup(&*d).await;
     }
     super::agent::cleanup_daemon_drivers().await;
     let _ = std::fs::remove_file(&path);
@@ -748,8 +748,8 @@ enum Job<'a> {
     Agent(&'a [String], Option<String>),
 }
 
-/// Run one client's `velocity run` (or agent command), with this process's
-/// stdout/stderr, working directory and Velocity environment pointed at
+/// Run one client's `atalanta run` (or agent command), with this process's
+/// stdout/stderr, working directory and Atalanta environment pointed at
 /// the client.
 async fn run_for_client(
     stream: &std::os::unix::net::UnixStream,
@@ -759,7 +759,7 @@ async fn run_for_client(
     color: bool,
 ) -> i32 {
     let saved_cwd = std::env::current_dir().ok();
-    let daemon_color = velocity_common::color::enabled();
+    let daemon_color = atalanta_common::color::enabled();
     CLIENT_GONE.store(false, Ordering::SeqCst);
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
@@ -805,9 +805,9 @@ async fn run_for_client(
             2
         }
         Ok(()) => {
-            velocity_common::env::install(env.iter().cloned().collect());
+            atalanta_common::env::install(env.iter().cloned().collect());
             colored::control::set_override(color);
-            velocity_common::color::set(color);
+            atalanta_common::color::set(color);
             match job {
                 // Its own task: a panic ends the command, not the daemon.
                 Job::Agent(argv, stdin) => {
@@ -832,7 +832,7 @@ async fn run_for_client(
     code
 }
 
-/// Parse and run one `velocity run`.
+/// Parse and run one `atalanta run`.
 async fn run_parsed(argv: &[String]) -> i32 {
     match RunOnly::try_parse_from(argv) {
         // Its own task: a panic in the run ends the run (exit 5),
@@ -878,9 +878,9 @@ async fn finish_client_io(
     let _ = tokio::task::spawn_blocking(move || pump.join()).await;
     *RUN_STOP.lock().unwrap_or_else(|e| e.into_inner()) = None;
     colored::control::unset_override();
-    velocity_common::color::set(daemon_color);
-    velocity_common::env::clear();
-    velocity_common::env::set_settings(Default::default());
+    atalanta_common::color::set(daemon_color);
+    atalanta_common::env::clear();
+    atalanta_common::env::set_settings(Default::default());
     if let Some(c) = saved_cwd {
         let _ = std::env::set_current_dir(c);
     }
@@ -969,7 +969,7 @@ fn pump_to(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{DriverMode, Framework};
+    use atalanta_common::{DriverMode, Framework};
 
     /// Audit 2026-11 FS-3: both ends check who is on the other side.
     #[test]
@@ -997,7 +997,7 @@ mod tests {
     // daemon is doing (a ping to a daemon mid-run times out).
     #[test]
     fn a_second_daemon_cannot_take_the_lock_while_the_first_holds_it() {
-        let dir = std::env::temp_dir().join(format!("velocity-daemon-lock-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-daemon-lock-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let socket = dir.join("daemon.sock");
         let first = take_daemon_lock(&socket)
@@ -1009,7 +1009,7 @@ mod tests {
         }
         let msg = already_running(&socket, &Taken::Locked(Some(42))).to_string();
         assert!(
-            msg.contains("pid 42") && msg.contains("velocity daemon stop"),
+            msg.contains("pid 42") && msg.contains("atalanta daemon stop"),
             "{msg}"
         );
         drop(first);
@@ -1158,7 +1158,7 @@ mod tests {
         let req = Request::Agent {
             cwd: "/w".into(),
             argv: vec!["tap".into(), "@e3".into(), "-p".into(), "web".into()],
-            env: vec![("VELOCITY_SESSION".into(), "a".into())],
+            env: vec![("ATALANTA_SESSION".into(), "a".into())],
             color: false,
             stdin: Some("typed text\n".into()),
         };
@@ -1174,7 +1174,7 @@ mod tests {
             } => {
                 assert_eq!(cwd, "/w");
                 assert_eq!(argv, ["tap", "@e3", "-p", "web"]);
-                assert_eq!(env, [("VELOCITY_SESSION".to_string(), "a".to_string())]);
+                assert_eq!(env, [("ATALANTA_SESSION".to_string(), "a".to_string())]);
                 assert!(!color);
                 assert_eq!(stdin.as_deref(), Some("typed text\n"));
             }

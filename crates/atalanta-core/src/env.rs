@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 
-use velocity_common::{Action, Result, Selector, TestSuite, VelocityError};
+use atalanta_common::{Action, AtalantaError, Result, Selector, TestSuite};
 
 /// Replace every `${VAR}`, `${VAR:-default}` and `${VAR:?message}` in
 /// `input`, in one pass. A value is inserted as is: it is never scanned for
@@ -58,7 +58,7 @@ fn interpolate_except(
     };
     let result = expand(input, &pass, &mut missing_vars);
     if !missing_vars.is_empty() {
-        return Err(VelocityError::MissingEnvVars { vars: missing_vars });
+        return Err(AtalantaError::MissingEnvVars { vars: missing_vars });
     }
     Ok(result)
 }
@@ -91,7 +91,7 @@ pub fn bind_captured(
     if let Some(first) = unset.first() {
         // `${NAME:?message}` reports as `NAME: message`.
         let name = first.split(':').next().unwrap_or(first);
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "`${{{name}}}` has no value yet: no earlier step of this test captured it \
              (an `http` step's `capture:` sets it; `${{{name}:-default}}` gives a fallback)"
         )));
@@ -102,7 +102,7 @@ pub fn bind_captured(
 /// Deepest nesting of placeholders in defaults (`${A:-${B:-…}}`) a string
 /// may have. Expansion recurses once per level, so a megabyte of nested
 /// defaults overflowed the stack (a SIGSEGV, not an error; audit 2026-11
-/// CORE-1), in `velocity run` and in the MCP server's check of a suite an
+/// CORE-1), in `atalanta run` and in the MCP server's check of a suite an
 /// agent wrote.
 pub const MAX_PLACEHOLDER_NESTING: usize = 32;
 
@@ -133,7 +133,7 @@ fn placeholder_nesting(input: &str) -> usize {
 fn too_deep(input: &str) -> Result<()> {
     let depth = placeholder_nesting(input);
     if depth > MAX_PLACEHOLDER_NESTING {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "a value nests `${{…}}` placeholders {depth} deep; at most \
              {MAX_PLACEHOLDER_NESTING} levels are allowed"
         )));
@@ -263,10 +263,10 @@ fn resolve_var_expr(expr: &str, pass: &Pass, errors: &mut Vec<String>) -> String
         // A secret's default is as secret as its value (VEL-062), unless it
         // is a short placeholder: `${TEST_OTP:-1234}` masked every "1234"
         // (order numbers, prices) in every report (review m2).
-        if velocity_common::redact::is_secret_name(var_name)
+        if atalanta_common::redact::is_secret_name(var_name)
             && default_val.chars().count() >= MIN_SECRET_DEFAULT
         {
-            velocity_common::redact::register_secret(&default_val);
+            atalanta_common::redact::register_secret(&default_val);
         }
         return default_val;
     }
@@ -308,7 +308,7 @@ fn totp_value(name: &str) -> Option<String> {
         .as_ref()?
         .get(name)?
         .clone();
-    match velocity_common::secrets::totp_now(&secret) {
+    match atalanta_common::secrets::totp_now(&secret) {
         Ok(code) => Some(code),
         Err(e) => {
             tracing::warn!("{name}: {e}");
@@ -320,7 +320,7 @@ fn totp_value(name: &str) -> Option<String> {
 fn lookup_var(name: &str, overrides: &HashMap<String, String>) -> Option<String> {
     // `${keychain:NAME}` (row 1.5): the OS keychain, always a secret.
     if let Some(account) = name.strip_prefix(KEYCHAIN) {
-        return match velocity_common::secrets::keychain(account) {
+        return match atalanta_common::secrets::keychain(account) {
             Ok(v) => Some(v),
             Err(e) => {
                 tracing::warn!("{e}");
@@ -331,13 +331,13 @@ fn lookup_var(name: &str, overrides: &HashMap<String, String>) -> Option<String>
     let value = overrides
         .get(name)
         .cloned()
-        .or_else(|| velocity_common::env::var(name).ok());
+        .or_else(|| atalanta_common::env::var(name).ok());
     // A secret-looking variable's value is masked in every report, trace,
     // console line and MCP reply from here on.
     if let Some(v) = &value {
-        if velocity_common::redact::is_secret_name(name) {
-            velocity_common::redact::register_secret(v);
-            velocity_common::redact::register_secret_name(name);
+        if atalanta_common::redact::is_secret_name(name) {
+            atalanta_common::redact::register_secret(v);
+            atalanta_common::redact::register_secret_name(name);
         }
     }
     value
@@ -395,7 +395,7 @@ pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, Stri
             if totp.borrow_mut().insert(name.clone()) {
                 match lookup_var(&name[TOTP.len()..], overrides) {
                     Some(secret) => {
-                        velocity_common::redact::register_secret(&secret);
+                        atalanta_common::redact::register_secret(&secret);
                         TOTP_SECRETS
                             .write()
                             .unwrap_or_else(|e| e.into_inner())
@@ -437,7 +437,7 @@ pub fn interpolate_suite(suite: &mut TestSuite, overrides: &HashMap<String, Stri
     }
 
     if let Some(name) = missing.first() {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "`${{totp:{name}}}`: {name} has no value; set it to the base32 TOTP secret \
              (or use totp:keychain:{name})"
         )));
@@ -515,7 +515,7 @@ pub fn placeholders(suite: &TestSuite) -> Vec<Placeholder> {
         .iter()
         .flat_map(|f| &f.steps)
         .chain(suite.tests.iter().flat_map(|t| &t.steps));
-    // `velocity run` fills tags too (VEL-175; audit 2026-11 MCP-6).
+    // `atalanta run` fills tags too (VEL-175; audit 2026-11 MCP-6).
     for tag in suite.tests.iter().flat_map(|t| &t.tags) {
         push(tag, false, &mut out);
     }
@@ -572,10 +572,10 @@ fn placeholder_names(input: &str, out: &mut Vec<String>) {
 /// `step` with the captured `${NAME}`s (`names`) filled in from `captured`,
 /// or `None` when it has none to fill.
 pub fn bind_step(
-    step: &velocity_common::Step,
+    step: &atalanta_common::Step,
     captured: &HashMap<String, String>,
     names: &BTreeSet<String>,
-) -> Result<Option<velocity_common::Step>> {
+) -> Result<Option<atalanta_common::Step>> {
     if names.is_empty() {
         return Ok(None);
     }
@@ -586,7 +586,7 @@ pub fn bind_step(
         changed |= out != s;
         Ok(out)
     })?;
-    Ok(changed.then(|| velocity_common::Step {
+    Ok(changed.then(|| atalanta_common::Step {
         action,
         ..step.clone()
     }))
@@ -604,7 +604,7 @@ fn interpolate_action(
         } => {
             *app_id = f(app_id)?;
             for value in arguments.inner.values_mut() {
-                if let velocity_common::LaunchArg::Str(s) = value {
+                if let atalanta_common::LaunchArg::Str(s) = value {
                     *s = f(s)?;
                 }
             }
@@ -733,7 +733,7 @@ fn interpolate_action(
             for sel in mask {
                 interpolate_selector(sel, f)?;
             }
-            if let Some(velocity_common::ScreenshotCrop::Element(sel)) = crop {
+            if let Some(atalanta_common::ScreenshotCrop::Element(sel)) = crop {
                 interpolate_selector(sel, f)?;
             }
         }
@@ -833,7 +833,7 @@ mod tests {
         let result = interpolate("${API_KEY:?API key is required}", &ovr);
         assert!(result.is_err());
         match result.unwrap_err() {
-            VelocityError::MissingEnvVars { vars } => {
+            AtalantaError::MissingEnvVars { vars } => {
                 assert!(vars[0].contains("API_KEY"));
             }
             other => panic!("expected MissingEnvVars, got {:?}", other),
@@ -879,7 +879,7 @@ mod tests {
 
     #[test]
     fn interpolate_suite_app_id() {
-        use velocity_common::{SuiteConfig, TestCase};
+        use atalanta_common::{SuiteConfig, TestCase};
 
         let ovr = overrides(&[("APP", "com.prod.app")]);
         let mut suite = TestSuite {
@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn interpolate_suite_step_text() {
-        use velocity_common::{Step, SuiteConfig, TestCase};
+        use atalanta_common::{Step, SuiteConfig, TestCase};
 
         let ovr = overrides(&[("USERNAME", "testuser")]);
         let mut suite = TestSuite {
@@ -1009,7 +1009,7 @@ mod tests {
         // VEL-062.
         let v = interpolate("${API_TOKEN_VEL062:-default-secret-062}", &HashMap::new()).unwrap();
         assert_eq!(v, "default-secret-062");
-        assert!(!velocity_common::redact::redact("x default-secret-062 y")
+        assert!(!atalanta_common::redact::redact("x default-secret-062 y")
             .contains("default-secret-062"));
     }
 
@@ -1036,12 +1036,12 @@ mod tests {
         // Review m2: `${TEST_OTP:-1234}` masked every 1234 in every report.
         let v = interpolate("${VEL_M2_OTP:-4417}", &HashMap::new()).unwrap();
         assert_eq!(v, "4417");
-        assert!(velocity_common::redact::redact("order 4417").contains("4417"));
+        assert!(atalanta_common::redact::redact("order 4417").contains("4417"));
         // D-29: masked from 8 characters; a 7-character default is not.
         interpolate("${VEL_D29_TOKEN:-d29sev7}", &HashMap::new()).unwrap();
-        assert!(velocity_common::redact::redact("x d29sev7 y").contains("d29sev7"));
+        assert!(atalanta_common::redact::redact("x d29sev7 y").contains("d29sev7"));
         interpolate("${VEL_D29_TOKEN2:-d29eight}", &HashMap::new()).unwrap();
-        assert!(!velocity_common::redact::redact("x d29eight y").contains("d29eight"));
+        assert!(!atalanta_common::redact::redact("x d29eight y").contains("d29eight"));
     }
 
     fn names(list: &[&str]) -> BTreeSet<String> {
@@ -1172,9 +1172,9 @@ tests:
             text.len() == 6 && text.chars().all(|c| c.is_ascii_digit()),
             "{text}"
         );
-        let masked = velocity_common::redact::redact(&format!("code {text}")).into_owned();
+        let masked = atalanta_common::redact::redact(&format!("code {text}")).into_owned();
         assert!(!masked.contains(text.as_str()), "{masked}");
-        assert!(velocity_common::redact::registered_secrets()
+        assert!(atalanta_common::redact::registered_secrets()
             .contains(&"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".to_string()));
 
         // A missing secret is a config error naming it.

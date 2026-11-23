@@ -2,27 +2,27 @@
 //! depends on changed (emulator.wtf does this by default).
 //!
 //! The key hashes the app build (the driver's fingerprint: the build's
-//! SHA-256 when Velocity installed it from `app:`, otherwise version and
+//! SHA-256 when Atalanta installed it from `app:`, otherwise version and
 //! install time on Android and the bundle's modification time on an iOS
 //! simulator), the test's steps after flows are inlined and `${VAR}`s
 //! substituted, the suite config, the device model, OS and screen size,
-//! and in CI the branch (`VELOCITY_CACHE_SCOPE` overrides it). No
+//! and in CI the branch (`ATALANTA_CACHE_SCOPE` overrides it). No
 //! fingerprint, no caching. Tests marked `sideEffects: true`, tests in a
 //! `dependsOn` chain, and tests whose outcome hangs on something outside
 //! the key (an `exec`, `http` or natural-language step, a screenshot
 //! comparison) always run. The cache is for hermetic UI tests: a backend
 //! or feature flag that changes under the same build is not in the key.
-//! Passes expire after 30 days, or `VELOCITY_CACHE_MAX_AGE` (`6h`, `2d`).
+//! Passes expire after 30 days, or `ATALANTA_CACHE_MAX_AGE` (`6h`, `2d`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use atalanta_common::{PlatformDriver, SuiteConfig, TestCase, TestResult, TestStatus};
 use serde::{Deserialize, Serialize};
-use velocity_common::{PlatformDriver, SuiteConfig, TestCase, TestResult, TestStatus};
 
-const FILE: &str = "velocity-result-cache.json";
+const FILE: &str = "atalanta-result-cache.json";
 /// Passes older than this are dropped on save: a build that old is gone.
 const MAX_AGE_SECS: u64 = 30 * 24 * 3600;
 /// And at most this many, newest kept.
@@ -57,7 +57,7 @@ impl ResultCache {
     /// entries, where the last to save used to drop the other's.
     pub fn save(&mut self) {
         let path = self.path.clone();
-        let _ = velocity_common::fsutil::with_lock(&path, || {
+        let _ = atalanta_common::fsutil::with_lock(&path, || {
             let mut on_disk =
                 Self::load(&path.parent().unwrap_or(Path::new(".")).to_string_lossy());
             for key in &self.removed {
@@ -66,7 +66,7 @@ impl ResultCache {
             on_disk.entries.extend(self.added.clone());
             on_disk.prune(now());
             if let Ok(json) = serde_json::to_string_pretty(&on_disk) {
-                if velocity_common::fsutil::write_private(&path, json.as_bytes()).is_ok() {
+                if atalanta_common::fsutil::write_private(&path, json.as_bytes()).is_ok() {
                     // Saved: a later save must not replay them over newer
                     // changes another run made to the file meanwhile.
                     self.added.clear();
@@ -131,17 +131,17 @@ pub fn cacheable(test: &TestCase, all: &[TestCase]) -> bool {
     !test
         .tags
         .iter()
-        .any(|t| t == velocity_core::parser::SIDE_EFFECTS_TAG)
+        .any(|t| t == atalanta_core::parser::SIDE_EFFECTS_TAG)
         && !test.steps.iter().any(|s| {
             // An `exec` runs a host program, an `http` step talks to a
             // backend, and a natural-language step asks a model: none of
             // what they depend on is in the key (review 12 #8).
             matches!(
                 s.action,
-                velocity_common::Action::AssertScreenshot { .. }
-                    | velocity_common::Action::Http(_)
-                    | velocity_common::Action::Exec(_)
-                    | velocity_common::Action::Natural { .. }
+                atalanta_common::Action::AssertScreenshot { .. }
+                    | atalanta_common::Action::Http(_)
+                    | atalanta_common::Action::Exec(_)
+                    | atalanta_common::Action::Natural { .. }
             )
         })
         && test.depends_on.is_empty()
@@ -161,22 +161,22 @@ pub async fn key(
     let device = device_profile(driver, device_id).await?;
     // Where a step is written is not what it does: moving a test in the
     // file must not invalidate its cached pass.
-    let steps: Vec<velocity_common::Step> = test
+    let steps: Vec<atalanta_common::Step> = test
         .steps
         .iter()
-        .map(|s| velocity_common::Step {
+        .map(|s| atalanta_common::Step {
             source: None,
             ..s.clone()
         })
         .collect();
     let steps = serde_json::to_string(&steps).ok()?;
     // A build's path says nothing about the build (CI checkouts move); the
-    // app fingerprint above is its hash when Velocity installed it.
+    // app fingerprint above is its hash when Atalanta installed it.
     let mut config = config.clone();
     config.app = None;
     config.reset.app_path = None;
     let config = serde_json::to_string(&config).ok()?;
-    let scope = cache_scope(|k| velocity_common::env::var(k).ok());
+    let scope = cache_scope(|k| atalanta_common::env::var(k).ok());
     Some(key_of(
         &[app_id, &app, &device, &test.name, &steps, &config, &scope],
         env!("CARGO_PKG_VERSION"),
@@ -184,13 +184,13 @@ pub async fn key(
     ))
 }
 
-/// Which passes may answer for this run: `VELOCITY_CACHE_SCOPE` when set,
+/// Which passes may answer for this run: `ATALANTA_CACHE_SCOPE` when set,
 /// else the CI branch, else nothing (a developer's machine). Without it, a
 /// cache artifact restored on branch B answered with branch A's passes for
 /// the same app build, though B may run against another backend or flags.
 fn cache_scope(var: impl Fn(&str) -> Option<String>) -> String {
     const BRANCH_VARS: [&str; 7] = [
-        "VELOCITY_CACHE_SCOPE",
+        "ATALANTA_CACHE_SCOPE",
         // A pull request's head branch, then the pushed ref.
         "GITHUB_HEAD_REF",
         "GITHUB_REF_NAME",
@@ -209,10 +209,10 @@ fn cache_scope(var: impl Fn(&str) -> Option<String>) -> String {
         .unwrap_or_default()
 }
 
-/// How old a cached pass may be: `VELOCITY_CACHE_MAX_AGE` (`90m`, `6h`,
+/// How old a cached pass may be: `ATALANTA_CACHE_MAX_AGE` (`90m`, `6h`,
 /// `2d`, or bare seconds), else 30 days.
 fn max_age_secs() -> u64 {
-    velocity_common::env::var("VELOCITY_CACHE_MAX_AGE")
+    atalanta_common::env::var("ATALANTA_CACHE_MAX_AGE")
         .ok()
         .and_then(|v| parse_age(&v))
         .unwrap_or(MAX_AGE_SECS)
@@ -235,7 +235,7 @@ fn parse_age(text: &str) -> Option<u64> {
     n.checked_mul(mult)
 }
 
-/// The key over `parts`. With the Velocity version: a new release may run a
+/// The key over `parts`. With the Atalanta version: a new release may run a
 /// step differently, so its passes are not this one's (R-8). With a random
 /// per-machine salt: steps hold interpolated values, and an unsalted 64-bit
 /// FNV of a step typing a 4-digit PIN gave the PIN away to anyone holding
@@ -249,17 +249,17 @@ fn key_of(parts: &[&str], version: &str, salt: &str) -> String {
 }
 
 /// The cache salt (see [`salt_from`]) for this run. `CI` and
-/// `VELOCITY_CACHE_SALT` are read on every call through
-/// [`velocity_common::env`], so under `velocity daemon` each client's own
+/// `ATALANTA_CACHE_SALT` are read on every call through
+/// [`atalanta_common::env`], so under `atalanta daemon` each client's own
 /// environment decides; a process-wide cache let the first client decide
 /// for every later one (review m6). Only the salt file's content, which is
 /// the machine's, is kept once read.
 fn machine_salt() -> String {
-    salt_from(|k| velocity_common::env::var(k).ok(), salt_path())
+    salt_from(|k| atalanta_common::env::var(k).ok(), salt_path())
 }
 
 /// The cache salt:
-/// - `VELOCITY_CACHE_SALT` when set (from a CI secret, so a cache file
+/// - `ATALANTA_CACHE_SALT` when set (from a CI secret, so a cache file
 ///   restored between CI runs still hits, and stays salted);
 /// - otherwise in CI (`CI` set) or with no `HOME`: empty. A per-machine salt
 ///   made there is new on every ephemeral runner, so every key missed and
@@ -267,7 +267,7 @@ fn machine_salt() -> String {
 ///   runner is secret (repository, workflow and runner names are public),
 ///   so a salt derived from them would only look like protection; empty is
 ///   the honest choice, and the keys are then as before VEL-S12;
-/// - otherwise this machine's own salt, `~/.velocity/cache-salt`
+/// - otherwise this machine's own salt, `~/.atalanta/cache-salt`
 ///   (owner-only), made on first use. Never under `/tmp`, which is shared.
 ///   Empty if it can't be read or written: the cache still works.
 fn salt_from(var: impl Fn(&str) -> Option<String>, path: Option<std::path::PathBuf>) -> String {
@@ -276,12 +276,12 @@ fn salt_from(var: impl Fn(&str) -> Option<String>, path: Option<std::path::PathB
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
     };
-    if let Some(salt) = set("VELOCITY_CACHE_SALT") {
+    if let Some(salt) = set("ATALANTA_CACHE_SALT") {
         return salt;
     }
     // The detector healing uses (review MINOR 9): every CI variable, and
     // `CI=""` is not CI. It checked only `CI` and counted an empty one.
-    let in_ci = velocity_common::env::in_ci_with(&var);
+    let in_ci = atalanta_common::env::in_ci_with(&var);
     match path {
         Some(path) if !in_ci => cached_file_salt(&path),
         _ => String::new(),
@@ -323,7 +323,7 @@ fn file_salt(path: &std::path::Path) -> String {
     }
     let salt = random_hex();
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    if velocity_common::fsutil::write_private(&tmp, salt.as_bytes()).is_err() {
+    if atalanta_common::fsutil::write_private(&tmp, salt.as_bytes()).is_err() {
         return String::new();
     }
     let linked = std::fs::hard_link(&tmp, path);
@@ -336,20 +336,20 @@ fn file_salt(path: &std::path::Path) -> String {
 
 #[cfg(not(test))]
 fn salt_path() -> Option<std::path::PathBuf> {
-    let home = velocity_common::env::var("HOME")
+    let home = atalanta_common::env::var("HOME")
         .ok()
         .filter(|h| !h.trim().is_empty())?;
     Some(
         std::path::PathBuf::from(home)
-            .join(".velocity")
+            .join(".atalanta")
             .join("cache-salt"),
     )
 }
 
-/// Never the user's `~/.velocity` from unit tests.
+/// Never the user's `~/.atalanta` from unit tests.
 #[cfg(test)]
 fn salt_path() -> Option<std::path::PathBuf> {
-    Some(std::env::temp_dir().join(format!("velocity-test-salt-{}", std::process::id())))
+    Some(std::env::temp_dir().join(format!("atalanta-test-salt-{}", std::process::id())))
 }
 
 /// 32 hex characters from std's per-process random hash keys.
@@ -431,7 +431,7 @@ fn ago(at: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    // R-8 / VEL-S12: the key changes with the Velocity version and with the
+    // R-8 / VEL-S12: the key changes with the Atalanta version and with the
     // machine's salt, so a PIN can't be brute-forced from a shared cache
     // file without the salt.
     #[test]
@@ -445,7 +445,7 @@ mod tests {
         assert_eq!(machine_salt(), machine_salt());
     }
 
-    // M-5: the salt lived in ~/.velocity, new on every hosted CI runner, so
+    // M-5: the salt lived in ~/.atalanta, new on every hosted CI runner, so
     // a restored cache file never hit; with no HOME it went to shared /tmp.
     #[test]
     fn the_salt_is_stable_in_ci_and_overridable() {
@@ -461,7 +461,7 @@ mod tests {
             }
         };
         // The override wins everywhere.
-        let over = env(&[("VELOCITY_CACHE_SALT", "from-secret"), ("CI", "true")]);
+        let over = env(&[("ATALANTA_CACHE_SALT", "from-secret"), ("CI", "true")]);
         assert_eq!(salt_from(over, Some(path.clone())), "from-secret");
         // CI without one: the same (empty) salt on every runner, no file.
         assert_eq!(salt_from(env(&[("CI", "true")]), Some(path.clone())), "");
@@ -483,22 +483,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // Review m6: under `velocity daemon` the salt was decided once per
+    // Review m6: under `atalanta daemon` the salt was decided once per
     // process, by the first client; a later client's `CI` and
-    // `VELOCITY_CACHE_SALT` were ignored.
+    // `ATALANTA_CACHE_SALT` were ignored.
     #[test]
     fn each_client_environment_gets_its_own_salt() {
         // The process environment plus one variable, so tests running
         // alongside read what they would anyway.
         let client = |salt: Option<&str>| {
             let mut env: std::collections::HashMap<String, String> = std::env::vars().collect();
-            env.remove("VELOCITY_CACHE_SALT");
+            env.remove("ATALANTA_CACHE_SALT");
             if let Some(s) = salt {
-                env.insert("VELOCITY_CACHE_SALT".into(), s.into());
+                env.insert("ATALANTA_CACHE_SALT".into(), s.into());
             }
-            velocity_common::env::install(env);
+            atalanta_common::env::install(env);
             let salt = machine_salt();
-            velocity_common::env::clear();
+            atalanta_common::env::clear();
             salt
         };
         let local = client(None);
@@ -581,7 +581,7 @@ mod tests {
     // always run.
     #[test]
     fn screenshot_tests_always_run() {
-        let suite = velocity_core::parser::parse_suite_from_str(
+        let suite = atalanta_core::parser::parse_suite_from_str(
             "appId: a\ntests:\n  - name: shot\n    steps:\n      - assertScreenshot: home\n  - name: plain\n    steps:\n      - wait: { ms: 1 }\n",
         )
         .unwrap();
@@ -592,7 +592,7 @@ mod tests {
     /// Review 12 #8: what the key can't see keeps a test out of the cache.
     #[test]
     fn exec_and_natural_language_tests_always_run() {
-        let suite = velocity_core::parser::parse_suite_from_str(
+        let suite = atalanta_core::parser::parse_suite_from_str(
             "appId: a\nconfig:\n  exec:\n    allow: [echo]\ntests:\n  - name: seeded\n    steps:\n      - exec: { run: echo hi }\n  - name: nl\n    steps:\n      - do: open the cart\n",
         )
         .unwrap();
@@ -621,7 +621,7 @@ mod tests {
         );
         assert_eq!(
             cache_scope(env(&[
-                ("VELOCITY_CACHE_SCOPE", "nightly"),
+                ("ATALANTA_CACHE_SCOPE", "nightly"),
                 ("CI_COMMIT_REF_NAME", "x")
             ])),
             "nightly"
@@ -642,7 +642,7 @@ mod tests {
     // what it loaded at its start plus its own passes.
     #[test]
     fn concurrent_runs_keep_each_others_entries() {
-        let dir = std::env::temp_dir().join(format!("velocity-rc-merge-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-rc-merge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let d = dir.to_string_lossy().into_owned();
         let pass = |n: &str| {
@@ -674,7 +674,7 @@ mod tests {
     // another run had written since.
     #[test]
     fn a_second_save_does_not_replay_the_first() {
-        let dir = std::env::temp_dir().join(format!("velocity-rc-twice-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-rc-twice-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let d = dir.to_string_lossy().into_owned();
         let mut pass = TestResult::failed("a", String::new(), Duration::ZERO);

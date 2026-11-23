@@ -1,17 +1,17 @@
 //! Device leases shared across processes.
 //!
 //! The farm already hands each device to one test at a time *within* a run.
-//! These locks extend that to every Velocity process on the machine — two CLI
+//! These locks extend that to every Atalanta process on the machine — two CLI
 //! runs, or a run and an MCP agent, can't drive the same device at once. An
-//! OS file lock (`flock`) per device under `~/.velocity/leases/` is released
+//! OS file lock (`flock`) per device under `~/.atalanta/leases/` is released
 //! automatically when the holder exits, even if it crashes, so a stale lease
 //! can't wedge a device.
 //!
-//! Where the OS can't lock, Velocity follows cargo (D-25): a lease dir on
+//! Where the OS can't lock, Atalanta follows cargo (D-25): a lease dir on
 //! NFS skips cross-process leasing (`flock` there can block forever, even
 //! non-blocking); a lock call that returns ENOTSUP/ENOSYS warns and runs
 //! without one; any other error fails at once (exit 3) with a hint.
-//! `VELOCITY_LEASES=off` turns cross-process leasing off.
+//! `ATALANTA_LEASES=off` turns cross-process leasing off.
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -31,11 +31,11 @@ impl DeviceLock {
 
 /// What to tell a user whose lease dir can't be used.
 const HINT: &str =
-    "set VELOCITY_LEASE_DIR to a writable local directory (or VELOCITY_LEASES=off to run without cross-process leases)";
+    "set ATALANTA_LEASE_DIR to a writable local directory (or ATALANTA_LEASES=off to run without cross-process leases)";
 
-/// `VELOCITY_LEASES=off` (or `0`, `false`, `no`).
+/// `ATALANTA_LEASES=off` (or `0`, `false`, `no`).
 fn leasing_off() -> bool {
-    velocity_common::env::var("VELOCITY_LEASES").is_ok_and(|v| {
+    atalanta_common::env::var("ATALANTA_LEASES").is_ok_and(|v| {
         matches!(
             v.trim().to_ascii_lowercase().as_str(),
             "off" | "0" | "false" | "no"
@@ -120,26 +120,26 @@ fn is_nfs_name(name: &str) -> bool {
 }
 
 fn lease_dir() -> PathBuf {
-    velocity_common::env::var("VELOCITY_LEASE_DIR")
+    atalanta_common::env::var("ATALANTA_LEASE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| default_lease_dir())
 }
 
 #[cfg(not(test))]
 fn default_lease_dir() -> PathBuf {
-    velocity_common::host::home_dir()
-        .join(".velocity")
+    atalanta_common::host::home_dir()
+        .join(".atalanta")
         .join("leases")
 }
 
 /// This crate's unit tests (the runner and farm tests lease devices like
 /// `run-<name>-<pid>`): a scratch directory of this test process, never
-/// the user's `~/.velocity/leases`, where every `cargo test` left a set of
+/// the user's `~/.atalanta/leases`, where every `cargo test` left a set of
 /// lock files (m-15). Fixed at compile time, so no test has to set the
-/// process-wide VELOCITY_LEASE_DIR, which raced the others.
+/// process-wide ATALANTA_LEASE_DIR, which raced the others.
 #[cfg(test)]
 fn default_lease_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("velocity-test-leases-{}", std::process::id()))
+    std::env::temp_dir().join(format!("atalanta-test-leases-{}", std::process::id()))
 }
 
 /// The id a device's lease is keyed by: `127.0.0.1:5037/emulator-5554` is
@@ -149,7 +149,7 @@ fn lease_key(device_id: &str) -> &str {
     let Some((server, serial)) = device_id.split_once('/') else {
         return device_id;
     };
-    let local_port = velocity_common::env::var("VELOCITY_ADB_PORT")
+    let local_port = atalanta_common::env::var("ATALANTA_ADB_PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(5037);
@@ -210,12 +210,12 @@ impl std::fmt::Display for LeaseError {
     }
 }
 
-/// [`try_lock`], waiting up to `VELOCITY_LEASE_WAIT_MS` (default 10 000;
+/// [`try_lock`], waiting up to `ATALANTA_LEASE_WAIT_MS` (default 10 000;
 /// 0 doesn't wait) for another process to let go. Agent commands hold a
 /// device for about a second each, so a run that gave up at once failed
 /// whenever one was mid-command (soak test, 2026-11-07).
 pub async fn lock_waiting(device_id: &str) -> Result<DeviceLock, LeaseError> {
-    let wait = velocity_common::env::var("VELOCITY_LEASE_WAIT_MS")
+    let wait = atalanta_common::env::var("ATALANTA_LEASE_WAIT_MS")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(10_000);
@@ -234,7 +234,7 @@ pub async fn lock_waiting(device_id: &str) -> Result<DeviceLock, LeaseError> {
 /// current holder (pid and command) when another process has it.
 pub fn try_lock(device_id: &str) -> Result<DeviceLock, LeaseError> {
     // The stand-in of a run with only `http` steps: nothing to share.
-    if leasing_off() || velocity_common::is_no_device(device_id) {
+    if leasing_off() || atalanta_common::is_no_device(device_id) {
         return Ok(DeviceLock::unleased());
     }
     let path = lease_path(device_id);
@@ -250,7 +250,7 @@ pub fn try_lock(device_id: &str) -> Result<DeviceLock, LeaseError> {
 
 /// Open a lease file without following a symlink at its name, and only if
 /// it is a plain file with one link. A lease dir can be shared (1777,
-/// 2770) and the HOME-less fallback was `/tmp/.velocity/leases`: a symlink
+/// 2770) and the HOME-less fallback was `/tmp/.atalanta/leases`: a symlink
 /// or hard link planted there made the lease truncate, chmod and overwrite
 /// another file of the user's (`~/.bashrc`), and a FIFO or `/dev/zero`
 /// hung or filled memory (audit 2026-11 FS-2).
@@ -293,7 +293,7 @@ fn read_holder(file: &mut File) -> String {
 
 fn try_lock_at(path: &std::path::Path) -> Result<DeviceLock, LeaseError> {
     if let Some(dir) = path.parent() {
-        velocity_common::fsutil::create_private_dir(dir)
+        atalanta_common::fsutil::create_private_dir(dir)
             .map_err(|e| LeaseError::Io(format!("lease dir {}: {e}; {HINT}", dir.display())))?;
     }
     let mode = file_mode(path.parent());
@@ -346,7 +346,7 @@ fn try_lock_at(path: &std::path::Path) -> Result<DeviceLock, LeaseError> {
         Err(std::fs::TryLockError::WouldBlock) => {
             let holder = read_holder(&mut file);
             Err(LeaseError::Held(if holder.trim().is_empty() {
-                "another Velocity process".to_string()
+                "another Atalanta process".to_string()
             } else {
                 holder.trim().to_string()
             }))
@@ -368,8 +368,8 @@ fn try_lock_at(path: &std::path::Path) -> Result<DeviceLock, LeaseError> {
 }
 
 /// The mode lock files get in `dir`: owner-only (0600) in a private dir,
-/// as `~/.velocity/leases` is. In a dir others can write to (a
-/// `VELOCITY_LEASE_DIR` shared by the users of one farm node: mode 2770
+/// as `~/.atalanta/leases` is. In a dir others can write to (a
+/// `ATALANTA_LEASE_DIR` shared by the users of one farm node: mode 2770
 /// for a group, 1777 for everyone), group- or world-readable and writable
 /// as the dir is, so a second user contends for the same lock instead of
 /// failing to open it. Lock files carry only a pid and a subcommand name.
@@ -399,7 +399,7 @@ fn file_mode(dir: Option<&std::path::Path>) -> u32 {
     }
 }
 
-/// `velocity run`: the program and its subcommand, nothing after.
+/// `atalanta run`: the program and its subcommand, nothing after.
 fn command_name() -> String {
     let mut args = std::env::args();
     let program = args
@@ -417,14 +417,14 @@ fn command_name() -> String {
     }
 }
 
-/// One lease file found on disk ([`scan`]), for `velocity doctor` and the
+/// One lease file found on disk ([`scan`]), for `atalanta doctor` and the
 /// MCP `diagnose` tool.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LeaseFile {
     pub path: PathBuf,
     /// The file name without `.lock` (the device id, maybe with a hash).
     pub name: String,
-    /// Another open file holds the lock: a live Velocity process.
+    /// Another open file holds the lock: a live Atalanta process.
     pub held: bool,
     /// The holder line its last owner wrote (`pid=… cmd=…`), if any.
     pub holder: Option<String>,
@@ -445,7 +445,7 @@ impl LeaseFile {
     }
 }
 
-/// The directory device leases live in, for `velocity doctor`.
+/// The directory device leases live in, for `atalanta doctor`.
 pub fn dir() -> PathBuf {
     lease_dir()
 }
@@ -546,7 +546,7 @@ mod tests {
         let held = try_lock_at(&dir.join("emulator-1.lock")).unwrap();
         std::fs::write(
             dir.join("emulator-2.lock"),
-            "pid=999999999 cmd=velocity run\n",
+            "pid=999999999 cmd=atalanta run\n",
         )
         .unwrap();
         let found = scan(&dir).unwrap();
@@ -558,7 +558,7 @@ mod tests {
             "a held lease is left alone"
         );
         assert!(found[1].is_stale() && !found[0].is_stale());
-        assert_eq!(found[1].cmd.as_deref(), Some("velocity run"));
+        assert_eq!(found[1].cmd.as_deref(), Some("atalanta run"));
         std::fs::write(dir.join("emulator-3.lock"), "").unwrap();
         assert!(
             !clear_stale(&dir.join("emulator-3.lock")).unwrap(),
@@ -649,7 +649,7 @@ mod tests {
 
     #[test]
     fn a_device_can_be_leased_once_at_a_time() {
-        // An explicit path, not VELOCITY_LEASE_DIR: tests run in parallel and
+        // An explicit path, not ATALANTA_LEASE_DIR: tests run in parallel and
         // the farm tests resolve the lease dir from the same process env.
         let dir = std::env::temp_dir().join(format!("vel-leases-{}", std::process::id()));
         let path = dir.join("emulator-9999.lock");
@@ -675,12 +675,12 @@ mod tests {
     // m-15: the runner and farm tests lease devices; never under $HOME.
     #[test]
     fn tests_never_lease_in_the_users_home() {
-        if std::env::var_os("VELOCITY_LEASE_DIR").is_some() {
+        if std::env::var_os("ATALANTA_LEASE_DIR").is_some() {
             return;
         }
         let dir = lease_dir();
         assert!(dir.starts_with(std::env::temp_dir()), "{}", dir.display());
-        assert!(!dir.ends_with(".velocity/leases"), "{}", dir.display());
+        assert!(!dir.ends_with(".atalanta/leases"), "{}", dir.display());
     }
 
     #[test]
@@ -711,7 +711,7 @@ mod tests {
             .expect("must fail");
         assert!(matches!(err, LeaseError::Io(_)), "{err:?}");
         // D-25: with a hint at what to do.
-        assert!(err.to_string().contains("VELOCITY_LEASE_DIR"), "{err}");
+        assert!(err.to_string().contains("ATALANTA_LEASE_DIR"), "{err}");
         let _ = std::fs::remove_file(&dir);
     }
 

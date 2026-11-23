@@ -1,12 +1,12 @@
-//! Keys in a suite's `config:` that Velocity doesn't read.
+//! Keys in a suite's `config:` that Atalanta doesn't read.
 //!
 //! serde skips unknown keys, so a misspelt setting (`app_pth:`) would
 //! silently do nothing. This names them. The known keys come from serde
 //! itself (each struct's field list, aliases included), so they cannot
 //! drift from the structs the way a hand-kept list would.
 
+use atalanta_common::test_types as t;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
-use velocity_common::test_types as t;
 
 /// `config.<path>: …` for each key no setting reads, with the closest
 /// known key when one is near.
@@ -48,7 +48,7 @@ pub fn section_fields(section: &str) -> Option<&'static [&'static str]> {
         "web" => fields::<t::WebConfig>(),
         "nl" => fields::<t::NlConfig>(),
         "ai" => fields::<t::AiConfig>(),
-        "exec" => fields::<velocity_common::exec::ExecConfig>(),
+        "exec" => fields::<atalanta_common::exec::ExecConfig>(),
         _ => return None,
     })
 }
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn enum_variants_include_aliases() {
-        let v = variants::<velocity_common::config::Framework>();
+        let v = variants::<atalanta_common::config::Framework>();
         assert!(v.contains(&"react_native") && v.contains(&"rn"), "{v:?}");
     }
 

@@ -1,13 +1,13 @@
-//! Simulator choices for `velocity devices up --ios N`.
+//! Simulator choices for `atalanta devices up --ios N`.
 //!
-//! A fresh simulator spends 135–259 s on first-boot migration, so Velocity
+//! A fresh simulator spends 135–259 s on first-boot migration, so Atalanta
 //! never boots a stock one per run. It keeps clones named
-//! `velocity-<type>-<n>` and reuses them, most recently used first (warm
+//! `atalanta-<type>-<n>` and reuses them, most recently used first (warm
 //! caches, and the clone a previous run already installed the app on). New
 //! clones come from a "golden" simulator that has already booted once:
 //! `simctl clone` is an APFS copy, so the clone starts past migration.
 
-use velocity_common::{Result, VelocityError};
+use atalanta_common::{AtalantaError, Result};
 
 /// A simulator from `simctl list devices --json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,17 +82,17 @@ pub fn resolve_device_type(v: &serde_json::Value, wanted: &str) -> Result<(Strin
                 .map(|(n, _)| n.as_str())
                 .filter(|n| n.starts_with("iPhone"))
                 .collect();
-            VelocityError::Config(format!(
+            AtalantaError::Config(format!(
                 "no simulator device type '{wanted}'. iPhones available: {}",
                 iphones.join(", ")
             ))
         })
 }
 
-/// `iPhone 17 Pro` → `velocity-iPhone-17-Pro`.
+/// `iPhone 17 Pro` → `atalanta-iPhone-17-Pro`.
 pub fn clone_prefix(type_name: &str) -> String {
     format!(
-        "velocity-{}",
+        "atalanta-{}",
         type_name.split_whitespace().collect::<Vec<_>>().join("-")
     )
 }
@@ -105,7 +105,7 @@ pub fn golden_name(type_name: &str) -> String {
     format!("{}-golden", clone_prefix(type_name))
 }
 
-/// `n` of a `velocity-<type>-<n>` clone of this type.
+/// `n` of a `atalanta-<type>-<n>` clone of this type.
 pub fn clone_index(name: &str, type_name: &str) -> Option<u32> {
     name.strip_prefix(&clone_prefix(type_name))?
         .strip_prefix('-')?
@@ -113,7 +113,7 @@ pub fn clone_index(name: &str, type_name: &str) -> Option<u32> {
         .ok()
 }
 
-/// Velocity's clones of this type, most recently used first.
+/// Atalanta's clones of this type, most recently used first.
 pub fn clones<'a>(sims: &'a [Sim], type_name: &str) -> Vec<&'a Sim> {
     let mut out: Vec<&Sim> = sims
         .iter()
@@ -232,15 +232,15 @@ mod tests {
 
     #[test]
     fn clone_names_are_per_type_and_numbered() {
-        assert_eq!(clone_name("iPhone 17 Pro", 2), "velocity-iPhone-17-Pro-2");
-        assert_eq!(golden_name("iPhone 17"), "velocity-iPhone-17-golden");
+        assert_eq!(clone_name("iPhone 17 Pro", 2), "atalanta-iPhone-17-Pro-2");
+        assert_eq!(golden_name("iPhone 17"), "atalanta-iPhone-17-golden");
         assert_eq!(
-            clone_index("velocity-iPhone-17-Pro-2", "iPhone 17 Pro"),
+            clone_index("atalanta-iPhone-17-Pro-2", "iPhone 17 Pro"),
             Some(2)
         );
         // "iPhone 17" clones are not "iPhone 17 Pro" clones, and vice versa.
-        assert_eq!(clone_index("velocity-iPhone-17-Pro-2", "iPhone 17"), None);
-        assert_eq!(clone_index("velocity-iPhone-17-golden", "iPhone 17"), None);
+        assert_eq!(clone_index("atalanta-iPhone-17-Pro-2", "iPhone 17"), None);
+        assert_eq!(clone_index("atalanta-iPhone-17-golden", "iPhone 17"), None);
     }
 
     #[test]
@@ -249,23 +249,23 @@ mod tests {
         let sims = vec![
             sim(
                 "old",
-                "velocity-iPhone-17-Pro-1",
+                "atalanta-iPhone-17-Pro-1",
                 "Shutdown",
                 Some("2026-01-01T00:00:00Z"),
             ),
             sim(
                 "up",
-                "velocity-iPhone-17-Pro-2",
+                "atalanta-iPhone-17-Pro-2",
                 "Booted",
                 Some("2026-10-06T00:00:00Z"),
             ),
             sim(
                 "recent",
-                "velocity-iPhone-17-Pro-3",
+                "atalanta-iPhone-17-Pro-3",
                 "Shutdown",
                 Some("2026-10-01T00:00:00Z"),
             ),
-            sim("never", "velocity-iPhone-17-Pro-5", "Shutdown", None),
+            sim("never", "atalanta-iPhone-17-Pro-5", "Shutdown", None),
             sim(
                 "user",
                 "iPhone 17 Pro",
@@ -298,9 +298,9 @@ mod tests {
         // which cloned new simulators beside them.
         let t = "iPhone 17 Pro";
         let sims = vec![
-            sim("down", "velocity-iPhone-17-Pro-1", "Shutdown", None),
-            sim("leaving", "velocity-iPhone-17-Pro-2", "Shutting Down", None),
-            sim("coming", "velocity-iPhone-17-Pro-3", "Booting", None),
+            sim("down", "atalanta-iPhone-17-Pro-1", "Shutdown", None),
+            sim("leaving", "atalanta-iPhone-17-Pro-2", "Shutting Down", None),
+            sim("coming", "atalanta-iPhone-17-Pro-3", "Booting", None),
         ];
         let p = plan(&sims, t, 3, &[]);
         assert_eq!(p.reuse, vec!["coming", "down", "leaving"]);
@@ -312,10 +312,10 @@ mod tests {
     fn another_owners_booted_clones_are_neither_counted_nor_booted() {
         let t = "iPhone 17 Pro";
         let sims = vec![
-            sim("theirs", "velocity-iPhone-17-Pro-1", "Booted", None),
-            sim("theirs-coming", "velocity-iPhone-17-Pro-2", "Booting", None),
-            sim("theirs-down", "velocity-iPhone-17-Pro-3", "Shutdown", None),
-            sim("mine", "velocity-iPhone-17-Pro-4", "Booted", None),
+            sim("theirs", "atalanta-iPhone-17-Pro-1", "Booted", None),
+            sim("theirs-coming", "atalanta-iPhone-17-Pro-2", "Booting", None),
+            sim("theirs-down", "atalanta-iPhone-17-Pro-3", "Shutdown", None),
+            sim("mine", "atalanta-iPhone-17-Pro-4", "Booted", None),
         ];
         let foreign: Vec<String> = ["theirs", "theirs-coming", "theirs-down"]
             .map(String::from)

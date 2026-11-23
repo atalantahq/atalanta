@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, Element, PlatformDriver, Result, Selector};
 use serde_json::Value;
-use velocity_common::{Element, PlatformDriver, Result, Selector, VelocityError};
 
 fn flatten_elements<'a>(
     root: &'a Element,
@@ -33,7 +33,7 @@ fn flatten_elements<'a>(
             "visible": root.visible
         });
         // S1/S2: what a `role:` selector and the state filters see.
-        if let Some(role) = velocity_common::role::role_of(root) {
+        if let Some(role) = atalanta_common::role::role_of(root) {
             entry["role"] = role.into();
         }
         if let Some(c) = root.checked {
@@ -73,7 +73,7 @@ fn compact_line(r: &str, e: &Element) -> String {
     line.push_str(&format!(" @({},{} {}x{})", b.x, b.y, b.width, b.height));
     // S1: the role a `role:` selector matches, after the box so the
     // listing's familiar prefix stays as it was.
-    if let Some(role) = velocity_common::role::role_of(e) {
+    if let Some(role) = atalanta_common::role::role_of(e) {
         line.push_str(&format!(" role={role}"));
     }
     if !e.enabled {
@@ -135,7 +135,7 @@ pub async fn get_element(
 
     let element = super::interaction::find_live(driver, device_id, &selector).await?;
     serde_json::to_value(&element)
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Serialization error: {e}")))
+        .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Serialization error: {e}")))
 }
 
 pub async fn assert_visible(
@@ -146,7 +146,7 @@ pub async fn assert_visible(
     let selector: Selector = super::interaction::parse_selector(args)?;
 
     // `timeout_ms` (default 0: check now) waits for it first, as
-    // `velocity assert --timeout` asks; the check below then reports it.
+    // `atalanta assert --timeout` asks; the check below then reports it.
     if u64_arg(args, "timeout_ms")?.unwrap_or(0) > 0 {
         // Its not-found names the time it waited ("after 3000ms").
         wait_for_element(driver, device_id, args).await?;
@@ -156,7 +156,7 @@ pub async fn assert_visible(
     let visible = driver.is_element_visible(device_id, &element).await?;
 
     if !visible {
-        return Err(VelocityError::AssertionFailed {
+        return Err(AtalantaError::AssertionFailed {
             expected: "visible".to_string(),
             actual: "not visible".to_string(),
             selector: selector.to_string(),
@@ -357,7 +357,7 @@ pub async fn wait_for_element(
                     }));
                 }
             }
-            Err(e) if e.kind() == velocity_common::ErrorKind::ElementNotFound => {
+            Err(e) if e.kind() == atalanta_common::ErrorKind::ElementNotFound => {
                 // Expected — element not yet present, keep polling
             }
             Err(e) => return Err(e), // Real driver error — propagate
@@ -365,7 +365,7 @@ pub async fn wait_for_element(
 
         let elapsed = start.elapsed();
         if elapsed >= timeout {
-            return Err(VelocityError::ElementNotFound {
+            return Err(AtalantaError::ElementNotFound {
                 selector: selector.to_string(),
                 timeout_ms,
                 screenshot: None,
@@ -383,7 +383,7 @@ fn u64_arg(args: &Value, name: &str) -> Result<Option<u64>> {
     match args.get(name) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => v.as_u64().map(Some).ok_or_else(|| {
-            VelocityError::Config(format!("'{name}' must be a non-negative integer, got {v}"))
+            AtalantaError::Config(format!("'{name}' must be a non-negative integer, got {v}"))
         }),
     }
 }
@@ -394,8 +394,8 @@ mod wait_tests {
 
     /// A headless device showing an empty screen.
     async fn driver() -> Arc<dyn PlatformDriver> {
-        let d: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let d: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             Default::default(),
         ));
         d.launch_app("headless", "app", false).await.unwrap();
@@ -420,7 +420,7 @@ mod wait_tests {
         assert!(start.elapsed() < Duration::from_secs(2));
     }
 
-    /// Field tests: `velocity tap` right after a screen change failed "after
+    /// Field tests: `atalanta tap` right after a screen change failed "after
     /// 0ms". An action's lookup now looks again for a moment; a plain lookup
     /// (assertions without `timeout_ms`) still checks once.
     #[tokio::test]
@@ -455,7 +455,7 @@ mod wait_tests {
             } else {
                 "Airplane mode"
             };
-            let bounds = velocity_common::Rect {
+            let bounds = atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: 100,
@@ -488,7 +488,7 @@ mod wait_tests {
             tree.children
                 .into_iter()
                 .find(|e| matches!(selector, Selector::Text(t) if e.text.as_ref() == Some(t)))
-                .ok_or_else(|| VelocityError::ElementNotFound {
+                .ok_or_else(|| AtalantaError::ElementNotFound {
                     selector: selector.to_string(),
                     timeout_ms: 0,
                     screenshot: None,
@@ -501,7 +501,7 @@ mod wait_tests {
         async fn is_element_visible(&self, _: &str, _: &Element) -> Result<bool> {
             Ok(true)
         }
-        async fn list_devices(&self) -> Result<Vec<velocity_common::DeviceInfo>> {
+        async fn list_devices(&self) -> Result<Vec<atalanta_common::DeviceInfo>> {
             unreachable!()
         }
         async fn boot_device(&self, _: &str) -> Result<()> {
@@ -540,13 +540,13 @@ mod wait_tests {
         async fn clear_text(&self, _: &str, _: &Element) -> Result<()> {
             unreachable!()
         }
-        async fn swipe(&self, _: &str, _: velocity_common::Direction) -> Result<()> {
+        async fn swipe(&self, _: &str, _: atalanta_common::Direction) -> Result<()> {
             unreachable!()
         }
         async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
             unreachable!()
         }
-        async fn press_key(&self, _: &str, _: velocity_common::Key) -> Result<()> {
+        async fn press_key(&self, _: &str, _: atalanta_common::Key) -> Result<()> {
             unreachable!()
         }
         async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
@@ -580,7 +580,7 @@ mod wait_tests {
         get_element(&d, "d", &args).await.unwrap();
     }
 
-    // SUNMI tablet, 2026-11-21: `velocity assert --timeout 3s` failed at
+    // SUNMI tablet, 2026-11-21: `atalanta assert --timeout 3s` failed at
     // once ("after 0ms"); assert_visible ignored timeout_ms.
     #[tokio::test]
     async fn assert_visible_waits_for_its_timeout_and_checks_now_without_one() {

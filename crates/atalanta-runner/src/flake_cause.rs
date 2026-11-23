@@ -11,10 +11,10 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use serde::Serialize;
-use velocity_common::{
+use atalanta_common::{
     Action, Selector, SourcePos, Step, StepSettle, StepStatus, TestResult, TestStatus, TestSuite,
 };
+use serde::Serialize;
 
 use crate::history::FailureKind;
 
@@ -60,7 +60,7 @@ impl Observation {
             .map(|i| self.result.steps[i].step_index)
     }
 
-    fn step(&self, index: usize) -> Option<&velocity_common::StepResult> {
+    fn step(&self, index: usize) -> Option<&atalanta_common::StepResult> {
         self.result.steps.iter().find(|s| s.step_index == index)
     }
 }
@@ -370,7 +370,7 @@ pub fn diagnose(test: &str, rounds: &[Observation], cx: &Context) -> Option<Diag
             timeout_ms,
             ran_out,
         });
-        let timing = |i: usize, read: &dyn Fn(&velocity_common::StepResult) -> Option<u64>| {
+        let timing = |i: usize, read: &dyn Fn(&atalanta_common::StepResult) -> Option<u64>| {
             let name = at_step[0].step(i).map(|s| s.action_name.clone());
             let failing = Spread::of(
                 at_step
@@ -395,8 +395,8 @@ pub fn diagnose(test: &str, rounds: &[Observation], cx: &Context) -> Option<Diag
                 passing,
             })
         };
-        let duration = |s: &velocity_common::StepResult| Some(millis(s.duration));
-        let settle = |s: &velocity_common::StepResult| s.settle_ms;
+        let duration = |s: &atalanta_common::StepResult| Some(millis(s.duration));
+        let settle = |s: &atalanta_common::StepResult| s.settle_ms;
         d.step_duration = timing(k, &duration);
         if k > 0 {
             d.previous_duration = timing(k - 1, &duration);
@@ -522,7 +522,7 @@ pub fn diagnose(test: &str, rounds: &[Observation], cx: &Context) -> Option<Diag
 fn order_causes(
     passing: &[&Observation],
     failing: &[&Observation],
-    case: Option<&velocity_common::TestCase>,
+    case: Option<&atalanta_common::TestCase>,
     cx: &Context,
 ) -> Vec<Cause> {
     let known = |os: &[&Observation]| -> Option<Vec<BTreeSet<String>>> {
@@ -613,7 +613,7 @@ fn order_causes(
 fn suggestion(
     cause: &Cause,
     test: &str,
-    case: Option<&velocity_common::TestCase>,
+    case: Option<&atalanta_common::TestCase>,
     cx: &Context,
 ) -> Option<Suggestion> {
     let fix = cause.fix.clone()?;
@@ -653,7 +653,7 @@ fn suggestion(
         Fix::AssertVisibleBefore { before, selector } => {
             let (at, line) = step_line(*before);
             let indent: String = line.chars().take_while(|c| *c == ' ').collect();
-            let fields = velocity_core::executor::selector_fields(selector);
+            let fields = atalanta_core::executor::selector_fields(selector);
             (
                 at,
                 format!("+  {indent}- assertVisible: {{ {fields} }}\n   {line}"),
@@ -895,7 +895,7 @@ fn step_yaml(s: &Step) -> String {
     match action_selector(&s.action) {
         Some(sel) => format!(
             "- {name}: {{ {} }}",
-            velocity_core::executor::selector_fields(sel)
+            atalanta_core::executor::selector_fields(sel)
         ),
         None => format!("- {name}"),
     }
@@ -948,8 +948,8 @@ fn acts_on_element(a: &Action) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atalanta_common::StepResult;
     use std::time::Duration;
-    use velocity_common::StepResult;
 
     const YAML: &str = "appId: com.example
 config:
@@ -968,7 +968,7 @@ tests:
 ";
 
     fn suite() -> TestSuite {
-        velocity_core::parser::parse_suite_from_str(YAML).unwrap()
+        atalanta_core::parser::parse_suite_from_str(YAML).unwrap()
     }
 
     /// A step: (duration ms, settle ms); the last one of a failing round

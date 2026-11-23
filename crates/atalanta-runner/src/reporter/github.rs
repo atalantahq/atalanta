@@ -5,11 +5,11 @@
 use std::fmt::Write as _;
 use std::io::Write as _;
 
-use velocity_common::{Result, SuiteResult, TestResult, TestStatus, VelocityError};
+use atalanta_common::{AtalantaError, Result, SuiteResult, TestResult, TestStatus};
 
 /// Whether this process runs inside GitHub Actions.
 pub fn in_github_actions() -> bool {
-    velocity_common::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+    atalanta_common::env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
 }
 
 /// Print annotations to stdout and append the summary to
@@ -23,7 +23,7 @@ pub fn report(result: &SuiteResult, suite_file: &str) -> Result<()> {
 #[derive(Debug, Clone, Default)]
 pub struct RunEnd {
     /// `completed`, `timeout`, `interrupted:SIGTERM` (as in the JUnit
-    /// `velocity.termination` property); empty means completed.
+    /// `atalanta.termination` property); empty means completed.
     pub termination: String,
     /// The stopped run didn't return in time: the results are what had
     /// finished by then.
@@ -33,17 +33,17 @@ pub struct RunEnd {
 /// [`report`], with a banner atop the summary when the run didn't
 /// complete.
 pub fn report_with(result: &SuiteResult, suite_file: &str, end: &RunEnd) -> Result<()> {
-    // Velocity's own annotations must be read as commands again.
+    // Atalanta's own annotations must be read as commands again.
     resume_commands();
     let lines = capped_for(&step_key(), annotations(result, suite_file));
     for line in lines {
         println!("{line}");
     }
-    if let Ok(path) = velocity_common::env::var("GITHUB_STEP_SUMMARY") {
+    if let Ok(path) = atalanta_common::env::var("GITHUB_STEP_SUMMARY") {
         let mut text = banner(result, end);
         text.push_str(&summary(result));
         // What the step's summary already holds, from this run or another
-        // (the file is the step's own): a process-wide count in `velocity
+        // (the file is the step's own): a process-wide count in `atalanta
         // daemon` added up every client's run, and summaries went empty
         // for good once it passed 1 MiB (m-5).
         let written = std::fs::metadata(&path).map_or(0, |m| m.len() as usize);
@@ -52,15 +52,15 @@ pub fn report_with(result: &SuiteResult, suite_file: &str, end: &RunEnd) -> Resu
             .create(true)
             .append(true)
             .open(&path)
-            .map_err(|e| VelocityError::Config(format!("GITHUB_STEP_SUMMARY {path}: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("GITHUB_STEP_SUMMARY {path}: {e}")))?;
         f.write_all(text.as_bytes())
-            .map_err(|e| VelocityError::Config(format!("GITHUB_STEP_SUMMARY {path}: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("GITHUB_STEP_SUMMARY {path}: {e}")))?;
     }
     Ok(())
 }
 
 /// `::add-mask::` for every registered secret: GitHub then masks it in
-/// the job's log, this step's and later ones', not only in what Velocity
+/// the job's log, this step's and later ones', not only in what Atalanta
 /// prints itself.
 pub fn mask_secrets() {
     for line in mask_lines() {
@@ -71,7 +71,7 @@ pub fn mask_secrets() {
 /// Shortest secret handed to GitHub's `::add-mask::`. GitHub masks a value
 /// as a substring everywhere in the job's log, so a 3-digit PIN would shred
 /// durations, ports and SHAs in every later step (M-2, research D-29).
-/// Shorter secrets are still masked, whole-token, in what Velocity prints.
+/// Shorter secrets are still masked, whole-token, in what Atalanta prints.
 const MIN_GITHUB_MASK_LEN: usize = 8;
 
 fn mask_lines() -> Vec<String> {
@@ -81,7 +81,7 @@ fn mask_lines() -> Vec<String> {
     // by line (each line is registered as a secret of its own, see
     // `redact::register_secret`), never as one value with `%0A` in it,
     // which matched nothing (C3).
-    velocity_common::redact::registered_secrets_at_least(MIN_GITHUB_MASK_LEN)
+    atalanta_common::redact::registered_secrets_at_least(MIN_GITHUB_MASK_LEN)
         .iter()
         .filter(|s| !s.contains(['\n', '\r']))
         .filter(|s| s.chars().count() >= MIN_GITHUB_MASK_LEN)
@@ -166,7 +166,7 @@ const PER_STEP: usize = 10;
 
 /// Annotations printed in the current step: its key (see [`step_key`])
 /// and (errors, warnings, notices). Per step, not per process: in
-/// `velocity daemon` the counts added up across every client's run, and
+/// `atalanta daemon` the counts added up across every client's run, and
 /// after ten errors over the daemon's life no run got annotations (m-5).
 static SHOWN: std::sync::Mutex<Option<(String, Shown)>> = std::sync::Mutex::new(None);
 
@@ -184,7 +184,7 @@ fn step_key() -> String {
         "GITHUB_STEP_SUMMARY",
     ]
     .iter()
-    .map(|v| velocity_common::env::var(v).unwrap_or_default())
+    .map(|v| atalanta_common::env::var(v).unwrap_or_default())
     .collect::<Vec<_>>()
     .join("|")
 }
@@ -222,7 +222,7 @@ fn capped(lines: Vec<String>, shown: &mut (usize, usize, usize)) -> Vec<String> 
     if left_out > 0 && shown.2 < PER_STEP {
         shown.2 += 1;
         out.push(format!(
-            "::notice title=Velocity::{left_out} more failed or flaky test(s) not annotated (GitHub shows {PER_STEP} per step); see the job summary"
+            "::notice title=Atalanta::{left_out} more failed or flaky test(s) not annotated (GitHub shows {PER_STEP} per step); see the job summary"
         ));
     }
     out
@@ -291,7 +291,7 @@ pub fn annotations(result: &SuiteResult, suite_file: &str) -> Vec<String> {
         out.push(format!(
             "::{level} file={}{line},title={}::{}",
             escape_property(file),
-            escape_property(&format!("Velocity: {}", t.test_name)),
+            escape_property(&format!("Atalanta: {}", t.test_name)),
             escape_data(&msg)
         ));
     }
@@ -334,7 +334,7 @@ fn banner_text(result: &SuiteResult, end: &RunEnd, how: &str) -> String {
         })
         .count();
     let mut s = format!(
-        "> [!WARNING]\n> **Velocity run {how}.** {not_run} of {} test(s) did not run or finish; these results are partial.\n",
+        "> [!WARNING]\n> **Atalanta run {how}.** {not_run} of {} test(s) did not run or finish; these results are partial.\n",
         result.tests.len()
     );
     if end.partial {
@@ -350,7 +350,7 @@ pub fn summary(result: &SuiteResult) -> String {
     let mut s = String::new();
     let _ = writeln!(
         s,
-        "### Velocity: {} passed, {} failed, {} flaky, {} skipped ({:.1}s)\n",
+        "### Atalanta: {} passed, {} failed, {} flaky, {} skipped ({:.1}s)\n",
         result.passed,
         result.failed,
         result.retried,
@@ -394,10 +394,10 @@ pub fn summary(result: &SuiteResult) -> String {
 }
 
 /// Where the step that failed is written, if it is known.
-fn failing_step_source(t: &TestResult) -> Option<&velocity_common::SourcePos> {
+fn failing_step_source(t: &TestResult) -> Option<&atalanta_common::SourcePos> {
     t.steps
         .iter()
-        .find(|s| s.status == velocity_common::StepStatus::Failed)
+        .find(|s| s.status == atalanta_common::StepStatus::Failed)
         .and_then(|s| s.source.as_ref())
 }
 
@@ -528,7 +528,7 @@ mod tests {
         let lines = annotations(&suite(vec![failed, flaky]), "tests/app.yaml");
         assert_eq!(lines.len(), 2);
         assert!(lines[0]
-            .starts_with("::error file=tests/app.yaml,title=Velocity%3A login%2C then pay::"));
+            .starts_with("::error file=tests/app.yaml,title=Atalanta%3A login%2C then pay::"));
         assert!(lines[0].ends_with("Element not found:%0Ax"));
         assert!(lines[1].starts_with("::warning "));
         assert!(lines[1].contains("First failure: timeout"));
@@ -558,7 +558,7 @@ mod tests {
 
     #[test]
     fn annotations_sit_on_the_failing_step_line_or_else_the_test_line() {
-        use velocity_common::{SourcePos, StepResult, StepStatus};
+        use atalanta_common::{SourcePos, StepResult, StepStatus};
         let mut on_step = TestResult::failed("pay", "Element not found".into(), Duration::ZERO);
         on_step.source = Some(SourcePos::new("tests/app.yaml", 20, 5));
         for (i, (status, line)) in [(StepStatus::Passed, 22), (StepStatus::Failed, 42)]
@@ -678,7 +678,7 @@ mod tests {
 
     #[test]
     fn registered_secrets_are_masked_for_github() {
-        velocity_common::redact::register_secret("gh-mask-7Qz%secret");
+        atalanta_common::redact::register_secret("gh-mask-7Qz%secret");
         let lines = mask_lines();
         assert!(
             lines.contains(&"::add-mask::gh-mask-7Qz%25secret".to_string()),
@@ -690,8 +690,8 @@ mod tests {
     // masked every `123` in the job log.
     #[test]
     fn short_secrets_are_not_sent_to_github() {
-        velocity_common::redact::register_secret("481");
-        velocity_common::redact::register_secret("Pin7Abc");
+        atalanta_common::redact::register_secret("481");
+        atalanta_common::redact::register_secret("Pin7Abc");
         let lines = mask_lines();
         assert!(
             !lines
@@ -699,10 +699,10 @@ mod tests {
                 .any(|l| l == "::add-mask::481" || l == "::add-mask::Pin7Abc"),
             "{lines:?}"
         );
-        // Velocity's own masking is unchanged.
+        // Atalanta's own masking is unchanged.
         assert_eq!(
-            velocity_common::redact::redact("pin 481 ok"),
-            format!("pin {} ok", velocity_common::redact::MASK)
+            atalanta_common::redact::redact("pin 481 ok"),
+            format!("pin {} ok", atalanta_common::redact::MASK)
         );
     }
 
@@ -710,7 +710,7 @@ mod tests {
     // the whole value with `%0A` in it masked nothing.
     #[test]
     fn a_multi_line_secret_is_masked_line_by_line() {
-        velocity_common::redact::register_secret(
+        atalanta_common::redact::register_secret(
             "c3-gh-first-line-AAAA\r\nc3-gh-second-line-BBBB\nshort\n",
         );
         let lines = mask_lines();
@@ -735,7 +735,7 @@ mod tests {
     // short secret's: no `add-mask` for any of them.
     #[test]
     fn no_form_of_a_short_secret_is_sent_to_github() {
-        velocity_common::redact::register_secret("d29\"<&");
+        atalanta_common::redact::register_secret("d29\"<&");
         let lines = mask_lines();
         assert!(!lines.iter().any(|l| l.contains("d29")), "{lines:?}");
     }

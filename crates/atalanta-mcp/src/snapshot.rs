@@ -23,10 +23,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use atalanta_common::selector_build::{robust_selector, synthetic_id};
+use atalanta_common::{AtalantaError, Element, Platform, Rect, Result, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use velocity_common::selector_build::{robust_selector, synthetic_id};
-use velocity_common::{Element, Platform, Rect, Result, Selector, VelocityError};
 
 /// Longest text kept on a line; the rest is cut with `…`.
 const MAX_TEXT: usize = 80;
@@ -73,7 +73,7 @@ pub struct Snapshots {
     last: Option<BTreeMap<u64, Shown>>,
 }
 
-/// [`Snapshots`] as saved between `velocity` agent commands: each runs in
+/// [`Snapshots`] as saved between `atalanta` agent commands: each runs in
 /// its own process, and refs must mean the same element across them.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SnapshotState {
@@ -144,7 +144,7 @@ impl Options {
             match args.get(key) {
                 None | Some(Value::Null) => Ok(default.to_string()),
                 Some(Value::String(s)) if allowed.contains(&s.as_str()) => Ok(s.clone()),
-                Some(v) => Err(VelocityError::Config(format!(
+                Some(v) => Err(AtalantaError::Config(format!(
                     "'{key}' must be one of {}, got {v}",
                     allowed.join(", ")
                 ))),
@@ -154,7 +154,7 @@ impl Options {
             match args.get(key) {
                 None | Some(Value::Null) => Ok(None),
                 Some(Value::String(s)) if !s.trim().is_empty() => Ok(Some(s.trim().to_string())),
-                Some(v) => Err(VelocityError::Config(format!(
+                Some(v) => Err(AtalantaError::Config(format!(
                     "'{key}' must be a non-empty string, got {v}"
                 ))),
             }
@@ -162,7 +162,7 @@ impl Options {
         let within = text("within")?;
         if let Some(w) = &within {
             if !is_snapshot_ref(w) {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "'within' must be a snapshot ref like @e12, got {w:?}"
                 )));
             }
@@ -172,7 +172,7 @@ impl Options {
             Some(v) => match v.as_u64() {
                 Some(n) if n > 0 => Some(n as usize),
                 _ => {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "'limit' must be a positive integer, got {v}"
                     )))
                 }
@@ -255,7 +255,7 @@ pub(crate) fn meaningful(e: &Element) -> bool {
         || nonempty(e.label.as_deref()).is_some()
         || nonempty(e.hint.as_deref()).is_some()
         || e.checked.is_some()
-        || velocity_common::role::role_of(e).is_some_and(|r| ACTIONABLE_ROLES.contains(&r))
+        || atalanta_common::role::role_of(e).is_some_and(|r| ACTIONABLE_ROLES.contains(&r))
 }
 
 /// Whether a snapshot shows `e`.
@@ -342,7 +342,7 @@ fn clip(s: &str) -> String {
 
 /// `@e3 button "Pay" label="Pay now" #pay [checked,disabled] @(0,10 100x40)`.
 fn render(r: u64, e: &Element, bounds: bool) -> (String, Value) {
-    let role = velocity_common::role::role_of(e)
+    let role = atalanta_common::role::role_of(e)
         .map(String::from)
         .unwrap_or_else(|| short_kind(&e.element_type).to_string());
     let mut line = format!("@e{r} {role}");
@@ -456,7 +456,7 @@ impl Snapshots {
                 match within_ref.and_then(|n| now.get(&n)) {
                     Some(s) => Some(s.bounds),
                     None => {
-                        return Err(VelocityError::StaleRef(format!(
+                        return Err(AtalantaError::StaleRef(format!(
                             "within {w}: that element is not on screen now; take a snapshot and use a current ref"
                         )))
                     }
@@ -620,15 +620,15 @@ impl Snapshots {
             .strip_prefix("@e")
             .and_then(|n| n.parse().ok())
             .ok_or_else(|| {
-                VelocityError::Config(format!("'{r}' is not a snapshot ref (they look like @e12)"))
+                AtalantaError::Config(format!("'{r}' is not a snapshot ref (they look like @e12)"))
             })?;
         let Some(last) = &self.last else {
-            return Err(VelocityError::StaleRef(format!(
+            return Err(AtalantaError::StaleRef(format!(
                 "ref {r}: no snapshot taken yet in this session; call snapshot first"
             )));
         };
         let stale = |why: &str| {
-            VelocityError::StaleRef(format!(
+            AtalantaError::StaleRef(format!(
                 "ref {r} is stale: {why}; call snapshot (mode \"delta\" is cheap) and use a current ref"
             ))
         };
@@ -934,7 +934,7 @@ mod tests {
         s.take(&t, None, Options::default()).unwrap();
         let opts = Options::from_args(&serde_json::json!({ "within": "@e99" })).unwrap();
         let e = s.take(&t, None, opts).unwrap_err();
-        assert!(matches!(e, VelocityError::StaleRef(_)), "{e}");
+        assert!(matches!(e, AtalantaError::StaleRef(_)), "{e}");
         assert!(Options::from_args(&serde_json::json!({ "within": "dialog" })).is_err());
         assert!(Options::from_args(&serde_json::json!({ "limit": 0 })).is_err());
     }
@@ -965,7 +965,7 @@ mod tests {
         // The field with a unique id kept its ref while its text changed.
         assert!(out.contains("~ @e3 "), "{out}");
         let e = s.resolve("@e2", &next, None).unwrap_err();
-        assert!(matches!(e, VelocityError::StaleRef(_)), "{e}");
+        assert!(matches!(e, AtalantaError::StaleRef(_)), "{e}");
     }
 
     #[test]

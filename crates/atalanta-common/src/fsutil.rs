@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn concurrent_writers_leave_one_whole_file_and_no_temp_files() {
-        let dir = std::env::temp_dir().join(format!("velocity-fsutil-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-fsutil-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("nested").join("f.json");
         std::thread::scope(|s| {
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn writes_keep_the_mode_never_follow_links_and_private_files_are_0600() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("velocity-fsmode-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-fsmode-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
@@ -257,7 +257,7 @@ mod tests {
         // A link at the target is replaced, never written through.
         let victim = dir.join("victim");
         std::fs::write(&victim, "keep").unwrap();
-        let state = dir.join("state").join("velocity-history.json");
+        let state = dir.join("state").join("atalanta-history.json");
         std::fs::create_dir_all(state.parent().unwrap()).unwrap();
         std::os::unix::fs::symlink(&victim, &state).unwrap();
         write_private(&state, b"{}").unwrap();
@@ -292,7 +292,7 @@ mod tests {
     // the write.
     #[test]
     fn a_leftover_temp_file_with_our_pid_does_not_block_a_write() {
-        let dir = std::env::temp_dir().join(format!("velocity-fspid-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-fspid-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         // Every name the old scheme (`.<name>.<pid>.<seq>.tmp`) could use

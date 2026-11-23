@@ -1,4 +1,4 @@
-//! Every flag of `velocity explore` is documented in docs/EXPLORE.md
+//! Every flag of `atalanta explore` is documented in docs/EXPLORE.md
 //! (review 06 #11): the two widest opt-ins once were not.
 
 use std::path::Path;
@@ -32,7 +32,7 @@ fn flags(src: &str) -> Vec<String> {
 #[test]
 fn every_explore_flag_is_on_the_explore_page() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let src = std::fs::read_to_string(root.join("velocity-cli/src/commands/explore.rs")).unwrap();
+    let src = std::fs::read_to_string(root.join("atalanta-cli/src/commands/explore.rs")).unwrap();
     let doc = std::fs::read_to_string(root.join("docs/EXPLORE.md")).unwrap();
     let flags = flags(&src);
     assert!(flags.len() > 20, "found only {flags:?}");
@@ -41,5 +41,5 @@ fn every_explore_flag_is_on_the_explore_page() {
         .filter(|f| !doc.contains(&format!("--{f}")))
         .collect();
     assert!(missing.is_empty(), "not in docs/EXPLORE.md: {missing:?}");
-    assert!(doc.contains("VELOCITY_EXPLORE_SHOTS_DIR"));
+    assert!(doc.contains("ATALANTA_EXPLORE_SHOTS_DIR"));
 }

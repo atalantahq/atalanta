@@ -1,6 +1,6 @@
 # CLI
 
-`velocity <command>`. The `--color auto|always|never` flag works with every command. Logs go to stderr and are filtered by `RUST_LOG` (default `warn`, with chromiumoxide's message handler at `error`: Chrome versions it can't parse made it warn on every web run). `VELOCITY_LOG_FORMAT=json` writes one JSON object per log line instead, with the current span's fields (`test`, `device`, `attempt`), for a log pipeline. `velocity <command> --help` lists every flag.
+`atalanta <command>`. The `--color auto|always|never` flag works with every command. Logs go to stderr and are filtered by `RUST_LOG` (default `warn`, with chromiumoxide's message handler at `error`: Chrome versions it can't parse made it warn on every web run). `ATALANTA_LOG_FORMAT=json` writes one JSON object per log line instead, with the current span's fields (`test`, `device`, `attempt`), for a log pipeline. `atalanta <command> --help` lists every flag.
 
 ## Commands
 
@@ -8,7 +8,7 @@
 |---|---|
 | `init` | Create a starter project from a running app: a first test read from its launch screen, a CI example, `.gitignore` entries ([below](#init)) |
 | `doctor [PATH]` | Check the machine and project: tools, devices, runner caches, suites ([below](#doctor)) |
-| `run [PATH]` | Run a suite file, or every `*.yaml` in a folder (default `-c velocity.yaml`). A folder run skips `velocity-impact.yaml` and `velocity-quarantine.yaml` |
+| `run [PATH]` | Run a suite file, or every `*.yaml` in a folder (default `-c atalanta.yaml`). A folder run skips `atalanta-impact.yaml` and `atalanta-quarantine.yaml` |
 | `validate <file\|folder>` | Parse and validate suites without running them |
 | `api scaffold <spec> [-o FILE] [--base-url URL] [--confirm]` | Write an API test suite from an OpenAPI 3 spec ([below](#api)) |
 | `lint [PATH]` | Find fragile selectors and fixed waits |
@@ -16,14 +16,14 @@
 | `settings [filter]` | Show named settings, their defaults and current values |
 | `shard-plan [PATH] --total N` | Show each shard's tests and the plan fingerprint (no devices needed) |
 | `device list\|boot\|shutdown\|screenshot` | Manage simulators and emulators (alias `devices`) |
-| `devices up --android N --ios N` / `devices down` | Boot or clone the devices a parallel run needs, and stop them afterwards. Each device is recorded with an owner (`--owner ID`, else `$VELOCITY_OWNER`, else the CI job id, else none); `down` stops only the caller's own (`--all`: every owner's), so two CI jobs on one host never stop each other's emulators |
+| `devices up --android N --ios N` / `devices down` | Boot or clone the devices a parallel run needs, and stop them afterwards. Each device is recorded with an owner (`--owner ID`, else `$ATALANTA_OWNER`, else the CI job id, else none); `down` stops only the caller's own (`--all`: every owner's), so two CI jobs on one host never stop each other's emulators |
 | `inspect [--open]` | Start the console: live device mirror with input, element tree and selectors, recording, suite runs with live steps, explore, task history, `/review` ([below](#inspect)) |
-| `baselines review [--serve [--baselines-dir DIR]]` | List failed `assertScreenshot` comparisons, or serve the review page (`--baselines-dir`: its Accept writes into that `velocity-baselines` folder, for CI artifacts) |
+| `baselines review [--serve [--baselines-dir DIR]]` | List failed `assertScreenshot` comparisons, or serve the review page (`--baselines-dir`: its Accept writes into that `atalanta-baselines` folder, for CI artifacts) |
 | `baselines accept\|reject <name\|all>` | Make the actual screen the baseline, or keep the old baseline |
 | `heal [--accept\|--discard\|--reject N]` | Review selectors that self-healing fixed during passing tests |
 | `history merge <files…>` | Merge the history files of several CI jobs |
 | `history flaky [--file FILE] [--window N] [--max-rate R] [--json]` | Each test's flake rate over its last N recorded runs; exit 1 when any test with at least 5 runs exceeds --max-rate ([below](#history-flaky)) |
-| `verify-change "<description>" --app-id <id> [--after login.yaml]` | Did the change do what it says? Replays the saved test for the description with no model, or explores and saves one that passes its trust gates; writes PR evidence (`manifest.json`, `failures.md`, `comment.md`, video) to `--bundle` (default `velocity-results/verify-change`), saved tests to `--cache` (default `.velocity/verify-cache`). Exit 0 passed, 1 failed |
+| `verify-change "<description>" --app-id <id> [--after login.yaml]` | Did the change do what it says? Replays the saved test for the description with no model, or explores and saves one that passes its trust gates; writes PR evidence (`manifest.json`, `failures.md`, `comment.md`, video) to `--bundle` (default `atalanta-results/verify-change`), saved tests to `--cache` (default `.atalanta/verify-cache`). Exit 0 passed, 1 failed |
 | `gate <file> --goal "<text>"` | Run the trust gates on a one-test suite YAML (hand-written or exported): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text ([below](#gate)). Exit 0 trusted, 1 not trusted |
 | `login <suite> [--test NAME] [-d DEVICE] [--env K=V]` | Run a stored login flow once (no retry, no cache) and leave the app logged in; `${NAME}`s from the environment, `${keychain:NAME}` or `${totp:NAME}`, masked everywhere ([DSL.md](DSL.md#logging-in)) |
 | `results check [--expect-shards N] <paths…>` | After a sharded run: fail (exit 1) when a shard reported nothing, ran no tests, left a damaged `results.json` / `junit.xml`, or the shards computed different partitions (their `shard_plan` fingerprints differ) ([CI.md](CI.md#no-silent-passes)) |
@@ -31,28 +31,28 @@
 | `repl -d <device>` | Run steps one at a time (`:tree`, `:find`, `:shot`, `:save`) |
 | `explore "<goal>" --app-id <id>` | An AI agent reaches the goal on a device and writes a deterministic YAML test with assertions, then replays it with no model calls ([EXPLORE.md](EXPLORE.md), flags below) |
 | `mcp [--device/-d DEV] [--platform/-p ios\|android\|web] [--config/-c SUITE] [--profile core\|full] [--read-only] [--notify …] [--tasks-dir DIR]` | Start the MCP server on stdio ([MCP.md](MCP.md)). `--profile core` (default) serves five tools, `full` all of them |
-| `mcp install [all\|claude\|cursor\|codex\|windsurf\|vscode\|cline\|gemini] [--dry-run] [--uninstall]` | Register the MCP server with agent clients and install the Velocity agent rules |
+| `mcp install [all\|claude\|cursor\|codex\|windsurf\|vscode\|cline\|gemini] [--dry-run] [--uninstall]` | Register the MCP server with agent clients and install the Atalanta agent rules |
 | `mcp config <client>` / `mcp rules` | Print a client's config snippet / the agent rules |
 | `migrate maestro <dir> [--dry-run]` / `migrate waits <suite>` | Convert Maestro flows (`--dry-run`: write nothing, rank the commands that don't convert by the flows they affect); remove redundant `wait:` steps |
 | `nl-eval` | Measure planner consistency (pass^k) on saved natural-language traces, or compare models on the built-in task set (`--model provider:model …`, see below) |
 | `signing check\|devices\|register-device\|profile` | iOS signing with an App Store Connect API key |
 | `daemon start\|stop\|status` | Keep drivers warm between runs (`run --daemon`), and the browser of the web agent commands. One daemon per socket: `start` holds `daemon.sock.lock` for the daemon's life and fails (naming the pid) while another daemon has it, even one busy with a run. A client whose daemon goes away mid-run exits 3 |
 | `snapshot`, `tap`, `type`, `press`, `swipe`, `scroll`, `launch`, `stop`, `assert`, `wait`, `screenshot`, `export`, `session` | Drive an Android or iOS device one shell command at a time, by ref, and save the session as a test ([below](#agent-commands)) |
-| `skills [list\|get <name>\|stub]` | Print the agent guides built into this binary (`velocity skills get cli`) |
+| `skills [list\|get <name>\|stub]` | Print the agent guides built into this binary (`atalanta skills get cli`) |
 | `version` | Print the version |
 
 ## `history flaky`
 
-`velocity history flaky [--file FILE] [--window N] [--max-rate R] [--json]` prints each test's flake rate over its last `N` recorded runs (default 20), sorted worst first:
+`atalanta history flaky [--file FILE] [--window N] [--max-rate R] [--json]` prints each test's flake rate over its last `N` recorded runs (default 20), sorted worst first:
 
 | Flag | Meaning |
 |---|---|
-| `--file FILE` | History file, or a folder holding `velocity-history.json` (default `./velocity-results/velocity-history.json`, where `velocity run` writes it) |
+| `--file FILE` | History file, or a folder holding `atalanta-history.json` (default `./atalanta-results/atalanta-history.json`, where `atalanta run` writes it) |
 | `--window N` | Recent runs per test (default 20) |
 | `--max-rate R` | Fail when any test with at least 5 runs exceeds this rate (default 0.05) |
 | `--json` | Print one JSON object: `{window, maxRate, tests:[{name, runs, flaky, flips, rate}], over:[names]}` |
 
-A test's `runs` is the window's run count, `flaky` the runs that passed only after a retry, `flips` the pass/fail changes between consecutive runs in the window, and `rate` is the same flakiness measure `velocity run` reports: `(flaky + flips) / (runs + runs - 1)`. Infrastructure failures are not in the history, so they count in neither. The table marks each test above `--max-rate` with `*`.
+A test's `runs` is the window's run count, `flaky` the runs that passed only after a retry, `flips` the pass/fail changes between consecutive runs in the window, and `rate` is the same flakiness measure `atalanta run` reports: `(flaky + flips) / (runs + runs - 1)`. Infrastructure failures are not in the history, so they count in neither. The table marks each test above `--max-rate` with `*`.
 
 Exit 0 when no test with at least 5 runs exceeds `--max-rate`; exit 1 when at least one does (the names are listed under `warning:`); exit 2 when the history file is missing or unreadable, when `--window` is under 5, or when `--max-rate` is outside 0..1. Tests with fewer than 5 runs get a rate but never trip the threshold.
 
@@ -66,14 +66,14 @@ From a running device to a first passing test. Interactive on a terminal; every 
 | `--app-id ID` | Package / bundle id. Default: the app in front (Android `dumpsys activity`; iOS the one running user app), else asked from `pm list packages -3` / `simctl listapps` |
 | `--url URL` | Web: the start page |
 | `-d ID` | Device. Default: the only running one, or asked (iOS: simulators; pass a real iPhone's UDID) |
-| `--dir PATH` | Suite folder (default `velocity/`) |
+| `--dir PATH` | Suite folder (default `atalanta/`) |
 | `-y, --yes` | Ask nothing; take the defaults (CI) |
 | `--force` | Overwrite existing files |
 | `--run` | Run the new suite at once and print the time from `init` to green |
-| `--impact` | Also write a `velocity-impact.yaml` stub (nothing mapped yet, so every test still runs) |
-| `--ci github` | Write the CI workflow itself instead of an example: `.github/workflows/velocity.yml` (the Velocity Action, two shards and a `results check` job) |
+| `--impact` | Also write a `atalanta-impact.yaml` stub (nothing mapped yet, so every test still runs) |
+| `--ci github` | Write the CI workflow itself instead of an example: `.github/workflows/atalanta.yml` (the Atalanta Action, two shards and a `results check` job) |
 
-It writes `<dir>/<app>.yaml` (`com.android.settings` → `settings.yaml`), `<dir>/ci/github-actions.example.yml` (sharded, JUnit + GitHub reports; copy it to `.github/workflows/`) and adds `velocity-results/` and the local heal files to `.gitignore`. The test launches the app and asserts one or two elements of its first screen: an id (`id:`, layout wrappers last) first, then a short text that matches exactly one element and carries no digits, times or prices. Commented `tap` / `inputText` examples with `${TEST_EMAIL}` placeholders follow. Every file is emitted by serde_yaml, and the suite is parsed and validated before it is written. While it reads the screen it holds the device's lease (waiting up to a minute for a run that has it).
+It writes `<dir>/<app>.yaml` (`com.android.settings` → `settings.yaml`), `<dir>/ci/github-actions.example.yml` (sharded, JUnit + GitHub reports; copy it to `.github/workflows/`) and adds `atalanta-results/` and the local heal files to `.gitignore`. The test launches the app and asserts one or two elements of its first screen: an id (`id:`, layout wrappers last) first, then a short text that matches exactly one element and carries no digits, times or prices. Commented `tap` / `inputText` examples with `${TEST_EMAIL}` placeholders follow. Every file is emitted by serde_yaml, and the suite is parsed and validated before it is written. While it reads the screen it holds the device's lease (waiting up to a minute for a run that has it).
 
 Exit codes: 0 (or the `--run` result), 2 bad flag or a file that exists, 3 no running device.
 
@@ -83,12 +83,12 @@ Checks, by area, each with a deadline (`--timeout DURATION`, default 3000 ms per
 
 | Area | Checks |
 |---|---|
-| Host | OS and arch, Velocity version, free memory and disk against the `devices up` bar (35% / 3 GB, 3 GB), state / lease / artifact dirs writable, lease files left by exited processes |
-| Android | adb (PATH, `VELOCITY_ADB_PATH`, or found only in the SDK), server version and response, devices (online / unauthorized / offline), API level, tree server push + handshake (`--deep`), emulator and AVDs; Java is not needed |
-| iOS (macOS) | Xcode and `xcode-select -p`, license, simctl, booted simulators, the WebDriverAgent / VelocityRunner build cache and whether the pinned tag fits this Xcode, devicectl and paired iPhones, `VELOCITY_IOS_TEAM_ID` when one is connected |
+| Host | OS and arch, Atalanta version, free memory and disk against the `devices up` bar (35% / 3 GB, 3 GB), state / lease / artifact dirs writable, lease files left by exited processes |
+| Android | adb (PATH, `ATALANTA_ADB_PATH`, or found only in the SDK), server version and response, devices (online / unauthorized / offline), API level, tree server push + handshake (`--deep`), emulator and AVDs; Java is not needed |
+| iOS (macOS) | Xcode and `xcode-select -p`, license, simctl, booted simulators, the WebDriverAgent / AtalantaRunner build cache and whether the pinned tag fits this Xcode, devicectl and paired iPhones, `ATALANTA_IOS_TEAM_ID` when one is connected |
 | Web | Chrome / Chromium (`CHROME`, PATH, /Applications) |
 | AI | Which provider keys are set (names only), the model, the API host's reachability (`--deep`) |
-| Project | `velocity.yaml` or `velocity/` (or the PATH given): suites parse and validate, their app is installed on a running device, `velocity-impact.yaml` reads and names real tests |
+| Project | `atalanta.yaml` or `atalanta/` (or the PATH given): suites parse and validate, their app is installed on a running device, `atalanta-impact.yaml` reads and names real tests |
 
 Marks: `✓` ok, `!` warning, `✗` failure, `-` skipped; a fix prints as `Run: <command>` or `Guidance: <text>`. A missing toolchain fails only for a platform you named (`-p`) or a suite uses; otherwise it is skipped.
 
@@ -108,7 +108,7 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 
 | Flag | Meaning |
 |---|---|
-| `PATH`, `-c, --config FILE` | The suite file (or folder) to run; the two are the same. Default `velocity.yaml` |
+| `PATH`, `-c, --config FILE` | The suite file (or folder) to run; the two are the same. Default `atalanta.yaml` |
 | `-p ios\|android\|web` | Platform. Default: the suite's `platform`, otherwise from the device id |
 | `-d` | Device id or name. With `--parallel` it also takes `a,b` or a `*glob*` |
 | `--parallel N` | Use up to N devices. On the web, N browser contexts |
@@ -123,8 +123,8 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 |---|---|
 | `--tags`, `--filter GLOB` | Choose tests. A selection that matches nothing exits 2 |
 | `--last-failed`, `--failed-first` | Use the last run's failures (from the history) |
-| `--changed-since REF` | Only tests the change can affect, plus risky and unmapped ones (`velocity-impact.yaml`) |
-| `--impact-map FILE` | With `--changed-since`: the map from tests and flows to source patterns (default `velocity-impact.yaml` next to the suite) |
+| `--changed-since REF` | Only tests the change can affect, plus risky and unmapped ones (`atalanta-impact.yaml`) |
+| `--impact-map FILE` | With `--changed-since`: the map from tests and flows to source patterns (default `atalanta-impact.yaml` next to the suite) |
 | `--fail-if-none` | With `--changed-since`: exit 2 when no test is affected |
 | `--shard M/N` | 1-based shard. `--shard-index/--shard-total` is the 0-based form |
 | `--shard-timings FILE` | Balance shards by duration, from a history JSON or JUnit XML. Give every shard the same file |
@@ -142,11 +142,11 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 | `--env K=V` | Variables for `${K}` |
 | `--env-file PATH` | `KEY=VALUE` lines (`#` comments, `export `, quotes; no shell expansion) as variables (repeatable). `--env` wins over a file, a later file over an earlier one, and any file over the environment. Never loaded unless named. A bad line exits 2 with its line number, never its text |
 | `--set KEY=VALUE` | A named setting or any config path (`sync.quietMs=100`) |
-| `--quarantine FILE` | Known failures to forgive (default `velocity-quarantine.yaml`) |
+| `--quarantine FILE` | Known failures to forgive (default `atalanta-quarantine.yaml`) |
 | `--cache-results` | Skip tests that passed when nothing has changed |
 | `--update-baselines[=missing]` | Rewrite missing and changed `assertScreenshot` baselines, or only the missing ones |
 | `--verify off\|final\|checkpoints\|strict` | AI verification for every test, over `verify:` in the suite and tests ([DSL.md](DSL.md#ai-verification-verify)). Anything but `off` needs a model key; without one the run exits 2 |
-| `--daemon` | Run through a running `velocity daemon` |
+| `--daemon` | Run through a running `atalanta daemon` |
 
 ### Flakiness
 
@@ -163,9 +163,9 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 | Flag | Meaning |
 |---|---|
 | `--report junit,json,html,github,allure` | Reports to write (default `junit`). `github` is added automatically in GitHub Actions |
-| `--junit-classname test\|suite` | JUnit `classname`: `test` (default) is `velocity` for every test; `suite` is the suite file's stem, so CI groups tests by suite. Changing it resets CI test history once |
+| `--junit-classname test\|suite` | JUnit `classname`: `test` (default) is `atalanta` for every test; `suite` is the suite file's stem, so CI groups tests by suite. Changing it resets CI test history once |
 | `--clean-allure` | With `--report allure`: remove the results already in `allure-results/` first. By default they are kept, so reruns and shards add up into one report |
-| `--artifacts-dir DIR` | Where everything goes (default `./velocity-results`) |
+| `--artifacts-dir DIR` | Where everything goes (default `./atalanta-results`) |
 | `--trace off\|on-failure\|always` | Per-test traces (default `on-failure`), with a `trace.html` viewer next to each |
 | `--video off\|on-failure\|always` | Per-test screen video (default `on-failure`, or `artifacts.video`). See [Failure evidence](#failure-evidence) |
 | `--logs off\|on-failure\|always` | Per-test device logs (default `on-failure`, or `artifacts.logs`) |
@@ -177,7 +177,7 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 | Flag | Meaning |
 |---|---|
 | `-k N`, `-n N` | pass^k, and re-plans per task (default k) |
-| `--traces DIR` | Saved traces to re-plan (default `.velocity/nl-traces`) |
+| `--traces DIR` | Saved traces to re-plan (default `.atalanta/nl-traces`) |
 | `--model PROVIDER:MODEL[@URL]` | Compare models (repeatable). Any provider in [AI-PROVIDERS.md](AI-PROVIDERS.md); the key comes from that provider's variable |
 | `--tasks builtin\|DIR` | The task set: `builtin` (fixed screens and expected steps, the default with `--model`) or a trace directory |
 | `--price PROVIDER:MODEL=IN,OUT` | Dollars per million input/output tokens, for the cost column (repeatable) |
@@ -187,13 +187,13 @@ Exit codes: ready or degraded 0 (degraded is 3, or 2 for project warnings, with 
 
 ## `explore`
 
-`velocity explore "<goal>" --app-id <id> [flags]`. How it works, and what the test it writes contains: [EXPLORE.md](EXPLORE.md).
+`atalanta explore "<goal>" --app-id <id> [flags]`. How it works, and what the test it writes contains: [EXPLORE.md](EXPLORE.md).
 
 | Flag | Meaning |
 |---|---|
 | `--app-id ID` | The app under test (required) |
-| `-p, --platform ios\|android\|web`, `-d, --device ID` | Default: the platform from the device id; the first booted device no other Velocity process holds. A held device is waited for (`--lease-wait DURATION`, default 600 s; a bare number is seconds) |
-| `--model PROVIDER:MODEL[@URL]` | The goal model (default: the configured provider's goal model, `VELOCITY_NL_EXPLORE_MODEL`) |
+| `-p, --platform ios\|android\|web`, `-d, --device ID` | Default: the platform from the device id; the first booted device no other Atalanta process holds. A held device is waited for (`--lease-wait DURATION`, default 600 s; a bare number is seconds) |
+| `--model PROVIDER:MODEL[@URL]` | The goal model (default: the configured provider's goal model, `ATALANTA_NL_EXPLORE_MODEL`) |
 | `--script PLAN.json` | Play a fixed plan instead of a model (no key needed) |
 | `-o, --out FILE`, `--force` | Where the test goes (default `<goal-as-file-name>.yaml`); an existing file is only overwritten with `--force` |
 | `--name NAME` | The test's name (default: the goal) |
@@ -226,14 +226,14 @@ Exit codes: 0 when the goal was reached, the test written and every replay passe
 
 ## `gate`
 
-`velocity gate <file> --goal "<text>" [flags]`. Gates a one-test suite YAML, hand-written or exported from an agent session (`velocity export`, MCP `export_session_flow`), before it is trusted. Nothing is explored and no model is called: it replays the test N times (the later ones with timing jitter), replays it once on the wrong path (a neighbouring tap instead of the last navigational one, which must fail), and checks that an assertion names text from the goal.
+`atalanta gate <file> --goal "<text>" [flags]`. Gates a one-test suite YAML, hand-written or exported from an agent session (`atalanta export`, MCP `export_session_flow`), before it is trusted. Nothing is explored and no model is called: it replays the test N times (the later ones with timing jitter), replays it once on the wrong path (a neighbouring tap instead of the last navigational one, which must fail), and checks that an assertion names text from the goal.
 
 | Flag | Meaning |
 |---|---|
 | `<file>` | The suite YAML to gate: exactly one test |
 | `--goal <TEXT>` | What the test is meant to show (required); an assertion must name text from it |
-| `-p, --platform ios\|android\|web`, `-d, --device ID` | Default: the platform from the device id, and the first booted device no other Velocity process holds |
-| `--lease-wait DURATION` | How long to wait for a device another Velocity process holds (default 600 s; a bare number is seconds) |
+| `-p, --platform ios\|android\|web`, `-d, --device ID` | Default: the platform from the device id, and the first booted device no other Atalanta process holds |
+| `--lease-wait DURATION` | How long to wait for a device another Atalanta process holds (default 600 s; a bare number is seconds) |
 | `--replay N` | Burn-in replays (default 5; 0 is a config error) |
 | `--jitter-ms N` | Upper bound of the random pause before each step, on replays after the first (default 150 ms) |
 | `--env NAME=VALUE` | A value for a `${NAME}` (repeatable) |
@@ -244,17 +244,17 @@ Exit codes: 0 trusted, 1 not trusted, 2 configuration/usage, 3 device.
 
 ## AI environment
 
-`VELOCITY_NL_PROVIDER`, `VELOCITY_NL_MODEL` (may be `provider:model`), `VELOCITY_NL_EXPLORE_MODEL`, `VELOCITY_NL_API_URL`, `VELOCITY_NL_API_KEY`, `VELOCITY_NL_IMAGES=0`, `VELOCITY_NL_OUTPUT=json_schema|tools|text`, `VELOCITY_NL_EFFORT` (Anthropic), `VELOCITY_NL_CACHE`, `VELOCITY_NL_TRACES=0`, and each provider's key variable. See [AI-PROVIDERS.md](AI-PROVIDERS.md).
+`ATALANTA_NL_PROVIDER`, `ATALANTA_NL_MODEL` (may be `provider:model`), `ATALANTA_NL_EXPLORE_MODEL`, `ATALANTA_NL_API_URL`, `ATALANTA_NL_API_KEY`, `ATALANTA_NL_IMAGES=0`, `ATALANTA_NL_OUTPUT=json_schema|tools|text`, `ATALANTA_NL_EFFORT` (Anthropic), `ATALANTA_NL_CACHE`, `ATALANTA_NL_TRACES=0`, and each provider's key variable. See [AI-PROVIDERS.md](AI-PROVIDERS.md).
 
 ## Proxies and certificates
 
-Outbound HTTPS (AI providers, `http` steps, the App Store Connect API, MCP task webhooks) trusts Mozilla's bundled roots **and** the operating system's trust store: the macOS keychain, Windows' store, or the system bundle on Linux. When `SSL_CERT_FILE` (a PEM bundle) or `SSL_CERT_DIR` is set, those files are read **instead of** the operating system's store (Mozilla's roots stay). So a corporate proxy's or mitmproxy's CA works once the machine trusts it, or once the variable names a bundle that holds it. Velocity uses rustls; it never links OpenSSL.
+Outbound HTTPS (AI providers, `http` steps, the App Store Connect API, MCP task webhooks) trusts Mozilla's bundled roots **and** the operating system's trust store: the macOS keychain, Windows' store, or the system bundle on Linux. When `SSL_CERT_FILE` (a PEM bundle) or `SSL_CERT_DIR` is set, those files are read **instead of** the operating system's store (Mozilla's roots stay). So a corporate proxy's or mitmproxy's CA works once the machine trusts it, or once the variable names a bundle that holds it. Atalanta uses rustls; it never links OpenSSL.
 
-`HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` (or their lowercase forms) send those requests through a proxy, and `NO_PROXY` lists hosts that skip it. Traffic to the iOS runner (WebDriverAgent or VelocityRunner, on loopback, a usbmuxd forward or the local network) never goes through a proxy, whatever these say. Android's tree server is a direct socket through `adb forward` and is not HTTP. An `http` step to `localhost` does follow the proxy variables, like curl; add `localhost,127.0.0.1` to `NO_PROXY` when a proxy is set.
+`HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` (or their lowercase forms) send those requests through a proxy, and `NO_PROXY` lists hosts that skip it. Traffic to the iOS runner (WebDriverAgent or AtalantaRunner, on loopback, a usbmuxd forward or the local network) never goes through a proxy, whatever these say. Android's tree server is a direct socket through `adb forward` and is not HTTP. An `http` step to `localhost` does follow the proxy variables, like curl; add `localhost,127.0.0.1` to `NO_PROXY` when a proxy is set.
 
 ## `api`
 
-`velocity api scaffold <openapi.yaml|json> [-o suite.yaml] [--base-url URL] [--confirm]` writes an API-only suite ([HTTP and API tests](DSL.md#http-and-api-tests)): no `appId`, `config.http.baseUrl` from `--base-url` or the spec's first server.
+`atalanta api scaffold <openapi.yaml|json> [-o suite.yaml] [--base-url URL] [--confirm]` writes an API-only suite ([HTTP and API tests](DSL.md#http-and-api-tests)): no `appId`, `config.http.baseUrl` from `--base-url` or the spec's first server.
 
 - **One test per resource** (`/pets`, `/pets/{petId}` → `pets`), creates first, reads next, changes after, deletes last. A response field is linked to a parameter of a later request by name (`id` of `POST /pets` → `{petId}`, `petId` → `petId`, `id` under `/pets/{id}`), scored, the best above a threshold kept: the producer `capture`s it and the consumer uses `${PET_ID}`. A need only another resource's create fills runs that create first as a setup step (captures belong to one test).
 - **Bodies**: the media type's `example`/`examples`, else the least valid value (required fields only, an enum's first value, a value of the right `format`; `readOnly` fields left out). A non-JSON body is left for you, with a comment.
@@ -268,7 +268,7 @@ Exit codes: 0 written; 2 an unreadable spec, an existing `-o`, or `--confirm` wi
 
 ## `inspect`
 
-`velocity inspect` serves the console and prints its URL with a per-session token (`http://localhost:9876/?token=…`).
+`atalanta inspect` serves the console and prints its URL with a per-session token (`http://localhost:9876/?token=…`).
 
 | Flag | Meaning |
 |---|---|
@@ -279,7 +279,7 @@ Exit codes: 0 written; 2 an unreadable spec, an existing `-o`, or `--confirm` wi
 | `--open` | Open the console in the default browser |
 | `--url URL` | The page the web device opens when it starts |
 | `--tests-dir DIR` | Where recorded tests are saved (new files only; default `flows`). `--flows-dir` still works |
-| `--results-dir DIR` | What `/review` reads (default `velocity-results`). Console runs write to `<DIR>/console/<time>-<task>/` |
+| `--results-dir DIR` | What `/review` reads (default `atalanta-results`). Console runs write to `<DIR>/console/<time>-<task>/` |
 | `--app-id ID` | App for the performance chart (Android) |
 
 **Mirror.** The page opens a WebSocket to `/api/mirror/<device>`:
@@ -291,68 +291,68 @@ Exit codes: 0 written; 2 an unreadable spec, an existing `-o`, or `--confirm` wi
 | Web | Chrome's screencast (a JPEG per repaint) | 60 fps on an animated page |
 | Anything else, or no WebCodecs | Screenshots, sent only when they change: every 80 ms after a change or an input, backing off to 1 s | — |
 
-A new viewer gets the current picture at once (the last group of pictures from the stream's buffer, so a still screen shows up without waiting for a change). A viewer that falls behind skips to the next key frame; a hidden tab pauses its stream. Several tabs share one stream per device. Android video settings are the `VELOCITY_ANDROID_VIDEO_*` variables under [Failure evidence](#failure-evidence).
+A new viewer gets the current picture at once (the last group of pictures from the stream's buffer, so a still screen shows up without waiting for a change). A viewer that falls behind skips to the next key frame; a hidden tab pauses its stream. Several tabs share one stream per device. Android video settings are the `ATALANTA_ANDROID_VIDEO_*` variables under [Failure evidence](#failure-evidence).
 
-**Input and leases.** In *Interact* mode a click taps, a drag swipes, a long press long-presses, the wheel scrolls and typing types (Enter, Backspace, Tab, Escape and the arrows are keys); *Inspect* mode only selects elements. The first input takes the device's lease (the same lock `velocity run` takes) and keeps it until *Release control* or the console exits. A device another process holds answers `busy: pid=… cmd=…` and can still be watched. A console run releases the console's lease for its `velocity run`.
+**Input and leases.** In *Interact* mode a click taps, a drag swipes, a long press long-presses, the wheel scrolls and typing types (Enter, Backspace, Tab, Escape and the arrows are keys); *Inspect* mode only selects elements. The first input takes the device's lease (the same lock `atalanta run` takes) and keeps it until *Release control* or the console exits. A device another process holds answers `busy: pid=… cmd=…` and can still be watched. A console run releases the console's lease for its `atalanta run`.
 
-**Run panel and tasks.** Suites are the YAML files with a `tests:` key under the folder `velocity inspect` started in (not `node_modules`, `target`, hidden folders or `velocity-results`). A run is `velocity run <suite> -d <device> --report json,html --video on-failure --logs on-failure` in that folder, with live events (`VELOCITY_EVENTS_FILE`, one JSON line per test and step start and end: see `velocity_common::live_events`). Tasks on one device run one at a time. A finished run lists its artifacts; *Replay* opens its `trace.html`, which plays the video synced to the steps.
+**Run panel and tasks.** Suites are the YAML files with a `tests:` key under the folder `atalanta inspect` started in (not `node_modules`, `target`, hidden folders or `atalanta-results`). A run is `atalanta run <suite> -d <device> --report json,html --video on-failure --logs on-failure` in that folder, with live events (`ATALANTA_EVENTS_FILE`, one JSON line per test and step start and end: see `atalanta_common::live_events`). Tasks on one device run one at a time. A finished run lists its artifacts; *Replay* opens its `trace.html`, which plays the video synced to the steps.
 
-**Explore panel.** A goal, the app (default: `--app-id`), and either a plan file from the project (`--script`, no model) or a model (`provider:model`, default the configured one). It runs `velocity explore <goal> --app-id … -d <device> --json --inject-file <task>/inject.txt --out <task>/<goal>.yaml` in the project folder, which takes the device's lease like a run. The agent's turns (observed, planned, acted, asserted, checked, replays) stream in from the same events file; the *Inject* box appends a line to the inject file, which the agent takes in at its next turn; *Cancel* is a Ctrl-C (the session ends `stopped` and still reports). At the end the page shows the outcome, the YAML, each replay (no model calls), and the model's calls and tokens, and *Save to project* writes the YAML to a new `.yaml` path inside the project folder (`POST /api/tasks/<id>/save`; no `..`, no symlinked folder out of the project, no overwrite unless confirmed).
+**Explore panel.** A goal, the app (default: `--app-id`), and either a plan file from the project (`--script`, no model) or a model (`provider:model`, default the configured one). It runs `atalanta explore <goal> --app-id … -d <device> --json --inject-file <task>/inject.txt --out <task>/<goal>.yaml` in the project folder, which takes the device's lease like a run. The agent's turns (observed, planned, acted, asserted, checked, replays) stream in from the same events file; the *Inject* box appends a line to the inject file, which the agent takes in at its next turn; *Cancel* is a Ctrl-C (the session ends `stopped` and still reports). At the end the page shows the outcome, the YAML, each replay (no model calls), and the model's calls and tokens, and *Save to project* writes the YAML to a new `.yaml` path inside the project folder (`POST /api/tasks/<id>/save`; no `..`, no symlinked folder out of the project, no overwrite unless confirmed).
 
-**Diagnostics** (Devices tab) are `velocity doctor`'s checks, run in the console's process (`velocity_doctor::run_checks`, without `--deep`): the verdict, then each check with its fix.
+**Diagnostics** (Devices tab) are `atalanta doctor`'s checks, run in the console's process (`atalanta_doctor::run_checks`, without `--deep`): the verdict, then each check with its fix.
 
 **Security.** Every `/api` route and WebSocket upgrade needs the token and a `Host` naming the server; requests from another origin (`Origin`, or `Sec-Fetch-Site: cross-site`/`same-site`) are refused, and there is no CORS. Artifacts are served only from the run's own folder (no `..`, no symlinks out), with a Content-Security-Policy that lets `trace.html` play its video but not call the API.
 
-The iOS mirror reads WebDriverAgent's MJPEG stream, which has no authentication. Upstream WDA listens for it on every interface whatever `USE_IP` says, and a simulator shares the Mac's network, so the simulator's screen was visible to the LAN. Velocity patches its WDA clone before building it so the stream listens where `USE_IP` says (loopback for simulators, like WDA's HTTP server); a cached build from before the patch is rebuilt once. VelocityRunner serves no MJPEG. On a cabled iPhone WDA (and its stream) binds the phone's loopback unless `VELOCITY_IOS_DEVICE_LOOPBACK=0` (see [DRIVERS.md](DRIVERS.md)).
+The iOS mirror reads WebDriverAgent's MJPEG stream, which has no authentication. Upstream WDA listens for it on every interface whatever `USE_IP` says, and a simulator shares the Mac's network, so the simulator's screen was visible to the LAN. Atalanta patches its WDA clone before building it so the stream listens where `USE_IP` says (loopback for simulators, like WDA's HTTP server); a cached build from before the patch is rebuilt once. AtalantaRunner serves no MJPEG. On a cabled iPhone WDA (and its stream) binds the phone's loopback unless `ATALANTA_IOS_DEVICE_LOOPBACK=0` (see [DRIVERS.md](DRIVERS.md)).
 
 ## Agent commands
 
 For coding agents that run shell commands, and for people at a terminal. Each command runs one MCP tool in process (`McpServer::call`), so refs, leases, masking and the recording are the MCP server's ([MCP.md](MCP.md#snapshots-and-refs)).
 
 ```bash
-velocity snapshot                         # one line per element, each with a ref (@e7)
-velocity tap @e7                          # waits for the screen to settle, prints what changed
-velocity type @e3 "qa@example.com"        # or --secret NAME, or --stdin
-velocity assert "Welcome"                 # --not (must be absent), --timeout 5s (wait for it)
-velocity export --out velocity/flow.yaml  # the session as a test, with assertions
+atalanta snapshot                         # one line per element, each with a ref (@e7)
+atalanta tap @e7                          # waits for the screen to settle, prints what changed
+atalanta type @e3 "qa@example.com"        # or --secret NAME, or --stdin
+atalanta assert "Welcome"                 # --not (must be absent), --timeout 5s (wait for it)
+atalanta export --out atalanta/flow.yaml  # the session as a test, with assertions
 ```
 
 - **Targets:** a ref (`@e7`), `key=value` for one selector key as the DSL writes it (`id=login`, `textContains=net`), a JSON selector (`'{"role":"button","name":"Pay"}'`), else exact text.
 - **After an action** (`tap`, `type`, `press`, `swipe`, `scroll`, `launch`, `stop`): the command waits for the screen to settle (the device's signal on Android, else two equal reads 100 ms apart, at most 3 s), then prints a delta snapshot. `--no-settle` skips both.
 - **Snapshot flags:** `--delta`, `--within @eN` (only what lies inside that element), `--find TEXT`, `--limit N` (the header then says `incomplete`), `--bounds`.
-- **Sessions:** the device, the refs and the recording are saved under `~/.velocity/agent/sessions/` (`VELOCITY_AGENT_DIR`), keyed by `--session NAME` (or `VELOCITY_SESSION`), else by the git worktree (else the directory). The first command picks `--device`, else the first booted Android device, then iOS; later commands keep it. Two commands of one session take turns on a file lock. `velocity session` shows it, `session reset` starts a new one, `session list` lists them.
-- **Several agents on one device:** each command holds the device's lease from the action to the delta that reports it, so another agent's command waits (up to 10 s, `VELOCITY_LEASE_WAIT_MS`, then `DEVICE_BUSY`, `retry: safe`, naming the process that holds it) instead of acting in between. Sessions keep their own refs: after another agent navigates, a ref from before fails `STALE_REF` rather than naming what now sits in its place.
+- **Sessions:** the device, the refs and the recording are saved under `~/.atalanta/agent/sessions/` (`ATALANTA_AGENT_DIR`), keyed by `--session NAME` (or `ATALANTA_SESSION`), else by the git worktree (else the directory). The first command picks `--device`, else the first booted Android device, then iOS; later commands keep it. Two commands of one session take turns on a file lock. `atalanta session` shows it, `session reset` starts a new one, `session list` lists them.
+- **Several agents on one device:** each command holds the device's lease from the action to the delta that reports it, so another agent's command waits (up to 10 s, `ATALANTA_LEASE_WAIT_MS`, then `DEVICE_BUSY`, `retry: safe`, naming the process that holds it) instead of acting in between. Sessions keep their own refs: after another agent navigates, a ref from before fails `STALE_REF` rather than naming what now sits in its place.
 - **Output:** text by default. `--json` prints one object: `{"v":1,"ok":true,"command","session","device","data","settle","screen"}`, or `{"v":1,"ok":false,…,"error":{"code","message","retry","delivered","next"}}` ([MCP.md](MCP.md#failures)).
-- **Exit status:** 0 ok; 3 when the device is the problem (a `DEVICE_*` code such as `DEVICE_BUSY`, `DEVICE_NOT_FOUND` or `DEVICE_LOST`) or the session is busy (`SESSION_BUSY`: another command of the same session held it past `VELOCITY_LEASE_WAIT_MS`), so CI retries it like any infrastructure failure; 1 any other failure the reply describes; 2 a malformed command line.
+- **Exit status:** 0 ok; 3 when the device is the problem (a `DEVICE_*` code such as `DEVICE_BUSY`, `DEVICE_NOT_FOUND` or `DEVICE_LOST`) or the session is busy (`SESSION_BUSY`: another command of the same session held it past `ATALANTA_LEASE_WAIT_MS`), so CI retries it like any infrastructure failure; 1 any other failure the reply describes; 2 a malformed command line.
 - **Platforms:** Android, iOS and the web.
-  - **iOS:** the commands leave WebDriverAgent running when they exit (`VELOCITY_KEEP_WDA=1` unless you set it yourself), so the next command reattaches instead of relaunching it.
-  - **Web** (`-p web`, device `web`, or a session that drives the web): Chrome dies with the process that started it, so the command is sent to `velocity daemon`, which keeps one browser for the agent commands (apart from the drivers `run --daemon` pools). If no daemon answers, the command starts one in the background (its own process group, output in `~/.velocity/daemon.log`) and stops early with the log's last line if it exits at start. `velocity daemon stop` closes the browser. `type --stdin` is read by the client and forwarded. The daemon serves one request at a time: web sessions share one page, and a `run --daemon` in progress makes agent commands wait. `launch URL` opens a page.
+  - **iOS:** the commands leave WebDriverAgent running when they exit (`ATALANTA_KEEP_WDA=1` unless you set it yourself), so the next command reattaches instead of relaunching it.
+  - **Web** (`-p web`, device `web`, or a session that drives the web): Chrome dies with the process that started it, so the command is sent to `atalanta daemon`, which keeps one browser for the agent commands (apart from the drivers `run --daemon` pools). If no daemon answers, the command starts one in the background (its own process group, output in `~/.atalanta/daemon.log`) and stops early with the log's last line if it exits at start. `atalanta daemon stop` closes the browser. `type --stdin` is read by the client and forwarded. The daemon serves one request at a time: web sessions share one page, and a `run --daemon` in progress makes agent commands wait. `launch URL` opens a page.
 - **Measured** (debug build, 2026-11-07), each command in a fresh process:
   - Android 14 emulator: `snapshot` 0.26 s, `tap` with settle and delta 0.56–0.67 s.
   - iOS 26.0.1 simulator (iPhone 17, WebDriverAgent): first `launch` 17 s with a cached runner build; then `snapshot` 0.6 s (3.7 s while each command relaunched WebDriverAgent), `press back` with settle and delta 2.2 s.
   - Chrome, a local page: the first command 2.8 s (daemon and Chrome start), then 0.03–0.36 s a command.
-  - An exported session replayed with `velocity run`: Android passed; iOS Settings and the web page passed 3 of 3.
+  - An exported session replayed with `atalanta run`: Android passed; iOS Settings and the web page passed 3 of 3.
 
-## Artifacts (`--artifacts-dir`, default `velocity-results/`)
+## Artifacts (`--artifacts-dir`, default `atalanta-results/`)
 
 | File | Contents |
 |---|---|
 | `junit.xml`, `results.json`, `report.html`, `allure-results/` | Reports. Allure attachments are hard links to the evidence when on the same disk |
 | `run-metrics.json` | With `--report json`: per device, the tests run, busy time, utilisation, retries and infrastructure failures; for the run, wall time, retries used, cached and quarantined tests. Derived from the results (lease waits and installs are in the debug log) |
 | `failures.md` | Every run: each failed test with its step and `file:line`, the error, the end of its app log (error lines first, with line numbers) and the files that show it, and a one-line *why* that cites one of them or says "insufficient evidence" |
-| `velocity-history.json` | Durations and outcomes per test (scheduling, flaky detection, `--last-failed`) |
-| `velocity-result-cache.json` | `--cache-results` |
+| `atalanta-history.json` | Durations and outcomes per test (scheduling, flaky detection, `--last-failed`) |
+| `atalanta-result-cache.json` | `--cache-results` |
 | `traces/<test>/` | Step-by-step trace of a failed test (`steps.json`, `trees/`), its viewer `trace.html`, `video.mp4` (web: `screencast.json` + `screencast/`), `app.log`, `device.log` (Android) or `console.log` (web). A retry's files end in `-retry<N>` |
-| `trace-index.html` | Written by `velocity trace view <artifacts dir>`: every kept trace |
+| `trace-index.html` | Written by `atalanta trace view <artifacts dir>`: every kept trace |
 | `diffs/<name>-expected/-actual/-diff.png` | Failed `assertScreenshot` comparisons |
-| `diffs/<name>-review.json` | What `velocity baselines` needs to accept a failed comparison |
+| `diffs/<name>-review.json` | What `atalanta baselines` needs to accept a failed comparison |
 | `crashlogs/<test>/` | Crash reports copied from the device |
 
-Evidence is never deleted unless you ask: `VELOCITY_ARTIFACTS_MAX_BYTES` (`500M`, `2G`) removes the oldest earlier runs' `traces/<test>/` folders and `screenshots/` files after a run until the folder is under the cap (this run's evidence always stays). A run starts with a warning when the disk holding the artifacts has less free space than `devices up` needs (3 GB, `VELOCITY_MIN_FREE_DISK_GB`).
+Evidence is never deleted unless you ask: `ATALANTA_ARTIFACTS_MAX_BYTES` (`500M`, `2G`) removes the oldest earlier runs' `traces/<test>/` folders and `screenshots/` files after a run until the folder is under the cap (this run's evidence always stays). A run starts with a warning when the disk holding the artifacts has less free space than `devices up` needs (3 GB, `ATALANTA_MIN_FREE_DISK_GB`).
 
-`results.json` has a top-level `format_version` (now 2). It goes up only when a field changes meaning or is removed; new fields are added without a bump, so readers should ignore fields they don't know. A file without `format_version` is version 1. Version 2 adds an integer `duration_ms` beside every `duration` (the run, each test, each step) and writes the resource keys in snake_case like the rest of the file (`resource_peak.total_pss_kb`, was `totalPssKb`). The `{"secs", "nanos"}` `duration` object is still written for version-1 readers but is deprecated: read `duration_ms`. `velocity results check` and `trace view` read both versions. A sharded run also records `shard_plan` (`fingerprint`, this shard's planned `tests`, `planned_total`), which `velocity results check` compares across shards.
+`results.json` has a top-level `format_version` (now 2). It goes up only when a field changes meaning or is removed; new fields are added without a bump, so readers should ignore fields they don't know. A file without `format_version` is version 1. Version 2 adds an integer `duration_ms` beside every `duration` (the run, each test, each step) and writes the resource keys in snake_case like the rest of the file (`resource_peak.total_pss_kb`, was `totalPssKb`). The `{"secs", "nanos"}` `duration` object is still written for version-1 readers but is deprecated: read `duration_ms`. `atalanta results check` and `trace view` read both versions. A sharded run also records `shard_plan` (`fingerprint`, this shard's planned `tests`, `planned_total`), which `atalanta results check` compares across shards.
 
-In `junit.xml`, a test that failed because the device, the driver or Velocity failed is an `<error type="InfrastructureError">` or `<error type="InternalError">` and is counted in `errors`; `<failure type="AssertionError">` and `failures` are for the test's own checks. `timestamp` is when the run started.
+In `junit.xml`, a test that failed because the device, the driver or Atalanta failed is an `<error type="InfrastructureError">` or `<error type="InternalError">` and is counted in `errors`; `<failure type="AssertionError">` and `failures` are for the test's own checks. `timestamp` is when the run started.
 
 ## Failure evidence
 
@@ -360,12 +360,12 @@ Each test's video and device logs are captured while it runs and written next to
 
 | Platform | Video | Logs |
 |---|---|---|
-| Android | H.264 from Velocity's on-device video server (scrcpy-style: a virtual display into MediaCodec, streamed over `adb forward`), muxed to MP4 in Velocity. One stream per device for the whole run; each test's clip comes from an in-memory ring buffer of the last `artifacts.videoSeconds` (default 30), cut at key frames. Falls back to `adb shell screenrecord` (one recording per test in 180 s segments) when the device's encoder can't be used | `logcat -v threadtime` from the test's start (`-T` at the device's time): `device.log` (main, system, crash) and `app.log` (the app's pids plus the crash buffer). The app's crashes, native crashes and ANRs are added to the failure message |
+| Android | H.264 from Atalanta's on-device video server (scrcpy-style: a virtual display into MediaCodec, streamed over `adb forward`), muxed to MP4 in Atalanta. One stream per device for the whole run; each test's clip comes from an in-memory ring buffer of the last `artifacts.videoSeconds` (default 30), cut at key frames. Falls back to `adb shell screenrecord` (one recording per test in 180 s segments) when the device's encoder can't be used | `logcat -v threadtime` from the test's start (`-T` at the device's time): `device.log` (main, system, crash) and `app.log` (the app's pids plus the crash buffer). The app's crashes, native crashes and ANRs are added to the failure message |
 | iOS simulator | `simctl io recordVideo --codec h264`, stopped with SIGINT at the test's end; deleted when not kept | `log stream --style compact` for the app's process (`app.log`); crash reports are copied to `crashlogs/<test>/` as before |
 | iOS device | Not supported yet | Not supported yet |
 | Web | The CDP screencast (JPEG frames of the last `videoSeconds`), as `screencast.json` + `screencast/*.jpg`, played by `trace.html` | Console calls, uncaught page errors, browser log entries, failed and 4xx/5xx requests (`console.log`) |
 
-Log files and the lines embedded in `trace.html` go through the same secret masking as reports. Android video settings: `VELOCITY_ANDROID_VIDEO_SIZE` (long edge, default 1280), `VELOCITY_ANDROID_VIDEO_BITRATE` (default 2000000), `VELOCITY_ANDROID_VIDEO_FPS` (default 30); `VELOCITY_ANDROID_VIDEO=screenrecord` skips the video server and records with `adb shell screenrecord`.
+Log files and the lines embedded in `trace.html` go through the same secret masking as reports. Android video settings: `ATALANTA_ANDROID_VIDEO_SIZE` (long edge, default 1280), `ATALANTA_ANDROID_VIDEO_BITRATE` (default 2000000), `ATALANTA_ANDROID_VIDEO_FPS` (default 30); `ATALANTA_ANDROID_VIDEO=screenrecord` skips the video server and records with `adb shell screenrecord`.
 
 `trace.html` is one self-contained file (no network, works from `file://`): the steps with their timing, each step's screenshot with a marker where it tapped and the matched element boxed, the selector and the element it resolved to (or the closest ones), heals, warnings and errors, the video seeked to the selected step, the log lines from 1 s before to 1 s after it, and a search box over steps and logs (`/` focuses it, arrow keys or `j`/`k` move between steps).
 
@@ -375,7 +375,7 @@ Log files and the lines embedded in `trace.html` go through the same secret mask
 
 ## Exit codes
 
-A run's exit code comes from its results (`velocity-common/src/result.rs`). Any other error is mapped by its kind (`VelocityError::exit_code` in `velocity-common/src/error.rs`).
+A run's exit code comes from its results (`atalanta-common/src/result.rs`). Any other error is mapped by its kind (`AtalantaError::exit_code` in `atalanta-common/src/error.rs`).
 
 | Code | Meaning |
 |---|---|

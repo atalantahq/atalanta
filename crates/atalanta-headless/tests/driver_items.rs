@@ -1,10 +1,10 @@
 //! Headless driver regressions: shared ids, password fields, stopApp, a missing
 //! launchApp, the per-process device id, and layouts with runtime-only content.
 
-use velocity_common::{Element, Platform, PlatformDriver, Selector, VelocityError};
-use velocity_headless::android::inflate::AndroidInflater;
-use velocity_headless::android::resources::ResourceTable;
-use velocity_headless::{HeadlessConfig, HeadlessDriver};
+use atalanta_common::{AtalantaError, Element, Platform, PlatformDriver, Selector};
+use atalanta_headless::android::inflate::AndroidInflater;
+use atalanta_headless::android::resources::ResourceTable;
+use atalanta_headless::{HeadlessConfig, HeadlessDriver};
 
 const NS: &str = r#"xmlns:android="http://schemas.android.com/apk/res/android""#;
 const DEV: &str = "headless-0";
@@ -168,7 +168,7 @@ async fn stop_app_empties_the_screen_until_the_next_launch() {
     driver.stop_app(DEV, "app").await.unwrap();
     assert!(matches!(
         driver.find_element(DEV, &go).await,
-        Err(VelocityError::ElementNotFound { .. })
+        Err(AtalantaError::ElementNotFound { .. })
     ));
     assert!(driver.get_hierarchy(DEV).await.unwrap().children.is_empty());
     driver.launch_app(DEV, "app", false).await.unwrap();
@@ -188,17 +188,17 @@ async fn lookups_before_launch_app_are_config_errors() {
         }
         let err = driver.find_element(DEV, &sel).await.unwrap_err();
         assert!(
-            matches!(&err, VelocityError::Config(m) if m.contains("launchApp")),
+            matches!(&err, AtalantaError::Config(m) if m.contains("launchApp")),
             "{err:?}"
         );
         assert_eq!(err.exit_code(), 2);
         assert!(matches!(
             driver.get_hierarchy(DEV).await,
-            Err(VelocityError::Config(_))
+            Err(AtalantaError::Config(_))
         ));
         assert!(matches!(
             driver.find_elements(DEV, &sel).await,
-            Err(VelocityError::Config(_))
+            Err(AtalantaError::Config(_))
         ));
     }
 }
@@ -212,7 +212,7 @@ async fn the_device_id_is_per_process() {
     assert_eq!(devices[0].id, format!("headless-{}", std::process::id()));
     assert_eq!(
         devices[0].id,
-        velocity_headless::driver::headless_device_id()
+        atalanta_headless::driver::headless_device_id()
     );
 }
 

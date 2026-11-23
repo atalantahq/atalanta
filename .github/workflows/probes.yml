@@ -33,7 +33,7 @@ jobs:
       # toolchain.env (the committed jar is built with exactly those).
       - name: Read the pinned toolchain
         id: pins
-        run: grep -E '^TREE_[A-Z_]+=' probes/android/velocity-tree-server/toolchain.env >> "$GITHUB_OUTPUT"
+        run: grep -E '^TREE_[A-Z_]+=' probes/android/atalanta-tree-server/toolchain.env >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
@@ -50,20 +50,20 @@ jobs:
         # android-34 + 34.0.0 for the sync probe's Gradle build.
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platforms;$PLATFORM" "build-tools;$BUILD_TOOLS"
       - name: Sync probe host checks
-        run: probes/android/velocity-sync-probe/host-check.sh
+        run: probes/android/atalanta-sync-probe/host-check.sh
       - name: Tree server jar reproduces from source
         run: scripts/check-tree-jar.sh
       # build.sh overwrites the committed jar in this checkout: it must come
       # out identical.
       - name: Tree server (host checks + dex jar) matches the committed jar
         run: |
-          probes/android/velocity-tree-server/build.sh
-          git diff --exit-code --stat -- crates/velocity-android/assets/velocity-tree.jar
+          probes/android/atalanta-tree-server/build.sh
+          git diff --exit-code --stat -- crates/atalanta-android/assets/atalanta-tree.jar
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
         with:
           gradle-version: "8.7"
       - name: Sync probe Gradle build (Kotlin + Java)
-        working-directory: probes/android/velocity-sync-probe
+        working-directory: probes/android/atalanta-sync-probe
         run: |
           # The probe ships as sources (no wrapper or settings): a throwaway
           # settings file pins the Android and Kotlin plugins for this build.
@@ -78,7 +78,7 @@ jobs:
           dependencyResolutionManagement {
               repositories { google(); mavenCentral() }
           }
-          rootProject.name = "velocity-sync-probe"
+          rootProject.name = "atalanta-sync-probe"
           KTS
           echo "android.useAndroidX=true" > gradle.properties
           gradle assembleRelease --no-daemon
@@ -101,13 +101,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Sync probe host checks
-        run: probes/ios/VelocitySyncProbe/HostChecks/run.sh
+        run: probes/ios/AtalantaSyncProbe/HostChecks/run.sh
       - name: Sync probe package (iOS Simulator)
-        working-directory: probes/ios/VelocitySyncProbe
-        run: xcodebuild -scheme VelocitySyncProbe -destination 'generic/platform=iOS Simulator' build
-      - name: VelocityRunner (build for testing)
-        working-directory: probes/ios/VelocityRunner
+        working-directory: probes/ios/AtalantaSyncProbe
+        run: xcodebuild -scheme AtalantaSyncProbe -destination 'generic/platform=iOS Simulator' build
+      - name: AtalantaRunner (build for testing)
+        working-directory: probes/ios/AtalantaRunner
         run: |
-          xcodebuild -project VelocityRunner.xcodeproj -scheme VelocityRunner \
+          xcodebuild -project AtalantaRunner.xcodeproj -scheme AtalantaRunner \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO build-for-testing

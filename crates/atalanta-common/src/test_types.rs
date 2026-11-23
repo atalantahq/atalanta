@@ -248,7 +248,7 @@ impl SyncConfig {
         self.quiet_ms.unwrap_or_else(default_quiet)
     }
     /// The reaction window: as set, else the default (300 ms; the web's
-    /// is its own, see `velocity_core::native_sync`).
+    /// is its own, see `atalanta_core::native_sync`).
     pub fn reaction(&self) -> u64 {
         self.reaction_ms.unwrap_or_else(default_reaction)
     }
@@ -349,7 +349,7 @@ fn default_on_failure() -> bool {
     true
 }
 fn default_output_dir() -> String {
-    "./velocity-results".to_string()
+    "./atalanta-results".to_string()
 }
 
 impl Default for ArtifactsConfig {
@@ -405,7 +405,7 @@ pub enum HealingMode {
     /// Use the healed element and pass, with the heal in the report.
     Auto,
     /// Compute the heal, but fail the step with the proposed patch and the
-    /// `velocity heal --accept` command that applies it.
+    /// `atalanta heal --accept` command that applies it.
     Report,
     /// No healing.
     Off,
@@ -510,7 +510,7 @@ pub struct NlConfig {
 ///
 /// The checker is a model, so it is never on by default for YAML runs:
 /// cached replays use deterministic assertions only, and CI pays for no
-/// model call it didn't ask for. `velocity explore` starts from
+/// model call it didn't ask for. `atalanta explore` starts from
 /// [`VerifyLevel::EXPLORE_DEFAULT`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -531,7 +531,7 @@ pub enum VerifyLevel {
 }
 
 impl VerifyLevel {
-    /// The level `velocity explore` runs at unless told otherwise.
+    /// The level `atalanta explore` runs at unless told otherwise.
     pub const EXPLORE_DEFAULT: VerifyLevel = VerifyLevel::Final;
 
     /// Every level's name, in order.
@@ -587,12 +587,12 @@ impl std::str::FromStr for VerifyLevel {
 
 /// Which model service plans and checks natural-language steps
 /// (`config.ai`). Every field is optional: the environment
-/// (`VELOCITY_NL_PROVIDER`, `VELOCITY_NL_MODEL`, ...) wins over it, and
+/// (`ATALANTA_NL_PROVIDER`, `ATALANTA_NL_MODEL`, ...) wins over it, and
 /// unset fields fall back to the provider's defaults. Keys are only ever
 /// named by environment variable, never written here. `provider` is a
 /// preset name (`anthropic`, `openai`, `azure-openai`, `gemini`,
 /// `bedrock`, `vertex`, `openrouter`, `groq`, `ollama`, … see
-/// `velocity_nl::provider::PRESETS`); `model` may carry it as
+/// `atalanta_nl::provider::PRESETS`); `model` may carry it as
 /// `provider:model`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -604,7 +604,7 @@ pub struct AiConfig {
     /// The model for single steps and checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// The model for goal-level planning (`velocity explore`).
+    /// The model for goal-level planning (`atalanta explore`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explore_model: Option<String>,
     /// The API base, e.g. `http://localhost:11434/v1` for Ollama.
@@ -814,7 +814,7 @@ pub struct WebSettle {
     pub cap_ms: Option<u64>,
 }
 
-/// The app build Velocity installs before the first test (`app:`): one
+/// The app build Atalanta installs before the first test (`app:`): one
 /// path, or one per platform —
 /// `app: { android: build/app.apk, ios: build/App.app }`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -919,7 +919,7 @@ pub struct SuiteConfig {
     /// The programs `exec` steps may run (`allow`); none without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exec: Option<crate::exec::ExecConfig>,
-    /// Driver and runtime settings by name (`velocity settings` lists them),
+    /// Driver and runtime settings by name (`atalanta settings` lists them),
     /// e.g. `android: { scroll: semantic }`. `--set` overrides them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<serde_json::Value>,
@@ -997,12 +997,12 @@ pub struct ResetConfig {
     /// App binary for `reinstall` (.apk / .app).
     #[serde(default, alias = "app_path")]
     pub app_path: Option<String>,
-    /// Emulator snapshot name for `snapshot` (default `velocity-clean`).
+    /// Emulator snapshot name for `snapshot` (default `atalanta-clean`).
     #[serde(default)]
     pub snapshot: Option<String>,
 }
 
-/// A complete test suite parsed from a velocity.yaml file.
+/// A complete test suite parsed from a atalanta.yaml file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestSuite {
     #[serde(rename = "appId")]

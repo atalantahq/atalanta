@@ -67,7 +67,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="header-left">
-          <h1>Velocity Console</h1>
+          <h1>Atalanta Console</h1>
           <DevicePicker />
         </div>
         <ActionToolbar />

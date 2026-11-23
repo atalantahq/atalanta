@@ -5,7 +5,7 @@
 //! comes from a test (an appId, typed text, a snapshot name) goes through
 //! [`quote`] or [`cmd`] before it reaches `adb shell`.
 
-use velocity_common::{Result, VelocityError};
+use atalanta_common::{AtalantaError, Result};
 
 /// `s` as one POSIX shell word: single quotes, with `'` written `'\''`.
 /// Nothing inside single quotes is special (`$`, backticks, `\`, newlines).
@@ -35,7 +35,7 @@ pub fn validate_app_id(app_id: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "Invalid Android appId {app_id:?}: expected a package name like com.example.app \
              (letters, digits and _, dot-separated, each part starting with a letter)"
         )))
@@ -43,7 +43,7 @@ pub fn validate_app_id(app_id: &str) -> Result<()> {
 }
 
 /// Printed by [`double_tap_script`] on a device too old to double-tap.
-pub const NO_DOUBLE_TAP: &str = "VELOCITY-NO-DOUBLE-TAP";
+pub const NO_DOUBLE_TAP: &str = "ATALANTA-NO-DOUBLE-TAP";
 
 /// A device shell script that double-taps (x, y) in one `adb shell`, for
 /// when the tree server is not available (VEL-S47). Two `adb shell input
@@ -62,7 +62,7 @@ pub fn double_tap_script(x: i32, y: i32) -> String {
 /// The result of running [`double_tap_script`] on `device_id`.
 pub fn double_tap_result(device_id: &str, output: &str) -> Result<()> {
     if output.contains(NO_DOUBLE_TAP) {
-        return Err(VelocityError::CommandFailed {
+        return Err(AtalantaError::CommandFailed {
             device_id: device_id.to_string(),
             command: "input tap (double tap)".into(),
             detail: "a double tap needs the tree server before Android 12: two `adb shell \
@@ -90,12 +90,12 @@ pub fn input_text_script(text: &str) -> Result<String> {
         .chars()
         .find(|c| !c.is_ascii() || (c.is_ascii_control() && *c != '\n' && *c != '\t'))
     {
-        return Err(VelocityError::CommandFailed {
+        return Err(AtalantaError::CommandFailed {
             device_id: String::new(),
             command: "input text".into(),
             detail: format!(
                 "{c:?} can't be typed with `adb shell input text` (ASCII only); \
-                 typing it needs Velocity's tree server, which is not available on this device"
+                 typing it needs Atalanta's tree server, which is not available on this device"
             ),
         });
     }
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn app_ids_are_validated() {
-        for ok in ["com.example.app", "com.velocity.lab", "a.b", "org.x_1.Y2"] {
+        for ok in ["com.example.app", "com.atalanta.lab", "a.b", "org.x_1.Y2"] {
             validate_app_id(ok).unwrap();
         }
         for bad in [

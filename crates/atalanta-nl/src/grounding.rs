@@ -17,7 +17,7 @@
 //! A [`GroundingError`] carries feedback the resolver can send back to the
 //! planner for one re-ask.
 
-use velocity_common::{Action, Direction, Element, Key, NaturalKind, Rect, Selector};
+use atalanta_common::{Action, Direction, Element, Key, NaturalKind, Rect, Selector};
 
 use crate::planner::{Op, PlannedKey, PlannedStep, ScreenIndex};
 
@@ -215,7 +215,7 @@ pub fn ground(
     Ok(action)
 }
 
-pub use velocity_common::natural::check_goto;
+pub use atalanta_common::natural::check_goto;
 
 /// The checks a fresh plan passes, applied to an action read back from the
 /// plan cache (a file anyone can edit in a PR). `Err` says why the entry
@@ -345,7 +345,7 @@ fn unquote(s: &str) -> &str {
     s
 }
 
-pub(crate) use velocity_common::natural::quoted_spans;
+pub(crate) use atalanta_common::natural::quoted_spans;
 
 /// Whether `wanted` is in the step: equal to one of its quoted literals,
 /// else on word boundaries in the step's text outside its quotes
@@ -695,7 +695,7 @@ fn is_act(op: Op) -> bool {
     )
 }
 
-pub use velocity_common::selector_build::robust_selector;
+pub use atalanta_common::selector_build::robust_selector;
 
 fn parse_direction(s: &str) -> Option<Direction> {
     match s.to_ascii_lowercase().as_str() {
@@ -711,7 +711,7 @@ fn parse_direction(s: &str) -> Option<Direction> {
 mod tests {
     use super::*;
     use crate::planner::tests::el;
-    use velocity_common::{Platform, Rect};
+    use atalanta_common::{Platform, Rect};
 
     fn at(mut e: Element, y: i32) -> Element {
         e.bounds = Rect {
@@ -1006,7 +1006,7 @@ mod tests {
 
     /// What the driver taps for `sel` (it matches within the screen rect).
     fn driver_hit(root: &Element, sel: &Selector) -> Option<i32> {
-        velocity_common::selector_match::find_in_tree(root, sel, Some(&SCREEN)).map(|e| e.bounds.y)
+        atalanta_common::selector_match::find_in_tree(root, sel, Some(&SCREEN)).map(|e| e.bounds.y)
     }
 
     // VEL-018: an off-screen twin must not shift the grounded index.

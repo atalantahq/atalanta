@@ -45,7 +45,7 @@ pub(crate) fn parse_sims(json: &str) -> Option<Vec<Sim>> {
 }
 
 pub(crate) fn xcrun(ctx: &Ctx) -> Option<PathBuf> {
-    match ctx.env().var("VELOCITY_XCRUN_PATH") {
+    match ctx.env().var("ATALANTA_XCRUN_PATH") {
         Some(p) => ctx.env().which(&p),
         None => ctx.env().which("xcrun"),
     }
@@ -183,7 +183,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             let fix = if matches!(listed, Ran::TimedOut(_)) {
                 Fix::guidance(
                     "CoreSimulator can be slow right after a boot: run `xcrun simctl list devices` \
-                     once, then `velocity doctor` again. If it still hangs, \
+                     once, then `atalanta doctor` again. If it still hangs, \
                      `sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService` restarts it \
                      (and stops every running simulator)",
                 )
@@ -222,7 +222,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
         ));
     }
     let booted: Vec<&Sim> = sims.iter().filter(|s| s.booted).collect();
-    let leases = velocity_runner::lease::scan(&crate::host::lease_dir(ctx)).unwrap_or_default();
+    let leases = atalanta_runner::lease::scan(&crate::host::lease_dir(ctx)).unwrap_or_default();
     let in_use = |udid: &str| {
         leases
             .iter()
@@ -249,7 +249,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             Check::new("ios.simulators", A, status, "no simulator booted").with_fix(Fix::run(
                 match first {
                     Some(n) => format!("xcrun simctl boot \"{n}\""),
-                    None => "velocity devices up --ios 1".into(),
+                    None => "atalanta devices up --ios 1".into(),
                 },
             )),
         );
@@ -301,8 +301,8 @@ fn parse_xcode_version(out: &str) -> (String, String) {
 }
 
 fn runner(ctx: &Ctx, dev: &Path, xcode_build: &str) -> Check {
-    let cache = ctx.env().home().join(".velocity").join("wda");
-    let r = velocity_ios::wda_bootstrap::runner_cache(&cache, dev, xcode_build);
+    let cache = ctx.env().home().join(".atalanta").join("wda");
+    let r = atalanta_ios::wda_bootstrap::runner_cache(&cache, dev, xcode_build);
     let what = format!("{} {}", r.runner, r.wda_ref);
     let detail = format!(
         "{}{}",
@@ -317,7 +317,7 @@ fn runner(ctx: &Ctx, dev: &Path, xcode_build: &str) -> Check {
             format!("{what} built for Xcode {xcode_build}"),
         )
     } else {
-        let git = ctx.env().which("git").is_some() || r.runner == "VelocityRunner";
+        let git = ctx.env().which("git").is_some() || r.runner == "AtalantaRunner";
         if !git {
             return Check::fail(
                 "ios.runner",
@@ -341,7 +341,7 @@ fn runner(ctx: &Ctx, dev: &Path, xcode_build: &str) -> Check {
         .with_detail(detail)
         .with_fix(Fix::guidance(
             "this Xcode needs the newer pinned WebDriverAgent, not yet verified here; \
-             if its build fails, use Velocity's own runner: VELOCITY_IOS_RUNNER=velocity",
+             if its build fails, use Atalanta's own runner: ATALANTA_IOS_RUNNER=atalanta",
         ))
     } else {
         c.with_detail(detail)
@@ -363,7 +363,7 @@ async fn timed_devicectl(ctx: &Ctx, xcrun: &Path) -> (Check, usize) {
             );
         }
         let tmp = std::env::temp_dir().join(format!(
-            "velocity-doctor-devicectl-{}.json",
+            "atalanta-doctor-devicectl-{}.json",
             std::process::id()
         ));
         let tmp_s = tmp.to_string_lossy().into_owned();
@@ -387,7 +387,7 @@ async fn timed_devicectl(ctx: &Ctx, xcrun: &Path) -> (Check, usize) {
                 )
                 .with_detail("real iPhones may be missed until it works")
                 .with_fix(Fix::guidance(
-                    "run `xcrun devicectl list devices` to see the error, then `velocity doctor` again",
+                    "run `xcrun devicectl list devices` to see the error, then `atalanta doctor` again",
                 ));
             }
         }
@@ -398,16 +398,16 @@ async fn timed_devicectl(ctx: &Ctx, xcrun: &Path) -> (Check, usize) {
                 format!("devicectl didn't answer in {:.0} s", d.as_secs_f32()),
             )
             .with_detail("CoreDevice can take 10-20 s after a boot; real iPhones may be missed until it answers")
-            .with_fix(Fix::guidance("run `xcrun devicectl list devices` once, then `velocity doctor` again"));
+            .with_fix(Fix::guidance("run `xcrun devicectl list devices` once, then `atalanta doctor` again"));
         }
         let devices = json
             .and_then(|j| serde_json::from_str::<serde_json::Value>(&j).ok())
-            .map(|v| velocity_ios::devicectl::parse_devices(&v))
+            .map(|v| atalanta_ios::devicectl::parse_devices(&v))
             .unwrap_or_default();
         // Only connected, developer-mode devices need signing now.
         real = devices
             .iter()
-            .filter(|d| d.state == velocity_common::DeviceState::Booted)
+            .filter(|d| d.state == atalanta_common::DeviceState::Booted)
             .count();
         if devices.is_empty() {
             Check::ok("ios.devicectl", A, "devicectl works; no real devices paired")
@@ -425,7 +425,7 @@ async fn timed_devicectl(ctx: &Ctx, xcrun: &Path) -> (Check, usize) {
                 devices
                     .iter()
                     .map(|d| {
-                        let state = if d.state == velocity_common::DeviceState::Booted {
+                        let state = if d.state == atalanta_common::DeviceState::Booted {
                             "connected"
                         } else {
                             "not connected, or developer mode / DDI not ready"
@@ -447,18 +447,18 @@ fn signing(ctx: &Ctx, real: usize) -> Check {
     }
     let env = ctx.env();
     let asc: Vec<&str> = [
-        "VELOCITY_ASC_KEY_PATH",
-        "VELOCITY_ASC_KEY_ID",
-        "VELOCITY_ASC_ISSUER_ID",
+        "ATALANTA_ASC_KEY_PATH",
+        "ATALANTA_ASC_KEY_ID",
+        "ATALANTA_ASC_ISSUER_ID",
     ]
     .into_iter()
     .filter(|k| env.is_set(k))
     .collect();
-    match env.var("VELOCITY_IOS_TEAM_ID") {
+    match env.var("ATALANTA_IOS_TEAM_ID") {
         Some(team) => Check::ok(
             "ios.signing",
             A,
-            format!("VELOCITY_IOS_TEAM_ID={team}"),
+            format!("ATALANTA_IOS_TEAM_ID={team}"),
         )
         .with_detail(if asc.is_empty() {
             "no App Store Connect key set: Xcode's signed-in Apple ID signs".to_string()
@@ -468,12 +468,12 @@ fn signing(ctx: &Ctx, real: usize) -> Check {
         None => Check::warn(
             "ios.signing",
             A,
-            "a real iPhone is connected but VELOCITY_IOS_TEAM_ID is not set",
+            "a real iPhone is connected but ATALANTA_IOS_TEAM_ID is not set",
         )
         .with_fix(Fix::guidance(
-            "set VELOCITY_IOS_TEAM_ID (Xcode → Settings → Accounts → Team ID) so the runner can be \
-             signed; without an Apple ID in Xcode also set VELOCITY_ASC_KEY_PATH / _KEY_ID / _ISSUER_ID \
-             (`velocity signing check`)",
+            "set ATALANTA_IOS_TEAM_ID (Xcode → Settings → Accounts → Team ID) so the runner can be \
+             signed; without an Apple ID in Xcode also set ATALANTA_ASC_KEY_PATH / _KEY_ID / _ISSUER_ID \
+             (`atalanta signing check`)",
         )),
     }
 }

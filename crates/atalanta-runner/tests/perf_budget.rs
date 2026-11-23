@@ -8,12 +8,12 @@
 //! The budgets are the counts measured when this test was written
 //! (2026-10-16). A change that lowers a count should lower its budget; one
 //! that raises it must justify it and raise the budget in the same change.
-//! `VELOCITY_PERF_PRINT=1 cargo test -p velocity-runner --test perf_budget
+//! `ATALANTA_PERF_PRINT=1 cargo test -p atalanta-runner --test perf_budget
 //! -- --nocapture` prints the measured counts.
 //!
 //! The counts are the steady state. The first time a selector finds an
 //! element, self-healing reads the tree once more to snapshot its context,
-//! and keeps that snapshot in its state directory (`.velocity/` of a real
+//! and keeps that snapshot in its state directory (`.atalanta/` of a real
 //! project) so later runs don't pay it. Each test keeps that state in its
 //! own temp dir: it used to land in this crate's directory, where whatever
 //! an earlier run (or the other test, running at the same time) had left
@@ -23,9 +23,9 @@ use std::collections::BTreeMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use velocity_common::{
-    DeviceInfo, Direction, Element, Key, PlatformDriver, Rect, Result, Selector, TestStatus,
-    VelocityError,
+use atalanta_common::{
+    AtalantaError, DeviceInfo, Direction, Element, Key, PlatformDriver, Rect, Result, Selector,
+    TestStatus,
 };
 
 /// A screen that reacts to every input (a counter on it changes, as a
@@ -119,7 +119,7 @@ impl Counting {
     }
 
     fn matches(&self, selector: &Selector) -> Vec<Element> {
-        velocity_common::selector_match::find_all_ref(&self.screen, selector, None)
+        atalanta_common::selector_match::find_all_ref(&self.screen, selector, None)
             .into_iter()
             .cloned()
             .collect()
@@ -157,7 +157,7 @@ impl PlatformDriver for Counting {
         self.matches(selector)
             .into_iter()
             .next()
-            .ok_or_else(|| VelocityError::ElementNotFound {
+            .ok_or_else(|| AtalantaError::ElementNotFound {
                 selector: selector.to_string(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -245,13 +245,13 @@ async fn calls_with_delay(
     let yaml = format!(
         "appId: com.example.app\nconfig:\n  platform: android\n  sync:\n    mode: polling\ntests:\n  - name: t\n    steps:\n      - {step}\n"
     );
-    let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+    let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
     let driver = Counting {
         read_delay,
         ..Counting::new()
     };
     let mut exec =
-        velocity_core::executor::TestExecutor::new(&driver, suite.config.clone(), &suite.app_id)
+        atalanta_core::executor::TestExecutor::new(&driver, suite.config.clone(), &suite.app_id)
             .with_state_dir(state);
     let result = exec
         .execute_test(&suite.tests[0], "d", &suite.app_id)
@@ -288,7 +288,7 @@ fn budgets() -> Vec<(&'static str, Vec<(&'static str, usize)>)> {
 /// settle reads.
 #[tokio::test(start_paused = true)]
 async fn driver_calls_per_action_stay_within_budget() {
-    let print = std::env::var("VELOCITY_PERF_PRINT").is_ok();
+    let print = std::env::var("ATALANTA_PERF_PRINT").is_ok();
     let mut over = Vec::new();
     for (step, budget) in budgets() {
         // A fresh state per step: the first run sees its selector for the
@@ -362,7 +362,7 @@ async fn counts_do_not_depend_on_how_busy_the_machine_is() {
 }
 
 /// The healing state goes where the test says, never into the directory
-/// the tests run in (they used to leave `.velocity/healer-snapshots.json`
+/// the tests run in (they used to leave `.atalanta/healer-snapshots.json`
 /// in this crate).
 #[tokio::test(start_paused = true)]
 async fn the_healing_state_stays_in_the_state_dir() {

@@ -24,13 +24,13 @@ pub(crate) fn write_stub(path: &std::path::Path, body: &str) {
     use std::os::unix::fs::PermissionsExt;
     std::fs::write(
         path,
-        format!("#!/bin/sh\n[ \"$1\" = --velocity-noop ] && exit 0\n{body}\n"),
+        format!("#!/bin/sh\n[ \"$1\" = --atalanta-noop ] && exit 0\n{body}\n"),
     )
     .unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
     for _ in 0..100 {
         match std::process::Command::new(path)
-            .arg("--velocity-noop")
+            .arg("--atalanta-noop")
             .status()
         {
             Ok(_) => return,

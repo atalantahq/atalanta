@@ -1,13 +1,13 @@
 //! Sharding end to end with the headless driver: `--shard M/N` (D-22),
 //! timings loaded once and fatal when unreadable, JUnit timings and the
-//! plan fingerprint (D-23), and `velocity shard-plan` (D-49).
+//! plan fingerprint (D-23), and `atalanta shard-plan` (D-49).
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -27,11 +27,11 @@ fn suite(dir: &Path, n: usize) {
     std::fs::write(dir.join("suite.yaml"), yaml).unwrap();
 }
 
-fn velocity_in(dir: &Path, args: &[&str]) -> Output {
-    Command::new(velocity())
+fn atalanta_in(dir: &Path, args: &[&str]) -> Output {
+    Command::new(atalanta())
         .args(args)
         .current_dir(dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env_remove("GITHUB_ACTIONS")
         .env("NO_COLOR", "1")
         .output()
@@ -80,7 +80,7 @@ fn shards_agree_on_one_plan_and_shard_plan_prints_it() {
     for m in 1..=3 {
         let shard = format!("{m}/3");
         let out_dir = format!("out{m}");
-        let out = velocity_in(
+        let out = atalanta_in(
             &dir,
             &[
                 "run",
@@ -110,7 +110,7 @@ fn shards_agree_on_one_plan_and_shard_plan_prints_it() {
     all.sort();
     assert_eq!(all, (0..7).map(|i| format!("t{i}")).collect::<Vec<_>>());
 
-    let out = velocity_in(
+    let out = atalanta_in(
         &dir,
         &[
             "shard-plan",
@@ -146,7 +146,7 @@ fn shard_plan_reads_env_like_run() {
         ));
     }
     std::fs::write(dir.join("suite.yaml"), yaml).unwrap();
-    let out = velocity_in(
+    let out = atalanta_in(
         &dir,
         &[
             "run",
@@ -165,7 +165,7 @@ fn shard_plan_reads_env_like_run() {
     );
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     let run_plan = plan_of(&text(&out));
-    let out = velocity_in(
+    let out = atalanta_in(
         &dir,
         &[
             "shard-plan",
@@ -197,7 +197,7 @@ fn an_unreadable_timings_file_is_fatal() {
     suite(&dir, 3);
     std::fs::write(dir.join("bad.json"), "{ not json").unwrap();
     for timings in ["bad.json", "missing.json"] {
-        let out = velocity_in(
+        let out = atalanta_in(
             &dir,
             &[
                 "run",
@@ -213,7 +213,7 @@ fn an_unreadable_timings_file_is_fatal() {
             ],
         );
         assert_eq!(out.status.code(), Some(2), "{}", text(&out));
-        assert!(!dir.join("velocity-results/results.json").exists());
+        assert!(!dir.join("atalanta-results/results.json").exists());
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -223,7 +223,7 @@ fn an_unreadable_timings_file_is_fatal() {
 fn both_shard_forms_together_exit_2() {
     let dir = scratch("both");
     suite(&dir, 2);
-    let out = velocity_in(
+    let out = atalanta_in(
         &dir,
         &[
             "run",
@@ -239,7 +239,7 @@ fn both_shard_forms_together_exit_2() {
         ],
     );
     assert_eq!(out.status.code(), Some(2), "{}", text(&out));
-    let out = velocity_in(
+    let out = atalanta_in(
         &dir,
         &[
             "run",

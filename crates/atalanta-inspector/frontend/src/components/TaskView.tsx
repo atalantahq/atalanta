@@ -53,7 +53,7 @@ function ExploreResultView({ id, result, saved }: { id: number; result: ExploreR
     setErr(null);
     try {
       const r = await api.saveExplore(id, path.trim(), overwrite);
-      setMsg(`Saved to ${r.path}: run it with velocity run ${r.path}`);
+      setMsg(`Saved to ${r.path}: run it with atalanta run ${r.path}`);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     }

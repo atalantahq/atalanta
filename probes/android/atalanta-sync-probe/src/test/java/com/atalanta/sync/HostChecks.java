@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -304,10 +304,10 @@ public final class HostChecks {
     static void server() throws Exception {
         Map<String, String> env = new HashMap<>();
         check(SyncServer.resolvePort(env) == 19401, "P2: default port 19401");
-        env.put("VELOCITY_SYNC_PORT", "41000");
-        check(SyncServer.resolvePort(env) == 41000, "P2: VELOCITY_SYNC_PORT");
-        env.put("VELOCITY_SYNC_PORT", "nope");
-        check(SyncServer.resolvePort(env) == 19401, "P2: bad VELOCITY_SYNC_PORT falls back");
+        env.put("ATALANTA_SYNC_PORT", "41000");
+        check(SyncServer.resolvePort(env) == 41000, "P2: ATALANTA_SYNC_PORT");
+        env.put("ATALANTA_SYNC_PORT", "nope");
+        check(SyncServer.resolvePort(env) == 19401, "P2: bad ATALANTA_SYNC_PORT falls back");
 
         FakeState state = new FakeState();
         SyncServer server = new SyncServer(state, 0, "com.example.app", 4242);

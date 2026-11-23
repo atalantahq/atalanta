@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::types::{DeviceInfo, Direction, Element, Key, LaunchArgs, Selector};
-use crate::VelocityError;
+use crate::AtalantaError;
 
 /// Which touch [`PlatformDriver::touch_forced`] makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +97,7 @@ pub trait PlatformDriver: Send + Sync {
         if args.is_empty() {
             self.launch_app(device_id, app_id, clear_state).await
         } else {
-            Err(VelocityError::Config(
+            Err(AtalantaError::Config(
                 "launch arguments are not supported on this platform yet".into(),
             ))
         }
@@ -208,7 +208,7 @@ pub trait PlatformDriver: Send + Sync {
     }
 
     /// Undo every [`Self::freeze_status_bar`] (the end of a run, also
-    /// under `velocity daemon`, which keeps the driver: review-d5 m-4). The
+    /// under `atalanta daemon`, which keeps the driver: review-d5 m-4). The
     /// next freeze enters again.
     async fn unfreeze_status_bar(&self) {}
 
@@ -222,14 +222,14 @@ pub trait PlatformDriver: Send + Sync {
     /// Save `app_id`'s data on `device_id` as `name` (login, caches,
     /// preferences), for [`Self::restore_app_state`]. Leaves the app stopped.
     async fn save_app_state(&self, _device_id: &str, _app_id: &str, _name: &str) -> Result<()> {
-        Err(crate::VelocityError::Unsupported(
+        Err(crate::AtalantaError::Unsupported(
             "saveState isn't supported on this platform".into(),
         ))
     }
 
     /// Put back the data saved as `name`. Leaves the app stopped.
     async fn restore_app_state(&self, _device_id: &str, _app_id: &str, _name: &str) -> Result<()> {
-        Err(crate::VelocityError::Unsupported(
+        Err(crate::AtalantaError::Unsupported(
             "restoreState isn't supported on this platform".into(),
         ))
     }
@@ -273,7 +273,7 @@ pub trait PlatformDriver: Send + Sync {
         _app_id: &str,
         _reset: &crate::test_types::ResetConfig,
     ) -> Result<crate::test_types::ResetStrategy> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "this platform only supports the clear reset strategy".into(),
         ))
     }
@@ -310,7 +310,7 @@ pub trait PlatformDriver: Send + Sync {
         _hold_ms: u64,
         _move_ms: u64,
     ) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "drag isn't supported on this platform (Android, iOS and the web are)".into(),
         ))
     }
@@ -323,7 +323,7 @@ pub trait PlatformDriver: Send + Sync {
 
     /// Answer requests matching `rule` until [`Self::clear_mocks`] (web).
     async fn add_mock(&self, _device_id: &str, _rule: crate::types::MockRule) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "mockRequest is supported on the web only".into(),
         ))
     }
@@ -335,7 +335,7 @@ pub trait PlatformDriver: Send + Sync {
 
     /// Media and call state for `assertSystemState`.
     async fn system_state(&self, _device_id: &str) -> Result<crate::types::SystemState> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "assertSystemState isn't supported by this driver (it reads an Android device's services)".into(),
         ))
     }
@@ -363,19 +363,19 @@ pub trait PlatformDriver: Send + Sync {
     /// Hide the soft keyboard without navigating. A no-op when nothing is
     /// shown. Returns whether a keyboard was dismissed.
     async fn hide_keyboard(&self, _device_id: &str) -> Result<bool> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "hideKeyboard is not supported on this platform yet".into(),
         ))
     }
 
     // Raw actions (for WebView / non-accessible UI)
     async fn tap_xy(&self, _device_id: &str, _x: i32, _y: i32) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "tapXY not supported on this platform".into(),
         ))
     }
     async fn input_raw(&self, _device_id: &str, _text: &str) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "inputRaw not supported on this platform".into(),
         ))
     }
@@ -416,7 +416,7 @@ pub trait PlatformDriver: Send + Sync {
 
     // Web navigation (web platform only — default impls return a clear error on mobile)
     async fn navigate(&self, _device_id: &str, _url: &str) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "openLink/goto isn't supported on this platform".into(),
         ))
     }
@@ -426,12 +426,12 @@ pub trait PlatformDriver: Send + Sync {
         None
     }
     async fn go_back(&self, _device_id: &str) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "goBack isn't supported on this platform (it's the browser's back; on a device use `pressKey: { key: back }`)".into(),
         ))
     }
     async fn refresh_page(&self, _device_id: &str) -> Result<()> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "refresh isn't supported on this platform (it reloads a web page)".into(),
         ))
     }
@@ -443,7 +443,7 @@ pub trait PlatformDriver: Send + Sync {
         _device_id: &str,
         _package: &str,
     ) -> Result<(u64, u64, u64, f32)> {
-        Err(VelocityError::Unsupported(
+        Err(AtalantaError::Unsupported(
             "Resource profiling not available on this platform".into(),
         ))
     }

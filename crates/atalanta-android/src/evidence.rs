@@ -11,12 +11,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
-use velocity_common::evidence::{
+use atalanta_common::evidence::{
     self, Attachment, AttachmentKind, Evidence, EvidenceOut, EvidenceRequest, EvidenceSession,
     LogLine,
 };
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
 
 use crate::logcat::Logcat;
 use crate::video::{ScreenRecord, VideoOptions, VideoStream};
@@ -112,17 +112,17 @@ impl Recorders {
     /// background, or the fallback.
     async fn for_test(self: &Arc<Self>, adb_path: &str, device_id: &str, keep: Duration) -> Pick {
         let mut map = self.video.lock().await;
-        // `VELOCITY_ANDROID_VIDEO=screenrecord`: skip the video server (a
+        // `ATALANTA_ANDROID_VIDEO=screenrecord`: skip the video server (a
         // device whose encoder streams but records garbage).
         if forced_screenrecord() {
             if !matches!(map.get(device_id), Some(Source::Fallback(_))) {
                 info!(
                     device_id,
-                    "android video: adb screenrecord (VELOCITY_ANDROID_VIDEO)"
+                    "android video: adb screenrecord (ATALANTA_ANDROID_VIDEO)"
                 );
                 map.insert(
                     device_id.to_string(),
-                    Source::Fallback("VELOCITY_ANDROID_VIDEO=screenrecord".into()),
+                    Source::Fallback("ATALANTA_ANDROID_VIDEO=screenrecord".into()),
                 );
             }
             return Pick::Fallback;
@@ -188,9 +188,9 @@ impl Recorders {
     }
 }
 
-/// `VELOCITY_ANDROID_VIDEO=screenrecord`.
+/// `ATALANTA_ANDROID_VIDEO=screenrecord`.
 fn forced_screenrecord() -> bool {
-    velocity_common::env::var("VELOCITY_ANDROID_VIDEO").is_ok_and(|v| v.trim() == "screenrecord")
+    atalanta_common::env::var("ATALANTA_ANDROID_VIDEO").is_ok_and(|v| v.trim() == "screenrecord")
 }
 
 enum Pick {
@@ -382,7 +382,7 @@ fn write(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    velocity_common::fsutil::write_atomic(path, bytes)
+    atalanta_common::fsutil::write_atomic(path, bytes)
 }
 
 #[async_trait::async_trait]
@@ -458,7 +458,7 @@ mod tests {
 
     #[test]
     fn viewer_lines_keep_the_last_and_mask_secrets() {
-        velocity_common::redact::register_secret("android-secret-value-1");
+        atalanta_common::redact::register_secret("android-secret-value-1");
         let lines: Vec<LogLine> = (0..VIEWER_LINES + 5)
             .map(|i| LogLine {
                 t: i as i64,

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use velocity_common::{DeviceInfo, PlatformDriver, Result};
+use atalanta_common::{DeviceInfo, PlatformDriver, Result};
 
 /// Tracks state across an MCP session for caching and context.
 pub struct McpSession {
@@ -14,7 +14,7 @@ pub struct McpSession {
     /// Path to last captured screenshot.
     pub last_screenshot: Option<PathBuf>,
 
-    /// Path to the velocity config file, if available.
+    /// Path to the atalanta config file, if available.
     pub config_path: Option<String>,
 
     /// Cache TTL for device list queries.
@@ -79,7 +79,7 @@ impl McpSession {
         let id = devices
             .first()
             // No device is a device problem (exit 3), not a config one (VEL-051).
-            .ok_or_else(|| velocity_common::VelocityError::ServiceUnavailable {
+            .ok_or_else(|| atalanta_common::AtalantaError::ServiceUnavailable {
                 service: "device".to_string(),
                 detail: "No devices found. Boot a device first.".to_string(),
             })?
@@ -94,7 +94,7 @@ impl McpSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{Direction, Element, Key, Selector};
+    use atalanta_common::{Direction, Element, Key, Selector};
 
     /// A driver that sees no devices, or the ones in `booted` once it is
     /// set; nothing else is called.
@@ -188,8 +188,8 @@ mod tests {
         DeviceInfo {
             id: "emulator-5554".into(),
             name: "Pixel".into(),
-            platform: velocity_common::Platform::Android,
-            state: velocity_common::DeviceState::Booted,
+            platform: atalanta_common::Platform::Android,
+            state: atalanta_common::DeviceState::Booted,
             os_version: None,
             device_type: Default::default(),
         }

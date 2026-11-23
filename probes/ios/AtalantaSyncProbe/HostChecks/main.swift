@@ -1,6 +1,6 @@
 import Foundation
 
-// Host (macOS) checks for the VelocitySyncProbe logic that doesn't need
+// Host (macOS) checks for the AtalantaSyncProbe logic that doesn't need
 // UIKit: timers, the idle hold, the URL blocklist, port resolution and the
 // server's protocol over a real loopback socket. Run with ./run.sh.
 var failures = 0
@@ -110,9 +110,9 @@ check(NetworkTracker.isIgnored(poll), "P6: a long-poll data task is ignored")
 
 // P2: port resolution.
 check(SyncServer.resolvePort(explicit: nil, environment: [:]) == 19400, "P2: default port")
-check(SyncServer.resolvePort(explicit: nil, environment: ["VELOCITY_SYNC_PORT": "41000"]) == 41000, "P2: VELOCITY_SYNC_PORT")
-check(SyncServer.resolvePort(explicit: 1234, environment: ["VELOCITY_SYNC_PORT": "41000"]) == 1234, "P2: explicit port wins")
-check(SyncServer.resolvePort(explicit: nil, environment: ["VELOCITY_SYNC_PORT": "nope"]) == 19400, "P2: bad env falls back")
+check(SyncServer.resolvePort(explicit: nil, environment: ["ATALANTA_SYNC_PORT": "41000"]) == 41000, "P2: ATALANTA_SYNC_PORT")
+check(SyncServer.resolvePort(explicit: 1234, environment: ["ATALANTA_SYNC_PORT": "41000"]) == 1234, "P2: explicit port wins")
+check(SyncServer.resolvePort(explicit: nil, environment: ["ATALANTA_SYNC_PORT": "nope"]) == 19400, "P2: bad env falls back")
 
 // P2: the server answers hello over loopback.
 func freePort() -> UInt16 {

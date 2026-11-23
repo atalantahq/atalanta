@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, DeviceInfo, DeviceState, DeviceType, Platform, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::debug;
-use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform, Result, VelocityError};
 
 /// Native async ADB client that speaks the ADB wire protocol directly over TCP.
 /// Connects to the ADB server on localhost:5037 instead of spawning subprocess.
@@ -34,8 +34,8 @@ const MAX_REQUEST: usize = 0xffff;
 
 /// A failed read or write on the adb server connection: the server or the
 /// device went away, which is transient (VEL-163), not a config error.
-fn lost(who: &str, what: &str, e: impl std::fmt::Display) -> VelocityError {
-    VelocityError::AdbConnectionLost {
+fn lost(who: &str, what: &str, e: impl std::fmt::Display) -> AtalantaError {
+    AtalantaError::AdbConnectionLost {
         device_id: who.to_string(),
         reason: format!("{what}: {e}"),
     }
@@ -43,9 +43,9 @@ fn lost(who: &str, what: &str, e: impl std::fmt::Display) -> VelocityError {
 
 impl AsyncAdb {
     pub fn new() -> Self {
-        let host = velocity_common::env::var("VELOCITY_ADB_HOST")
+        let host = atalanta_common::env::var("ATALANTA_ADB_HOST")
             .unwrap_or_else(|_| "127.0.0.1".to_string());
-        let port = velocity_common::env::var("VELOCITY_ADB_PORT")
+        let port = atalanta_common::env::var("ATALANTA_ADB_PORT")
             .ok()
             .and_then(|p| p.parse().ok())
             .unwrap_or(5037);
@@ -58,7 +58,7 @@ impl AsyncAdb {
             host: host.into(),
             port,
             subprocess: crate::adb::Adb::new(),
-            timeout: velocity_common::process::default_timeout(),
+            timeout: atalanta_common::process::default_timeout(),
             no_shell_v2: Mutex::new(HashSet::new()),
         }
     }
@@ -88,7 +88,7 @@ impl AsyncAdb {
             Some((host, port, serial)) => {
                 let addr = format!("{host}:{port}");
                 let s = TcpStream::connect(&addr).await.map_err(|e| {
-                    VelocityError::AdbConnectionLost {
+                    AtalantaError::AdbConnectionLost {
                         device_id: device_id.to_string(),
                         reason: format!("adb server {addr}: {e}"),
                     }
@@ -121,7 +121,7 @@ impl AsyncAdb {
         // A longer one would wrap the length prefix and desync the server
         // (VEL-311).
         if payload.len() > MAX_REQUEST {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: who.to_string(),
                 command: payload.chars().take(60).collect(),
                 detail: format!(
@@ -227,7 +227,7 @@ impl AsyncAdb {
         // Typed text, a launch argument or a link's token: not in the log.
         debug!(
             device = device_id,
-            command = %velocity_common::redact::redact(&crate::adb::redact_typed_text(&[command])),
+            command = %atalanta_common::redact::redact(&crate::adb::redact_typed_text(&[command])),
             "async adb shell"
         );
         self.deadline(device_id, "shell", async {
@@ -544,7 +544,7 @@ async fn read_shell_v2(stream: &mut TcpStream, who: &str) -> Result<(String, Str
     }
 }
 
-pub(crate) const CPU_SEPARATOR: &str = "---VELOCITY_CPU_SEPARATOR---";
+pub(crate) const CPU_SEPARATOR: &str = "---ATALANTA_CPU_SEPARATOR---";
 
 pub(crate) fn validate_package_name(package: &str) -> Result<()> {
     let is_valid = !package.is_empty()
@@ -555,7 +555,7 @@ pub(crate) fn validate_package_name(package: &str) -> Result<()> {
     if is_valid {
         Ok(())
     } else {
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "Invalid Android package name '{package}'"
         )))
     }
@@ -741,12 +741,12 @@ mod fake_server_tests {
             .run_device("emulator-5554", &["shell", "true"])
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::AdbConnectionLost { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::AdbConnectionLost { .. }), "{e}");
         assert!(e.is_transient());
         // No server at all: the same, never "Configuration error".
         let gone = AsyncAdb::with_server("127.0.0.1", 9);
         let e = gone.list_devices().await.unwrap_err();
-        assert!(matches!(e, VelocityError::AdbConnectionLost { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::AdbConnectionLost { .. }), "{e}");
     }
 
     /// VEL-162: a shell that never answers hung the run.
@@ -768,7 +768,7 @@ mod fake_server_tests {
             .batch_shell("emulator-5554", &[&long])
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e}");
         assert!(
             !seen.lock().unwrap().iter().any(|m| m.contains("xxxx")),
             "the oversized request was sent"
@@ -785,7 +785,7 @@ mod fake_server_tests {
             .await
             .unwrap_err();
         assert!(
-            matches!(&e, VelocityError::CommandFailed { detail, .. } if detail == "boom"),
+            matches!(&e, AtalantaError::CommandFailed { detail, .. } if detail == "boom"),
             "{e}"
         );
         assert_eq!(seen.lock().unwrap()[1], "shell,v2,raw:false");
@@ -822,7 +822,7 @@ mod fake_server_tests {
     async fn missing_and_unauthorized_devices_over_the_wire() {
         let (adb, _) = server(Serve::NoTransport("device 'emulator-5590' not found")).await;
         let e = adb.tap("emulator-5590", 1, 2).await.unwrap_err();
-        assert!(matches!(e, VelocityError::DeviceNotFound { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::DeviceNotFound { .. }), "{e}");
         let (adb, _) = server(Serve::NoTransport("device unauthorized.")).await;
         let e = adb.tap("R58N", 1, 2).await.unwrap_err();
         assert!(e.kind().is_permanent(), "{e}");

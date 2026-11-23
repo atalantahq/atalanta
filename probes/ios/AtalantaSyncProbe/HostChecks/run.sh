@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Host (macOS) checks for VelocitySyncProbe: compiles the UIKit-free sources
+# Host (macOS) checks for AtalantaSyncProbe: compiles the UIKit-free sources
 # with swiftc and runs them. No simulator or Xcode project needed.
 #   ./run.sh                 run the checks
 #   ./run.sh --regression    only the timer regression (works on old sources)

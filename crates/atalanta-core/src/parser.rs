@@ -1,23 +1,22 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use atalanta_common::{
+    validate_launch_arg_name, Action, AtalantaError, Direction, Flow, Key, LaunchArg, LaunchArgs,
+    NaturalKind, Result, Selector, SourcePos, Step, SuiteConfig, SuiteResult, TestCase, TestSuite,
+};
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
-use velocity_common::{
-    validate_launch_arg_name, Action, Direction, Flow, Key, LaunchArg, LaunchArgs, NaturalKind,
-    Result, Selector, SourcePos, Step, SuiteConfig, SuiteResult, TestCase, TestSuite,
-    VelocityError,
-};
 
 use crate::source_map::{self, ItemLocation, SuiteLocations};
 
 /// YAML files that sit next to suites but aren't suites: the impact map
 /// and the quarantine list (read from the suite's folder by default).
 pub const NOT_SUITES: &[&str] = &[
-    "velocity-impact.yaml",
-    "velocity-impact.yml",
-    "velocity-quarantine.yaml",
-    "velocity-quarantine.yml",
+    "atalanta-impact.yaml",
+    "atalanta-impact.yml",
+    "atalanta-quarantine.yaml",
+    "atalanta-quarantine.yml",
 ];
 
 /// Whether a folder run (`run <dir>`, `validate <dir>`) treats `path` as a
@@ -41,7 +40,7 @@ pub fn parse_suite(path: &str) -> Result<TestSuite> {
 pub fn parse_suite_with_positions(path: &str) -> Result<(TestSuite, HashMap<String, SourcePos>)> {
     // Name the file: "No such file or directory" alone didn't (VEL-200).
     let content = std::fs::read_to_string(path)
-        .map_err(|e| VelocityError::Config(format!("can't read {path}: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("can't read {path}: {e}")))?;
     let (mut suite, tests) = parse_located(&content, path)?;
     suite.config.suite_dir = std::path::Path::new(path).parent().map(|d| d.to_path_buf());
     Ok((suite, tests))
@@ -61,18 +60,18 @@ fn parse_located(yaml: &str, file: &str) -> Result<(TestSuite, HashMap<String, S
         let maestro = yaml.lines().any(|l| l.trim_end() == "---")
             && yaml.lines().any(|l| l.starts_with("- "));
         match yaml_error(e, file) {
-            VelocityError::YamlParse {
+            AtalantaError::YamlParse {
                 file,
                 line,
                 col,
                 message,
             } if maestro && message.contains("missing field `tests`") => {
-                VelocityError::YamlParse {
+                AtalantaError::YamlParse {
                     file,
                     line,
                     col,
                     message: format!(
-                        "{message}\nhint: this looks like a Maestro flow; convert it with `velocity migrate maestro`"
+                        "{message}\nhint: this looks like a Maestro flow; convert it with `atalanta migrate maestro`"
                     ),
                 }
             }
@@ -95,7 +94,7 @@ fn pos(file: &str, m: source_map::Mark) -> SourcePos {
 
 /// serde_yaml's error, with its location moved out of the message so it
 /// reads `tests/app.yaml:12:9: tests[0].steps[1]: unknown action ...`.
-fn yaml_error(e: serde_yaml::Error, file: &str) -> VelocityError {
+fn yaml_error(e: serde_yaml::Error, file: &str) -> AtalantaError {
     let msg = with_hint(e.to_string());
     match e.location() {
         Some(loc) => {
@@ -104,15 +103,15 @@ fn yaml_error(e: serde_yaml::Error, file: &str) -> VelocityError {
                 Some(at) => format!("{}{}", &msg[..at], &msg[at + suffix.len()..]),
                 None => msg,
             };
-            VelocityError::YamlParse {
+            AtalantaError::YamlParse {
                 file: file.into(),
                 line: loc.line(),
                 col: loc.column(),
                 message,
             }
         }
-        None if file.is_empty() => VelocityError::Config(msg),
-        None => VelocityError::YamlParse {
+        None if file.is_empty() => AtalantaError::Config(msg),
+        None => AtalantaError::YamlParse {
             file: file.into(),
             line: 0,
             col: 0,
@@ -237,7 +236,7 @@ struct RawTestCase {
     description: Option<String>,
     /// This test's `verify:` level, over the suite's.
     #[serde(default)]
-    verify: Option<velocity_common::VerifyLevel>,
+    verify: Option<atalanta_common::VerifyLevel>,
     steps: Vec<DslStep>,
 }
 
@@ -262,8 +261,8 @@ impl RawTestCase {
 struct DslStep {
     action: Action,
     timeout_ms: Option<u64>,
-    settle: Option<velocity_common::StepSettle>,
-    modifiers: velocity_common::StepModifiers,
+    settle: Option<atalanta_common::StepSettle>,
+    modifiers: atalanta_common::StepModifiers,
 }
 
 impl DslStep {
@@ -319,7 +318,7 @@ impl<'de> Visitor<'de> for DslStepVisitor {
             "refresh" => Some(Action::Refresh),
             "screenshot" => Some(Action::Screenshot { filename: None }),
             "back" | "pressBack" => Some(Action::PressKey {
-                key: velocity_common::Key::Back,
+                key: atalanta_common::Key::Back,
             }),
             "hideKeyboard" => Some(Action::HideKeyboard),
             "clearMocks" => Some(Action::ClearMocks),
@@ -360,8 +359,8 @@ impl<'de> Visitor<'de> for DslStepVisitor {
     {
         let mut action: Option<(String, Action)> = None;
         let mut timeout_ms: Option<u64> = None;
-        let mut settle: Option<velocity_common::StepSettle> = None;
-        let mut modifiers = velocity_common::StepModifiers::default();
+        let mut settle: Option<atalanta_common::StepSettle> = None;
+        let mut modifiers = atalanta_common::StepModifiers::default();
         // Sibling modifiers for natural-language steps.
         let mut data: Option<String> = None;
         let mut wait_until: Option<String> = None;
@@ -574,7 +573,7 @@ fn takes_force(action: &Action) -> bool {
     )
 }
 
-/// Maestro commands that aren't Velocity's, and what to write instead.
+/// Maestro commands that aren't Atalanta's, and what to write instead.
 fn maestro_hint(key: &str) -> Option<&'static str> {
     Some(match key {
         "tapOn" => "use `tap`",
@@ -587,25 +586,25 @@ fn maestro_hint(key: &str) -> Option<&'static str> {
         "clearState" => "use `launchApp: { clearState: true }`",
         "extendedWaitUntil" => "use `assertVisible` with a step `timeoutMs`",
         "waitForAnimationToEnd" => {
-            "Velocity waits for the screen to settle after every step; drop it, or use `wait: { ms: … }`"
+            "Atalanta waits for the screen to settle after every step; drop it, or use `wait: { ms: … }`"
         }
         "inputRandomText" | "inputRandomNumber" | "inputRandomEmail" | "inputRandomPersonName" => {
             "use `inputText` with a value (or `${VAR}`)"
         }
         "evalScript" | "runScript" => {
-            "Velocity runs no JavaScript; for an HTTP call (Maestro's `http.post` in a script) use an `http` step"
+            "Atalanta runs no JavaScript; for an HTTP call (Maestro's `http.post` in a script) use an `http` step"
         }
         "assertTrue" | "copyTextFrom" | "pasteText" | "setLocation"
         | "travel" | "repeat" | "retry" | "addMedia" | "clearKeychain" | "startRecording"
-        | "stopRecording" => "Velocity has no equivalent step",
+        | "stopRecording" => "Atalanta has no equivalent step",
         _ => return None,
     })
 }
 
-/// `name` is a Maestro command: say so, with the Velocity way.
+/// `name` is a Maestro command: say so, with the Atalanta way.
 fn maestro_message(key: &str) -> Option<String> {
     maestro_hint(key).map(|hint| {
-        format!("`{key}` is a Maestro command, not Velocity's: {hint} (`velocity migrate maestro` converts whole files)")
+        format!("`{key}` is a Maestro command, not Atalanta's: {hint} (`atalanta migrate maestro` converts whole files)")
     })
 }
 
@@ -666,17 +665,17 @@ fn bare_token_error(token: &str) -> Option<String> {
 /// `settle: none | auto | { reactionMs, quietMs, capMs }`.
 fn parse_settle(
     v: serde_yaml::Value,
-) -> std::result::Result<Option<velocity_common::StepSettle>, String> {
+) -> std::result::Result<Option<atalanta_common::StepSettle>, String> {
     match v {
         serde_yaml::Value::String(s) if s == "none" || s == "off" => {
-            Ok(Some(velocity_common::StepSettle {
+            Ok(Some(atalanta_common::StepSettle {
                 skip: true,
                 ..Default::default()
             }))
         }
         serde_yaml::Value::String(s) if s == "auto" => Ok(None),
         serde_yaml::Value::Mapping(m) => {
-            let mut out = velocity_common::StepSettle::default();
+            let mut out = atalanta_common::StepSettle::default();
             for (k, v) in m {
                 let key = k.as_str().unwrap_or("");
                 let ms = v
@@ -821,7 +820,7 @@ where
             Ok(Action::SetConfig { values })
         }
         "mockRequest" => {
-            let rule: velocity_common::MockRule = map.next_value()?;
+            let rule: atalanta_common::MockRule = map.next_value()?;
             Ok(Action::MockRequest { rule })
         }
         "clearMocks" => {
@@ -829,11 +828,11 @@ where
             Ok(Action::ClearMocks)
         }
         "http" => {
-            let req: velocity_common::HttpRequest = map.next_value()?;
+            let req: atalanta_common::HttpRequest = map.next_value()?;
             Ok(Action::Http(Box::new(req)))
         }
         "exec" => {
-            let e: velocity_common::exec::ExecStep = map.next_value()?;
+            let e: atalanta_common::exec::ExecStep = map.next_value()?;
             Ok(Action::Exec(Box::new(e)))
         }
         "assertSystemState" => {
@@ -1247,15 +1246,15 @@ impl SelectorDsl {
             _ => Selector::Compound(parts),
         };
         for (relation, anchor) in [
-            (velocity_common::Relation::Below, self.below),
-            (velocity_common::Relation::Above, self.above),
-            (velocity_common::Relation::LeftOf, self.left_of),
-            (velocity_common::Relation::RightOf, self.right_of),
+            (atalanta_common::Relation::Below, self.below),
+            (atalanta_common::Relation::Above, self.above),
+            (atalanta_common::Relation::LeftOf, self.left_of),
+            (atalanta_common::Relation::RightOf, self.right_of),
             (
-                velocity_common::Relation::ContainsChild,
+                atalanta_common::Relation::ContainsChild,
                 self.contains_child,
             ),
-            (velocity_common::Relation::ChildOf, self.child_of),
+            (atalanta_common::Relation::ChildOf, self.child_of),
         ] {
             if let Some(anchor) = anchor {
                 base = Selector::Relative {
@@ -1433,7 +1432,7 @@ struct AssertScreenshotDsl {
     #[serde(default)]
     tolerance: Option<u8>,
     #[serde(default)]
-    comparator: Option<velocity_common::Comparator>,
+    comparator: Option<atalanta_common::Comparator>,
     #[serde(default)]
     crop: Option<serde_yaml::Value>,
 }
@@ -1450,7 +1449,7 @@ struct CropRectDsl {
 /// `crop:` is a rect (`{x, y, width, height}`) or a selector.
 fn screenshot_crop(
     v: serde_yaml::Value,
-) -> std::result::Result<velocity_common::ScreenshotCrop, String> {
+) -> std::result::Result<atalanta_common::ScreenshotCrop, String> {
     let rect_keys = ["x", "y", "width", "height"];
     let is_rect = v.as_mapping().is_some_and(|m| {
         m.keys()
@@ -1461,8 +1460,8 @@ fn screenshot_crop(
         if r.width <= 0 || r.height <= 0 {
             return Err("a rect needs a positive width and height".into());
         }
-        return Ok(velocity_common::ScreenshotCrop::Rect(
-            velocity_common::Rect {
+        return Ok(atalanta_common::ScreenshotCrop::Rect(
+            atalanta_common::Rect {
                 x: r.x,
                 y: r.y,
                 width: r.width,
@@ -1472,7 +1471,7 @@ fn screenshot_crop(
     }
     let sel: SelectorDsl = serde_yaml::from_value(v).map_err(|e| e.to_string())?;
     sel.into_selector()
-        .map(velocity_common::ScreenshotCrop::Element)
+        .map(atalanta_common::ScreenshotCrop::Element)
 }
 
 #[derive(Deserialize)]
@@ -1594,7 +1593,7 @@ mod tests {
                 "appId: x\nconfig:\n  platform: web\n  web:\n    parallelMode: {mode}\ntests:\n  - name: t\n    steps:\n      - tap: {{ id: a }}\n"
             )
         };
-        use velocity_common::test_types::WebParallelMode;
+        use atalanta_common::test_types::WebParallelMode;
         let mode = |m: &str| {
             parse_suite_from_str(&suite(m))
                 .unwrap()
@@ -2215,7 +2214,7 @@ tests:
         assert!(matches!(
             a[1],
             Action::PressKey {
-                key: velocity_common::Key::Back
+                key: atalanta_common::Key::Back
             }
         ));
         assert!(matches!(a[2], Action::GoBack));
@@ -2528,7 +2527,7 @@ tests:
             Action::Tap {
                 selector: Selector::Relative {
                     target: Box::new(Selector::TextMatches(r"Item \d+".into())),
-                    relation: velocity_common::Relation::Below,
+                    relation: atalanta_common::Relation::Below,
                     anchor: Box::new(Selector::IdMatches("row_.*".into())),
                 }
             }
@@ -2572,8 +2571,8 @@ tests:
             retried: 0,
             duration: std::time::Duration::ZERO,
             tests: vec![
-                velocity_common::TestResult::failed("a", "x".into(), Default::default()),
-                velocity_common::TestResult::failed("b", "x".into(), Default::default()),
+                atalanta_common::TestResult::failed("a", "x".into(), Default::default()),
+                atalanta_common::TestResult::failed("b", "x".into(), Default::default()),
             ],
             shard_index: None,
             shard_total: None,
@@ -2594,7 +2593,7 @@ tests:
         let ok = parse_suite_from_str(&yaml("framework: rn")).unwrap();
         assert_eq!(
             ok.config.framework,
-            Some(velocity_common::config::Framework::ReactNative)
+            Some(atalanta_common::config::Framework::ReactNative)
         );
         assert!(parse_suite_from_str(&yaml("driver: headles")).is_err());
         assert!(parse_suite_from_str(&yaml("framework: swiftui")).is_err());
@@ -2632,7 +2631,7 @@ tests:
 
     #[test]
     fn verify_description_and_ai_config_parse() {
-        use velocity_common::VerifyLevel;
+        use atalanta_common::VerifyLevel;
         let yaml = "appId: a\nconfig:\n  verify: checkpoints\n  ai:\n    provider: openai\n    model: gpt-5-mini\n    baseUrl: http://localhost:11434/v1\n    apiKeyEnv: OLLAMA_KEY\n    images: false\ntests:\n  - name: t\n    description: the cart shows 2 items\n    verify: strict\n    steps:\n      - tap: { text: Buy }\n";
         let suite = parse_suite_from_str(yaml).unwrap();
         assert_eq!(suite.config.verify, Some(VerifyLevel::Checkpoints));
@@ -2843,7 +2842,7 @@ tests:
                 selector: Selector::Relative { relation, .. },
                 duration_ms,
             } => {
-                assert_eq!(relation, velocity_common::Relation::Below);
+                assert_eq!(relation, atalanta_common::Relation::Below);
                 assert_eq!(duration_ms, Some(900));
             }
             other => panic!("{other:?}"),
@@ -2875,7 +2874,7 @@ tests:
         let err = parse_suite_from_str("appId: com.x\n---\n- launchApp\n- tapOn: Login\n")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("velocity migrate maestro"), "{err}");
+        assert!(err.contains("atalanta migrate maestro"), "{err}");
         let validate = |step: &str| {
             let yaml = format!("appId: a\ntests:\n  - name: t\n    steps:\n      - {step}\n");
             crate::validate_suite(&parse_suite_from_str(&yaml).unwrap())
@@ -2934,7 +2933,7 @@ tests:
             (
                 Some(4),
                 None,
-                Some(velocity_common::ScreenshotCrop::Element(Selector::Id(
+                Some(atalanta_common::ScreenshotCrop::Element(Selector::Id(
                     "card".into()
                 )))
             )
@@ -2943,9 +2942,9 @@ tests:
             shots[1],
             (
                 None,
-                Some(velocity_common::Comparator::Perceptual),
-                Some(velocity_common::ScreenshotCrop::Rect(
-                    velocity_common::Rect {
+                Some(atalanta_common::Comparator::Perceptual),
+                Some(atalanta_common::ScreenshotCrop::Rect(
+                    atalanta_common::Rect {
                         x: 1,
                         y: 2,
                         width: 30,
@@ -2977,8 +2976,8 @@ tests:
     #[test]
     fn hide_keyboard_parses_both_forms() {
         let a = one_step("hideKeyboard").unwrap();
-        assert!(matches!(a, velocity_common::Action::HideKeyboard));
+        assert!(matches!(a, atalanta_common::Action::HideKeyboard));
         let a = one_step("hideKeyboard: {}").unwrap();
-        assert!(matches!(a, velocity_common::Action::HideKeyboard));
+        assert!(matches!(a, atalanta_common::Action::HideKeyboard));
     }
 }

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::Args;
-use colored::Colorize;
-use velocity_common::{Platform, PlatformDriver};
-use velocity_inspector::console::{
+use atalanta_common::{Platform, PlatformDriver};
+use atalanta_inspector::console::{
     self, mjpeg, ConsoleHooks, FrameFeed, ImageFrame, LeaseFail, Leases, LiveSource,
 };
-use velocity_inspector::InspectorServer;
+use atalanta_inspector::InspectorServer;
+use clap::Args;
+use colored::Colorize;
 
 #[derive(Args)]
 pub struct InspectArgs {
@@ -42,7 +42,7 @@ pub struct InspectArgs {
 
     /// Artifacts folder the screenshot review page (`/review`) reads; console
     /// runs write theirs under <results-dir>/console/
-    #[arg(long, default_value = "velocity-results")]
+    #[arg(long, default_value = "atalanta-results")]
     results_dir: std::path::PathBuf,
 
     /// Target device ID (auto-detects if omitted)
@@ -60,9 +60,9 @@ pub struct InspectArgs {
 
 /// The live paths of the real drivers.
 struct CliLive {
-    android: Option<Arc<velocity_android::AndroidDriver>>,
-    ios: Option<Arc<velocity_ios::IosDriver>>,
-    web: Option<Arc<velocity_web::WebDriver>>,
+    android: Option<Arc<atalanta_android::AndroidDriver>>,
+    ios: Option<Arc<atalanta_ios::IosDriver>>,
+    web: Option<Arc<atalanta_web::WebDriver>>,
 }
 
 #[async_trait::async_trait]
@@ -70,7 +70,7 @@ impl LiveSource for CliLive {
     async fn h264(
         &self,
         device_id: &str,
-    ) -> Option<Result<Arc<velocity_android::video::VideoStream>, String>> {
+    ) -> Option<Result<Arc<atalanta_android::video::VideoStream>, String>> {
         if Platform::of_device_id(device_id) != Platform::Android || device_id.starts_with("web") {
             return None;
         }
@@ -137,14 +137,14 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// `velocity run`'s cross-process device leases.
+/// `atalanta run`'s cross-process device leases.
 struct CliLeases;
 impl Leases for CliLeases {
     fn try_lock(&self, device_id: &str) -> Result<Box<dyn std::any::Any + Send + Sync>, LeaseFail> {
-        match velocity_runner::lease::try_lock(device_id) {
+        match atalanta_runner::lease::try_lock(device_id) {
             Ok(lock) => Ok(Box::new(lock)),
-            Err(velocity_runner::lease::LeaseError::Held(who)) => Err(LeaseFail::Held(who)),
-            Err(velocity_runner::lease::LeaseError::Io(e)) => Err(LeaseFail::Io(e)),
+            Err(atalanta_runner::lease::LeaseError::Held(who)) => Err(LeaseFail::Held(who)),
+            Err(atalanta_runner::lease::LeaseError::Io(e)) => Err(LeaseFail::Io(e)),
         }
     }
 }
@@ -181,11 +181,11 @@ pub async fn execute(args: InspectArgs) -> anyhow::Result<i32> {
 
     let wants = |p: Platform| only.is_none_or(|o| o == p);
     let android =
-        wants(Platform::Android).then(|| Arc::new(velocity_android::AndroidDriver::new()));
-    let ios = wants(Platform::Ios).then(|| Arc::new(velocity_ios::IosDriver::new()));
+        wants(Platform::Android).then(|| Arc::new(atalanta_android::AndroidDriver::new()));
+    let ios = wants(Platform::Ios).then(|| Arc::new(atalanta_ios::IosDriver::new()));
     let web = wants(Platform::Web).then(|| {
-        Arc::new(velocity_web::WebDriver::new(
-            velocity_web::WebDriverConfig {
+        Arc::new(atalanta_web::WebDriver::new(
+            atalanta_web::WebDriverConfig {
                 start_url: args.url.clone(),
                 ..Default::default()
             },
@@ -209,7 +209,7 @@ pub async fn execute(args: InspectArgs) -> anyhow::Result<i32> {
             let devices = driver.list_devices().await?;
             // A booted phone first; the web browser only if asked for.
             let booted = devices.iter().find(|d| {
-                d.state == velocity_common::DeviceState::Booted
+                d.state == atalanta_common::DeviceState::Booted
                     && (d.platform != Platform::Web || only == Some(Platform::Web))
             });
             match booted {
@@ -258,15 +258,15 @@ pub async fn execute(args: InspectArgs) -> anyhow::Result<i32> {
         }),
         leases: Arc::new(CliLeases),
         diagnostics: Arc::new(Doctor {
-            opts: velocity_doctor::Options {
+            opts: atalanta_doctor::Options {
                 cwd: project_dir.clone(),
                 ..Default::default()
             },
         }),
         explore: Arc::new(console::tasks::ExploreChild {
-            launcher: Arc::new(console::tasks::VelocityBinary::current()),
+            launcher: Arc::new(console::tasks::AtalantaBinary::current()),
         }),
-        launcher: Arc::new(console::tasks::VelocityBinary::current()),
+        launcher: Arc::new(console::tasks::AtalantaBinary::current()),
         runs_dir: project_dir.join(&args.results_dir).join("console"),
         project_dir,
     };
@@ -292,11 +292,11 @@ pub async fn execute(args: InspectArgs) -> anyhow::Result<i32> {
     );
 
     // D-42: a source build without frontend/dist serves the API only.
-    if !velocity_inspector::embedded::ui_available() {
+    if !atalanta_inspector::embedded::ui_available() {
         eprintln!(
             "{} {}",
             "warning:".yellow().bold(),
-            velocity_inspector::embedded::MISSING_UI
+            atalanta_inspector::embedded::MISSING_UI
         );
     }
 
@@ -324,17 +324,17 @@ pub async fn execute(args: InspectArgs) -> anyhow::Result<i32> {
     Ok(0)
 }
 
-/// The console's checks: `velocity doctor`'s, in this process (the same
-/// report `velocity doctor --json` prints).
+/// The console's checks: `atalanta doctor`'s, in this process (the same
+/// report `atalanta doctor --json` prints).
 struct Doctor {
-    opts: velocity_doctor::Options,
+    opts: atalanta_doctor::Options,
 }
 
 #[async_trait::async_trait]
 impl console::Diagnostics for Doctor {
     async fn run(&self) -> console::diagnostics::DiagResult {
         use console::diagnostics::DiagResult;
-        let report = Box::pin(velocity_doctor::run_checks(&self.opts)).await;
+        let report = Box::pin(atalanta_doctor::run_checks(&self.opts)).await;
         match serde_json::to_value(&report) {
             Ok(v) => DiagResult::Report(v),
             Err(e) => DiagResult::Failed(e.to_string()),
@@ -344,8 +344,8 @@ impl console::Diagnostics for Doctor {
 
 #[cfg(test)]
 mod tests {
-    use velocity_inspector::console::diagnostics::DiagResult;
-    use velocity_inspector::console::Diagnostics;
+    use atalanta_inspector::console::diagnostics::DiagResult;
+    use atalanta_inspector::console::Diagnostics;
 
     /// The console's diagnostics are the doctor's report, as JSON with the
     /// fields the page reads.
@@ -358,10 +358,10 @@ mod tests {
             ("HOME".to_string(), dir.display().to_string()),
         ]);
         let d = super::Doctor {
-            opts: velocity_doctor::Options {
+            opts: atalanta_doctor::Options {
                 cwd: dir.clone(),
-                env: velocity_doctor::Env::from_vars(env),
-                areas: vec![velocity_doctor::Area::Android],
+                env: atalanta_doctor::Env::from_vars(env),
+                areas: vec![atalanta_doctor::Area::Android],
                 ..Default::default()
             },
         };

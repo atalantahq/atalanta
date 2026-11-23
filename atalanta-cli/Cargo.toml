@@ -1,5 +1,5 @@
 [package]
-name = "velocity-cli"
+name = "atalanta-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,29 +10,29 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "mobile", "android", "ios", "e2e"]
 categories = ["development-tools::testing", "command-line-utilities"]
-description = "CLI binary for Velocity mobile testing framework"
+description = "CLI binary for Atalanta mobile testing framework"
 
 [[bin]]
-name = "velocity"
+name = "atalanta"
 path = "src/main.rs"
 
 [dependencies]
-velocity-common = { workspace = true }
-velocity-android = { workspace = true }
-velocity-ios = { workspace = true }
-velocity-core = { workspace = true }
-velocity-runner = { workspace = true }
-velocity-mcp = { workspace = true }
-velocity-migrate = { workspace = true }
-velocity-inspector = { workspace = true }
-velocity-headless = { workspace = true }
-velocity-flutter-bridge = { workspace = true }
-velocity-web = { workspace = true }
-velocity-nl = { workspace = true }
-velocity-doctor = { workspace = true }
+atalanta-common = { workspace = true }
+atalanta-android = { workspace = true }
+atalanta-ios = { workspace = true }
+atalanta-core = { workspace = true }
+atalanta-runner = { workspace = true }
+atalanta-mcp = { workspace = true }
+atalanta-migrate = { workspace = true }
+atalanta-inspector = { workspace = true }
+atalanta-headless = { workspace = true }
+atalanta-flutter-bridge = { workspace = true }
+atalanta-web = { workspace = true }
+atalanta-nl = { workspace = true }
+atalanta-doctor = { workspace = true }
 serde_yaml = { workspace = true }
-velocity-explore = { workspace = true }
-velocity-api = { workspace = true }
+atalanta-explore = { workspace = true }
+atalanta-api = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

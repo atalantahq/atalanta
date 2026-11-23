@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, NaturalKind, Result};
 use serde_json::{json, Value};
-use velocity_common::{NaturalKind, Result, VelocityError};
 
 use crate::checker::{
     check_prompt, check_schema, image_media_type, CheckAnswer, CheckRequest, ScreenChecker,
@@ -13,15 +13,15 @@ use crate::planner::{
     REFUSED_REPLY,
 };
 
-/// Override with `VELOCITY_NL_API_URL` (a proxy, or a local mock in tests).
+/// Override with `ATALANTA_NL_API_URL` (a proxy, or a local mock in tests).
 pub const API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-/// Override with `VELOCITY_NL_MODEL`. Provisional (see
+/// Override with `ATALANTA_NL_MODEL`. Provisional (see
 /// [`crate::provider::ANTHROPIC_STEP_MODEL`]): picking one element is
 /// classification-shaped, so the default is the small model, not Opus.
 pub const DEFAULT_MODEL: &str = crate::provider::ANTHROPIC_STEP_MODEL;
 /// Picking one element from a list is classification-shaped work, so low effort
-/// is the default. Override with `VELOCITY_NL_EFFORT`.
+/// is the default. Override with `ATALANTA_NL_EFFORT`.
 const DEFAULT_EFFORT: &str = "low";
 /// Server-side refusal fallback (Claude API): re-runs a declined request on the
 /// recommended fallback model instead of failing the step.
@@ -127,28 +127,28 @@ const VERTEX_ANTHROPIC_VERSION: &str = "vertex-2023-10-16";
 
 impl AnthropicPlanner {
     /// Build a planner from the environment: `ANTHROPIC_API_KEY` (required),
-    /// `VELOCITY_NL_MODEL` and `VELOCITY_NL_EFFORT` (optional).
+    /// `ATALANTA_NL_MODEL` and `ATALANTA_NL_EFFORT` (optional).
     pub fn from_env() -> Result<Self> {
-        let api_key = velocity_common::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-            VelocityError::Config(
+        let api_key = atalanta_common::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+            AtalantaError::Config(
                 "natural-language steps need ANTHROPIC_API_KEY to be set".to_string(),
             )
         })?;
-        let model = velocity_common::env::var("VELOCITY_NL_MODEL")
+        let model = atalanta_common::env::var("ATALANTA_NL_MODEL")
             .unwrap_or_else(|_| DEFAULT_MODEL.to_string());
         Self::new(api_key, model, None)
     }
 
     /// A planner for `model` with `api_key`. `api_url` is the Messages
-    /// endpoint (default: `VELOCITY_NL_API_URL`, else Anthropic's); the
-    /// effort still comes from `VELOCITY_NL_EFFORT`.
+    /// endpoint (default: `ATALANTA_NL_API_URL`, else Anthropic's); the
+    /// effort still comes from `ATALANTA_NL_EFFORT`.
     pub fn new(api_key: String, model: String, api_url: Option<String>) -> Result<Self> {
-        let effort = velocity_common::env::var("VELOCITY_NL_EFFORT")
+        let effort = atalanta_common::env::var("ATALANTA_NL_EFFORT")
             .unwrap_or_else(|_| DEFAULT_EFFORT.to_string());
         // A bad level would 400 on every step; say so once, at startup.
         check_effort(&model, &effort)?;
         let api_url = api_url
-            .or_else(|| velocity_common::env::var("VELOCITY_NL_API_URL").ok())
+            .or_else(|| atalanta_common::env::var("ATALANTA_NL_API_URL").ok())
             .unwrap_or_else(|| API_URL.to_string());
         check_http_url("the Anthropic API", &api_url)?;
         let client = reqwest::Client::builder()
@@ -157,7 +157,7 @@ impl AnthropicPlanner {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(limits_for(&effort).0)
             .build()
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
         Ok(Self {
             client,
             api_url,
@@ -192,7 +192,7 @@ impl AnthropicPlanner {
     /// True if `ANTHROPIC_API_KEY` is present — lets callers enable NL mode
     /// automatically without failing when it isn't configured.
     pub fn is_configured() -> bool {
-        velocity_common::env::var("ANTHROPIC_API_KEY").is_ok()
+        atalanta_common::env::var("ANTHROPIC_API_KEY").is_ok()
     }
 
     fn user_prompt(req: &PlanRequest<'_>) -> String {
@@ -398,7 +398,7 @@ impl AnthropicPlanner {
             cache_read = usage["cache_read_input_tokens"].as_u64(),
             cache_write = usage["cache_creation_input_tokens"].as_u64(),
             output = usage["output_tokens"].as_u64(),
-            "velocity-nl: planner usage"
+            "atalanta-nl: planner usage"
         );
 
         match parsed["stop_reason"].as_str() {
@@ -409,12 +409,12 @@ impl AnthropicPlanner {
                     .as_str()
                     .map(|c| format!(" (refusal category: {c})"))
                     .unwrap_or_default();
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{REFUSED_REPLY}: {what:?}{category}"
                 )));
             }
             Some("max_tokens") => {
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "{OUT_OF_TOKENS_REPLY} for step {what:?}"
                 )))
             }
@@ -435,7 +435,7 @@ impl AnthropicPlanner {
             .unwrap_or_default();
 
         if reply.trim().is_empty() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "planner returned empty content for step {what:?}"
             )));
         }
@@ -485,7 +485,7 @@ impl AnthropicPlanner {
                             // login page, a wrong base URL): a setup problem.
                             Ok(text) => {
                                 return serde_json::from_str(&text).map_err(|e| {
-                                    VelocityError::Config(format!(
+                                    AtalantaError::Config(format!(
                                         "{} answered 200 with something that isn't a Messages \
                                          response ({e}); check the base URL",
                                         self.api_url
@@ -507,12 +507,12 @@ impl AnthropicPlanner {
                             // 429 is still the service's failure, not a config
                             // mistake (exit 2).
                             return Err(if is_retryable(status) {
-                                VelocityError::ServiceUnavailable {
+                                AtalantaError::ServiceUnavailable {
                                     service: "Anthropic API".into(),
                                     detail: msg,
                                 }
                             } else {
-                                VelocityError::Config(msg)
+                                AtalantaError::Config(msg)
                             });
                         }
                         last_err = format!("Anthropic API error {status}: {text}");
@@ -529,11 +529,11 @@ impl AnthropicPlanner {
                 if attempt_budget(started.elapsed() + delay, limits).is_none() {
                     break;
                 }
-                tracing::warn!(attempt, ?delay, "velocity-nl: {last_err}; retrying");
+                tracing::warn!(attempt, ?delay, "atalanta-nl: {last_err}; retrying");
                 tokio::time::sleep(delay).await;
             }
         }
-        Err(VelocityError::ServiceUnavailable {
+        Err(AtalantaError::ServiceUnavailable {
             service: "Anthropic API".into(),
             detail: format!("{last_err} (gave up after {:.0?})", started.elapsed()),
         })
@@ -563,18 +563,18 @@ fn effort_levels(model: &str) -> Option<&'static [&'static str]> {
         .map(|(_, levels)| *levels)
 }
 
-/// `VELOCITY_NL_EFFORT` must be a level the API knows and, when the model
+/// `ATALANTA_NL_EFFORT` must be a level the API knows and, when the model
 /// takes effort, one it accepts.
 fn check_effort(model: &str, effort: &str) -> Result<()> {
     if !EFFORT_LEVELS.contains(&effort) {
-        return Err(VelocityError::Config(format!(
-            "VELOCITY_NL_EFFORT={effort:?} is not one of {}",
+        return Err(AtalantaError::Config(format!(
+            "ATALANTA_NL_EFFORT={effort:?} is not one of {}",
             EFFORT_LEVELS.join(", ")
         )));
     }
     match effort_levels(model) {
-        Some(levels) if !levels.contains(&effort) => Err(VelocityError::Config(format!(
-            "VELOCITY_NL_EFFORT={effort} isn't supported by {model} (it takes {})",
+        Some(levels) if !levels.contains(&effort) => Err(AtalantaError::Config(format!(
+            "ATALANTA_NL_EFFORT={effort} isn't supported by {model} (it takes {})",
             levels.join(", ")
         ))),
         _ => Ok(()),
@@ -587,7 +587,7 @@ pub(crate) fn check_http_url(service: &str, url: &str) -> Result<()> {
     if url.starts_with("http://") || url.starts_with("https://") {
         Ok(())
     } else {
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "the {service} URL {url:?} must start with http:// or https://"
         )))
     }
@@ -739,7 +739,7 @@ impl ScreenChecker for AnthropicPlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Platform;
+    use atalanta_common::Platform;
 
     fn planner(model: &str) -> AnthropicPlanner {
         AnthropicPlanner {
@@ -1141,7 +1141,7 @@ mod tests {
         let e = mocked(url).plan(&req(None)).await.unwrap_err();
         // Review MINOR 12: still the service's failure, not a config error.
         assert!(
-            matches!(e, VelocityError::ServiceUnavailable { .. }),
+            matches!(e, AtalantaError::ServiceUnavailable { .. }),
             "{e:?}"
         );
         assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), 1);

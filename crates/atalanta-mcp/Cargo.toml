@@ -1,6 +1,6 @@
 [package]
-# `velocity-mcp` is taken on crates.io; the library keeps its name.
-name = "velocity-mcp-server"
+# `atalanta-mcp` is taken on crates.io; the library keeps its name.
+name = "atalanta-mcp-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,15 +11,15 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["mcp", "testing", "mobile", "ai", "automation"]
 categories = ["development-tools::testing"]
-description = "MCP server for Velocity: AI-accessible mobile automation tools"
+description = "MCP server for Atalanta: AI-accessible mobile automation tools"
 
 [lib]
-name = "velocity_mcp"
+name = "atalanta_mcp"
 
 [dependencies]
-velocity-common = { workspace = true }
-velocity-core = { workspace = true }
-velocity-inspector = { workspace = true }
+atalanta-common = { workspace = true }
+atalanta-core = { workspace = true }
+atalanta-inspector = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -27,8 +27,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 base64 = { workspace = true }
 anyhow = { workspace = true }
-velocity-runner = { workspace = true }
-velocity-doctor = { workspace = true }
+atalanta-runner = { workspace = true }
+atalanta-doctor = { workspace = true }
 async-trait = { workspace = true }
 serde_yaml = { workspace = true }
 reqwest = { workspace = true }
@@ -39,7 +39,7 @@ toml_edit = "0.25"
 libc = { workspace = true }
 
 [dev-dependencies]
-velocity-headless = { workspace = true }
+atalanta-headless = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

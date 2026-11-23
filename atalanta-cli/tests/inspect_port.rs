@@ -1,4 +1,4 @@
-//! `velocity inspect` on a port in use: a config error (exit 2) before any
+//! `atalanta inspect` on a port in use: a config error (exit 2) before any
 //! device work, and never a "running at" line (VEL-171, VEL-173).
 #![cfg(unix)]
 
@@ -27,7 +27,7 @@ fn a_port_in_use_fails_before_running_is_printed() {
         bin.display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let out = Command::new(env!("CARGO_BIN_EXE_velocity"))
+    let out = Command::new(env!("CARGO_BIN_EXE_atalanta"))
         .args([
             "inspect",
             "--platform",
@@ -37,7 +37,7 @@ fn a_port_in_use_fails_before_running_is_printed() {
         ])
         .args(["--port", &port.to_string()])
         .env("PATH", path)
-        .env("VELOCITY_ADB_PATH", bin.join("adb"))
+        .env("ATALANTA_ADB_PATH", bin.join("adb"))
         .env("NO_COLOR", "1")
         .output()
         .unwrap();

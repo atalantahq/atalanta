@@ -34,12 +34,12 @@ final class AnimationTracker {
         Self.swizzle(
             cls: CALayer.self,
             original: #selector(CALayer.add(_:forKey:)),
-            replacement: #selector(CALayer.velocity_addAnimation(_:forKey:))
+            replacement: #selector(CALayer.atalanta_addAnimation(_:forKey:))
         )
         Self.swizzle(
             cls: CALayer.self,
             original: #selector(CALayer.removeAllAnimations),
-            replacement: #selector(CALayer.velocity_removeAllAnimations)
+            replacement: #selector(CALayer.atalanta_removeAllAnimations)
         )
 
         // Display link for periodic reconciliation
@@ -114,13 +114,13 @@ final class AnimationTracker {
 }
 
 extension CALayer {
-    @objc func velocity_addAnimation(_ animation: CAAnimation, forKey key: String?) {
+    @objc func atalanta_addAnimation(_ animation: CAAnimation, forKey key: String?) {
         AnimationTracker.shared?.trackLayer(self)
-        velocity_addAnimation(animation, forKey: key) // calls original (swizzled)
+        atalanta_addAnimation(animation, forKey: key) // calls original (swizzled)
     }
 
-    @objc func velocity_removeAllAnimations() {
-        velocity_removeAllAnimations() // calls original
+    @objc func atalanta_removeAllAnimations() {
+        atalanta_removeAllAnimations() // calls original
         AnimationTracker.shared?.untrackLayer(self)
     }
 }

@@ -23,7 +23,7 @@ pub struct FlutterBridgeConfig {
     pub device_pixel_ratio: Option<f64>,
     /// `assertVisible` also requires a tap at the element's centre to reach
     /// it (Patrol's and flutter_driver's rule), so a widget under an overlay
-    /// is not visible. Unset: `VELOCITY_FLUTTER_HIT_VISIBILITY=1`, else off.
+    /// is not visible. Unset: `ATALANTA_FLUTTER_HIT_VISIBILITY=1`, else off.
     #[serde(default)]
     pub hit_test_visibility: Option<bool>,
     /// Directory for golden file baselines.
@@ -32,7 +32,7 @@ pub struct FlutterBridgeConfig {
     /// TCP port for communication with the Dart test process.
     #[serde(default = "default_port")]
     pub port: u16,
-    /// Which tree the bridge exports. Unset: `VELOCITY_FLUTTER_HIERARCHY`,
+    /// Which tree the bridge exports. Unset: `ATALANTA_FLUTTER_HIERARCHY`,
     /// else `semantics` (D-15).
     #[serde(default)]
     pub hierarchy: Option<HierarchyMode>,
@@ -68,7 +68,7 @@ impl std::str::FromStr for HierarchyMode {
     }
 }
 
-/// `VELOCITY_FLUTTER_HIERARCHY` read like the suite's `flutter.hierarchy`
+/// `ATALANTA_FLUTTER_HIERARCHY` read like the suite's `flutter.hierarchy`
 /// (any case, spaces trimmed), with a warning for a value that is neither
 /// mode: it used to select semantics silently, so `Widgets` or `widget`
 /// opted nothing out.
@@ -81,7 +81,7 @@ fn mode_from_env(value: Option<&str>) -> (HierarchyMode, Option<String>) {
         Err(_) => (
             HierarchyMode::Semantics,
             Some(format!(
-                "VELOCITY_FLUTTER_HIERARCHY={v:?} is neither `semantics` nor `widgets`; semantics is used"
+                "ATALANTA_FLUTTER_HIERARCHY={v:?} is neither `semantics` nor `widgets`; semantics is used"
             )),
         ),
     }
@@ -96,13 +96,13 @@ pub const MIN_FLUTTER: (u32, u32) = (3, 19);
 /// The warning `hierarchy: widgets` gives (D-15).
 pub const WIDGETS_DEPRECATED: &str = "flutter hierarchy `widgets` is deprecated: headless Flutter \
      now matches the semantics tree by default, as the device drivers do. Remove \
-     `hierarchy: widgets` (and VELOCITY_FLUTTER_HIERARCHY=widgets) and select by \
+     `hierarchy: widgets` (and ATALANTA_FLUTTER_HIERARCHY=widgets) and select by \
      Semantics labels or `Semantics(identifier:)`";
 
 impl FlutterBridgeConfig {
     pub fn hit_test_visibility(&self) -> bool {
         self.hit_test_visibility.unwrap_or_else(|| {
-            velocity_common::env::var("VELOCITY_FLUTTER_HIT_VISIBILITY").is_ok_and(|v| v == "1")
+            atalanta_common::env::var("ATALANTA_FLUTTER_HIT_VISIBILITY").is_ok_and(|v| v == "1")
         })
     }
 
@@ -111,7 +111,7 @@ impl FlutterBridgeConfig {
             return mode;
         }
         mode_from_env(
-            velocity_common::env::var("VELOCITY_FLUTTER_HIERARCHY")
+            atalanta_common::env::var("ATALANTA_FLUTTER_HIERARCHY")
                 .ok()
                 .as_deref(),
         )
@@ -124,9 +124,9 @@ impl FlutterBridgeConfig {
     /// non-positive ratio, or a project on a Flutter SDK older than
     /// [`MIN_FLUTTER`] (D-41).
     pub fn from_suite(
-        suite: &velocity_common::SuiteConfig,
-    ) -> velocity_common::Result<(Self, Vec<String>)> {
-        use velocity_common::VelocityError;
+        suite: &atalanta_common::SuiteConfig,
+    ) -> atalanta_common::Result<(Self, Vec<String>)> {
+        use atalanta_common::AtalantaError;
         let mut config = Self::default();
         let mut warnings = Vec::new();
         if let Some(hc) = &suite.headless {
@@ -138,7 +138,7 @@ impl FlutterBridgeConfig {
             }
             if let Some(dpr) = hc.device_pixel_ratio {
                 if !(dpr.is_finite() && dpr > 0.0) {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "headless.devicePixelRatio must be a positive number, got {dpr}"
                     )));
                 }
@@ -166,13 +166,13 @@ impl FlutterBridgeConfig {
                 config.port = p;
             }
             if let Some(h) = &fc.hierarchy {
-                config.hierarchy = Some(h.parse().map_err(VelocityError::Config)?);
+                config.hierarchy = Some(h.parse().map_err(AtalantaError::Config)?);
             }
         }
         if config.hierarchy.is_none() {
             warnings.extend(
                 mode_from_env(
-                    velocity_common::env::var("VELOCITY_FLUTTER_HIERARCHY")
+                    atalanta_common::env::var("ATALANTA_FLUTTER_HIERARCHY")
                         .ok()
                         .as_deref(),
                 )
@@ -184,7 +184,7 @@ impl FlutterBridgeConfig {
         }
         if config.golden_dir.is_some() {
             // Read from the suite but used by nothing: a golden comparison
-            // here is `assertScreenshot`, with Velocity's own baselines.
+            // here is `assertScreenshot`, with Atalanta's own baselines.
             warnings.push(
                 "flutter.goldenDir has no effect: the Flutter bridge compares nothing against \
                  golden files (use `assertScreenshot`)"
@@ -230,7 +230,7 @@ fn parse_version(v: &str) -> Option<(u32, u32)> {
 /// A config error naming the upgrade when `version` is older than
 /// [`MIN_FLUTTER`] (D-41). An unknown version (unparsable, or
 /// `0.0.0-unknown`) skips the check: it never fails a run.
-pub fn check_flutter_floor(version: &str) -> velocity_common::Result<()> {
+pub fn check_flutter_floor(version: &str) -> atalanta_common::Result<()> {
     let parsed = parse_version(version);
     if parsed.is_none() {
         tracing::debug!(
@@ -240,7 +240,7 @@ pub fn check_flutter_floor(version: &str) -> velocity_common::Result<()> {
         );
     }
     match parsed {
-        Some(v) if v < MIN_FLUTTER => Err(velocity_common::VelocityError::Config(format!(
+        Some(v) if v < MIN_FLUTTER => Err(atalanta_common::AtalantaError::Config(format!(
             "headless Flutter needs Flutter {}.{} or newer (Semantics identifiers, which `id:` \
              matches); this project was built with Flutter {version}. Upgrade with \
              `flutter upgrade` (or pin a {}.{}+ SDK in CI), then run `flutter pub get`",
@@ -286,7 +286,7 @@ impl Default for FlutterBridgeConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{FlutterYamlConfig, HeadlessYamlConfig, SuiteConfig};
+    use atalanta_common::{FlutterYamlConfig, HeadlessYamlConfig, SuiteConfig};
 
     fn suite(project: &std::path::Path, hierarchy: Option<&str>) -> SuiteConfig {
         SuiteConfig {
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn semantics_is_the_default_and_widgets_warns() {
         // D-15. Holds unless the environment opts out.
-        if std::env::var_os("VELOCITY_FLUTTER_HIERARCHY").is_some() {
+        if std::env::var_os("ATALANTA_FLUTTER_HIERARCHY").is_some() {
             return;
         }
         let dir = std::env::temp_dir();
@@ -322,7 +322,7 @@ mod tests {
         );
 
         let err = FlutterBridgeConfig::from_suite(&suite(&dir, Some("tree"))).unwrap_err();
-        assert!(matches!(err, velocity_common::VelocityError::Config(m) if m.contains("tree")));
+        assert!(matches!(err, atalanta_common::AtalantaError::Config(m) if m.contains("tree")));
     }
 
     #[test]
@@ -332,7 +332,7 @@ mod tests {
         std::fs::create_dir_all(dir.join(".dart_tool")).unwrap();
         std::fs::write(dir.join(".dart_tool/version"), "3.16.9\n").unwrap();
         let err = FlutterBridgeConfig::from_suite(&suite(&dir, None)).unwrap_err();
-        let velocity_common::VelocityError::Config(m) = err else {
+        let atalanta_common::AtalantaError::Config(m) = err else {
             panic!("{err:?}");
         };
         assert!(

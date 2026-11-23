@@ -3,40 +3,40 @@
 //! The Rule of Two (docs/SECURITY.md §9) promises the default profile
 //! passes no secret the user didn't list. A suite is more than a list of
 //! taps: `${NAME}` reads any variable of the environment, `${keychain:NAME}`
-//! any `velocity` keychain entry, and an `http` step, a `goto`, a mock, a
+//! any `atalanta` keychain entry, and an `http` step, a `goto`, a mock, a
 //! selector or a natural-language prompt can carry the value anywhere
 //! (review 05 #1). So a suite the agent wrote may read:
 //!
 //! - the names its own `http` steps capture, anywhere;
-//! - a secret the user allowed (`VELOCITY_SECRETS`, as `act {secret}`),
+//! - a secret the user allowed (`ATALANTA_SECRETS`, as `act {secret}`),
 //!   directly or as `keychain:`/`totp:`, only where it is typed into the
 //!   device (`inputText`, `inputRaw`, a natural step's `data`): the same
 //!   reach `act {secret}` has;
 //!
 //! and nothing else. It may not pick the AI provider, its key variable or
 //! its endpoint (`config.ai` keeps `model`, `exploreModel` and `images`),
-//! nor serve a host file as a mock. Its `velocity run` child also gets
+//! nor serve a host file as a mock. Its `atalanta run` child also gets
 //! only the environment a run needs ([`child_env`]), so what this check
 //! misses still finds nothing to read. A suite the user saved and passes as
 //! `suite` (a path inside the project) is theirs and runs as written.
 
 use std::collections::BTreeSet;
 
-use velocity_common::{Action, TestSuite};
+use atalanta_common::{Action, TestSuite};
 
 /// Why the agent-written `suite` may not run outside `--profile full`, or
 /// `None` when it may.
 pub fn refusal(suite: &TestSuite) -> Option<String> {
     let mut why = Vec::new();
-    let captured = velocity_core::env::captured_names(suite);
+    let captured = atalanta_core::env::captured_names(suite);
     let mut read: BTreeSet<String> = BTreeSet::new();
     let mut sent: BTreeSet<String> = BTreeSet::new();
-    for p in velocity_core::env::placeholders(suite) {
+    for p in atalanta_core::env::placeholders(suite) {
         if captured.contains(&p.name) {
             continue;
         }
         let base = base_name(&p.name);
-        if !velocity_common::redact::is_allowed_secret_name(base) {
+        if !atalanta_common::redact::is_allowed_secret_name(base) {
             read.insert(p.name);
         } else if !p.typed {
             sent.insert(p.name);
@@ -45,7 +45,7 @@ pub fn refusal(suite: &TestSuite) -> Option<String> {
     if !read.is_empty() {
         why.push(format!(
             "it reads {} from the server's environment or keychain; a suite passed as `yaml` may \
-             only read the names its http steps capture, and secrets listed in VELOCITY_SECRETS \
+             only read the names its http steps capture, and secrets listed in ATALANTA_SECRETS \
              (write other values literally)",
             braced(&read)
         ));
@@ -280,7 +280,7 @@ fn braced(names: &BTreeSet<String>) -> String {
         .join(", ")
 }
 
-/// Variables a `velocity run` child needs whatever the suite: the system's
+/// Variables a `atalanta run` child needs whatever the suite: the system's
 /// own, the devices' toolchains, proxies, and the AI providers' (which only
 /// go to the provider the user configured, as an agent-written suite can't
 /// pick it).
@@ -326,7 +326,7 @@ const PASS_EXACT: &[&str] = &[
     "PATHEXT",
     "ProgramData",
     "ProgramFiles",
-    // AI providers (velocity-nl's presets).
+    // AI providers (atalanta-nl's presets).
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
@@ -365,10 +365,10 @@ const PASS_EXACT: &[&str] = &[
     "VERTEX_LOCATION",
 ];
 
-/// Prefixes passed whole: Velocity's own settings, the Android SDK and
+/// Prefixes passed whole: Atalanta's own settings, the Android SDK and
 /// adb, locales, XDG dirs, Azure OpenAI.
 const PASS_PREFIX: &[&str] = &[
-    "VELOCITY_",
+    "ATALANTA_",
     "ANDROID_",
     "ADB_",
     "LC_",
@@ -381,13 +381,13 @@ const PASS_PREFIX: &[&str] = &[
 pub fn passes(name: &str) -> bool {
     PASS_EXACT.contains(&name)
         || PASS_PREFIX.iter().any(|p| name.starts_with(p))
-        || velocity_common::redact::is_allowed_secret_name(name)
+        || atalanta_common::redact::is_allowed_secret_name(name)
 }
 
-/// The environment for a `velocity run` child of an agent-written suite:
+/// The environment for a `atalanta run` child of an agent-written suite:
 /// this process's, kept to the variables that [`passes`].
 /// It also refuses cloud-metadata destinations to the suite's `http`
-/// steps (`velocity_api::guard`, audit 2026-11 MCP-5).
+/// steps (`atalanta_api::guard`, audit 2026-11 MCP-5).
 pub fn child_env() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
     let mut env: Vec<_> = std::env::vars_os()
         .filter(|(k, _)| k.to_str().is_some_and(passes))
@@ -397,16 +397,16 @@ pub fn child_env() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
     env
 }
 
-/// `velocity_api::guard::BLOCK_METADATA_ENV` (this crate doesn't link
-/// velocity-api; keep the two equal).
-pub const BLOCK_METADATA_ENV: &str = "VELOCITY_HTTP_BLOCK_METADATA";
+/// `atalanta_api::guard::BLOCK_METADATA_ENV` (this crate doesn't link
+/// atalanta-api; keep the two equal).
+pub const BLOCK_METADATA_ENV: &str = "ATALANTA_HTTP_BLOCK_METADATA";
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn suite(yaml: &str) -> TestSuite {
-        velocity_core::parser::parse_suite_from_str(yaml).unwrap()
+        atalanta_core::parser::parse_suite_from_str(yaml).unwrap()
     }
 
     #[test]
@@ -441,9 +441,9 @@ tests:
 
     #[test]
     fn an_allowed_secret_may_be_typed_but_not_sent() {
-        // VELOCITY_SECRETS is read once per process; register the name the
+        // ATALANTA_SECRETS is read once per process; register the name the
         // way a suite that used it as a secret does.
-        velocity_common::redact::register_secret_name("VEL_MCP_AUTHORED_PW");
+        atalanta_common::redact::register_secret_name("VEL_MCP_AUTHORED_PW");
         let typed = suite(
             r#"
 appId: x
@@ -655,7 +655,7 @@ tests:
         for name in [
             "PATH",
             "HOME",
-            "VELOCITY_ADB_PATH",
+            "ATALANTA_ADB_PATH",
             "ANDROID_HOME",
             "LC_ALL",
             "ANTHROPIC_API_KEY",
@@ -671,7 +671,7 @@ tests:
         ] {
             assert!(!passes(name), "{name}");
         }
-        velocity_common::redact::register_secret_name("VEL_MCP_CHILD_ALLOWED");
+        atalanta_common::redact::register_secret_name("VEL_MCP_CHILD_ALLOWED");
         assert!(passes("VEL_MCP_CHILD_ALLOWED"));
     }
 }

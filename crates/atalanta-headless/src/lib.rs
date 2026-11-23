@@ -1,4 +1,4 @@
-//! Velocity Headless Renderer
+//! Atalanta Headless Renderer
 //!
 //! CPU-only rendering engine for Android XML layouts and iOS XIB/Storyboard files.
 //! Enables layout assertions in ~50ms without emulators or simulators.
@@ -12,8 +12,8 @@
 //! # Usage
 //!
 //! ```rust,ignore
-//! use velocity_headless::HeadlessDriver;
-//! use velocity_common::Platform;
+//! use atalanta_headless::HeadlessDriver;
+//! use atalanta_common::Platform;
 //!
 //! let driver = HeadlessDriver::new(Platform::Android, HeadlessConfig::default());
 //! ```

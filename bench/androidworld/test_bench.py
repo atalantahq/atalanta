@@ -12,7 +12,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import run  # pylint: disable=g-import-not-at-top
-import velocity_agent  # pylint: disable=g-import-not-at-top
+import atalanta_agent  # pylint: disable=g-import-not-at-top
 
 
 def _row(task, i, success, exception=False, outcome='success', cost=0.1, steps=4):
@@ -20,7 +20,7 @@ def _row(task, i, success, exception=False, outcome='success', cost=0.1, steps=4
       'key': f'{task}#{i}', 'task': task, 'instance': i,
       'success': None if exception else success, 'exception': exception,
       'outcome': outcome, 'steps': steps, 'budget_steps': 10,
-      'wall_seconds': 10.0, 'velocity_seconds': 8.0, 'input_tokens': 1000,
+      'wall_seconds': 10.0, 'atalanta_seconds': 8.0, 'input_tokens': 1000,
       'output_tokens': 100, 'model_calls': 5, 'cost_usd': cost,
       'difficulty': 'easy', 'app': 'clock', 'reason': '', 'error': None,
   }
@@ -43,7 +43,7 @@ def test_official_rate_averages_templates_and_skips_exceptions():
     assert abs(s['success_rate_strict'] - 0.5) < 1e-9
     assert s['exceptions'] == 1
     assert abs(s['total_cost_usd'] - 0.4) < 1e-9
-    assert (out / 'summary.md').read_text().startswith('# AndroidWorld x Velocity')
+    assert (out / 'summary.md').read_text().startswith('# AndroidWorld x Atalanta')
 
 
 def test_a_credit_without_the_agent_saying_done_is_not_counted():
@@ -79,16 +79,16 @@ def test_price_defaults_to_list_price_and_flag_wins():
 
 
 def test_done_outcomes_are_the_agents_own_stops():
-  assert 'success' in velocity_agent.DONE_OUTCOMES
-  assert 'gaveUp' in velocity_agent.DONE_OUTCOMES
+  assert 'success' in atalanta_agent.DONE_OUTCOMES
+  assert 'gaveUp' in atalanta_agent.DONE_OUTCOMES
   for not_done in ('budgetExhausted', 'timedOut', 'stuck', 'failed', 'error'):
-    assert not_done not in velocity_agent.DONE_OUTCOMES
+    assert not_done not in atalanta_agent.DONE_OUTCOMES
 
 
 def test_a_repeated_step_keeps_the_agents_verdict():
   # AndroidWorld calls step() again after the episode; a run that ran out of
   # turns must not turn into done=True there (it was credited 1.0 once).
-  agent = object.__new__(velocity_agent.VelocityAgent)
+  agent = object.__new__(atalanta_agent.AtalantaAgent)
   agent._ran = True  # pylint: disable=protected-access
   agent._done = False  # pylint: disable=protected-access
   assert agent.step('goal').done is False
@@ -97,8 +97,8 @@ def test_a_repeated_step_keeps_the_agents_verdict():
 
 
 def test_json_report_is_parsed_even_after_noise():
-  assert velocity_agent._parse_json('noise {"report": {"outcome": "success"}}')['report']['outcome'] == 'success'  # pylint: disable=protected-access
-  assert velocity_agent._parse_json('') is None  # pylint: disable=protected-access
+  assert atalanta_agent._parse_json('noise {"report": {"outcome": "success"}}')['report']['outcome'] == 'success'  # pylint: disable=protected-access
+  assert atalanta_agent._parse_json('') is None  # pylint: disable=protected-access
 
 
 def test_resume_runs_exceptions_again_and_the_latest_row_wins():
@@ -114,8 +114,8 @@ def test_resume_runs_exceptions_again_and_the_latest_row_wins():
 
 
 def test_infra_failures_are_not_agent_outcomes():
-  for o in velocity_agent.INFRA_OUTCOMES:
-    assert o not in velocity_agent.DONE_OUTCOMES
+  for o in atalanta_agent.INFRA_OUTCOMES:
+    assert o not in atalanta_agent.DONE_OUTCOMES
 
 
 def test_watchdog_turns_a_hang_into_an_exception():

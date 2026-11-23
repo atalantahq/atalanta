@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Velocity is pre-1.0. Security fixes go into the latest minor release line only.
+Atalanta is pre-1.0. Security fixes go into the latest minor release line only.
 
 | Version | Supported |
 | ------- | --------- |
@@ -26,10 +26,10 @@ Report it privately through GitHub's private vulnerability reporting:
 
 Only the maintainers can see the report. Please include:
 
-- the Velocity version (`velocity --version`) and how you installed it
+- the Atalanta version (`atalanta --version`) and how you installed it
   (release archive, Homebrew, npm, `cargo install`, source build);
 - the platform: host OS, and the device, simulator, emulator or browser involved;
-- the component, for example the `velocity inspect` console, the MCP server,
+- the component, for example the `atalanta inspect` console, the MCP server,
   the Android tree or video server, the iOS runner, the web driver, AI
   provider calls, or report and artifact output;
 - steps to reproduce, or a proof of concept, and the impact you expect
@@ -58,13 +58,13 @@ named.
 ## Scope
 
 In scope: code in this repository and the artifacts built from it, which are
-the `velocity` binary, the release archives and installers, the embedded
-Android tree and video server (`velocity-tree.jar`), the iOS VelocityRunner,
+the `atalanta` binary, the release archives and installers, the embedded
+Android tree and video server (`atalanta-tree.jar`), the iOS AtalantaRunner,
 the in-app sync probes and the Flutter bridge. Examples:
 
 - a way for a web page, another user on the same machine, or a host on the
   network to drive a device, read the screen, run commands, or read or
-  write files through any server Velocity starts. These are the inspector
+  write files through any server Atalanta starts. These are the inspector
   console, the tree, video and sync servers, the iOS runner, and their
   `adb`/usbmuxd port forwards;
 - bypassing the inspector's token, `Host` or `Origin` checks;
@@ -78,9 +78,9 @@ the in-app sync probes and the Flutter bridge. Examples:
 
 Out of scope:
 
-- what the system under test does. Velocity drives the app you point it at,
+- what the system under test does. Atalanta drives the app you point it at,
   with the access the device grants (`adb` shell, XCTest, Chrome DevTools).
-  Someone who can already run `adb`, `xcrun` or Velocity commands as you
+  Someone who can already run `adb`, `xcrun` or Atalanta commands as you
   already has that control;
 - risks the documentation describes as accepted, such as binding the
   inspector to a non-loopback address with `--host`, or a cabled iPhone's
@@ -88,7 +88,7 @@ Out of scope:
   protection those modes still have *is* in scope;
 - what AI providers do with the data you choose to send them (see
   `docs/AI-PROVIDERS.md`);
-- third-party tools Velocity calls but does not ship, such as `adb`,
+- third-party tools Atalanta calls but does not ship, such as `adb`,
   Xcode, WebDriverAgent, Chrome and the Android emulator. Please report
   those upstream;
 - denial of service that needs local access or a test suite you wrote
@@ -103,15 +103,15 @@ Out of scope:
 - `SHA256SUMS` itself is signed: the release workflow attests it through
   Sigstore (keyless, bound to `.github/workflows/release.yml` at the tag),
   and ships the signed bundle as `SHA256SUMS.sigstore.json`. Check it with
-  `gh attestation verify SHA256SUMS --repo omkar-dev/velocity`, or offline
+  `gh attestation verify SHA256SUMS --repo atalantahq/atalanta`, or offline
   with `--bundle SHA256SUMS.sigstore.json`. Since every archive and SBOM is
   listed in it, a matching checksum then vouches for the file.
-- Each release carries CycloneDX SBOMs: `velocity-<version>-velocity-cli.cdx.json`
+- Each release carries CycloneDX SBOMs: `atalanta-<version>-atalanta-cli.cdx.json`
   (every crate compiled into the binary) and
-  `velocity-<version>-inspector-frontend.cdx.json` (the embedded web UI's npm
+  `atalanta-<version>-inspector-frontend.cdx.json` (the embedded web UI's npm
   packages), attested like the archives. The binaries are built with
   `cargo auditable`, so the crate list is also embedded in the binary
-  itself: `cargo audit bin "$(command -v velocity)"` (or syft / grype,
+  itself: `cargo audit bin "$(command -v atalanta)"` (or syft / grype,
   which read the same section) checks an installed binary against
   advisories published after it was built.
 - npm packages are published with npm provenance (`npm publish --provenance`);
@@ -121,26 +121,26 @@ Out of scope:
   there is nothing to do. If the installed binary does carry the
   `com.apple.quarantine` flag, `install.sh` removes it, only after the
   checksum matched, and says so; Gatekeeper would otherwise refuse to run
-  it. Pass `--keep-quarantine` (or `VELOCITY_KEEP_QUARANTINE=1`) to leave
+  it. Pass `--keep-quarantine` (or `ATALANTA_KEEP_QUARANTINE=1`) to leave
   the flag in place and approve the binary yourself in System Settings >
   Privacy & Security. A report that a tampered binary passes this check is
   in scope.
 
 ## The Android tree server handshake
 
-The tree server Velocity starts on an Android device (protocol 18) listens
+The tree server Atalanta starts on an Android device (protocol 18) listens
 on an abstract socket whose name any app can bind. Before anything is sent,
 the host challenges it: `HELLO <nonce>`, answered with an HMAC-SHA256 of
 the nonces under a per-start token only the shell user can read. Only then
 does the host authenticate with an HMAC of its own (`AUTH`); the token never
 crosses the socket. A server that can't prove it holds the token gets
 nothing, and the host reports a squatting app. Third-party tools that talk to
-`@velocity_tree` directly must do the same handshake. The details are in
+`@atalanta_tree` directly must do the same handshake. The details are in
 `docs/SECURITY.md` section 3; a way to make the host send a command or a
 typed value to a process that never proved the token is in scope.
 
 `docs/SECURITY.md` describes the threat model for each network-facing part
-of Velocity, the defences it has, and the risks that remain.
+of Atalanta, the defences it has, and the risks that remain.
 
 ## Automated security checks
 
@@ -350,6 +350,6 @@ repository, it says so.
 - [ ] When public: **secret scanning with push protection**, CodeQL default
       setup and the rest of "If the repository goes public".
 - [ ] Tokens: fine-grained, single-repository, shortest expiry that works
-      (`HOMEBREW_TAP_TOKEN`: contents write on `omkar-dev/homebrew-velocity`
+      (`HOMEBREW_TAP_TOKEN`: contents write on `atalantahq/homebrew-tap`
       only).
 

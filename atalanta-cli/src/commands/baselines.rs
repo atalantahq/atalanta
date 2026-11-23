@@ -1,12 +1,12 @@
-//! `velocity baselines`: review the `assertScreenshot` comparisons the last
+//! `atalanta baselines`: review the `assertScreenshot` comparisons the last
 //! run failed, and accept the actual screen as the new baseline (U1).
 //!
 //! The same list the inspector's `/review` page shows (`--serve` opens it).
 //! Accepting writes the baseline file atomically; commit it afterwards.
 
+use atalanta_core::baselines::{self, PendingBaseline};
 use clap::{Args, Subcommand};
 use colored::Colorize;
-use velocity_core::baselines::{self, PendingBaseline};
 
 #[derive(Subcommand)]
 pub enum BaselinesCommand {
@@ -23,7 +23,7 @@ pub enum BaselinesCommand {
 #[derive(Args)]
 pub struct ResultsDir {
     /// The run's artifacts folder (`run --artifacts-dir`)
-    #[arg(long, default_value = "velocity-results")]
+    #[arg(long, default_value = "atalanta-results")]
     results_dir: std::path::PathBuf,
 }
 
@@ -50,7 +50,7 @@ pub struct ReviewArgs {
     #[arg(long, default_value = "127.0.0.1", requires = "serve")]
     host: std::net::IpAddr,
 
-    /// With --serve: the page's Accept writes into this `velocity-baselines`
+    /// With --serve: the page's Accept writes into this `atalanta-baselines`
     /// folder (same `<platform>/<W>x<H>/<name>.png` inside) instead of the
     /// path the run recorded: for artifacts downloaded from a CI runner
     #[arg(long, value_name = "DIR", requires = "serve")]
@@ -63,7 +63,7 @@ pub struct PickArgs {
     #[arg(value_name = "NAME|all")]
     which: String,
 
-    /// Accept into this `velocity-baselines` folder (same
+    /// Accept into this `atalanta-baselines` folder (same
     /// `<platform>/<W>x<H>/<name>.png` inside) instead of the path the run
     /// recorded: for artifacts downloaded from a CI runner
     #[arg(long, value_name = "DIR")]
@@ -84,9 +84,9 @@ pub async fn execute(command: BaselinesCommand) -> anyhow::Result<i32> {
 async fn review(args: ReviewArgs) -> anyhow::Result<i32> {
     let dir = args.dir.results_dir;
     if args.serve {
-        let listener = velocity_inspector::InspectorServer::bind_on(args.host, args.port).await?;
+        let listener = atalanta_inspector::InspectorServer::bind_on(args.host, args.port).await?;
         let addr = listener.local_addr()?;
-        let server = velocity_inspector::InspectorServer::review_only(&dir)
+        let server = atalanta_inspector::InspectorServer::review_only(&dir)
             .with_baselines_dir(args.baselines_dir);
         eprintln!(
             "{} Screenshot review for {} at {}",
@@ -120,8 +120,8 @@ async fn review(args: ReviewArgs) -> anyhow::Result<i32> {
         print_one(p);
     }
     println!(
-        "\nAccept with `velocity baselines accept <name|all>`, or open them side by side \
-         with `velocity baselines review --serve`."
+        "\nAccept with `atalanta baselines accept <name|all>`, or open them side by side \
+         with `atalanta baselines review --serve`."
     );
     Ok(0)
 }

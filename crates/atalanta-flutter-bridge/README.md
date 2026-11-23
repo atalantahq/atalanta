@@ -1,4 +1,4 @@
-# velocity-flutter-bridge
+# atalanta-flutter-bridge
 
 Rust client for driving Flutter apps in headless mode via an in-app Dart bridge.
 
@@ -11,17 +11,17 @@ it, and so never shuts it down: `stopApp` unmounts the app and the next
 ## Embedding the bridge
 
 The bridge runs inside a `flutter_test` harness (it drives the app through a
-`WidgetTester`). Add the package from `crates/velocity-flutter-bridge/dart`
+`WidgetTester`). Add the package from `crates/atalanta-flutter-bridge/dart`
 to the app's `pubspec.yaml` as a dev dependency (path dependency), then add a
 test entry point:
 
 ```dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:velocity_flutter_helper/velocity_flutter_helper.dart';
+import 'package:atalanta_flutter_helper/atalanta_flutter_helper.dart';
 import 'package:my_app/main.dart';
 
 void main() {
-  testWidgets('velocity', (tester) => VelocityBridgeServer(
+  testWidgets('atalanta', (tester) => AtalantaBridgeServer(
         port: 19600,
         appBuilder: () => const MyApp(),
         // Optional: reset fakes and mocked storage on launchApp clearState.
@@ -30,10 +30,10 @@ void main() {
 }
 ```
 
-Start it with `flutter test test/velocity_test.dart`, then run tests with:
+Start it with `flutter test test/atalanta_test.dart`, then run tests with:
 
 ```bash
-velocity run tests/ --driver headless --framework flutter
+atalanta run tests/ --driver headless --framework flutter
 ```
 
 Call `run(tester)` from the test body, not inside `tester.runAsync`: it does
@@ -48,13 +48,13 @@ never stalls a command.
 each node with its `parent`), which Rust rebuilds without recursion.
 
 - `semantics` (the default): the semantics tree, as TalkBack/VoiceOver and
-  Velocity's device drivers see it, so one YAML answers the same headless and
+  Atalanta's device drivers see it, so one YAML answers the same headless and
   on a device. Merged, hidden and invisible nodes are left out; `id` is the
   `Semantics(identifier:)` or a string `ValueKey`; `text` is the merged label
   (or a text field's value, masked when obscured). `text:` matches a button's
   merged label rather than the `Text` widget inside it.
 - `widgets` (deprecated opt-out: `flutter: { hierarchy: widgets }` in the
-  suite config or `VELOCITY_FLUTTER_HIERARCHY=widgets`; the run prints a
+  suite config or `ATALANTA_FLUTTER_HIERARCHY=widgets`; the run prints a
   warning): every on-stage widget — `text:` matches `Text` widgets, `id:`
   matches a `ValueKey`. Off-stage routes are left out, each `Text` appears
   once, and `IgnorePointer`/disabled buttons and `Opacity(0)`/`Visibility`
@@ -97,7 +97,7 @@ hierarchy's bounds.
 
 `assertVisible` uses the hierarchy's `visible` flag. With
 `hit_test_visibility: true` in the bridge config (or
-`VELOCITY_FLUTTER_HIT_VISIBILITY=1`) it also requires a tap at the element's
+`ATALANTA_FLUTTER_HIT_VISIBILITY=1`) it also requires a tap at the element's
 centre to reach it, so a widget under an overlay is not visible. This is off
 by default because it also makes `assertNotVisible` pass for a covered
 widget.

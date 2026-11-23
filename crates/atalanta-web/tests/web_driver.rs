@@ -4,8 +4,8 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, Key, MockRule, PlatformDriver, Selector};
 use common::{css, driver, eventually, find, serve, text, wait_text};
-use velocity_common::{Key, MockRule, PlatformDriver, Selector, VelocityError};
 
 const FORM: &str = r#"<!doctype html><html><body>
 <form id="f" onsubmit="event.preventDefault();document.getElementById('out').textContent='submitted:'+document.getElementById('q').value">
@@ -106,7 +106,7 @@ async fn editing_and_arrow_keys_reach_the_page() {
                 ArrowLeft/ArrowLeft,ArrowRight/ArrowRight,Tab/Tab";
     assert_eq!(wait_text(&d, "#log", want).await, want);
     let e = d.press_key("web", Key::VolumeUp).await.unwrap_err();
-    assert!(matches!(e, VelocityError::Config(_)), "{e}");
+    assert!(matches!(e, AtalantaError::Config(_)), "{e}");
     d.cleanup().await;
 }
 
@@ -142,19 +142,19 @@ async fn invalid_css_selector_is_an_error() {
     ] {
         let err = d.find_element("web", &bad).await.unwrap_err();
         assert!(
-            matches!(err, VelocityError::InvalidSelector { .. }),
+            matches!(err, AtalantaError::InvalidSelector { .. }),
             "{bad:?}: {err}"
         );
     }
     let err = d.find_elements("web", &css("div[")).await.unwrap_err();
     assert!(
-        matches!(err, VelocityError::InvalidSelector { .. }),
+        matches!(err, AtalantaError::InvalidSelector { .. }),
         "{err}"
     );
     // A valid selector that matches nothing is still "not found".
     let err = d.find_element("web", &css("#nope")).await.unwrap_err();
     assert!(
-        matches!(err, VelocityError::ElementNotFound { .. }),
+        matches!(err, AtalantaError::ElementNotFound { .. }),
         "{err}"
     );
     d.cleanup().await;
@@ -345,13 +345,13 @@ async fn an_unreachable_app_url_is_not_a_config_error() {
         .launch_app("web", &format!("http://127.0.0.1:{port}/"), false)
         .await
         .unwrap_err();
-    assert!(!matches!(err, VelocityError::Config(_)), "{err}");
+    assert!(!matches!(err, AtalantaError::Config(_)), "{err}");
     // `navigate` too (review MINOR-6): it mapped every goto error to Config.
     let err = d
         .navigate("web", &format!("http://127.0.0.1:{port}/x"))
         .await
         .unwrap_err();
-    assert!(!matches!(err, VelocityError::Config(_)), "{err}");
+    assert!(!matches!(err, AtalantaError::Config(_)), "{err}");
     d.cleanup().await;
 }
 
@@ -433,7 +433,7 @@ async fn extra_args_reach_chrome() {
         "/g.html",
         "<html><body><div id=g></div><script>document.getElementById('g').textContent=typeof gc</script></body></html>",
     )]);
-    let d = velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+    let d = atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into(), "--js-flags=--expose-gc".into()],
         ..Default::default()
@@ -465,7 +465,7 @@ async fn two_drivers_run_at_once() {
 
 const API: &str = r#"<!doctype html><html><body><div id="r">pending</div><div id="b">pending</div>
 <script>
-fetch('http://api.velocity.invalid/api/save',{method:'POST',credentials:'include',
+fetch('http://api.atalanta.invalid/api/save',{method:'POST',credentials:'include',
   headers:{'content-type':'application/json','x-token':'t'},body:'{}'})
  .then(r=>r.json()).then(j=>{document.getElementById('r').textContent='ok:'+j.saved})
  .catch(e=>{document.getElementById('r').textContent='error'});
@@ -491,7 +491,7 @@ async fn cross_origin_mocks_pass_cors_and_broken_mocks_fail() {
         },
         MockRule {
             url: "/broken".into(),
-            file: Some("/nonexistent/velocity-mock.json".into()),
+            file: Some("/nonexistent/atalanta-mock.json".into()),
             ..Default::default()
         },
     ])
@@ -547,7 +547,7 @@ async fn get_hierarchy_returns_the_tree() {
     let tree = d.get_hierarchy("web").await.unwrap();
     assert_eq!(tree.element_type, "body");
     assert!(
-        velocity_common::selector_match::find_in_tree(&tree, &Selector::Text("first".into()), None)
+        atalanta_common::selector_match::find_in_tree(&tree, &Selector::Text("first".into()), None)
             .is_some(),
         "{tree:?}"
     );
@@ -618,19 +618,19 @@ async fn input_text_into_a_div_fails() {
     let plain = find(&d, "#plain").await;
     let err = d.input_text("web", &plain, "x").await.unwrap_err();
     assert!(
-        matches!(err, VelocityError::AssertionFailed { .. }),
+        matches!(err, AtalantaError::AssertionFailed { .. }),
         "{err}"
     );
     assert!(err.to_string().contains("takes no text"), "{err}");
     let name = find(&d, "#name").await;
     d.input_text("web", &name, "ok").await.unwrap();
     // `web.focusCheck: off`: typed wherever the focus is, as before D-5.
-    let saved = velocity_common::env::settings_snapshot();
+    let saved = atalanta_common::env::settings_snapshot();
     let mut off = saved.clone();
-    off.insert("VELOCITY_WEB_FOCUS_CHECK".into(), "0".into());
-    velocity_common::env::set_settings(off);
+    off.insert("ATALANTA_WEB_FOCUS_CHECK".into(), "0".into());
+    atalanta_common::env::set_settings(off);
     let r = d.input_text("web", &plain, "x").await;
-    velocity_common::env::set_settings(saved);
+    atalanta_common::env::set_settings(saved);
     r.unwrap();
     d.cleanup().await;
 }

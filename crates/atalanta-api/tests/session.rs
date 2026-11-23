@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use atalanta_api::HttpSession;
+use atalanta_common::{AtalantaError, HttpConfig, HttpRequest};
 use serde_json::{json, Value};
-use velocity_api::HttpSession;
-use velocity_common::{HttpConfig, HttpRequest, VelocityError};
 
 struct Request {
     method: String,
@@ -188,7 +188,7 @@ fn session(base: &str) -> HttpSession {
         base_url: Some(base.to_string()),
         headers: vec![
             ("Authorization".into(), "Bearer suite-token".into()),
-            ("X-Client".into(), "velocity".into()),
+            ("X-Client".into(), "atalanta".into()),
         ],
         ..Default::default()
     })
@@ -229,7 +229,7 @@ async fn a_login_captures_its_token_and_its_cookie_goes_with_the_next_request() 
         passed.summary
     );
     // A secret-named capture is masked from now on.
-    assert!(!velocity_common::redact::redact("t=tok-0123456789abcdef").contains("0123456789"));
+    assert!(!atalanta_common::redact::redact("t=tok-0123456789abcdef").contains("0123456789"));
     // The session cookie came along.
     s.run(
         &step("url: /me\nexpect: { status: 200, json: { name: Ada } }"),
@@ -263,7 +263,7 @@ async fn every_failed_check_is_listed_with_the_body() {
         )
         .await
         .unwrap_err();
-    let VelocityError::HttpCheckFailed {
+    let AtalantaError::HttpCheckFailed {
         request,
         status,
         failures,
@@ -317,7 +317,7 @@ async fn what_is_sent_is_what_was_written() {
     s.run(
         &echo(
             "query: { b: 2, a: x y }\nheaders: { authorization: Bearer step-token }\n\
-             expect:\n  json:\n    target: /echo?first=1&b=2&a=x+y\n    auth: Bearer step-token\n    client: velocity\n",
+             expect:\n  json:\n    target: /echo?first=1&b=2&a=x+y\n    auth: Bearer step-token\n    client: atalanta\n",
         ),
         T,
     )
@@ -409,7 +409,7 @@ expect: {{ status: 307 }}"
     s.run(
         &step(&format!(
             "url: /hop?to={a}/echo
-expect: {{ status: 200, json: {{ client: velocity }} }}"
+expect: {{ status: 200, json: {{ client: atalanta }} }}"
         )),
         T,
     )
@@ -440,7 +440,7 @@ async fn no_answer_is_a_test_failure_not_the_devices() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&e, VelocityError::HttpUnreachable { detail, .. } if detail == "timed out after 100 ms"),
+        matches!(&e, AtalantaError::HttpUnreachable { detail, .. } if detail == "timed out after 100 ms"),
         "{e:?}"
     );
     assert_eq!(e.exit_code(), 1);
@@ -455,7 +455,7 @@ async fn no_answer_is_a_test_failure_not_the_devices() {
         .run(&step(&format!("url: http://{closed}/x")), T)
         .await
         .unwrap_err();
-    assert!(matches!(e, VelocityError::HttpUnreachable { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::HttpUnreachable { .. }), "{e:?}");
     // No base url for a relative one: a configuration error, never retried.
     let e = HttpSession::new(&HttpConfig::default())
         .unwrap()
@@ -491,7 +491,7 @@ async fn a_failed_step_does_not_print_the_secret_it_captured() {
         .await
         .unwrap_err();
     assert!(e.to_string().contains("zq9-sid-5f3a7c1e8b2d4096"), "{e}");
-    let shown = velocity_common::redact::redact(&e.to_string()).into_owned();
+    let shown = atalanta_common::redact::redact(&e.to_string()).into_owned();
     assert!(!shown.contains("zq9-sid-5f3a7c1e8b2d4096"), "{shown}");
 }
 

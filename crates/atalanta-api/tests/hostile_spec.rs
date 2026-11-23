@@ -6,8 +6,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
+use atalanta_api::openapi::{confirm, render, scaffold, Options, Spec};
 use serde_json::Value;
-use velocity_api::openapi::{confirm, render, scaffold, Options, Spec};
 
 const HOSTILE: &str = r##"{
   "openapi": "3.0.3",
@@ -98,7 +98,7 @@ async fn confirm_does_not_fill_a_hostile_specs_variables_from_the_environment() 
 }
 
 /// Audit of the November fixes: a spec names a parameter after a secret the
-/// user holds. The placeholder Velocity writes for it is its own (`API_…`),
+/// user holds. The placeholder Atalanta writes for it is its own (`API_…`),
 /// so `--confirm` never reads `AWS_SECRET_ACCESS_KEY` and never sends it.
 #[tokio::test]
 async fn a_parameter_named_like_an_env_secret_reads_only_an_api_variable() {

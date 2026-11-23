@@ -1,17 +1,17 @@
-//! `velocity doctor`: is this machine ready to run Velocity? The probes
-//! live in the `velocity-doctor` crate (shared with the MCP server); this
+//! `atalanta doctor`: is this machine ready to run Atalanta? The probes
+//! live in the `atalanta-doctor` crate (shared with the MCP server); this
 //! is the command around them.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
+use atalanta_doctor::{apply_safe_fixes, run_checks, Options, Platform};
 use clap::Args;
-use velocity_doctor::{apply_safe_fixes, run_checks, Options, Platform};
 
 #[derive(Args)]
 pub struct DoctorArgs {
-    /// Suite file or folder to check too [default: velocity.yaml or the
-    /// velocity/ folder here, if there is one]
+    /// Suite file or folder to check too [default: atalanta.yaml or the
+    /// atalanta/ folder here, if there is one]
     path: Option<PathBuf>,
 
     /// Print the report as JSON
@@ -69,7 +69,7 @@ pub async fn execute(args: DoctorArgs) -> anyhow::Result<i32> {
         timeout: args.timeout.max(Duration::from_millis(100)),
         ..Options::default()
     };
-    let color = velocity_common::color::enabled();
+    let color = atalanta_common::color::enabled();
 
     let mut report = Box::pin(run_checks(&opts)).await;
     let mut fixes = Vec::new();

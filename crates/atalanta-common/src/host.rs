@@ -1,5 +1,5 @@
 //! Free memory and disk on this host, and the bar a device boot must clear
-//! (`velocity devices up` refuses below it; `velocity doctor` reports
+//! (`atalanta devices up` refuses below it; `atalanta doctor` reports
 //! against it): at least ~35% and 3 GB of memory free, and 3 GB of disk.
 //! A swapping host makes every device on it flaky.
 
@@ -22,13 +22,13 @@ fn env_num(key: &str, default: f64) -> f64 {
         .unwrap_or(default)
 }
 
-/// The thresholds: `VELOCITY_MIN_FREE_MEMORY_PCT` (35),
-/// `VELOCITY_MIN_FREE_MEMORY_GB` (3), `VELOCITY_MIN_FREE_DISK_GB` (3).
+/// The thresholds: `ATALANTA_MIN_FREE_MEMORY_PCT` (35),
+/// `ATALANTA_MIN_FREE_MEMORY_GB` (3), `ATALANTA_MIN_FREE_DISK_GB` (3).
 pub fn limits() -> (f64, u64, u64) {
     (
-        env_num("VELOCITY_MIN_FREE_MEMORY_PCT", 35.0),
-        (env_num("VELOCITY_MIN_FREE_MEMORY_GB", 3.0) * GB as f64) as u64,
-        (env_num("VELOCITY_MIN_FREE_DISK_GB", 3.0) * GB as f64) as u64,
+        env_num("ATALANTA_MIN_FREE_MEMORY_PCT", 35.0),
+        (env_num("ATALANTA_MIN_FREE_MEMORY_GB", 3.0) * GB as f64) as u64,
+        (env_num("ATALANTA_MIN_FREE_DISK_GB", 3.0) * GB as f64) as u64,
     )
 }
 
@@ -98,10 +98,10 @@ fn home() -> PathBuf {
 
 /// The user's home directory: `HOME`, or, when it is unset (some CI
 /// containers and service managers), a directory of this user's own under
-/// the temp dir. Every `~/.velocity` path used to fall back to a shared
-/// `/tmp/.velocity`, which another local user could create first and own:
+/// the temp dir. Every `~/.atalanta` path used to fall back to a shared
+/// `/tmp/.atalanta`, which another local user could create first and own:
 /// its lease files, daemon socket and state then followed their symlinks
-/// (audit 2026-11 FS-1). The fallback is `velocity-home-<uid>`, made `0700`;
+/// (audit 2026-11 FS-1). The fallback is `atalanta-home-<uid>`, made `0700`;
 /// one that exists but isn't ours alone is not used, and a fresh, unique
 /// directory is made instead.
 pub fn home_dir() -> PathBuf {
@@ -121,7 +121,7 @@ fn private_tmp_home() -> PathBuf {
         std::fs::symlink_metadata(p)
             .is_ok_and(|m| m.is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
     };
-    let fixed = tmp.join(format!("velocity-home-{uid}"));
+    let fixed = tmp.join(format!("atalanta-home-{uid}"));
     let _ = std::fs::DirBuilder::new().mode(0o700).create(&fixed);
     if ours(&fixed) {
         return fixed;
@@ -131,7 +131,7 @@ fn private_tmp_home() -> PathBuf {
         fixed.display()
     );
     for n in 0u32.. {
-        let p = tmp.join(format!("velocity-home-{uid}-{}-{n}", std::process::id()));
+        let p = tmp.join(format!("atalanta-home-{uid}-{}-{n}", std::process::id()));
         if std::fs::DirBuilder::new().mode(0o700).create(&p).is_ok() && ours(&p) {
             return p;
         }
@@ -165,7 +165,7 @@ pub fn check_room(room: Room, pending: u64, limits: (f64, u64, u64)) -> Result<(
     if pct < min_pct || free < min_mem {
         return Err(format!(
             "only {pct:.0}% of memory free ({} of {}{counting}); booting needs {min_pct:.0}% and {} \
-             (VELOCITY_MIN_FREE_MEMORY_PCT / _GB lower the bar)",
+             (ATALANTA_MIN_FREE_MEMORY_PCT / _GB lower the bar)",
             gb(free),
             gb(room.total_mem),
             gb(min_mem)
@@ -173,7 +173,7 @@ pub fn check_room(room: Room, pending: u64, limits: (f64, u64, u64)) -> Result<(
     }
     if room.free_disk < min_disk {
         return Err(format!(
-            "only {} of disk free; booting needs {} (VELOCITY_MIN_FREE_DISK_GB)",
+            "only {} of disk free; booting needs {} (ATALANTA_MIN_FREE_DISK_GB)",
             gb(room.free_disk),
             gb(min_disk)
         ));
@@ -192,6 +192,6 @@ mod home_tests {
         // SAFETY: geteuid has no preconditions.
         assert_eq!(m.uid(), unsafe { libc::geteuid() });
         assert_eq!(m.mode() & 0o077, 0, "{:o}", m.mode());
-        assert!(!p.starts_with("/tmp/.velocity"));
+        assert!(!p.starts_with("/tmp/.atalanta"));
     }
 }

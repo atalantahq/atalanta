@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use atalanta_common::{DeviceInfo, DeviceState, PlatformDriver, Result};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::{debug, warn};
-use velocity_common::{DeviceInfo, DeviceState, PlatformDriver, Result};
 
 /// A pooled device that can be leased for test execution.
 #[derive(Debug, Clone)]
@@ -214,11 +214,11 @@ impl DeviceFarm {
                         continue;
                     }
                     // A web device is a browser this process starts for
-                    // itself: another Velocity process's `web-0` is a
+                    // itself: another Atalanta process's `web-0` is a
                     // different Chrome, so no cross-process lease (two
                     // concurrent `--parallel` web runs waited 5 minutes on
                     // each other's names, review-d6 m6).
-                    let lock = if d.info.platform == velocity_common::Platform::Web {
+                    let lock = if d.info.platform == atalanta_common::Platform::Web {
                         Ok(crate::lease::DeviceLock::unleased())
                     } else {
                         crate::lease::try_lock(id)
@@ -257,7 +257,7 @@ impl DeviceFarm {
             if std::time::Instant::now() >= deadline {
                 return Err(crate::runner::device_unavailable(
                     "No device",
-                    "all free devices are leased by other Velocity processes".to_string(),
+                    "all free devices are leased by other Atalanta processes".to_string(),
                 ));
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -396,7 +396,7 @@ impl DeviceFarm {
     }
 
     /// Make the next probe of every device on probation due now (tests, and
-    /// `velocity devices` diagnostics).
+    /// `atalanta devices` diagnostics).
     pub fn probe_now(&self) {
         let mut state = self.lock();
         for d in state.devices.values_mut() {
@@ -488,7 +488,7 @@ pub fn unmatched_device_filter(
 /// The shared matcher: a hand-rolled one here took the first occurrence of
 /// the pattern's last part, so `emulator-*5` never matched `emulator-5555`.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    velocity_common::glob_match(pattern, text)
+    atalanta_common::glob_match(pattern, text)
 }
 
 #[cfg(test)]
@@ -499,7 +499,7 @@ mod tests {
         DeviceInfo {
             id: id.into(),
             name: name.into(),
-            platform: velocity_common::Platform::Ios,
+            platform: atalanta_common::Platform::Ios,
             state: DeviceState::Booted,
             os_version: None,
             device_type: Default::default(),
@@ -510,8 +510,8 @@ mod tests {
     #[test]
     fn the_device_filter_rule_is_the_farms() {
         let devs = vec![
-            dev("290403AA-1111", "velocity iPhone 17 Pro 1"),
-            dev("A1B2C3D4-2222", "velocity iPhone 17 Pro 2"),
+            dev("290403AA-1111", "atalanta iPhone 17 Pro 1"),
+            dev("A1B2C3D4-2222", "atalanta iPhone 17 Pro 2"),
             dev("emulator-5554", "Pixel_7"),
         ];
         let none = |_: &str| false;
@@ -545,7 +545,7 @@ mod tests {
         assert!(device_filter_matches("*_7", &dev("x", "Pixel_7_7")));
     }
 
-    use velocity_common::{Platform, VelocityError};
+    use atalanta_common::{AtalantaError, Platform};
 
     struct MockDriver {
         devices: Vec<DeviceInfo>,
@@ -588,9 +588,9 @@ mod tests {
         async fn find_element(
             &self,
             _: &str,
-            _: &velocity_common::Selector,
-        ) -> Result<velocity_common::Element> {
-            Err(VelocityError::ElementNotFound {
+            _: &atalanta_common::Selector,
+        ) -> Result<atalanta_common::Element> {
+            Err(AtalantaError::ElementNotFound {
                 selector: "mock".to_string(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -600,40 +600,40 @@ mod tests {
         async fn find_elements(
             &self,
             _: &str,
-            _: &velocity_common::Selector,
-        ) -> Result<Vec<velocity_common::Element>> {
+            _: &atalanta_common::Selector,
+        ) -> Result<Vec<atalanta_common::Element>> {
             Ok(vec![])
         }
-        async fn get_hierarchy(&self, _: &str) -> Result<velocity_common::Element> {
-            Err(VelocityError::ElementNotFound {
+        async fn get_hierarchy(&self, _: &str) -> Result<atalanta_common::Element> {
+            Err(AtalantaError::ElementNotFound {
                 selector: "mock".to_string(),
                 timeout_ms: 0,
                 screenshot: None,
                 hierarchy_snapshot: None,
             })
         }
-        async fn tap(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn tap(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn double_tap(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn double_tap(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn long_press(&self, _: &str, _: &velocity_common::Element, _: u64) -> Result<()> {
+        async fn long_press(&self, _: &str, _: &atalanta_common::Element, _: u64) -> Result<()> {
             Ok(())
         }
-        async fn input_text(&self, _: &str, _: &velocity_common::Element, _: &str) -> Result<()> {
+        async fn input_text(&self, _: &str, _: &atalanta_common::Element, _: &str) -> Result<()> {
             Ok(())
         }
-        async fn clear_text(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn clear_text(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn swipe(&self, _: &str, _: velocity_common::Direction) -> Result<()> {
+        async fn swipe(&self, _: &str, _: atalanta_common::Direction) -> Result<()> {
             Ok(())
         }
         async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
             Ok(())
         }
-        async fn press_key(&self, _: &str, _: velocity_common::Key) -> Result<()> {
+        async fn press_key(&self, _: &str, _: atalanta_common::Key) -> Result<()> {
             Ok(())
         }
         async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
@@ -642,10 +642,10 @@ mod tests {
         async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
             Ok((1080, 2400))
         }
-        async fn get_element_text(&self, _: &str, _: &velocity_common::Element) -> Result<String> {
+        async fn get_element_text(&self, _: &str, _: &atalanta_common::Element) -> Result<String> {
             Ok(String::new())
         }
-        async fn is_element_visible(&self, _: &str, _: &velocity_common::Element) -> Result<bool> {
+        async fn is_element_visible(&self, _: &str, _: &atalanta_common::Element) -> Result<bool> {
             Ok(false)
         }
     }
@@ -658,7 +658,7 @@ mod tests {
                 platform: Platform::Android,
                 state: DeviceState::Booted,
                 os_version: None,
-                device_type: velocity_common::DeviceType::Emulator,
+                device_type: atalanta_common::DeviceType::Emulator,
             })
             .collect()
     }
@@ -829,42 +829,42 @@ mod tests {
         async fn find_element(
             &self,
             _: &str,
-            _: &velocity_common::Selector,
-        ) -> Result<velocity_common::Element> {
-            Err(VelocityError::Config("unused".into()))
+            _: &atalanta_common::Selector,
+        ) -> Result<atalanta_common::Element> {
+            Err(AtalantaError::Config("unused".into()))
         }
         async fn find_elements(
             &self,
             _: &str,
-            _: &velocity_common::Selector,
-        ) -> Result<Vec<velocity_common::Element>> {
+            _: &atalanta_common::Selector,
+        ) -> Result<Vec<atalanta_common::Element>> {
             Ok(vec![])
         }
-        async fn get_hierarchy(&self, _: &str) -> Result<velocity_common::Element> {
-            Err(VelocityError::Config("unused".into()))
+        async fn get_hierarchy(&self, _: &str) -> Result<atalanta_common::Element> {
+            Err(AtalantaError::Config("unused".into()))
         }
-        async fn tap(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn tap(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn double_tap(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn double_tap(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn long_press(&self, _: &str, _: &velocity_common::Element, _: u64) -> Result<()> {
+        async fn long_press(&self, _: &str, _: &atalanta_common::Element, _: u64) -> Result<()> {
             Ok(())
         }
-        async fn input_text(&self, _: &str, _: &velocity_common::Element, _: &str) -> Result<()> {
+        async fn input_text(&self, _: &str, _: &atalanta_common::Element, _: &str) -> Result<()> {
             Ok(())
         }
-        async fn clear_text(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn clear_text(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn swipe(&self, _: &str, _: velocity_common::Direction) -> Result<()> {
+        async fn swipe(&self, _: &str, _: atalanta_common::Direction) -> Result<()> {
             Ok(())
         }
         async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
             Ok(())
         }
-        async fn press_key(&self, _: &str, _: velocity_common::Key) -> Result<()> {
+        async fn press_key(&self, _: &str, _: atalanta_common::Key) -> Result<()> {
             Ok(())
         }
         async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
@@ -873,10 +873,10 @@ mod tests {
         async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
             Ok((1080, 2400))
         }
-        async fn get_element_text(&self, _: &str, _: &velocity_common::Element) -> Result<String> {
+        async fn get_element_text(&self, _: &str, _: &atalanta_common::Element) -> Result<String> {
             Ok(String::new())
         }
-        async fn is_element_visible(&self, _: &str, _: &velocity_common::Element) -> Result<bool> {
+        async fn is_element_visible(&self, _: &str, _: &atalanta_common::Element) -> Result<bool> {
             Ok(false)
         }
     }

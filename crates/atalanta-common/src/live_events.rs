@@ -1,7 +1,7 @@
 //! Live events for whoever supervises a run: the MCP server's `run_task`
 //! and the inspector console's Run and Explore panels. One mechanism for
-//! both: the supervisor starts `velocity run` (or `velocity explore`) with
-//! `VELOCITY_EVENTS_FILE=<path>` and tails that file. Every test and step
+//! both: the supervisor starts `atalanta run` (or `atalanta explore`) with
+//! `ATALANTA_EVENTS_FILE=<path>` and tails that file. Every test and step
 //! start and end is appended to it as one JSON line, written at once.
 //! Unset (the default), nothing is opened or written.
 //!
@@ -12,9 +12,9 @@
 //! {"event":"testFinished","test":"login","status":"failed","ms":5120,"error":"…","t":…}
 //! ```
 //!
-//! `index` is 0-based. `velocity explore` writes its own events to the same
+//! `index` is 0-based. `atalanta explore` writes its own events to the same
 //! file through [`emit`] (`{"event":"planned","turn":3,"op":"tap",…}`, see
-//! `velocity_explore::ExploreEvent`); its replays add the test events above.
+//! `atalanta_explore::ExploreEvent`); its replays add the test events above.
 //!
 //! Best-effort: a file that can't be written never fails the run. Labels and
 //! errors are masked like any other output (a step label can quote typed
@@ -28,7 +28,7 @@ use serde_json::{json, Value};
 use crate::{StepResult, TestResult};
 
 /// The environment variable naming the events file.
-pub const EVENTS_FILE_ENV: &str = "VELOCITY_EVENTS_FILE";
+pub const EVENTS_FILE_ENV: &str = "ATALANTA_EVENTS_FILE";
 
 /// The open file, with the path it was opened for (the variable is read on
 /// each event, so a test that sets it later still gets its events).
@@ -103,7 +103,7 @@ fn masked(s: &str) -> String {
 /// The test and step events this module writes, typed: the one schema the
 /// writers here and the readers (MCP tasks, the console) share (review 02
 /// M4). Lines it doesn't know (an exploration's own events, which
-/// `velocity_explore::ExploreEvent` types, or one added later) read as
+/// `atalanta_explore::ExploreEvent` types, or one added later) read as
 /// [`LiveEvent::Other`].
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "event", rename_all = "camelCase")]

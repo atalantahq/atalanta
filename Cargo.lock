@@ -123,6 +123,313 @@ dependencies = [
 ]
 
 [[package]]
+name = "atalanta-android"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "quick-xml",
+ "sha2",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "atalanta-api"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_json_path",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-cli"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-android",
+ "atalanta-api",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-doctor",
+ "atalanta-explore",
+ "atalanta-flutter-bridge",
+ "atalanta-headless",
+ "atalanta-inspector",
+ "atalanta-ios",
+ "atalanta-mcp-server",
+ "atalanta-migrate",
+ "atalanta-nl",
+ "atalanta-runner",
+ "atalanta-web",
+ "clap",
+ "colored",
+ "libc",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "atalanta-common"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "libc",
+ "proptest",
+ "regex",
+ "ring",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "atalanta-core"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-api",
+ "atalanta-common",
+ "chrono",
+ "png 0.18.1",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "unsafe-libyaml",
+]
+
+[[package]]
+name = "atalanta-doctor"
+version = "0.2.0"
+dependencies = [
+ "atalanta-android",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-ios",
+ "atalanta-nl",
+ "atalanta-runner",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "atalanta-explore"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-explore",
+ "atalanta-nl",
+ "png 0.18.1",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "atalanta-flutter-bridge"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-common",
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-headless"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-common",
+ "atalanta-core",
+ "cosmic-text",
+ "fontdb",
+ "plist",
+ "png 0.18.1",
+ "quick-xml",
+ "regex",
+ "serde",
+ "taffy",
+ "tempfile",
+ "thiserror",
+ "tiny-skia",
+ "tokio",
+ "tracing",
+ "zip",
+]
+
+[[package]]
+name = "atalanta-inspector"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-android",
+ "atalanta-common",
+ "atalanta-core",
+ "axum",
+ "futures",
+ "libc",
+ "mime_guess",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-ios"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "base64 0.22.1",
+ "chrono",
+ "libc",
+ "quick-xml",
+ "reqwest 0.12.28",
+ "ring",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-mcp-server"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-doctor",
+ "atalanta-headless",
+ "atalanta-inspector",
+ "atalanta-runner",
+ "base64 0.22.1",
+ "libc",
+ "png 0.18.1",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "atalanta-migrate"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "atalanta-common",
+ "atalanta-core",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "atalanta-nl"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atalanta-common",
+ "base64 0.22.1",
+ "reqwest 0.12.28",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-runner"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-nl",
+ "chrono",
+ "futures",
+ "libc",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-web"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "async-tungstenite",
+ "atalanta-common",
+ "base64 0.22.1",
+ "chromiumoxide",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2963,313 +3270,6 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
-
-[[package]]
-name = "velocity-android"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "quick-xml",
- "sha2",
- "tokio",
- "tracing",
- "uuid",
- "velocity-common",
-]
-
-[[package]]
-name = "velocity-api"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_json_path",
- "serde_yaml",
- "tokio",
- "tracing",
- "velocity-common",
-]
-
-[[package]]
-name = "velocity-cli"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "clap",
- "colored",
- "libc",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "velocity-android",
- "velocity-api",
- "velocity-common",
- "velocity-core",
- "velocity-doctor",
- "velocity-explore",
- "velocity-flutter-bridge",
- "velocity-headless",
- "velocity-inspector",
- "velocity-ios",
- "velocity-mcp-server",
- "velocity-migrate",
- "velocity-nl",
- "velocity-runner",
- "velocity-web",
-]
-
-[[package]]
-name = "velocity-common"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "libc",
- "proptest",
- "regex",
- "ring",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "velocity-core"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "png 0.18.1",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "tokio",
- "tracing",
- "unsafe-libyaml",
- "velocity-api",
- "velocity-common",
-]
-
-[[package]]
-name = "velocity-doctor"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "velocity-android",
- "velocity-common",
- "velocity-core",
- "velocity-ios",
- "velocity-nl",
- "velocity-runner",
-]
-
-[[package]]
-name = "velocity-explore"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "png 0.18.1",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "velocity-common",
- "velocity-core",
- "velocity-explore",
- "velocity-nl",
-]
-
-[[package]]
-name = "velocity-flutter-bridge"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "velocity-common",
-]
-
-[[package]]
-name = "velocity-headless"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "cosmic-text",
- "fontdb",
- "plist",
- "png 0.18.1",
- "quick-xml",
- "regex",
- "serde",
- "taffy",
- "tempfile",
- "thiserror",
- "tiny-skia",
- "tokio",
- "tracing",
- "velocity-common",
- "velocity-core",
- "zip",
-]
-
-[[package]]
-name = "velocity-inspector"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "futures",
- "libc",
- "mime_guess",
- "rust-embed",
- "serde",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "velocity-android",
- "velocity-common",
- "velocity-core",
-]
-
-[[package]]
-name = "velocity-ios"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "libc",
- "quick-xml",
- "reqwest 0.12.28",
- "ring",
- "serde_json",
- "tokio",
- "tracing",
- "velocity-common",
-]
-
-[[package]]
-name = "velocity-mcp-server"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "libc",
- "png 0.18.1",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "toml_edit",
- "tracing",
- "tracing-subscriber",
- "velocity-common",
- "velocity-core",
- "velocity-doctor",
- "velocity-headless",
- "velocity-inspector",
- "velocity-runner",
-]
-
-[[package]]
-name = "velocity-migrate"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "serde_yaml",
- "velocity-common",
- "velocity-core",
-]
-
-[[package]]
-name = "velocity-nl"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "reqwest 0.12.28",
- "ring",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "velocity-common",
-]
-
-[[package]]
-name = "velocity-runner"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "libc",
- "quick-xml",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "tracing",
- "velocity-common",
- "velocity-core",
- "velocity-nl",
-]
-
-[[package]]
-name = "velocity-web"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "async-tungstenite",
- "base64 0.22.1",
- "chromiumoxide",
- "futures",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "velocity-common",
-]
 
 [[package]]
 name = "version_check"

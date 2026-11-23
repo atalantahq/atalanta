@@ -1,18 +1,18 @@
 name: Install smoke
 
 # After a release, install it every way the README advertises, on Linux and
-# macOS, and check each install really works: `velocity --version` names the
+# macOS, and check each install really works: `atalanta --version` names the
 # release, and an API-only suite (http steps only, so no device) passes
 # against a local `python3 -m http.server`.
 #
 # Routes and the names they use (from release.yml, install.sh,
-# scripts/render-formula.sh, npm/cli/package.json, velocity-cli/Cargo.toml):
+# scripts/render-formula.sh, npm/cli/package.json, atalanta-cli/Cargo.toml):
 #   install.sh  raw.githubusercontent.com/<repo>/main/install.sh --version X
-#   Homebrew    tap omkar-dev/velocity (repo omkar-dev/homebrew-velocity),
-#               formula omkar-dev/velocity/velocity
-#   npm         @velocity-test/cli (launcher; per-platform binaries in
-#               @velocity-test/cli-<os>-<cpu>)
-#   crates.io   velocity-cli (binary `velocity`)
+#   Homebrew    tap atalantahq/atalanta (repo atalantahq/homebrew-tap),
+#               formula atalantahq/tap/atalanta
+#   npm         @atalantahq/cli (launcher; per-platform binaries in
+#               @atalantahq/cli-<os>-<cpu>)
+#   crates.io   atalanta-cli (binary `atalanta`)
 #
 # release.yml publishes npm, crates.io and the tap only when the repository
 # variables PUBLISH_NPM / PUBLISH_CRATES / PUBLISH_HOMEBREW are 'true', and
@@ -49,17 +49,17 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # The checks every route runs. $VELOCITY is the command that runs the
-  # installed velocity (word-split on purpose: the npm route is `npx ...`);
+  # The checks every route runs. $ATALANTA is the command that runs the
+  # installed atalanta (word-split on purpose: the npm route is `npx ...`);
   # $VERSION is the release.
   SMOKE_SH: |
     set -euo pipefail
-    echo "::group::velocity --version"
-    out=$($VELOCITY --version)
+    echo "::group::atalanta --version"
+    out=$($ATALANTA --version)
     echo "$out"
     got=$(printf '%s\n' "$out" | awk 'NR == 1 { print $2 }')
     if [ "$got" != "$VERSION" ]; then
-      echo "::error::velocity --version printed '$out', expected version $VERSION"
+      echo "::error::atalanta --version printed '$out', expected version $VERSION"
       exit 1
     fi
     echo "::endgroup::"
@@ -87,7 +87,7 @@ env:
                 headers: { content-type: { contains: json } }
                 json:
                   status: ok
-                  version: "${VELOCITY_EXPECT_VERSION}"
+                  version: "${ATALANTA_EXPECT_VERSION}"
                   items: { length: 2 }
                   items[0].sku: A1
                   items[0].qty: { gt: 0 }
@@ -119,7 +119,7 @@ env:
     done
     curl -fsS http://127.0.0.1:8765/health.json
     cd "$work"
-    VELOCITY_EXPECT_VERSION="$VERSION" $VELOCITY run api-smoke.yaml
+    ATALANTA_EXPECT_VERSION="$VERSION" $ATALANTA run api-smoke.yaml
     echo "::endgroup::"
 
 jobs:
@@ -157,7 +157,7 @@ jobs:
           case "$version" in *-*) prerelease=true ;; *) prerelease=false ;; esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "Checking Velocity $version (prerelease: $prerelease)"
+          echo "Checking Atalanta $version (prerelease: $prerelease)"
 
   install-sh:
     name: install.sh (${{ matrix.os }})
@@ -184,14 +184,14 @@ jobs:
         # nosemgrep: yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell
         run: | # zizmor: ignore[github-env] -- only a fixed RUNNER_TEMP path goes to GITHUB_PATH
           set -euo pipefail
-          dir="$RUNNER_TEMP/velocity-bin"
+          dir="$RUNNER_TEMP/atalanta-bin"
           curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh" |
             sh -s -- --version "$VERSION" --dir "$dir" --no-modify-path
           echo "$dir" >> "$GITHUB_PATH"
       - name: Smoke test
         shell: bash
         env:
-          VELOCITY: velocity
+          ATALANTA: atalanta
         run: bash -c "$SMOKE_SH"
 
   homebrew:
@@ -220,14 +220,14 @@ jobs:
         run: | # zizmor: ignore[github-env] -- only the runner image's brew directory
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           dirname "$(command -v brew)" >> "$GITHUB_PATH"
-      # release.yml's homebrew job pushes Formula/velocity.rb to the tap after
+      # release.yml's homebrew job pushes Formula/atalanta.rb to the tap after
       # the release; wait until it points at this version. The tap's default
       # branch is assumed to be `main` (inferred: release.yml just pushes).
       - name: Wait for the tap to carry ${{ env.VERSION }}
         shell: bash
         run: |
           set -euo pipefail
-          url="https://raw.githubusercontent.com/omkar-dev/homebrew-velocity/main/Formula/velocity.rb"
+          url="https://raw.githubusercontent.com/atalantahq/homebrew-tap/main/Formula/atalanta.rb"
           for i in $(seq 1 40); do
             if curl -fsSL "$url?nocache=$i" 2>/dev/null | grep -q "/releases/download/v${VERSION}/"; then
               echo "tap formula is at $VERSION"; exit 0
@@ -239,13 +239,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew tap omkar-dev/velocity
-          brew install omkar-dev/velocity/velocity
-          brew test omkar-dev/velocity/velocity
+          brew tap atalantahq/atalanta
+          brew install atalantahq/tap/atalanta
+          brew test atalantahq/tap/atalanta
       - name: Smoke test
         shell: bash
         env:
-          VELOCITY: velocity
+          ATALANTA: atalanta
         run: bash -c "$SMOKE_SH"
 
   npm:
@@ -271,21 +271,21 @@ jobs:
         with:
           node-version: "24"
       # The launcher is published last, after the platform packages.
-      - name: Wait for @velocity-test/cli@${{ env.VERSION }}
+      - name: Wait for @atalantahq/cli@${{ env.VERSION }}
         shell: bash
         run: |
           set -euo pipefail
           for i in $(seq 1 40); do
-            if [ "$(npm view "@velocity-test/cli@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
+            if [ "$(npm view "@atalantahq/cli@${VERSION}" version 2>/dev/null)" = "$VERSION" ]; then
               echo "on npm"; exit 0
             fi
             echo "not on npm yet ($i/40)"; sleep 30
           done
-          echo "::error::@velocity-test/cli@$VERSION never appeared on npm"; exit 1
+          echo "::error::@atalantahq/cli@$VERSION never appeared on npm"; exit 1
       - name: Smoke test
         shell: bash
         env:
-          VELOCITY: npx --yes @velocity-test/cli@${{ needs.version.outputs.version }}
+          ATALANTA: npx --yes @atalantahq/cli@${{ needs.version.outputs.version }}
         run: bash -c "$SMOKE_SH"
 
   cargo:
@@ -310,29 +310,29 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
-      # `cargo publish --workspace` uploads velocity-cli last; wait for it to
+      # `cargo publish --workspace` uploads atalanta-cli last; wait for it to
       # be in the index.
-      - name: Wait for velocity-cli ${{ env.VERSION }} on crates.io
+      - name: Wait for atalanta-cli ${{ env.VERSION }} on crates.io
         shell: bash
         run: |
           set -euo pipefail
           for i in $(seq 1 40); do
-            if curl -fsS -A "velocity-install-smoke (github.com/${GITHUB_REPOSITORY})" \
-                 "https://crates.io/api/v1/crates/velocity-cli/${VERSION}" >/dev/null 2>&1; then
+            if curl -fsS -A "atalanta-install-smoke (github.com/${GITHUB_REPOSITORY})" \
+                 "https://crates.io/api/v1/crates/atalanta-cli/${VERSION}" >/dev/null 2>&1; then
               echo "on crates.io"; exit 0
             fi
             echo "not on crates.io yet ($i/40)"; sleep 30
           done
-          echo "::error::velocity-cli $VERSION never appeared on crates.io"; exit 1
+          echo "::error::atalanta-cli $VERSION never appeared on crates.io"; exit 1
       - name: cargo install
         shell: bash
         run: |
           set -euo pipefail
           # The sparse index can lag the API by a little; retry once.
-          cargo install velocity-cli --version "$VERSION" --locked ||
-            { sleep 60; cargo install velocity-cli --version "$VERSION" --locked; }
+          cargo install atalanta-cli --version "$VERSION" --locked ||
+            { sleep 60; cargo install atalanta-cli --version "$VERSION" --locked; }
       - name: Smoke test
         shell: bash
         env:
-          VELOCITY: velocity
+          ATALANTA: atalanta
         run: bash -c "$SMOKE_SH"

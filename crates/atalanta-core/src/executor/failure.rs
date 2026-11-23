@@ -8,7 +8,7 @@ impl<'a> TestExecutor<'a> {
     /// driver answers from what it has seen), so it is asked before every
     /// step and on every attempt of an element wait. `None` once the test
     /// stopped the app on purpose.
-    pub(super) async fn pending_crash(&mut self, device_id: &str) -> Option<VelocityError> {
+    pub(super) async fn pending_crash(&mut self, device_id: &str) -> Option<AtalantaError> {
         if self.app_stopped {
             return None;
         }
@@ -24,14 +24,14 @@ impl<'a> TestExecutor<'a> {
         }
         self.sticky_crash
             .clone()
-            .map(|detail| VelocityError::AppCrashed { app_id, detail })
+            .map(|detail| AtalantaError::AppCrashed { app_id, detail })
     }
 
     /// The suite's app crashed (the driver's liveness says so), unless the
     /// test stopped it on purpose. Read at most once between actions: a run
     /// of negative assertions pays for one read (an `simctl` call on iOS),
     /// not one each.
-    pub(super) async fn check_alive(&mut self, device_id: &str) -> Option<VelocityError> {
+    pub(super) async fn check_alive(&mut self, device_id: &str) -> Option<AtalantaError> {
         if self.app_stopped {
             return None;
         }
@@ -40,7 +40,7 @@ impl<'a> TestExecutor<'a> {
             self.liveness_seen = Some(self.driver.app_liveness(device_id, &app_id).await);
         }
         match &self.liveness_seen {
-            Some(velocity_common::Liveness::Dead(detail)) => Some(VelocityError::AppCrashed {
+            Some(atalanta_common::Liveness::Dead(detail)) => Some(AtalantaError::AppCrashed {
                 app_id,
                 detail: detail.clone(),
             }),
@@ -113,7 +113,7 @@ impl<'a> TestExecutor<'a> {
         let suffix = self.trace.file_suffix(self.retry_attempt);
         let mut files = Vec::new();
         if let Some(session) = self.evidence.as_mut() {
-            let out = velocity_common::EvidenceOut {
+            let out = atalanta_common::EvidenceOut {
                 dir: &dir,
                 suffix: &suffix,
                 keep_video: self.config.artifacts.video.on(),
@@ -122,7 +122,7 @@ impl<'a> TestExecutor<'a> {
             if let Ok(ev) =
                 tokio::time::timeout(EVIDENCE_FINISH_BUDGET, session.checkpoint(out)).await
             {
-                use velocity_common::AttachmentKind as K;
+                use atalanta_common::AttachmentKind as K;
                 let rel = |k: &[K]| -> Vec<String> {
                     ev.attachments
                         .iter()
@@ -152,7 +152,7 @@ impl<'a> TestExecutor<'a> {
         let mut msg = format!(
             "\n=> Paused at step {} of '{test}' on {device_id}: {}\n",
             i + 1,
-            velocity_common::redact::redact(failed.error_message.as_deref().unwrap_or("failed"))
+            atalanta_common::redact::redact(failed.error_message.as_deref().unwrap_or("failed"))
         );
         if let Some(p) = &shot {
             msg.push_str(&format!("   screenshot: {}\n", p.display()));
@@ -164,7 +164,7 @@ impl<'a> TestExecutor<'a> {
             msg.push_str(&format!("   evidence:   {}\n", f.display()));
         }
         msg.push_str(
-            "   The device is left as it is: inspect it live with `velocity inspect` in another \
+            "   The device is left as it is: inspect it live with `atalanta inspect` in another \
              terminal.\n   [Enter] continue  [r] retry the step  [q] abort the run: ",
         );
         eprint!("{msg}");

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MiniWoB++ through Velocity's web agent.
+"""MiniWoB++ through Atalanta's web agent.
 
 MiniWoB++ (Farama-Foundation/miniwob-plusplus, the commit BrowserGym pins)
 is a set of small web tasks, each with a programmatic reward computed by the
@@ -9,7 +9,7 @@ page itself (`core.endEpisode`). This harness:
   task (`Math.seedrandom`), starts the episode (`core.startEpisodeReal`),
   lifts the 10 s episode limit (as BrowserGym does for model agents) and
   reports MiniWoB's own reward to the server when the episode ends;
-- runs `velocity explore` once per task on headless Chrome: launch = load the
+- runs `atalanta explore` once per task on headless Chrome: launch = load the
   page, goal = "do what the instruction at the top of the page says" (the
   task's utterance is on screen in `#query`), `--values-from-screen` so text
   the instruction quotes may be typed, no test written (`--dry-run`);
@@ -34,7 +34,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 HTML = ROOT / "ext" / "miniwob-plusplus" / "miniwob" / "html"
-V = os.environ.get("VELOCITY_BIN", str(ROOT / "target" / "debug" / "velocity"))
+V = os.environ.get("ATALANTA_BIN", str(ROOT / "target" / "debug" / "atalanta"))
 PORT = int(os.environ.get("MINIWOB_PORT", "8791"))
 REWARDS = {}
 LOCK = threading.Lock()
@@ -110,7 +110,7 @@ class Handler(SimpleHTTPRequestHandler):
         if u.path.startswith("/miniwob/") and u.path.endswith(".html"):
             task = Path(u.path).stem
             body = (HTML / u.path.lstrip("/")).read_text()
-            script = INJECT % {"task": json.dumps(task), "seed": json.dumps(f"velocity-{task}")}
+            script = INJECT % {"task": json.dumps(task), "seed": json.dumps(f"atalanta-{task}")}
             body = body.replace("</body>", script + "</body>") if "</body>" in body else body + script
             data = body.encode()
             self.send_response(200)
@@ -136,7 +136,7 @@ def run_task(task, out):
            "--no-gates", "--replay", "0", "--values-from-screen", "--values-from-screenshots",
            "--screenshots", os.environ.get("SCREENSHOTS", "always"), "--max-steps", "15",
            "--timeout", "300", "--verify", "off", "--price", os.environ.get("PRICE", "2,10")]
-    env = dict(os.environ, VELOCITY_EVENTS_FILE=str(d / "events.jsonl"))
+    env = dict(os.environ, ATALANTA_EVENTS_FILE=str(d / "events.jsonl"))
     t = time.time()
     # Argument list, no shell; the values come from this script's own flags and the developer's env.
     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
@@ -165,7 +165,7 @@ def summary(out):
     s = sum(r["success"] for r in rows)
     mean = sum((r["raw_reward"] or 0) for r in rows) / n if n else 0
     costs = [r["cost_usd"] for r in rows if r.get("cost_usd") is not None]
-    print(f"MiniWoB++ x Velocity: {s}/{n} tasks solved = {100*s/n:.1f}%; mean raw reward {mean:.3f}; "
+    print(f"MiniWoB++ x Atalanta: {s}/{n} tasks solved = {100*s/n:.1f}%; mean raw reward {mean:.3f}; "
           f"episodes ended {sum(r['ended'] for r in rows)}/{n}; est. cost ${sum(costs):.2f}")
     for r in rows:
         if not r["success"]:

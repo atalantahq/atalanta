@@ -1,5 +1,5 @@
 /*
- * Velocity screen video server.
+ * Atalanta screen video server.
  *
  * The capture and encoding design (a virtual display or SurfaceControl
  * display mirroring the screen onto a MediaCodec input surface, the encoder
@@ -25,11 +25,11 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  *
- * Modified for Velocity: one client per process, H.264 only, no audio,
+ * Modified for Atalanta: one client per process, H.264 only, no audio,
  * control or OpenGL filters, a key-frame request from the host, and the
  * process exits when its client goes.
  */
-package com.velocity.tree;
+package com.atalanta.tree;
 
 import android.graphics.Rect;
 import android.hardware.display.VirtualDisplay;
@@ -54,10 +54,10 @@ import java.nio.ByteBuffer;
  * Streams the screen as H.264 to one host client, scrcpy-style.
  *
  * Started by the host with
- *   CLASSPATH=velocity-tree.jar app_process / com.velocity.tree.VideoServer
+ *   CLASSPATH=atalanta-tree.jar app_process / com.atalanta.tree.VideoServer
  *       [--max-size N] [--bit-rate N] [--max-fps N] [--iframe S] [--socket NAME]
  * it writes a new token to {@link #tokenFile} (readable by shell or root
- * only: the host reads it with `adb shell cat`), prints "velocity-video
+ * only: the host reads it with `adb shell cat`), prints "atalanta-video
  * <version> listening on @NAME", and accepts connections on that abstract
  * socket (adb forward) until one authenticates, then streams to it until
  * it closes or sends 'Q'; then the process exits. No authenticated client
@@ -70,9 +70,9 @@ import java.nio.ByteBuffer;
  * with HMAC-SHA256 over the token (the tree server's scheme; the token
  * never crosses the socket):
  *   client: "HELLO <client nonce, 16-64 hex>\n"
- *   server: "PROOF <server nonce> <hmac(token, "velocity-video server " +
+ *   server: "PROOF <server nonce> <hmac(token, "atalanta-video server " +
  *            client nonce + " " + server nonce)>\n"
- *   client: "AUTH <hmac(token, "velocity-video client " + client nonce +
+ *   client: "AUTH <hmac(token, "atalanta-video client " + client nonce +
  *            " " + server nonce)>\n"   (after checking the proof)
  *   server: "OK\n", then the stream below. Anything else closes that
  *           connection and the server waits for the next one.
@@ -90,7 +90,7 @@ import java.nio.ByteBuffer;
  */
 public final class VideoServer {
     static final String VERSION = "2";
-    static final String SOCKET = "velocity_video";
+    static final String SOCKET = "atalanta_video";
     static final int CODEC_H264 = 0x68323634;
     static final long FLAG_SESSION = 1L << 63;
     static final long FLAG_CONFIG = 1L << 62;
@@ -133,12 +133,12 @@ public final class VideoServer {
                 return;
             }
             new java.io.File(tokenFile).delete();
-            System.err.println("velocity-video: no client in " + ACCEPT_MS + " ms");
+            System.err.println("atalanta-video: no client in " + ACCEPT_MS + " ms");
             System.exit(2);
         });
         watchdog.setDaemon(true);
         watchdog.start();
-        System.out.println("velocity-video " + VERSION + " listening on @" + socket);
+        System.out.println("atalanta-video " + VERSION + " listening on @" + socket);
         System.out.flush();
         LocalSocket client;
         while (true) {
@@ -181,7 +181,7 @@ public final class VideoServer {
             stream(client.getOutputStream(), maxSize, bitRate, maxFps, iframe);
         } catch (Throwable e) {
             if (!stopped) {
-                System.err.println("velocity-video: " + e);
+                System.err.println("atalanta-video: " + e);
                 code = 1;
             }
         }
@@ -199,11 +199,11 @@ public final class VideoServer {
     }
 
     static String serverProof(String token, String clientNonce, String serverNonce) {
-        return Server.hmac(token, "velocity-video server " + clientNonce + " " + serverNonce);
+        return Server.hmac(token, "atalanta-video server " + clientNonce + " " + serverNonce);
     }
 
     static String clientProof(String token, String clientNonce, String serverNonce) {
-        return Server.hmac(token, "velocity-video client " + clientNonce + " " + serverNonce);
+        return Server.hmac(token, "atalanta-video client " + clientNonce + " " + serverNonce);
     }
 
     /**
@@ -341,7 +341,7 @@ public final class VideoServer {
         writeInt(out, CODEC_H264);
         out.flush();
         MediaCodec codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
-        System.err.println("velocity-video: encoder " + codec.getName());
+        System.err.println("atalanta-video: encoder " + codec.getName());
         MediaFormat format = format(bitRate, maxFps, iframe);
         int size = maxSize;
         boolean sentFrame = false;
@@ -382,7 +382,7 @@ public final class VideoServer {
                         }
                     }
                     if (next == 0) throw e;
-                    System.err.println("velocity-video: " + e + "; retrying at " + next);
+                    System.err.println("atalanta-video: " + e + "; retrying at " + next);
                     size = next;
                 } finally {
                     running = null;
@@ -477,14 +477,14 @@ public final class VideoServer {
         try {
             Method m = android.hardware.display.DisplayManager.class.getMethod(
                     "createVirtualDisplay", String.class, int.class, int.class, int.class, Surface.class);
-            return m.invoke(null, "velocity", w, h, 0, surface);
+            return m.invoke(null, "atalanta", w, h, 0, surface);
         } catch (Exception displayManager) {
             Class<?> sc = Class.forName("android.view.SurfaceControl");
             // Shell can't create secure displays since Android 12.
             boolean secure = Build.VERSION.SDK_INT < 30
                     || (Build.VERSION.SDK_INT == 30 && !"S".equals(Build.VERSION.CODENAME));
             IBinder token = (IBinder) sc.getMethod("createDisplay", String.class, boolean.class)
-                    .invoke(null, "velocity", secure);
+                    .invoke(null, "atalanta", secure);
             sc.getMethod("openTransaction").invoke(null);
             try {
                 sc.getMethod("setDisplaySurface", IBinder.class, Surface.class).invoke(null, token, surface);

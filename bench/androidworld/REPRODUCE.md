@@ -1,4 +1,4 @@
-# Reproducing Velocity's AndroidWorld run
+# Reproducing Atalanta's AndroidWorld run
 
 Everything here was run on an Apple Silicon Mac (macOS, 24 GB RAM). The
 results and caveats are in [docs/BENCHMARKS.md](../../docs/BENCHMARKS.md#androidworld).
@@ -43,11 +43,11 @@ cd bench/androidworld
 ../../ext/aw-venv/bin/python run.py run --perform-setup --out /tmp/aw-setup --script-dir plumbing --tasks ClockStopWatchRunning
 ```
 
-## 3. Velocity
+## 3. Atalanta
 
 ```bash
-cargo build --release -p velocity-cli
-export VELOCITY_BIN=$PWD/target/release/velocity
+cargo build --release -p atalanta-cli
+export ATALANTA_BIN=$PWD/target/release/atalanta
 ```
 
 ## 4. Check, then plumbing (no model)
@@ -56,7 +56,7 @@ export VELOCITY_BIN=$PWD/target/release/velocity
 cd bench/androidworld
 PY=../../ext/aw-venv/bin/python
 $PY run.py dry-run --model anthropic:claude-sonnet-5-5   # env, AVD, harness, key presence (names only)
-$PY harness_check.py --oracle --tasks SystemWifiTurnOn,ContactsAddContact   # harness alone, no Velocity
+$PY harness_check.py --oracle --tasks SystemWifiTurnOn,ContactsAddContact   # harness alone, no Atalanta
 $PY run.py run --out runs/plumbing --script-dir plumbing \
   --tasks ClockStopWatchRunning,ContactsAddContact,SystemWifiTurnOn        # scripted plans: NOT a score
 ```
@@ -78,14 +78,14 @@ prices, cache reads counted at the full input price: an upper bound) passes
 it. Interrupted or stopped: rerun the same command; finished instances are
 skipped. `run.py summarize --out runs/full-sonnet-5-5` rewrites the summary.
 
-Outputs in `--out`: `run.json` (model, provider, prices, Velocity version,
+Outputs in `--out`: `run.json` (model, provider, prices, Atalanta version,
 harness SHA, seed, combinations, prompt settings), `results.jsonl` (one line
 per instance: success, steps, wall time, tokens, cost, outcome, answer,
 error), `summary.json` / `summary.md` (overall, per difficulty, per app),
-and `episodes/<task>_<i>/` (Velocity's events JSONL trajectory, its JSON
+and `episodes/<task>_<i>/` (Atalanta's events JSONL trajectory, its JSON
 report, stderr).
 
-Other providers: any `velocity` preset works (`--model openai:…`,
+Other providers: any `atalanta` preset works (`--model openai:…`,
 `gemini:…`, …); pass `--price IN,OUT` for a cost estimate when the model
 isn't in `run.py`'s price table.
 
@@ -95,7 +95,7 @@ A run directory holds one runner at a time (`run.lock`). Rerunning the same
 `run.py run --out DIR …` command resumes: instances with a result are
 skipped, instances that ended in an exception or have no result yet run
 again from their own initialisation (as AndroidWorld's checkpointer does),
-and `run.py` refuses a different model, seed, combination count or Velocity
+and `run.py` refuses a different model, seed, combination count or Atalanta
 binary (SHA-256) for an existing directory.
 
 The published run (`full-sonnet-5-5`) was resumed three times: after a hang

@@ -1,4 +1,4 @@
-use velocity_common::types::Selector;
+use atalanta_common::types::Selector;
 
 // Steps use flow-style selector maps (`{ text: "Pay", index: 1 }`), the
 // form the suite parser reads. The old block form (`index:` / `compound:`
@@ -21,7 +21,7 @@ pub fn type_text_yaml(selector: &Selector, text: &str) -> String {
 /// suite fills `${NAME}` in every string when it loads, so `${` is written
 /// `$${` (an app label or typed text never reads a variable).
 fn literal(value: &str) -> String {
-    yaml_double_quoted(&velocity_core::env::escape(value))
+    yaml_double_quoted(&atalanta_core::env::escape(value))
 }
 
 pub fn swipe_yaml(direction: &str) -> String {
@@ -136,7 +136,7 @@ fn selector_fields(selector: &Selector) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::types::Relation;
+    use atalanta_common::types::Relation;
 
     /// S1/S2: role, name and state selectors are written as the DSL keys
     /// and parse back to the same selector.
@@ -153,9 +153,9 @@ mod tests {
             "com.app",
             &[format!("tap: {}", selector_to_yaml(&sel))],
         );
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
         match &suite.tests[0].steps[0].action {
-            velocity_common::Action::Tap { selector } => assert_eq!(selector, &sel, "{yaml}"),
+            atalanta_common::Action::Tap { selector } => assert_eq!(selector, &sel, "{yaml}"),
             other => panic!("{other:?}"),
         }
     }
@@ -171,7 +171,7 @@ mod tests {
                 "inputText:\n  selector: { id: \"q\" }\n  text: \"hi\"".into(),
             ],
         );
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
         assert_eq!(suite.tests[0].steps.len(), 3, "{yaml}");
     }
 
@@ -199,16 +199,16 @@ mod tests {
                 swipe_yaml("up"),
             ],
         );
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
             .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
         assert_eq!(suite.tests[0].name, "checkout: café");
         assert_eq!(suite.tests[0].steps.len(), 4);
         match &suite.tests[0].steps[0].action {
-            velocity_common::types::Action::Tap { selector } => assert_eq!(selector, &pay),
+            atalanta_common::types::Action::Tap { selector } => assert_eq!(selector, &pay),
             other => panic!("{other:?}"),
         }
         match &suite.tests[0].steps[2].action {
-            velocity_common::types::Action::AssertVisible { selector } => {
+            atalanta_common::types::Action::AssertVisible { selector } => {
                 assert_eq!(selector, &edit)
             }
             other => panic!("{other:?}"),
@@ -230,10 +230,10 @@ mod tests {
         ] {
             let sel = Selector::Text(text.into());
             let yaml = flow_yaml("n", "com.app", &[tap_yaml(&sel)]);
-            let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+            let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
                 .unwrap_or_else(|e| panic!("{text:?}: {e}\n{yaml}"));
             match &suite.tests[0].steps[0].action {
-                velocity_common::types::Action::Tap { selector } => {
+                atalanta_common::types::Action::Tap { selector } => {
                     assert_eq!(selector, &sel, "{text:?}\n{yaml}")
                 }
                 other => panic!("{other:?}"),

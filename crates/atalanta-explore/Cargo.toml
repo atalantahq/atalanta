@@ -1,5 +1,5 @@
 [package]
-name = "velocity-explore"
+name = "atalanta-explore"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,15 +10,15 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "ai", "agent", "mobile", "e2e"]
 categories = ["development-tools::testing"]
-description = "velocity explore: an AI agent works through a goal on a device once and writes a deterministic YAML test that replays with no model calls"
+description = "atalanta explore: an AI agent works through a goal on a device once and writes a deterministic YAML test that replays with no model calls"
 
 # Its own crate because the loop drives the deterministic executor
-# (velocity-core), which itself depends on velocity-nl: the loop can't live
-# in velocity-nl without a dependency cycle.
+# (atalanta-core), which itself depends on atalanta-nl: the loop can't live
+# in atalanta-nl without a dependency cycle.
 [dependencies]
-velocity-common = { workspace = true }
-velocity-core = { workspace = true }
-velocity-nl = { workspace = true }
+atalanta-common = { workspace = true }
+atalanta-core = { workspace = true }
+atalanta-nl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -33,7 +33,7 @@ png = { workspace = true }
 testkit = []
 
 [dev-dependencies]
-velocity-explore = { path = ".", features = ["testkit"] }
+atalanta-explore = { path = ".", features = ["testkit"] }
 # test-util: the explore tests that wait for a late screen run on tokio's
 # paused clock, not wall time (review 07 H3).
 tokio = { workspace = true, features = ["test-util"] }

@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, Result, SuiteResult, TestStatus};
 use serde::Serialize;
-use velocity_common::{Result, SuiteResult, TestStatus, VelocityError};
 
 /// The `run-metrics.json` format version.
 pub const METRICS_VERSION: u32 = 1;
@@ -109,15 +109,15 @@ fn ratio(part: u64, whole: u64) -> f64 {
 /// Write `run-metrics.json` at `path`.
 pub fn write(result: &SuiteResult, wall: Duration, path: &str) -> Result<()> {
     let json = serde_json::to_string_pretty(&metrics(result, wall))
-        .map_err(|e| VelocityError::io("failed to serialize run metrics", e))?;
-    velocity_common::fsutil::write_atomic(std::path::Path::new(path), json.as_bytes())
-        .map_err(|e| VelocityError::io(format!("failed to write run metrics at {path}"), e))
+        .map_err(|e| AtalantaError::io("failed to serialize run metrics", e))?;
+    atalanta_common::fsutil::write_atomic(std::path::Path::new(path), json.as_bytes())
+        .map_err(|e| AtalantaError::io(format!("failed to write run metrics at {path}"), e))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::TestResult;
+    use atalanta_common::TestResult;
 
     fn ran(name: &str, device: &str, ms: u64, status: TestStatus) -> TestResult {
         let mut t = TestResult::failed(name, String::new(), Duration::from_millis(ms));

@@ -1,6 +1,6 @@
 # Held-out seeded failures, set 2
 
-Twenty short Velocity tests (10 Android, 10 iOS), each with exactly one planted
+Twenty short Atalanta tests (10 Android, 10 iOS), each with exactly one planted
 defect whose real cause is written down in `manifest.yaml`. Five categories, two
 per platform each: selector-typo, wrong-screen, wrong-expected-value, wrong-app,
 stale-state.
@@ -16,4 +16,4 @@ stale-state.
 - The suites use only read-only navigation. wrong-app seeds open Clock,
   Contacts (Android) or Calendar, Reminders (iOS) without changing anything.
 
-Run one with: `velocity run <file> -p <android|ios> -d <device>`.
+Run one with: `atalanta run <file> -p <android|ios> -d <device>`.

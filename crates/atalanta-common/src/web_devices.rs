@@ -9,7 +9,7 @@
 //! Corporation; see `NOTICE` and `data/playwright-LICENSE`). Refreshing it
 //! is a copy of that file from a newer `playwright-core`.
 //!
-//! The nine names Velocity knew before (W1) still work: all but `iPad` are
+//! The nine names Atalanta knew before (W1) still work: all but `iPad` are
 //! Playwright names too, and `iPad` is an alias of `iPad (gen 7)`, the
 //! 810x1080 iPad it was.
 
@@ -32,14 +32,14 @@ pub struct WebDevice {
     /// sent as touches.
     pub touch: bool,
     /// The browser Playwright pairs the descriptor with (`chromium`,
-    /// `webkit`, `firefox`). Informational: Velocity drives Chrome.
+    /// `webkit`, `firefox`). Informational: Atalanta drives Chrome.
     pub browser: &'static str,
 }
 
 /// Playwright's descriptor list, verbatim.
 const PLAYWRIGHT_DEVICES: &str = include_str!("../data/playwright-devices.json");
 
-/// Names Velocity used before W1 that Playwright doesn't have, and the
+/// Names Atalanta used before W1 that Playwright doesn't have, and the
 /// Playwright descriptor each one is.
 pub const ALIASES: &[(&str, &str)] = &[("iPad", "iPad (gen 7)")];
 
@@ -179,7 +179,7 @@ pub fn lookup(name: &str) -> crate::Result<&'static WebDevice> {
                 near.push(n);
             }
         }
-        crate::VelocityError::Config(format!(
+        crate::AtalantaError::Config(format!(
             "web.device: unknown device {name:?}; known devices include: {} \
              ({} in all: Playwright's device list, plus \"<name> landscape\")",
             near.join(", "),
@@ -205,7 +205,7 @@ mod tests {
         );
         let e = lookup("x").unwrap_err().to_string();
         assert!(e.contains("Pixel 7, ") && e.contains("iPad"), "{e}");
-        assert!(matches!(lookup("x"), Err(crate::VelocityError::Config(_))));
+        assert!(matches!(lookup("x"), Err(crate::AtalantaError::Config(_))));
     }
 
     /// W1: the whole Playwright list, in its order, every entry sane.

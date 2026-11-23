@@ -1,8 +1,8 @@
-//! `velocity history`: share the run history (flaky flags, durations,
+//! `atalanta history`: share the run history (flaky flags, durations,
 //! last failures) between CI jobs without a server (C1). Each job uploads
-//! its `velocity-history.json` as an artifact; `history merge` combines
-//! the downloaded ones (`velocity run --history-from` reads them
-//! directly). The merge rule is in `velocity_runner::shared_history`.
+//! its `atalanta-history.json` as an artifact; `history merge` combines
+//! the downloaded ones (`atalanta run --history-from` reads them
+//! directly). The merge rule is in `atalanta_runner::shared_history`.
 
 use clap::Subcommand;
 use colored::Colorize;
@@ -12,33 +12,33 @@ pub enum HistoryCommand {
     /// Merge history files from several CI jobs into one: per test, the
     /// job that ran it last wins; device profiles are kept from every job
     Merge {
-        /// History files, folders holding a velocity-history.json, or
-        /// globs (`history/*`, `artifacts/**/velocity-history.json`)
+        /// History files, folders holding a atalanta-history.json, or
+        /// globs (`history/*`, `artifacts/**/atalanta-history.json`)
         #[arg(required = true, value_name = "FILES")]
         inputs: Vec<String>,
 
         /// Where to write the result: a `.json` file, or a folder that
-        /// gets a velocity-history.json
-        #[arg(short, long, value_name = "PATH", default_value = "./velocity-results")]
+        /// gets a atalanta-history.json
+        #[arg(short, long, value_name = "PATH", default_value = "./atalanta-results")]
         output: String,
     },
 
     /// Show each test's flake rate over its last N recorded runs.
     ///
     /// A run's flakiness counts runs that passed only on retry and pass/fail
-    /// flips between consecutive runs, the same measure `velocity run`
+    /// flips between consecutive runs, the same measure `atalanta run`
     /// reports. Infrastructure failures are never recorded in history, so
     /// they are not counted. Exits 1 when any test with at least 5 runs
     /// exceeds --max-rate, exit 0 otherwise, exit 2 when the file is missing
     /// or unreadable, or when --window is under 5 or --max-rate is outside
     /// 0..1.
     Flaky {
-        /// History file (a velocity-history.json, or a folder holding one);
-        /// defaults to where `velocity run` writes it
+        /// History file (a atalanta-history.json, or a folder holding one);
+        /// defaults to where `atalanta run` writes it
         #[arg(
             long,
             value_name = "FILE",
-            default_value = "./velocity-results/velocity-history.json"
+            default_value = "./atalanta-results/atalanta-history.json"
         )]
         file: String,
 
@@ -59,7 +59,7 @@ pub enum HistoryCommand {
 pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
     match command {
         HistoryCommand::Merge { inputs, output } => {
-            let (files, merged) = velocity_runner::shared_history::merge_files(
+            let (files, merged) = atalanta_runner::shared_history::merge_files(
                 &inputs,
                 std::path::Path::new(&output),
             )?;
@@ -70,7 +70,7 @@ pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
                 "{} Merged {} history file(s) into {output}: {}",
                 "=>".cyan().bold(),
                 files.len(),
-                velocity_runner::shared_history::describe(&merged)
+                atalanta_runner::shared_history::describe(&merged)
             );
             Ok(0)
         }
@@ -91,11 +91,11 @@ pub fn execute(command: HistoryCommand) -> anyhow::Result<i32> {
                 ));
             }
             let file_path = std::path::Path::new(&file);
-            let history = match velocity_runner::history::load_file(file_path) {
+            let history = match atalanta_runner::history::load_file(file_path) {
                 Ok(h) => h,
                 Err(e) => return Err(usage_err!("history flaky: {e}")),
             };
-            let tests = velocity_runner::history::flaky_rate(&history, window);
+            let tests = atalanta_runner::history::flaky_rate(&history, window);
             let over: Vec<String> = tests
                 .iter()
                 .filter(|t| t.runs >= 5 && t.rate > max_rate)

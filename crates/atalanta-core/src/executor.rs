@@ -4,12 +4,12 @@ use std::time::{Duration, Instant};
 
 use std::collections::HashMap;
 
-use velocity_common::live_events;
-use velocity_common::natural::{NaturalStep, NaturalStepResolver, PendingPlan};
-use velocity_common::{
-    Action, Direction, Element, NaturalKind, Platform, PlatformDriver, ResourceDelta, Result,
-    Selector, Step, StepResult, StepStatus, SuiteConfig, TestCase, TestResult, TestStatus,
-    VelocityError,
+use atalanta_common::live_events;
+use atalanta_common::natural::{NaturalStep, NaturalStepResolver, PendingPlan};
+use atalanta_common::{
+    Action, AtalantaError, Direction, Element, NaturalKind, Platform, PlatformDriver,
+    ResourceDelta, Result, Selector, Step, StepResult, StepStatus, SuiteConfig, TestCase,
+    TestResult, TestStatus,
 };
 
 use crate::baselines::baseline_file;
@@ -57,21 +57,21 @@ pub struct TestExecutor<'a> {
     /// [`PendingPlan`]).
     nl_pending: Vec<(usize, PendingPlan)>,
     /// `--verify`: over every test's and the suite's `verify:`.
-    verify_cli: Option<velocity_common::VerifyLevel>,
+    verify_cli: Option<atalanta_common::VerifyLevel>,
     /// The running test's verify level.
-    verify_level: velocity_common::VerifyLevel,
+    verify_level: atalanta_common::VerifyLevel,
     /// Index of the running step in its test.
     current_step: usize,
     /// The AI checks run in the running test.
-    verifications: Vec<velocity_common::VerifyCheck>,
+    verifications: Vec<atalanta_common::VerifyCheck>,
     /// Settle time accumulated by the current step.
     step_settle_ms: u64,
     /// `--update-baselines[=missing]`: which baselines assertScreenshot
     /// writes (D-V1).
-    update_baselines: velocity_common::BaselineUpdate,
+    update_baselines: atalanta_common::BaselineUpdate,
     /// The baselines this run created (D-V1). Its own unless the runner
     /// shares the run's, so nothing outlives a run (review-d5 M-1).
-    created_baselines: velocity_common::CreatedBaselines,
+    created_baselines: atalanta_common::CreatedBaselines,
     /// Per device: whether `screenshots.freezeStatusBar` froze its status
     /// bar (asked once, D-V4).
     status_bar_frozen: HashMap<String, bool>,
@@ -85,19 +85,19 @@ pub struct TestExecutor<'a> {
     app_id: String,
     /// Sync config and settings before a `setConfig`, restored at test end.
     config_before: Option<(
-        velocity_common::SyncConfig,
+        atalanta_common::SyncConfig,
         std::collections::HashMap<String, String>,
     )>,
     /// The running step's `settle:` override.
-    step_settle: Option<velocity_common::StepSettle>,
+    step_settle: Option<atalanta_common::StepSettle>,
     /// The running step's `force: true` (D-3).
     step_force: bool,
     /// The running step's `optional: true`: a miss there is expected, so it
     /// doesn't heal (real apps: each optional miss also paid for a heal).
     step_optional: bool,
     /// What a heal does here: `healing.mode`, resolved (D-7).
-    heal_mode: velocity_common::HealingMode,
-    /// The suite file of the running step (for the `velocity heal` hint).
+    heal_mode: atalanta_common::HealingMode,
+    /// The suite file of the running step (for the `atalanta heal` hint).
     suite_file: Option<String>,
     /// The running step's `appInFront` (D-2).
     step_app_in_front: Option<bool>,
@@ -108,19 +108,19 @@ pub struct TestExecutor<'a> {
     /// The sync timings before the running step's `settle:` override, put
     /// back after it (and by the next step or test when the watchdog
     /// cancelled it midway).
-    step_sync_before: Option<velocity_common::SyncConfig>,
+    step_sync_before: Option<atalanta_common::SyncConfig>,
     /// This test added mocks (`mockRequest`), dropped when it ends.
     mocked: bool,
     /// The running test's `http` steps: one cookie jar, made at its first
     /// one and dropped when the next test starts.
-    http: Option<velocity_api::HttpSession>,
+    http: Option<atalanta_api::HttpSession>,
     /// What the running test's `http` steps captured, for `${NAME}` in its
     /// later steps.
     captured: HashMap<String, String>,
     /// Screenshots held until the test ends: written only if it fails.
     held_shots: Vec<(PathBuf, Vec<u8>)>,
     /// The running test's video and log capture (`artifacts.video`/`logs`).
-    evidence: Option<Box<dyn velocity_common::EvidenceSession>>,
+    evidence: Option<Box<dyn atalanta_common::EvidenceSession>>,
     /// assertScreenshot baseline file → the name that first used it.
     baseline_names: HashMap<String, String>,
     /// The last `find_actionable` target was found only in the widest
@@ -149,13 +149,13 @@ pub struct TestExecutor<'a> {
     last_failure_crashed: bool,
     /// The kind of the error behind the last failed step (MCP step tools
     /// report it).
-    last_failure_kind: Option<velocity_common::ErrorKind>,
+    last_failure_kind: Option<atalanta_common::ErrorKind>,
     /// The test stopped the suite's app (`stopApp`) and hasn't launched it
     /// since: its absence is expected, not a crash.
     app_stopped: bool,
     /// The suite's app's liveness, read since the last action (a negative
     /// assertion reads it once, not once per assertion).
-    liveness_seen: Option<velocity_common::Liveness>,
+    liveness_seen: Option<atalanta_common::Liveness>,
     /// I3 (D-50, sticky crash): the crash the driver reported for the
     /// suite's app in this test ([`PlatformDriver::pending_crash`]). Once
     /// set, every later step fails with it at once, until the app is
@@ -253,13 +253,13 @@ fn held_step_index(path: &std::path::Path) -> Option<usize> {
 
 /// Longest wait for a found target to become enabled and stop moving.
 fn actionable_wait() -> Duration {
-    velocity_common::settings::ms("VELOCITY_ACTIONABLE_WAIT_MS", 2000)
+    atalanta_common::settings::ms("ATALANTA_ACTIONABLE_WAIT_MS", 2000)
 }
 
 /// The same box give or take 1 px per edge: a spring's fractional frames
 /// round either way between reads (review m1; the page's own check allows
 /// 0.5 CSS px).
-fn bounds_close(a: &velocity_common::Rect, b: &velocity_common::Rect) -> bool {
+fn bounds_close(a: &atalanta_common::Rect, b: &atalanta_common::Rect) -> bool {
     // In i64: hostile bounds overflowed i32 (a panic in a debug build, a
     // wrapped "close" in a release one; VEL-231's rule).
     let near = |p: i32, q: i32| (i64::from(p) - i64::from(q)).abs() <= 1;
@@ -290,24 +290,24 @@ fn next_pause(n: usize, deadline: Instant, timeout: Duration) -> Option<Duration
 /// Whether `setConfig` can change `key` to `value` mid-test: a named
 /// setting, or one of the sync timings.
 pub fn check_set_config(key: &str, value: &str) -> std::result::Result<(), String> {
-    if velocity_common::settings::find(key).is_some() {
+    if atalanta_common::settings::find(key).is_some() {
         return Ok(());
     }
-    let mut probe = velocity_common::SyncConfig::default();
+    let mut probe = atalanta_common::SyncConfig::default();
     set_sync_field(&mut probe, key, value)
 }
 
 /// When the post-action settle starts watching the crash log, and how often.
 fn crash_watch_after() -> Duration {
-    velocity_common::settings::ms("VELOCITY_CRASH_WATCH_AFTER_MS", 1000)
+    atalanta_common::settings::ms("ATALANTA_CRASH_WATCH_AFTER_MS", 1000)
 }
 fn crash_watch_every() -> Duration {
-    velocity_common::settings::ms("VELOCITY_CRASH_WATCH_EVERY_MS", 500)
+    atalanta_common::settings::ms("ATALANTA_CRASH_WATCH_EVERY_MS", 500)
 }
 
 /// How often a waiting element lookup checks whether the app crashed.
 fn crash_check_every() -> Duration {
-    velocity_common::settings::ms("VELOCITY_CRASH_CHECK_EVERY_MS", 1000)
+    atalanta_common::settings::ms("ATALANTA_CRASH_CHECK_EVERY_MS", 1000)
 }
 
 impl<'a> TestExecutor<'a> {
@@ -338,7 +338,7 @@ impl<'a> TestExecutor<'a> {
             None
         };
         let trace = crate::trace::TraceRecorder::new(trace_mode(
-            velocity_common::TraceMode::default(),
+            atalanta_common::TraceMode::default(),
             &config,
         ));
         let a11y = crate::a11y_run::AuditRun::new(&config.accessibility);
@@ -356,11 +356,11 @@ impl<'a> TestExecutor<'a> {
             warnings: Vec::new(),
             nl_pending: Vec::new(),
             verify_cli: None,
-            verify_level: velocity_common::VerifyLevel::Off,
+            verify_level: atalanta_common::VerifyLevel::Off,
             current_step: 0,
             verifications: Vec::new(),
             step_settle_ms: 0,
-            update_baselines: velocity_common::BaselineUpdate::Off,
+            update_baselines: atalanta_common::BaselineUpdate::Off,
             created_baselines: Default::default(),
             status_bar_frozen: HashMap::new(),
             retry_attempt: 0,
@@ -400,7 +400,7 @@ impl<'a> TestExecutor<'a> {
     }
 
     /// Keep the self-healing state (healed mappings, element snapshots,
-    /// rejected heals) in `dir` instead of `./.velocity`. Tests use a temp
+    /// rejected heals) in `dir` instead of `./.atalanta`. Tests use a temp
     /// dir: the default writes into whatever directory the test runs in,
     /// and what an earlier run left there changes how many trees the first
     /// lookup of a selector reads.
@@ -416,7 +416,7 @@ impl<'a> TestExecutor<'a> {
     }
 
     /// When to keep test traces (`--trace`; default: failed attempts).
-    pub fn with_trace(mut self, mode: velocity_common::TraceMode) -> Self {
+    pub fn with_trace(mut self, mode: atalanta_common::TraceMode) -> Self {
         let started = self.trace.run_started();
         self.trace = crate::trace::TraceRecorder::new(trace_mode(mode, &self.config))
             .with_run_started(started);
@@ -536,14 +536,14 @@ impl<'a> TestExecutor<'a> {
 
     fn strict_selectors(&self) -> bool {
         self.strict_selectors
-            .unwrap_or_else(|| velocity_common::settings::num("VELOCITY_SELECTORS_STRICT", 0) == 1)
+            .unwrap_or_else(|| atalanta_common::settings::num("ATALANTA_SELECTORS_STRICT", 0) == 1)
     }
 
     /// Whether `selectors.strict` was left unset (S3): an ambiguous action
     /// then warns that it becomes an error in 1.0.
     fn strict_selectors_unset(&self) -> bool {
         self.strict_selectors.is_none()
-            && velocity_common::env::var("VELOCITY_SELECTORS_STRICT")
+            && atalanta_common::env::var("ATALANTA_SELECTORS_STRICT")
                 .map_or(true, |v| v.trim().is_empty())
     }
 
@@ -552,7 +552,7 @@ impl<'a> TestExecutor<'a> {
     /// `false` / `Off` (D-V1).
     pub fn with_update_baselines(
         mut self,
-        mode: impl Into<velocity_common::BaselineUpdate>,
+        mode: impl Into<atalanta_common::BaselineUpdate>,
     ) -> Self {
         self.update_baselines = mode.into();
         self
@@ -561,7 +561,7 @@ impl<'a> TestExecutor<'a> {
     /// Share the run's created-baselines registry (D-V1): a retry or
     /// another device of the same run fails on a baseline this run wrote;
     /// the next run starts fresh.
-    pub fn with_created_baselines(mut self, run: velocity_common::CreatedBaselines) -> Self {
+    pub fn with_created_baselines(mut self, run: atalanta_common::CreatedBaselines) -> Self {
         self.created_baselines = run;
         self
     }
@@ -597,7 +597,7 @@ impl<'a> TestExecutor<'a> {
 
     /// `--verify`: the AI verification level for every test, over the
     /// tests' and the suite's `verify:`.
-    pub fn with_verify(mut self, level: Option<velocity_common::VerifyLevel>) -> Self {
+    pub fn with_verify(mut self, level: Option<atalanta_common::VerifyLevel>) -> Self {
         self.verify_cli = level;
         self
     }
@@ -662,7 +662,7 @@ impl<'a> TestExecutor<'a> {
         if let Some((sync, settings)) = self.config_before.take() {
             self.config.sync = sync;
             *self.sync_manager.sync_config_mut() = self.config.sync.clone();
-            velocity_common::env::set_settings(settings);
+            atalanta_common::env::set_settings(settings);
         }
     }
 
@@ -679,7 +679,7 @@ impl<'a> TestExecutor<'a> {
         self.warnings.clear();
         self.nl_pending.clear();
         self.verifications.clear();
-        self.verify_level = velocity_common::VerifyLevel::effective(
+        self.verify_level = atalanta_common::VerifyLevel::effective(
             self.verify_cli,
             test.verify,
             self.config.verify,
@@ -709,7 +709,7 @@ impl<'a> TestExecutor<'a> {
         {
             let arts = &self.config.artifacts;
             if arts.video.on() || arts.logs.on() {
-                let req = velocity_common::EvidenceRequest {
+                let req = atalanta_common::EvidenceRequest {
                     test: test.name.clone(),
                     app_id: app_id.to_string(),
                     video: arts.video,
@@ -812,7 +812,7 @@ impl<'a> TestExecutor<'a> {
                     Err(_) => {
                         self.restore_step_overrides();
                         self.last_failure_infra = i == 0;
-                        Err(VelocityError::StepTimeout {
+                        Err(AtalantaError::StepTimeout {
                             test_name: test.name.clone(),
                             step_index: i,
                             timeout_ms: deadline.as_millis() as u64,
@@ -884,7 +884,7 @@ impl<'a> TestExecutor<'a> {
                 Ok(r) if r.status == StepStatus::Failed && forgivable => {
                     Ok(self.forgive_optional(r, block.map(|(_, f, n)| (f, n))))
                 }
-                Err(e) if forgivable && !matches!(e, VelocityError::StepTimeout { .. }) => {
+                Err(e) if forgivable && !matches!(e, AtalantaError::StepTimeout { .. }) => {
                     let r = StepResult {
                         step_index: i,
                         action_name: action_name(&step.action),
@@ -1024,7 +1024,7 @@ impl<'a> TestExecutor<'a> {
             // Another app in front: a batched next test must launch ours.
             in_front = !matches!(
                 self.liveness_seen,
-                Some(velocity_common::Liveness::Background(_))
+                Some(atalanta_common::Liveness::Background(_))
             );
             if let Some(err) = dead {
                 let msg = format!("after the last step: {err}");
@@ -1102,7 +1102,7 @@ impl<'a> TestExecutor<'a> {
         } else if !self.nl_pending.is_empty() {
             tracing::info!(
                 plans = self.nl_pending.len(),
-                "velocity-nl: test failed; not caching its unverified plans"
+                "atalanta-nl: test failed; not caching its unverified plans"
             );
             self.nl_pending.clear();
         }
@@ -1138,7 +1138,7 @@ impl<'a> TestExecutor<'a> {
             let root = PathBuf::from(&self.config.artifacts.output_dir);
             let dir = crate::trace::trace_dir(&root, &test.name);
             let suffix = self.trace.file_suffix(self.retry_attempt);
-            let out = velocity_common::EvidenceOut {
+            let out = atalanta_common::EvidenceOut {
                 dir: &dir,
                 suffix: &suffix,
                 keep_video: self.config.artifacts.video.keeps(failed),
@@ -1148,7 +1148,7 @@ impl<'a> TestExecutor<'a> {
                 Ok(ev) => ev,
                 Err(_) => {
                     tracing::warn!("writing the video and logs timed out");
-                    velocity_common::Evidence::default()
+                    atalanta_common::Evidence::default()
                 }
             };
             if failed {
@@ -1181,7 +1181,7 @@ impl<'a> TestExecutor<'a> {
                 }
             }
             if !ev.attachments.is_empty() || !ev.log_lines.is_empty() {
-                use velocity_common::AttachmentKind as K;
+                use atalanta_common::AttachmentKind as K;
                 let rel = |k: &[K]| -> Vec<String> {
                     ev.attachments
                         .iter()
@@ -1206,11 +1206,11 @@ impl<'a> TestExecutor<'a> {
         }
 
         let resource_peak = self.profiler.as_ref().and_then(|p| p.peak()).cloned();
-        // A heal is kept for `velocity heal` when its test passed, or, in
+        // A heal is kept for `atalanta heal` when its test passed, or, in
         // report mode, as the patch the failure proposed (D-7).
         self.selector_engine.healer().settle_heals(
             &test.name,
-            status == TestStatus::Passed || self.heal_mode == velocity_common::HealingMode::Report,
+            status == TestStatus::Passed || self.heal_mode == atalanta_common::HealingMode::Report,
         );
         self.selector_engine.persist();
         let mut warnings = std::mem::take(&mut self.warnings);
@@ -1225,14 +1225,14 @@ impl<'a> TestExecutor<'a> {
             status,
         );
         if let Some(html) = self.trace.last_html() {
-            attachments.push(velocity_common::Attachment::new(
-                velocity_common::AttachmentKind::Trace,
+            attachments.push(atalanta_common::Attachment::new(
+                atalanta_common::AttachmentKind::Trace,
                 html,
             ));
         }
         if failed {
             attachments.extend(self.crash_log_files().into_iter().map(|p| {
-                velocity_common::Attachment::new(velocity_common::AttachmentKind::Crash, p)
+                atalanta_common::Attachment::new(atalanta_common::AttachmentKind::Crash, p)
             }));
         }
 
@@ -1261,7 +1261,7 @@ impl<'a> TestExecutor<'a> {
     }
 
     /// The last failed step's error kind, and whether the app crashed.
-    pub fn last_failure(&self) -> (Option<velocity_common::ErrorKind>, bool) {
+    pub fn last_failure(&self) -> (Option<atalanta_common::ErrorKind>, bool) {
         (self.last_failure_kind, self.last_failure_crashed)
     }
 
@@ -1280,8 +1280,8 @@ impl<'a> TestExecutor<'a> {
         );
         // Lookups stop at the case-folded tier; only a lookup's last look
         // at its deadline widens to merged-label parts (review M2/M3).
-        velocity_common::selector_match::with_ceiling(
-            velocity_common::selector_match::Tier::Fold,
+        atalanta_common::selector_match::with_ceiling(
+            atalanta_common::selector_match::Tier::Fold,
             self.execute_step_inner(step, device_id, app_id, step_index)
                 .instrument(span),
         )
@@ -1434,20 +1434,20 @@ impl<'a> TestExecutor<'a> {
             },
             Err(e) => {
                 // An app that crashed fails a later step with "not found" or a
-                // wrong value: say what happened instead (VelocityLab's crash
+                // wrong value: say what happened instead (AtalantaLab's crash
                 // button was reported as `home_title` not found after 10 s).
                 // A configuration error is the suite's, never a crash's.
                 let e = if is_infrastructure(&e)
                     || matches!(
                         e,
-                        VelocityError::AppCrashed { .. } | VelocityError::Config(_)
+                        AtalantaError::AppCrashed { .. } | AtalantaError::Config(_)
                     )
                     || matches!(step.action, Action::Http(_) | Action::Exec(_))
                 {
                     e
                 } else {
                     match self.driver.crash_report(device_id, app_id).await {
-                        Some(detail) => VelocityError::AppCrashed {
+                        Some(detail) => AtalantaError::AppCrashed {
                             app_id: app_id.to_string(),
                             detail,
                         },
@@ -1458,11 +1458,11 @@ impl<'a> TestExecutor<'a> {
                 // seeded failures, Calendar in front of a Settings suite read
                 // only as "a different screen"). One liveness read, on the
                 // failure path only.
-                let in_front = if matches!(e, VelocityError::ElementNotFound { .. })
+                let in_front = if matches!(e, AtalantaError::ElementNotFound { .. })
                     && !app_id.is_empty()
                 {
                     match self.driver.app_liveness(device_id, app_id).await {
-                        velocity_common::Liveness::Background(Some(front)) if front != app_id => {
+                        atalanta_common::Liveness::Background(Some(front)) if front != app_id => {
                             Some(front)
                         }
                         _ => None,
@@ -1471,7 +1471,7 @@ impl<'a> TestExecutor<'a> {
                     None
                 };
                 self.last_failure_infra = is_infrastructure(&e);
-                self.last_failure_crashed = matches!(e, VelocityError::AppCrashed { .. });
+                self.last_failure_crashed = matches!(e, AtalantaError::AppCrashed { .. });
                 self.last_failure_kind = Some(e.kind());
                 if self.last_failure_crashed && self.config.artifacts.on_failure {
                     self.save_crash_logs(device_id, app_id).await;
@@ -1580,11 +1580,11 @@ impl<'a> TestExecutor<'a> {
                 let per = step
                     .timeout_ms
                     .or(self.config.http.as_ref().and_then(|h| h.timeout_ms))
-                    .unwrap_or(velocity_api::DEFAULT_TIMEOUT_MS);
+                    .unwrap_or(atalanta_api::DEFAULT_TIMEOUT_MS);
                 let (retries, pause) = req.retry.as_ref().map_or((0, 0), |r| {
                     let pause = r
                         .interval_ms
-                        .unwrap_or(velocity_api::DEFAULT_RETRY_INTERVAL_MS);
+                        .unwrap_or(atalanta_api::DEFAULT_RETRY_INTERVAL_MS);
                     (u64::from(r.count), pause)
                 });
                 let all = per
@@ -1676,8 +1676,8 @@ fn action_name(action: &Action) -> String {
         Action::Refresh => "refresh".to_string(),
         Action::Natural { intent, kind, .. } => {
             let verb = match kind {
-                velocity_common::NaturalKind::Act => "do",
-                velocity_common::NaturalKind::Assert => "assert",
+                atalanta_common::NaturalKind::Act => "do",
+                atalanta_common::NaturalKind::Assert => "assert",
             };
             format!("{verb}({intent})")
         }
@@ -1687,10 +1687,10 @@ fn action_name(action: &Action) -> String {
 /// `artifacts.onFailure: false` turns off failure artifacts, the trace
 /// included; `--trace always` still asks for one.
 fn trace_mode(
-    mode: velocity_common::TraceMode,
+    mode: atalanta_common::TraceMode,
     config: &SuiteConfig,
-) -> velocity_common::TraceMode {
-    use velocity_common::TraceMode;
+) -> atalanta_common::TraceMode {
+    use atalanta_common::TraceMode;
     match mode {
         TraceMode::OnFailure if !config.artifacts.on_failure => TraceMode::Off,
         other => other,
@@ -1699,7 +1699,7 @@ fn trace_mode(
 
 /// A step's error with where the step is written, when that is known:
 /// `tests/app.yaml:42: tap { text: "Pay" }: Element not found ...`.
-fn located(step: &Step, e: &VelocityError) -> String {
+fn located(step: &Step, e: &AtalantaError) -> String {
     match &step.source {
         Some(pos) => format!("{pos}: {}: {e}", step_label(&step.action)),
         None => e.to_string(),
@@ -1756,15 +1756,15 @@ fn yaml_quoted(v: &str) -> String {
 /// the selector holds a masked value, since the masked text would match no
 /// pending heal (review NIT 12).
 fn reject_hint(from: &str, suite: &str) -> String {
-    let shown = velocity_common::redact::redact(from);
+    let shown = atalanta_common::redact::redact(from);
     if shown != from {
         return format!(
-            "reject it by its number: `velocity heal --config {suite}` lists it, then \
-             `velocity heal --reject <N> --config {suite}` (its selector holds a masked value)"
+            "reject it by its number: `atalanta heal --config {suite}` lists it, then \
+             `atalanta heal --reject <N> --config {suite}` (its selector holds a masked value)"
         );
     }
     let which = from.replace('\'', "'\\''");
-    format!("reject it with `velocity heal --reject '{which}' --config {suite}`")
+    format!("reject it with `atalanta heal --reject '{which}' --config {suite}`")
 }
 
 /// Added to an ambiguous action's warning while `selectors.strict` is unset
@@ -1818,10 +1818,10 @@ fn chrono_millis() -> u128 {
 }
 
 /// A lookup that read the screen and didn't find the element.
-fn is_not_found(e: &VelocityError) -> bool {
+fn is_not_found(e: &AtalantaError) -> bool {
     match e {
-        VelocityError::ElementNotFound { .. } => true,
-        VelocityError::AtSource { inner, .. } => is_not_found(inner),
+        AtalantaError::ElementNotFound { .. } => true,
+        AtalantaError::AtSource { inner, .. } => is_not_found(inner),
         _ => false,
     }
 }
@@ -1850,28 +1850,28 @@ fn crash_sticks_to(action: &Action) -> bool {
 /// platform can't run, a bad regex). Lookups waiting for their element
 /// retried it until the step timeout: 10.2 s per test on a headless suite
 /// with no `launchApp`. Not-found and transient errors still wait.
-fn is_config(e: &VelocityError) -> bool {
-    use velocity_common::ErrorKind;
+fn is_config(e: &AtalantaError) -> bool {
+    use atalanta_common::ErrorKind;
     matches!(
         e.kind(),
         ErrorKind::ConfigError | ErrorKind::InvalidSelector | ErrorKind::PlatformNotSupported
     )
 }
 
-fn is_crash(e: &VelocityError) -> bool {
+fn is_crash(e: &AtalantaError) -> bool {
     match e {
-        VelocityError::AppCrashed { .. } => true,
-        VelocityError::AtSource { inner, .. } => is_crash(inner),
+        AtalantaError::AppCrashed { .. } => true,
+        AtalantaError::AtSource { inner, .. } => is_crash(inner),
         _ => false,
     }
 }
 
 /// Errors that say the device or its connection failed, not the app.
-fn is_infrastructure(e: &VelocityError) -> bool {
-    use velocity_common::ErrorKind;
+fn is_infrastructure(e: &AtalantaError) -> bool {
+    use atalanta_common::ErrorKind;
     // Not retried (kind ConfigError), but the device's fault, not the test's.
-    if matches!(e, VelocityError::DeviceLocked { .. })
-        || matches!(e, VelocityError::AtSource { inner, .. } if matches!(**inner, VelocityError::DeviceLocked { .. }))
+    if matches!(e, AtalantaError::DeviceLocked { .. })
+        || matches!(e, AtalantaError::AtSource { inner, .. } if matches!(**inner, AtalantaError::DeviceLocked { .. }))
     {
         return true;
     }
@@ -1879,10 +1879,10 @@ fn is_infrastructure(e: &VelocityError) -> bool {
     // connection, but it is not the device's fault: never quarantine for it
     // (review M5).
     let inner = match e {
-        VelocityError::AtSource { inner, .. } => inner.as_ref(),
+        AtalantaError::AtSource { inner, .. } => inner.as_ref(),
         e => e,
     };
-    if matches!(inner, VelocityError::ServiceUnavailable { .. }) {
+    if matches!(inner, AtalantaError::ServiceUnavailable { .. }) {
         return false;
     }
     matches!(
@@ -1903,14 +1903,14 @@ fn deadline_in(ms: u64) -> Instant {
 }
 
 /// Fill in the real wait time on a not-found error raised by a single lookup.
-fn with_timeout(e: VelocityError, timeout_ms: u64) -> VelocityError {
+fn with_timeout(e: AtalantaError, timeout_ms: u64) -> AtalantaError {
     match e {
-        VelocityError::ElementNotFound {
+        AtalantaError::ElementNotFound {
             selector,
             screenshot,
             hierarchy_snapshot,
             ..
-        } => VelocityError::ElementNotFound {
+        } => AtalantaError::ElementNotFound {
             selector,
             timeout_ms,
             screenshot,
@@ -1995,7 +1995,7 @@ fn describe(action: &Action) -> String {
 }
 
 /// Prefix a natural step's failure with the action it resolved to.
-fn annotate(action: &Action, e: VelocityError, extra: Option<&str>) -> VelocityError {
+fn annotate(action: &Action, e: AtalantaError, extra: Option<&str>) -> AtalantaError {
     let mut msg = format!("resolved to {}: {e}", describe(action));
     if let Some(extra) = extra {
         msg.push_str("; ");
@@ -2003,11 +2003,11 @@ fn annotate(action: &Action, e: VelocityError, extra: Option<&str>) -> VelocityE
     }
     match e {
         // Keep assertion failures typed so reporters show expected/actual.
-        VelocityError::AssertionFailed { .. } => e,
+        AtalantaError::AssertionFailed { .. } => e,
         // A lost device or a crashed app is not the step's (config) fault:
         // keep the variant, so the test is marked infrastructure / crashed
         // and retried or reported as such (VEL-073).
-        VelocityError::AppCrashed { app_id, detail } => VelocityError::AppCrashed {
+        AtalantaError::AppCrashed { app_id, detail } => AtalantaError::AppCrashed {
             app_id,
             detail: format!(
                 "{detail} (natural step {msg_action})",
@@ -2017,12 +2017,12 @@ fn annotate(action: &Action, e: VelocityError, extra: Option<&str>) -> VelocityE
         // Not found stays not found (NB-1): reporters, retries and
         // `is_not_found` checks key on the variant. The replan note isn't
         // added: the element's absence is the failure.
-        VelocityError::ElementNotFound {
+        AtalantaError::ElementNotFound {
             selector,
             timeout_ms,
             screenshot,
             hierarchy_snapshot,
-        } => VelocityError::ElementNotFound {
+        } => AtalantaError::ElementNotFound {
             selector: format!(
                 "{selector} (natural step resolved to {}{})",
                 describe(action),
@@ -2041,10 +2041,10 @@ fn annotate(action: &Action, e: VelocityError, extra: Option<&str>) -> VelocityE
 /// step's error (review M5: a 529 there ended as "Element not found", exit
 /// 1, with the re-plan text dropped); otherwise the first failure stands,
 /// noting the re-plan.
-fn replan_failed(cached: &Action, first_err: VelocityError, e: VelocityError) -> VelocityError {
+fn replan_failed(cached: &Action, first_err: AtalantaError, e: AtalantaError) -> AtalantaError {
     match e {
-        VelocityError::ServiceUnavailable { service, detail } => {
-            VelocityError::ServiceUnavailable {
+        AtalantaError::ServiceUnavailable { service, detail } => {
+            AtalantaError::ServiceUnavailable {
                 service,
                 detail: format!(
                     "{detail} (re-plan failed after the cached step {} failed: {first_err})",
@@ -2061,16 +2061,16 @@ fn replan_failed(cached: &Action, first_err: VelocityError, e: VelocityError) ->
 /// step's error: infrastructure, crashes, an unavailable model API (NB-1:
 /// transient, so the run retries it) and timeouts keep their own variant;
 /// anything else becomes a configuration error that says `msg`.
-fn planning_error(e: VelocityError, msg: String) -> VelocityError {
+fn planning_error(e: AtalantaError, msg: String) -> AtalantaError {
     match e {
-        VelocityError::AssertionFailed { .. }
-        | VelocityError::NotActionable { .. }
-        | VelocityError::ServiceUnavailable { .. }
-        | VelocityError::ElementNotFound { .. }
-        | VelocityError::SyncTimeout { .. }
-        | VelocityError::StepTimeout { .. } => e,
+        AtalantaError::AssertionFailed { .. }
+        | AtalantaError::NotActionable { .. }
+        | AtalantaError::ServiceUnavailable { .. }
+        | AtalantaError::ElementNotFound { .. }
+        | AtalantaError::SyncTimeout { .. }
+        | AtalantaError::StepTimeout { .. } => e,
         _ if is_infrastructure(&e) || is_crash(&e) => e,
-        _ => VelocityError::Config(msg),
+        _ => AtalantaError::Config(msg),
     }
 }
 
@@ -2091,7 +2091,7 @@ fn merged_label(el: &Element) -> String {
 /// Pipelines and CodeBuild don't set; healing defaults to `report` there (D-7).
 #[cfg(test)]
 fn in_ci(set: impl Fn(&str) -> bool) -> bool {
-    velocity_common::env::CI_VARS.iter().any(|k| set(k))
+    atalanta_common::env::CI_VARS.iter().any(|k| set(k))
 }
 
 #[cfg(test)]

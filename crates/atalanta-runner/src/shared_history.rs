@@ -1,10 +1,10 @@
 //! History shared across CI jobs without a server (C1).
 //!
 //! Each CI job (a shard, a device in a matrix) writes its own
-//! `velocity-history.json`. The jobs upload theirs as artifacts; a later
+//! `atalanta-history.json`. The jobs upload theirs as artifacts; a later
 //! job (or the next run) downloads them and either merges them into one
-//! file with `velocity history merge`, or reads them directly with
-//! `velocity run --history-from 'history/*'`.
+//! file with `atalanta history merge`, or reads them directly with
+//! `atalanta run --history-from 'history/*'`.
 //!
 //! **Merge rule, per test.** Every job usually starts from the same base
 //! (the previous merged history), so the files share most of their
@@ -20,16 +20,16 @@
 //! outcomes. A file with a profile time for some profiles of a test but
 //! not this one ranks below every file with one, then by its test-wide
 //! `last_run`. A file with no profile times for the test at all (written
-//! by a Velocity without `byDeviceLastRun`) uses its test-wide `last_run`
+//! by a Atalanta without `byDeviceLastRun`) uses its test-wide `last_run`
 //! for each profile. On a tie the later file given wins, so the result
 //! never depends on anything but the arguments' order.
 //!
-//! **Mixed versions.** A job on an older Velocity rewrites its file
+//! **Mixed versions.** A job on an older Atalanta rewrites its file
 //! without `byDeviceLastRun`, so the merge can't tell the profile it ran
 //! from its base copies of the others: they all rank by that job's
 //! test-wide run time. A device that a newer job ran *earlier* than the
 //! old job's run can lose its new outcomes to the old job's base copy.
-//! Run one Velocity version across a matrix (see `docs/CI.md`).
+//! Run one Atalanta version across a matrix (see `docs/CI.md`).
 //!
 //! **Clocks.** Run times come from each job's machine. A time later than
 //! the merge's own clock (a runner whose clock is fast) is unknown: it
@@ -39,7 +39,7 @@
 
 use std::path::{Path, PathBuf};
 
-use velocity_common::{Result, VelocityError};
+use atalanta_common::{AtalantaError, Result};
 
 use crate::history::{self, TestHistory};
 
@@ -114,7 +114,7 @@ fn merge_at(histories: &[TestHistory], now: u64) -> TestHistory {
         for profile in profiles {
             // When file `i` ran this test on this profile, as written. A
             // file with no profile times for the test at all was written
-            // by a Velocity without `byDeviceLastRun` (an older binary in
+            // by a Atalanta without `byDeviceLastRun` (an older binary in
             // a mixed-version matrix rewrites the file without it): its
             // test-wide run time stands in, so the profile it ran isn't
             // lost to another job's base copy (review-fi2 F5).
@@ -162,7 +162,7 @@ fn rank_time(t: Option<u64>, now: u64) -> (u8, u64) {
 /// The files `pattern` names, sorted: a path as is, or a glob where a
 /// path component holds `*` (any run of characters, not `/`) and `**`
 /// stands for any number of folders. A folder means its
-/// `velocity-history.json`. Matching nothing gives an empty list.
+/// `atalanta-history.json`. Matching nothing gives an empty list.
 pub fn expand(pattern: &str) -> Vec<PathBuf> {
     let pattern = pattern.strip_prefix("./").unwrap_or(pattern);
     let mut found = if !pattern.contains('*') {
@@ -202,7 +202,7 @@ fn walk(dir: &Path, parts: &[&str], out: &mut Vec<PathBuf>) {
     } else if first.contains('*') {
         for child in children(dir) {
             let name = child.file_name().map(|n| n.to_string_lossy().into_owned());
-            if name.is_some_and(|n| velocity_common::glob_match(first, &n)) {
+            if name.is_some_and(|n| atalanta_common::glob_match(first, &n)) {
                 walk(&child, rest, out);
             }
         }
@@ -276,14 +276,14 @@ pub fn seed(artifacts_dir: &str, patterns: &[String]) -> Result<(Vec<PathBuf>, V
     Ok((files, unmatched))
 }
 
-/// `velocity history merge`: merge `inputs` (paths or globs) and save the
+/// `atalanta history merge`: merge `inputs` (paths or globs) and save the
 /// result to `output` (a `.json` file, or a folder that gets a
-/// `velocity-history.json`). Returns the files merged and the merged
+/// `atalanta-history.json`). Returns the files merged and the merged
 /// history. Matching no file at all is an error.
 pub fn merge_files(inputs: &[String], output: &Path) -> Result<(Vec<PathBuf>, TestHistory)> {
     let (loaded, unmatched) = load_all(inputs)?;
     if loaded.is_empty() {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "no history file matches {}",
             unmatched.join(", ")
         )));
@@ -300,14 +300,14 @@ pub fn merge_files(inputs: &[String], output: &Path) -> Result<(Vec<PathBuf>, Te
         let dir = output.parent().filter(|p| !p.as_os_str().is_empty());
         if let Some(dir) = dir {
             std::fs::create_dir_all(dir)
-                .map_err(|e| VelocityError::Config(format!("{}: {e}", dir.display())))?;
+                .map_err(|e| AtalantaError::Config(format!("{}: {e}", dir.display())))?;
         }
         let mut out = merged.clone();
         out.version = out.version.max(history::HISTORY_VERSION);
         let json = serde_json::to_string_pretty(&out)
-            .map_err(|e| VelocityError::io("failed to serialize history", e))?;
-        velocity_common::fsutil::write_private(output, json.as_bytes())
-            .map_err(|e| VelocityError::io(output.display(), e))?;
+            .map_err(|e| AtalantaError::io("failed to serialize history", e))?;
+        atalanta_common::fsutil::write_private(output, json.as_bytes())
+            .map_err(|e| AtalantaError::io(output.display(), e))?;
     } else {
         history::save(&output.to_string_lossy(), &merged)?;
     }
@@ -428,7 +428,7 @@ mod tests {
             "{}",
             describe(&m)
         );
-        // A file without kinds (an older Velocity's) brings none.
+        // A file without kinds (an older Atalanta's) brings none.
         new.failure_kinds.clear();
         let m = merge(&[old, new]);
         assert!(m.failure_kinds.is_empty());
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn an_old_binarys_file_without_profile_times_keeps_its_device() {
         // Mixed versions (review-fi2 F5): the iPhone job runs an older
-        // Velocity, which rewrote its file without `byDeviceLastRun`; it
+        // Atalanta, which rewrote its file without `byDeviceLastRun`; it
         // ran at t=100 and failed. The Pixel job (new) ran at t=101 and
         // carries the iPhone base copy with its base time, t=50.
         let json = r#"{"version":2,"durations":{"login":900},"outcomes":{"login":["pass","fail"]},
@@ -665,7 +665,7 @@ mod tests {
         let shards = expand(&format!("{root}/dl/history-*"));
         assert_eq!(shards.len(), 2, "{shards:?}");
         assert!(shards[0].ends_with("history-shard-1"));
-        let files = expand(&format!("{root}/**/velocity-history.json"));
+        let files = expand(&format!("{root}/**/atalanta-history.json"));
         assert_eq!(files.len(), 3, "{files:?}");
         assert!(expand(&format!("{root}/nothing-*")).is_empty());
         // A plain path, as is.
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn seeding_merges_other_jobs_into_the_local_history() {
         let dir = scratch("seed");
-        let local = dir.join("velocity-results");
+        let local = dir.join("atalanta-results");
         history::save(local.to_str().unwrap(), &job(&[("mine", 1, &[Pass], 50)])).unwrap();
         let other = dir.join("dl/shard-2");
         history::save(other.to_str().unwrap(), &job(&[("theirs", 2, &[Fail], 60)])).unwrap();

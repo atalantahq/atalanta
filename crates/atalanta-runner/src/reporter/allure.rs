@@ -6,14 +6,14 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use atalanta_common::{AtalantaError, Result, StepStatus, SuiteResult, TestResult, TestStatus};
 use serde_json::{json, Value};
-use velocity_common::{Result, StepStatus, SuiteResult, TestResult, TestStatus, VelocityError};
 
 /// Write results for `result` into `dir` (created if needed).
 pub fn write_allure(result: &SuiteResult, dir: &str, suite_name: &str) -> Result<usize> {
     let dir = Path::new(dir);
     std::fs::create_dir_all(dir)
-        .map_err(|e| VelocityError::Config(format!("create {}: {e}", dir.display())))?;
+        .map_err(|e| AtalantaError::Config(format!("create {}: {e}", dir.display())))?;
     let end = now_ms();
     // Tests ran one after another (or overlapping in parallel runs); lay
     // them out back to back ending now, which keeps durations right.
@@ -31,18 +31,18 @@ pub fn write_allure(result: &SuiteResult, dir: &str, suite_name: &str) -> Result
         let path = dir.join(format!("{uuid}-result.json"));
         // Whole files only: `allure generate` running beside a run never
         // reads half a result (VEL-053).
-        velocity_common::fsutil::write_atomic(
+        atalanta_common::fsutil::write_atomic(
             &path,
             &serde_json::to_vec_pretty(&doc).unwrap_or_default(),
         )
-        .map_err(|e| VelocityError::Config(format!("write {}: {e}", path.display())))?;
+        .map_err(|e| AtalantaError::Config(format!("write {}: {e}", path.display())))?;
         start = stop;
     }
     Ok(result.tests.len())
 }
 
 /// Remove every Allure result, container and attachment from `dir`
-/// (`velocity run --clean-allure`); other files (`categories.json`,
+/// (`atalanta run --clean-allure`); other files (`categories.json`,
 /// `executor.json`, `history/`) are kept. Returns how many were removed.
 ///
 /// Results are never deleted otherwise (M-4). Deleting "this suite's"
@@ -178,7 +178,7 @@ fn test_doc(
 fn labels(suite: &str, t: &TestResult) -> Value {
     let mut out = vec![
         json!({ "name": "suite", "value": suite }),
-        json!({ "name": "framework", "value": "velocity" }),
+        json!({ "name": "framework", "value": "atalanta" }),
     ];
     out.extend(
         t.tags
@@ -373,8 +373,8 @@ mod clean_tests {
         let video = dir.join("source.mp4");
         std::fs::write(&video, "v").unwrap();
         let mut t = TestResult::failed("with video", "x".into(), Duration::ZERO);
-        t.attachments = vec![velocity_common::Attachment::new(
-            velocity_common::AttachmentKind::Video,
+        t.attachments = vec![atalanta_common::Attachment::new(
+            atalanta_common::AttachmentKind::Video,
             &video,
         )];
         let result = SuiteResult {

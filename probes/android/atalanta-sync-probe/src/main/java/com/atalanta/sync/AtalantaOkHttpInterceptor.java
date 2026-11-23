@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.io.IOException;
 import okhttp3.Interceptor;
@@ -18,7 +18,7 @@ import okio.Okio;
  *
  * <pre>
  *   OkHttpClient client = new OkHttpClient.Builder()
- *       .addInterceptor(new VelocityOkHttpInterceptor())
+ *       .addInterceptor(new AtalantaOkHttpInterceptor())
  *       .build();
  * </pre>
  *
@@ -38,14 +38,14 @@ import okio.Okio;
  * Native apps need no interceptor for {@code fetch}: with {@code framework:
  * react_native} the probe reads RN's own client ({@link ReactNativeIdling}).
  */
-public final class VelocityOkHttpInterceptor implements Interceptor {
+public final class AtalantaOkHttpInterceptor implements Interceptor {
     private final NetworkTracker tracker;
 
-    public VelocityOkHttpInterceptor() {
+    public AtalantaOkHttpInterceptor() {
         this(NetworkTracker.SHARED);
     }
 
-    public VelocityOkHttpInterceptor(NetworkTracker tracker) {
+    public AtalantaOkHttpInterceptor(NetworkTracker tracker) {
         this.tracker = tracker;
     }
 

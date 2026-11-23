@@ -14,10 +14,10 @@ use rust_embed::Embed;
 struct FrontendAssets;
 
 /// What the inspector serves instead of its page when the UI was not built.
-pub const MISSING_UI: &str = "The Velocity inspector's web UI is not in this build: \
-crates/velocity-inspector/frontend/dist was missing when it was compiled. Release binaries \
+pub const MISSING_UI: &str = "The Atalanta inspector's web UI is not in this build: \
+crates/atalanta-inspector/frontend/dist was missing when it was compiled. Release binaries \
 include it. From a source checkout, run `npm ci && npm run build` in \
-crates/velocity-inspector/frontend, then rebuild velocity. The inspector API (/api/...) works \
+crates/atalanta-inspector/frontend, then rebuild atalanta. The inspector API (/api/...) works \
 without it.";
 
 /// The Content-Security-Policy on the console UI (security I-3): scripts,
@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn build_rs_watches_dist_and_never_runs_npm() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("build.rs");
-        let src = std::fs::read_to_string(&path).expect("velocity-inspector has a build.rs");
+        let src = std::fs::read_to_string(&path).expect("atalanta-inspector has a build.rs");
         assert!(
             src.contains("\"cargo:rerun-if-changed=frontend/dist\""),
             "{src}"
@@ -143,14 +143,14 @@ mod tests {
     #[test]
     fn the_homebrew_formula_builds_the_ui_or_says_it_has_none() {
         let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Formula/velocity.rb");
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Formula/atalanta.rb");
         let formula = std::fs::read_to_string(path).unwrap();
         let builds_ui = formula.contains("npm run build")
             || (formula.contains(r#""npm", "ci""#) && formula.contains(r#""npm", "run", "build""#));
         if !builds_ui {
             assert!(formula.contains("def caveats"), "{formula}");
             assert!(
-                formula.contains("no `velocity inspect` web UI"),
+                formula.contains("no `atalanta inspect` web UI"),
                 "{formula}"
             );
         }

@@ -1,5 +1,5 @@
-use velocity_common::selector_match;
-use velocity_common::{Element, Rect, Selector};
+use atalanta_common::selector_match;
+use atalanta_common::{Element, Rect, Selector};
 
 /// Options controlling how selectors are matched.
 pub struct MatchOptions {
@@ -12,7 +12,7 @@ impl Default for MatchOptions {
     }
 }
 
-// Matching lives in velocity_common::selector_match so every platform
+// Matching lives in atalanta_common::selector_match so every platform
 // resolves selectors the same way; these keep the Android call sites.
 
 /// The element `selector` resolves to (innermost match; `index` counts by
@@ -39,7 +39,7 @@ pub fn find_all_elements<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Rect;
+    use atalanta_common::Rect;
 
     fn make_screen() -> Rect {
         Rect {

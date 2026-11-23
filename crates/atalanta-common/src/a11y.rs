@@ -7,7 +7,7 @@
 //! tree at nearly every step anyway, so checking it costs no device round
 //! trip (`config.accessibility.audit`, executor).
 //!
-//! Each rule flags only what the tree can show: Velocity's trees carry no
+//! Each rule flags only what the tree can show: Atalanta's trees carry no
 //! `clickable`, so an element counts as interactive only when its role says
 //! it acts ([`crate::role::role_of`]), and a rule leaves out what it can't
 //! judge (a system control's fixed size, an inline link) rather than guess.

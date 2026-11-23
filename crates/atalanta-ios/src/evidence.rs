@@ -12,13 +12,13 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
-use tracing::{debug, warn};
-use velocity_common::evidence::{
+use atalanta_common::evidence::{
     self, Attachment, AttachmentKind, Evidence, EvidenceOut, EvidenceRequest, EvidenceSession,
     LogBuffer, LogLine,
 };
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
+use tracing::{debug, warn};
 
 static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -116,9 +116,9 @@ impl SimEvidence {
                 // otherwise outlive the test that aborted this task.
                 let mut appinfo = Command::new(&xcrun);
                 appinfo.args(["simctl", "appinfo", &udid, &app]);
-                let info = velocity_common::process::output_with_timeout(
+                let info = atalanta_common::process::output_with_timeout(
                     &mut appinfo,
-                    velocity_common::process::default_timeout(),
+                    atalanta_common::process::default_timeout(),
                 )
                 .await;
                 let exe = info
@@ -174,7 +174,7 @@ impl SimEvidence {
 
 fn start_recording(xcrun: &str, udid: &str) -> std::io::Result<Recording> {
     let file = std::env::temp_dir().join(format!(
-        "velocity-sim-{}-{}.mp4",
+        "atalanta-sim-{}-{}.mp4",
         std::process::id(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -352,7 +352,7 @@ mod tests {
     /// running after the test ended and aborted the task waiting on it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_wedged_appinfo_does_not_outlive_the_test() {
-        let dir = std::env::temp_dir().join(format!("velocity-appinfo-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-appinfo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let (stub, pidfile) = (dir.join("xcrun"), dir.join("pid"));
@@ -363,9 +363,9 @@ mod tests {
         let req = EvidenceRequest {
             test: "t".into(),
             app_id: "com.example.app".into(),
-            video: velocity_common::evidence::CaptureMode::Off,
+            video: atalanta_common::evidence::CaptureMode::Off,
             video_seconds: 0,
-            logs: velocity_common::evidence::CaptureMode::Always,
+            logs: atalanta_common::evidence::CaptureMode::Always,
             started: Instant::now(),
         };
         let session = SimEvidence::start(stub.to_str().unwrap(), "UDID", &req)

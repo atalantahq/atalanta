@@ -1,4 +1,4 @@
-//! `velocity repl`: run steps one at a time against a device.
+//! `atalanta repl`: run steps one at a time against a device.
 //!
 //! Each line is a step in suite syntax (`tap: { text: "Log in" }`) or plain
 //! English (with a planner configured). Commands start with `:`:
@@ -9,13 +9,13 @@
 use std::io::Write;
 use std::sync::Arc;
 
+use atalanta_common::{
+    Element, Platform, PlatformDriver, ResilientDriver, Selector, StepStatus, SuiteConfig,
+};
+use atalanta_core::TestExecutor;
 use clap::Args;
 use colored::Colorize;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use velocity_common::{
-    Element, Platform, PlatformDriver, ResilientDriver, Selector, StepStatus, SuiteConfig,
-};
-use velocity_core::TestExecutor;
 
 #[derive(Args)]
 pub struct ReplArgs {
@@ -47,12 +47,12 @@ pub async fn execute(args: ReplArgs) -> anyhow::Result<i32> {
         ..Default::default()
     };
     let mut executor = TestExecutor::new(&driver, config, &args.app);
-    if let Some(resolver) = velocity_runner::nl::build_resolver()? {
+    if let Some(resolver) = atalanta_runner::nl::build_resolver()? {
         executor = executor.with_planner(resolver);
     }
 
     println!(
-        "{} velocity repl on {} ({platform}). Steps in suite syntax or plain English; :help for commands.",
+        "{} atalanta repl on {} ({platform}). Steps in suite syntax or plain English; :help for commands.",
         "=>".cyan().bold(),
         args.device
     );
@@ -60,7 +60,7 @@ pub async fn execute(args: ReplArgs) -> anyhow::Result<i32> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut index = 0;
     loop {
-        print!("velocity> ");
+        print!("atalanta> ");
         let _ = std::io::stdout().flush();
         let Some(line) = lines.next_line().await? else {
             break;
@@ -83,7 +83,7 @@ pub async fn execute(args: ReplArgs) -> anyhow::Result<i32> {
                 "find" => match parse_selector(rest) {
                     Ok(sel) => match driver.get_hierarchy(&args.device).await {
                         Ok(tree) => {
-                            let found = velocity_common::selector_match::find_all_ref(&tree, &sel, None);
+                            let found = atalanta_common::selector_match::find_all_ref(&tree, &sel, None);
                             println!("  {} match(es) for {sel}", found.len());
                             for e in found {
                                 println!("    {}", describe(e));
@@ -172,7 +172,7 @@ fn is_suite_syntax(line: &str) -> bool {
         return true;
     }
     line.split_once(':')
-        .is_some_and(|(key, _)| velocity_core::schema::ACTIONS.contains(&key.trim()))
+        .is_some_and(|(key, _)| atalanta_core::schema::ACTIONS.contains(&key.trim()))
 }
 
 /// The action a misspelt key was meant to be: `tpa: Login` is a typo, not
@@ -190,7 +190,7 @@ fn misspelt_action(line: &str) -> Option<&'static str> {
         return None;
     }
     let limit = if key.len() <= 4 { 1 } else { 2 };
-    velocity_core::schema::ACTIONS
+    atalanta_core::schema::ACTIONS
         .iter()
         .map(|a| (edit_distance(&key.to_lowercase(), &a.to_lowercase()), *a))
         .filter(|(d, _)| *d <= limit)
@@ -232,7 +232,7 @@ fn yaml_scalar(text: &str) -> String {
 }
 
 /// One step line, parsed with the suite parser (so the syntax is the same).
-fn parse_step(line: &str) -> anyhow::Result<velocity_common::Step> {
+fn parse_step(line: &str) -> anyhow::Result<atalanta_common::Step> {
     if !is_suite_syntax(line) {
         if let Some(action) = misspelt_action(line) {
             let key = line.split_once(':').map_or("", |(k, _)| k.trim());
@@ -246,7 +246,7 @@ fn parse_step(line: &str) -> anyhow::Result<velocity_common::Step> {
         yaml_scalar(line.trim_matches('"'))
     };
     let yaml = format!("appId: repl\ntests:\n  - name: repl\n    steps:\n      - {item}\n");
-    let mut suite = velocity_core::parser::parse_suite_from_str(&yaml)?;
+    let mut suite = atalanta_core::parser::parse_suite_from_str(&yaml)?;
     let mut step = suite.tests.remove(0).steps.remove(0);
     // Its line is in the YAML made up above, not in anything the user wrote.
     step.source = None;
@@ -255,7 +255,7 @@ fn parse_step(line: &str) -> anyhow::Result<velocity_common::Step> {
 
 fn parse_selector(text: &str) -> anyhow::Result<Selector> {
     match parse_step(&format!("tap: {text}"))?.action {
-        velocity_common::Action::Tap { selector } => Ok(selector),
+        atalanta_common::Action::Tap { selector } => Ok(selector),
         _ => anyhow::bail!("not a selector"),
     }
 }
@@ -324,9 +324,9 @@ mod tests {
     #[test]
     fn lines_parse_like_suite_steps() {
         let s = parse_step("tap: { text: \"Log in\" }").unwrap();
-        assert!(matches!(s.action, velocity_common::Action::Tap { .. }));
+        assert!(matches!(s.action, atalanta_common::Action::Tap { .. }));
         let s = parse_step("Tap the login button").unwrap();
-        assert!(matches!(s.action, velocity_common::Action::Natural { .. }));
+        assert!(matches!(s.action, atalanta_common::Action::Natural { .. }));
         assert!(parse_step("tap: { txet: \"x\" }").is_err());
         let sel = parse_selector("{ text: \"Pay\", below: { text: \"Total\" } }").unwrap();
         assert_eq!(sel.to_string(), r#"text="Pay" below(text="Total")"#);
@@ -345,12 +345,12 @@ mod tests {
         ] {
             let s = parse_step(line).unwrap_or_else(|e| panic!("{line:?}: {e}"));
             assert!(
-                matches!(&s.action, velocity_common::Action::Natural { intent, .. } if intent == line),
+                matches!(&s.action, atalanta_common::Action::Natural { intent, .. } if intent == line),
                 "{line:?}: {:?}",
                 s.action
             );
             let yaml = suite_yaml("com.app", &[line.to_string()]);
-            let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+            let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
                 .unwrap_or_else(|e| panic!("{line:?}: {e}\n{yaml}"));
             assert_eq!(suite.tests[0].steps.len(), 1);
         }
@@ -366,7 +366,7 @@ mod tests {
                 "check the total".into(),
             ],
         );
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
         assert_eq!(suite.tests[0].steps.len(), 3);
     }
 
@@ -377,15 +377,15 @@ mod tests {
         for line in ["Check the total: 12.50", "Note: tap the login button"] {
             let s = parse_step(line).unwrap_or_else(|e| panic!("{line}: {e}"));
             assert!(
-                matches!(s.action, velocity_common::Action::Natural { .. }),
+                matches!(s.action, atalanta_common::Action::Natural { .. }),
                 "{line}"
             );
         }
         let yaml = suite_yaml("com.app", &["Check the total: 12.50".into()]);
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
         assert!(matches!(
             suite.tests[0].steps[0].action,
-            velocity_common::Action::Natural { .. }
+            atalanta_common::Action::Natural { .. }
         ));
         // A misspelt field is still an error, not a natural step.
         assert!(parse_step("tap: { txet: \"x\" }").is_err());
@@ -400,7 +400,7 @@ mod tests {
         let e = parse_step("inputTxt: hello").unwrap_err().to_string();
         assert!(e.contains("`inputText`"), "{e}");
         let s = parse_step("{ tap: { id: x } }").unwrap();
-        assert!(matches!(s.action, velocity_common::Action::Tap { .. }));
+        assert!(matches!(s.action, atalanta_common::Action::Tap { .. }));
         // English still is.
         for line in [
             "Map: open the settings",
@@ -409,7 +409,7 @@ mod tests {
         ] {
             let s = parse_step(line).unwrap_or_else(|e| panic!("{line}: {e}"));
             assert!(
-                matches!(s.action, velocity_common::Action::Natural { .. }),
+                matches!(s.action, atalanta_common::Action::Natural { .. }),
                 "{line}"
             );
         }

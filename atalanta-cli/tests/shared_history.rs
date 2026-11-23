@@ -1,12 +1,12 @@
-//! C1: history shared across CI jobs without a server: `velocity history
-//! merge` and `velocity run --history-from`.
+//! C1: history shared across CI jobs without a server: `atalanta history
+//! merge` and `atalanta run --history-from`.
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-fn velocity() -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_velocity"));
+fn atalanta() -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_atalanta"));
     c.env_remove("GITHUB_ACTIONS").env("NO_COLOR", "1");
     c
 }
@@ -38,7 +38,7 @@ fn job_history(dir: &Path, tests: &[(&str, &[&str], u64)]) {
     }
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(
-        dir.join("velocity-history.json"),
+        dir.join("atalanta-history.json"),
         serde_json::json!({ "version": 2, "durations": durations, "outcomes": outcomes, "last_run": last })
             .to_string(),
     )
@@ -65,13 +65,13 @@ fn history_merge_combines_the_jobs_uploads() {
         &dir.join("dl/history-2"),
         &[("a", &["pass"], t - 100), ("b", &["pass", "pass"], t)],
     );
-    let out = velocity()
+    let out = atalanta()
         .args([
             "history",
             "merge",
             "dl/*",
             "-o",
-            "merged/velocity-history.json",
+            "merged/atalanta-history.json",
         ])
         .current_dir(&dir)
         .output()
@@ -83,14 +83,14 @@ fn history_merge_combines_the_jobs_uploads() {
         text(&out)
     );
     let merged: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("merged/velocity-history.json")).unwrap(),
+        &std::fs::read_to_string(dir.join("merged/atalanta-history.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(merged["outcomes"]["a"], serde_json::json!(["pass", "fail"]));
     assert_eq!(merged["outcomes"]["b"], serde_json::json!(["pass", "pass"]));
 
     // Nothing to merge: a usage error.
-    let out = velocity()
+    let out = atalanta()
         .args(["history", "merge", "nothing/*"])
         .current_dir(&dir)
         .output()
@@ -111,16 +111,16 @@ fn history_from_lets_last_failed_see_another_jobs_failure() {
     // Another job ran `b` and it failed; this job's own history knows
     // only passes.
     job_history(
-        &dir.join("velocity-results"),
+        &dir.join("atalanta-results"),
         &[("a", &["pass"], t), ("b", &["pass"], t - 50)],
     );
     job_history(&dir.join("dl/other-job"), &[("b", &["pass", "fail"], t)]);
-    let out = velocity()
+    let out = atalanta()
         .args(["run", "suite.yaml", "--driver", "headless", "--last-failed"])
         .args(["--history-from", "dl/*", "--history-from", "missing/*"])
         .args(["--report", "json"])
         .current_dir(&dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .output()
         .unwrap();
     let all = text(&out);
@@ -129,7 +129,7 @@ fn history_from_lets_last_failed_see_another_jobs_failure() {
     assert!(all.contains("--history-from missing/*"), "{all}");
     assert!(all.contains("Re-running 1 test"), "{all}");
     let results: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("velocity-results/results.json")).unwrap(),
+        &std::fs::read_to_string(dir.join("atalanta-results/results.json")).unwrap(),
     )
     .unwrap();
     let ran: Vec<&str> = results["tests"]
@@ -143,8 +143,8 @@ fn history_from_lets_last_failed_see_another_jobs_failure() {
 
     // A history file that doesn't parse: exit 2.
     std::fs::create_dir_all(dir.join("bad")).unwrap();
-    std::fs::write(dir.join("bad/velocity-history.json"), "{not json").unwrap();
-    let out = velocity()
+    std::fs::write(dir.join("bad/atalanta-history.json"), "{not json").unwrap();
+    let out = atalanta()
         .args([
             "run",
             "suite.yaml",
@@ -154,7 +154,7 @@ fn history_from_lets_last_failed_see_another_jobs_failure() {
             "bad",
         ])
         .current_dir(&dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", text(&out));

@@ -7,5 +7,5 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     let text = String::from_utf8_lossy(data);
-    velocity_android::tree_server::fuzzing::parse_reply_lines(&text);
+    atalanta_android::tree_server::fuzzing::parse_reply_lines(&text);
 });

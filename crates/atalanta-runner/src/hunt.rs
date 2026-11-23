@@ -24,7 +24,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use velocity_common::{
+use atalanta_common::{
     PlatformDriver, Result, RuntimeConfig, SourcePos, SuiteResult, TestStatus, TestSuite,
 };
 
@@ -460,7 +460,7 @@ fn print_report(report: &HuntReport, suggest: bool) {
                 .unwrap_or_default()
         );
         if let Some(msg) = &t.first_failure {
-            println!("    └ {}", velocity_common::redact::redact(msg));
+            println!("    └ {}", atalanta_common::redact::redact(msg));
         }
         if t.by_device.len() > 1 {
             let per: Vec<String> = t
@@ -471,11 +471,11 @@ fn print_report(report: &HuntReport, suggest: bool) {
             println!("    └ by device: {}", per.join(", "));
         }
         if let Some(note) = &t.device_effect {
-            println!("    └ {}", velocity_common::redact::redact(note));
+            println!("    └ {}", atalanta_common::redact::redact(note));
         }
         if let Some(d) = report.diagnoses.get(name) {
             for line in flake_cause::render(d, suggest) {
-                let line = velocity_common::redact::redact(&line);
+                let line = atalanta_common::redact::redact(&line);
                 // Causes and patch lines are indented under their heading.
                 if line.starts_with(' ') {
                     println!("      {line}");
@@ -574,11 +574,11 @@ mod tests {
         assert_eq!(doc["termination"], "completed");
         assert!(doc.get("tests").is_some(), "the usual fields stay");
     }
-    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
-    use velocity_common::{
-        DeviceInfo, DeviceState, Direction, Element, Key, PlatformDriver, Rect, Selector,
-        VelocityError,
+    use atalanta_common::{
+        AtalantaError, DeviceInfo, DeviceState, Direction, Element, Key, PlatformDriver, Rect,
+        Selector,
     };
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
     /// Every launch is counted; on launch number `lost_on` the device is
     /// offline (an infrastructure failure), otherwise the button is there.
@@ -616,7 +616,7 @@ mod tests {
             Ok(vec![DeviceInfo {
                 id: self.device.clone(),
                 name: self.device.clone(),
-                platform: velocity_common::Platform::Android,
+                platform: atalanta_common::Platform::Android,
                 state: DeviceState::Booted,
                 os_version: Some("14".into()),
                 device_type: Default::default(),
@@ -640,7 +640,7 @@ mod tests {
         }
         async fn find_element(&self, d: &str, _: &Selector) -> Result<Element> {
             if self.offline() {
-                Err(VelocityError::AdbConnectionLost {
+                Err(AtalantaError::AdbConnectionLost {
                     device_id: d.into(),
                     reason: "device offline".into(),
                 })
@@ -653,7 +653,7 @@ mod tests {
         }
         async fn get_hierarchy(&self, d: &str) -> Result<Element> {
             if self.offline() {
-                return Err(VelocityError::AdbConnectionLost {
+                return Err(AtalantaError::AdbConnectionLost {
                     device_id: d.into(),
                     reason: "device offline".into(),
                 });
@@ -719,14 +719,14 @@ mod tests {
             launches: AtomicUsize::new(0),
             lost_on: 3,
         };
-        let suite = velocity_core::parser::parse_suite_from_str(
+        let suite = atalanta_core::parser::parse_suite_from_str(
             "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\n    quietMs: 10\n    reactionMs: 10\ntests:\n  - name: t\n    steps:\n      - launchApp: { appId: com.t }\n      - assertVisible: { text: \"Go\" }\n",
         )
         .unwrap();
         let config = RuntimeConfig {
             artifacts_dir: dir.to_string_lossy().into_owned(),
             device_id: Some(device),
-            state_dir: Some(dir.join(".velocity")),
+            state_dir: Some(dir.join(".atalanta")),
             hunt_rounds: Some(5),
             ..Default::default()
         };

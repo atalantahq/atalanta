@@ -29,9 +29,9 @@ use chromiumoxide::cdp::browser_protocol::network::{
 use chromiumoxide::Page;
 
 use crate::cdp::Tab;
+use atalanta_common::{glob_match, AtalantaError, MockRule, Result};
 use futures::StreamExt;
 use tracing::{debug, warn};
-use velocity_common::{glob_match, MockRule, Result, VelocityError};
 
 /// One open request: its URL and when it started.
 type Open = HashMap<String, (String, Instant)>;
@@ -165,11 +165,11 @@ impl Network {
             if have_rules {
                 // No device id here: `open_page` (which knows `device_id`)
                 // wraps this into `DeviceBootFailed`.
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "request interception could not start ({e}); web.block/mock rules would not apply, so the launch is refused"
                 )));
             }
-            warn!("velocity-web: mocks not installed: {e}");
+            warn!("atalanta-web: mocks not installed: {e}");
         }
         Ok(())
     }
@@ -224,7 +224,7 @@ impl Network {
         if !setting_on() {
             return false;
         }
-        let max = velocity_common::settings::ms("VELOCITY_WEB_NETWORK_IDLE_MAX_MS", 5000);
+        let max = atalanta_common::settings::ms("ATALANTA_WEB_NETWORK_IDLE_MAX_MS", 5000);
         let ignore = ignore_list();
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
         // Past the limit an entry is never waited for again: drop it, so
@@ -280,9 +280,9 @@ impl Network {
         // While mocks are on, a service worker must not answer the page's
         // requests from its own cache or `fetch`: Fetch on this target
         // never sees those, so the mock was bypassed (WA-8).
-        // `VELOCITY_WEB_SW=allow` keeps the service worker in the path.
+        // `ATALANTA_WEB_SW=allow` keeps the service worker in the path.
         if !matches!(
-            velocity_common::env::var("VELOCITY_WEB_SW").as_deref(),
+            atalanta_common::env::var("ATALANTA_WEB_SW").as_deref(),
             Ok("allow")
         ) {
             use chromiumoxide::cdp::browser_protocol::network::{
@@ -293,15 +293,15 @@ impl Network {
                 let _ = page.exec(NetworkEnableParams::default()).await;
             }
             if let Err(e) = page.exec(SetBypassServiceWorkerParams::new(want)).await {
-                debug!("velocity-web: service-worker bypass not set: {e}");
+                debug!("atalanta-web: service-worker bypass not set: {e}");
             }
         }
         if want {
             // Test-only: make request interception fail so a web launch with
             // `web.block`/mock rules is refused instead of failing open
-            // (`VELOCITY_WEB_TEST_FAIL_FETCH=1`, never set outside tests).
-            if velocity_common::env::var("VELOCITY_WEB_TEST_FAIL_FETCH").is_ok_and(|v| v == "1") {
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+            // (`ATALANTA_WEB_TEST_FAIL_FETCH=1`, never set outside tests).
+            if atalanta_common::env::var("ATALANTA_WEB_TEST_FAIL_FETCH").is_ok_and(|v| v == "1") {
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "test hook: sync_fetch refused"
                 )));
             }
@@ -327,7 +327,7 @@ impl Network {
             page.event_listener::<EventLoadingFinished>().await,
             page.event_listener::<EventLoadingFailed>().await,
         ) else {
-            warn!("velocity-web: cannot watch network requests; no network-idle wait");
+            warn!("atalanta-web: cannot watch network requests; no network-idle wait");
             return;
         };
         let net = self.clone();
@@ -392,7 +392,7 @@ impl Network {
         let mut paused = match page.event_listener::<EventRequestPaused>().await {
             Ok(p) => p,
             Err(e) => {
-                warn!("velocity-web: cannot intercept requests; no mocks: {e}");
+                warn!("atalanta-web: cannot intercept requests; no mocks: {e}");
                 return;
             }
         };
@@ -426,7 +426,7 @@ impl Network {
                     if let Err(err) = answer(&page, &e, answer_with).await {
                         // A paused request nobody answers hangs the page's
                         // fetch forever (VEL-121): fail it instead.
-                        warn!("velocity-web: answering {} failed: {err}", e.request.url);
+                        warn!("atalanta-web: answering {} failed: {err}", e.request.url);
                         let _ = tokio::time::timeout(
                             ANSWER_TIMEOUT,
                             page.execute(FailRequestParams::new(id, ErrorReason::Failed)),
@@ -540,7 +540,7 @@ async fn answer(page: &Page, e: &EventRequestPaused, what: Answer) -> Result<()>
     let rule = match what {
         Answer::Continue => return send(page, ContinueRequestParams::new(id)).await,
         Answer::Preflight => {
-            debug!("velocity-web: CORS preflight for mocked {}", e.request.url);
+            debug!("atalanta-web: CORS preflight for mocked {}", e.request.url);
             let mut params = FulfillRequestParams::new(id, 204);
             params.response_headers = Some(preflight_headers(e.request.headers.inner()));
             return send(page, params).await;
@@ -551,7 +551,7 @@ async fn answer(page: &Page, e: &EventRequestPaused, what: Answer) -> Result<()>
         tokio::time::sleep(Duration::from_millis(ms)).await;
     }
     if rule.block {
-        debug!("velocity-web: blocked {}", e.request.url);
+        debug!("atalanta-web: blocked {}", e.request.url);
         return send(
             page,
             FailRequestParams::new(id, ErrorReason::BlockedByClient),
@@ -573,7 +573,7 @@ async fn answer(page: &Page, e: &EventRequestPaused, what: Answer) -> Result<()>
     // A mocked cross-origin API must still pass CORS.
     cors_headers(e.request.headers.inner(), &mut headers);
     debug!(
-        "velocity-web: mocked {} {} -> {}",
+        "atalanta-web: mocked {} {} -> {}",
         e.request.method,
         e.request.url,
         rule.status.unwrap_or(200)
@@ -623,14 +623,14 @@ pub fn mock_problems(rule: &MockRule) -> Vec<String> {
 /// load fine and only fail the requests it answers.
 fn warn_problems(source: &str, rule: &MockRule) {
     for p in mock_problems(rule) {
-        warn!("velocity-web: {source} rule for {:?}: {p}", rule.url);
+        warn!("atalanta-web: {source} rule for {:?}: {p}", rule.url);
     }
 }
 
 /// The body a rule answers with, and its default content type.
 fn mock_body(rule: &MockRule) -> Result<(Vec<u8>, Option<&'static str>)> {
     if let Some(j) = &rule.json {
-        let text = serde_json::to_vec(j).map_err(|e| VelocityError::Config(e.to_string()))?;
+        let text = serde_json::to_vec(j).map_err(|e| AtalantaError::Config(e.to_string()))?;
         return Ok((text, Some("application/json")));
     }
     if let Some(b) = &rule.body {
@@ -638,7 +638,7 @@ fn mock_body(rule: &MockRule) -> Result<(Vec<u8>, Option<&'static str>)> {
     }
     if let Some(f) = &rule.file {
         let bytes =
-            std::fs::read(f).map_err(|e| VelocityError::Config(format!("mock file {f}: {e}")))?;
+            std::fs::read(f).map_err(|e| AtalantaError::Config(format!("mock file {f}: {e}")))?;
         return Ok((bytes, content_type_for(f)));
     }
     Ok((Vec::new(), None))
@@ -703,13 +703,13 @@ fn counts(kind: Option<&ResourceType>, url: &str) -> bool {
 
 fn setting_on() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_WEB_NETWORK_IDLE").as_deref(),
+        atalanta_common::env::var("ATALANTA_WEB_NETWORK_IDLE").as_deref(),
         Ok("0") | Ok("false") | Ok("off")
     )
 }
 
 fn ignore_list() -> Vec<String> {
-    velocity_common::env::var("VELOCITY_WEB_NETWORK_IGNORE")
+    atalanta_common::env::var("ATALANTA_WEB_NETWORK_IGNORE")
         .map(|v| {
             v.split(',')
                 .map(|s| s.trim().to_string())
@@ -729,8 +729,8 @@ fn glob_or_contains(pattern: &str, url: &str) -> bool {
     }
 }
 
-fn cdp_err(e: impl std::fmt::Display) -> VelocityError {
-    VelocityError::Internal(anyhow::anyhow!("{e}"))
+fn cdp_err(e: impl std::fmt::Display) -> AtalantaError {
+    AtalantaError::Internal(anyhow::anyhow!("{e}"))
 }
 
 #[cfg(test)]
@@ -767,7 +767,7 @@ mod tests {
             url: String::new(),
             status: Some(1000),
             body: Some("x".into()),
-            file: Some("/nonexistent/velocity-mock.json".into()),
+            file: Some("/nonexistent/atalanta-mock.json".into()),
             ..Default::default()
         };
         let p = mock_problems(&bad).join("\n");

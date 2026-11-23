@@ -1,12 +1,12 @@
 //! `McpServer::hold_lease`: one lease for several calls (an agent command's
 //! action, settle and delta). Its own test binary: it points the
-//! process-wide VELOCITY_LEASE_DIR at a scratch directory.
+//! process-wide ATALANTA_LEASE_DIR at a scratch directory.
 
 use std::sync::Arc;
 
+use atalanta_common::{Platform, PlatformDriver};
+use atalanta_mcp::McpServer;
 use serde_json::json;
-use velocity_common::{Platform, PlatformDriver};
-use velocity_mcp::McpServer;
 
 const LAYOUT: &str = r#"<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
   android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
@@ -14,11 +14,11 @@ const LAYOUT: &str = r#"<LinearLayout xmlns:android="http://schemas.android.com/
 </LinearLayout>"#;
 
 async fn server(layout: &std::path::Path, device: &str) -> McpServer {
-    let config = velocity_headless::HeadlessConfig {
+    let config = atalanta_headless::HeadlessConfig {
         app_path: Some(layout.to_string_lossy().into_owned()),
         ..Default::default()
     };
-    let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
+    let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
         Platform::Android,
         config,
     ));
@@ -32,10 +32,10 @@ async fn server(layout: &std::path::Path, device: &str) -> McpServer {
 async fn a_held_lease_covers_the_holders_calls_and_keeps_others_out() {
     let dir = tempfile::tempdir().unwrap();
     // Only test in this binary: nothing else reads the variable meanwhile.
-    std::env::set_var("VELOCITY_LEASE_DIR", dir.path().join("leases"));
+    std::env::set_var("ATALANTA_LEASE_DIR", dir.path().join("leases"));
     // A short wait for the busy case (the default is 10 s).
-    std::env::set_var("VELOCITY_LEASE_WAIT_MS", "1000");
-    std::env::remove_var("VELOCITY_LEASES");
+    std::env::set_var("ATALANTA_LEASE_WAIT_MS", "1000");
+    std::env::remove_var("ATALANTA_LEASES");
     let layout = dir.path().join("form.xml");
     std::fs::write(&layout, LAYOUT).unwrap();
     let device = format!("lease-test-{}", std::process::id());

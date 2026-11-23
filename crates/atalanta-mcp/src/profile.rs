@@ -2,7 +2,7 @@
 //!
 //! Every tool definition costs the agent context on every turn, and agent
 //! users rank that cost among their top complaints (claude-code #6915,
-//! #7328). So `velocity mcp` serves a **core** profile by default: four
+//! #7328). So `atalanta mcp` serves a **core** profile by default: four
 //! tools that cover the work, each expanding into the full tool it stands
 //! for. `--profile full` serves all of them, as before.
 //!
@@ -19,7 +19,7 @@ use crate::tool_registry::ToolDefinition;
 /// Which tools `tools/list` offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Profile {
-    /// `observe`, `act`, `run` and `artifacts` (`velocity mcp`'s default).
+    /// `observe`, `act`, `run` and `artifacts` (`atalanta mcp`'s default).
     Core,
     /// Every tool (`--profile full`; the library's default).
     #[default]

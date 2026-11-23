@@ -1,12 +1,12 @@
 # Kill test pre-registration (row 1.1, AI-100)
 
-Does `velocity explore` write tests that hold? The kill test answers this before any launch copy says so. Everything on this page is fixed **before** the first run. `prereg.json` holds the same numbers for `score.py`, and the results are published whether the answer is GO or NO-GO.
+Does `atalanta explore` write tests that hold? The kill test answers this before any launch copy says so. Everything on this page is fixed **before** the first run. `prereg.json` holds the same numbers for `score.py`, and the results are published whether the answer is GO or NO-GO.
 
 **Status:** draft. Set `"frozen": true` in `prereg.json` and commit both files before running. A result scored against an unfrozen pre-registration is not a kill-test result.
 
 ## Build
 
-- Velocity commit: `________` (it must include rows 1.3 gates and 1.5 login; also in `prereg.json` as `build_sha`).
+- Atalanta commit: `________` (it must include rows 1.3 gates and 1.5 login; also in `prereg.json` as `build_sha`).
 - Model: `________` (`provider:model`). `--price IN,OUT` in USD per million tokens: `____,____`.
 - Cost cap per goal: `$____` (`--max-cost`). A goal over the cap fails.
 
@@ -28,7 +28,7 @@ Write them in `goals.yaml` (see `goals.example.yaml`), one per goal, with its ap
 
 ## Start state of every goal
 
-A fresh install, then `clearState`, then **`velocity explore --after <app>/login.yaml`** for login goals (`${NAME}`s from the environment or the keychain), or an `http` step against the app's documented backend. No emulator snapshots.
+A fresh install, then `clearState`, then **`atalanta explore --after <app>/login.yaml`** for login goals (`${NAME}`s from the environment or the keychain), or an `http` step against the app's documented backend. No emulator snapshots.
 
 ## What is measured (`score.py`)
 
@@ -50,7 +50,7 @@ A fresh install, then `clearState`, then **`velocity explore --after <app>/login
 
 These thresholds are frozen with this page. Five of five is "burned in", not "proven stable": 95% confidence needs about 170 reruns (ICST 2021).
 
-**On NO-GO** (decided by 30 July 2027): the fallback headline applies. Velocity is then one suite for mobile, web and API, a CI Action that absorbs emulator flakiness, and failure evidence agents and reviewers can act on.
+**On NO-GO** (decided by 30 July 2027): the fallback headline applies. Atalanta is then one suite for mobile, web and API, a CI Action that absorbs emulator flakiness, and failure evidence agents and reviewers can act on.
 
 ## Running and scoring
 

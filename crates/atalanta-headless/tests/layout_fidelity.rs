@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use velocity_common::Element;
-use velocity_headless::android::resources::ResourceTable;
-use velocity_headless::android::AndroidInflater;
-use velocity_headless::session::HeadlessSession;
-use velocity_headless::text::TextMeasurer;
-use velocity_headless::HeadlessConfig;
+use atalanta_common::Element;
+use atalanta_headless::android::resources::ResourceTable;
+use atalanta_headless::android::AndroidInflater;
+use atalanta_headless::session::HeadlessSession;
+use atalanta_headless::text::TextMeasurer;
+use atalanta_headless::HeadlessConfig;
 
 fn render(xml: &str, density: f32, width: u32, height: u32) -> Element {
     let config = HeadlessConfig {
@@ -194,7 +194,7 @@ fn density_config_is_honoured() {
 
 #[test]
 fn nesting_beyond_the_cap_is_an_error_not_a_crash() {
-    let depth = velocity_headless::android::inflate::MAX_VIEW_DEPTH + 10;
+    let depth = atalanta_headless::android::inflate::MAX_VIEW_DEPTH + 10;
     let mut xml = String::new();
     for _ in 0..depth {
         xml.push_str(r#"<FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">"#);

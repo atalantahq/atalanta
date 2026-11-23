@@ -14,8 +14,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use velocity_common::{Action, Flow, Step, TestCase};
-use velocity_core::impact::{file_matches_pattern, ImpactMapping, Unmapped};
+use atalanta_common::{Action, Flow, Step, TestCase};
+use atalanta_core::impact::{file_matches_pattern, ImpactMapping, Unmapped};
 
 use crate::history::{HistoryOutcome, TestHistory};
 
@@ -225,7 +225,7 @@ pub fn dead_patterns(mapping: &ImpactMapping, files: &[String]) -> Vec<(String, 
 mod tests {
     use super::*;
     use crate::history::update;
-    use velocity_common::{TestResult, TestStatus};
+    use atalanta_common::{TestResult, TestStatus};
 
     fn test(name: &str, flow: Option<&str>) -> TestCase {
         TestCase {

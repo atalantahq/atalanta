@@ -1,7 +1,7 @@
 //! Every complete suite example in the README must parse and validate. The
 //! Quick Start once didn't — the first thing a new user copies.
 
-use velocity_core::{parse_suite_from_str, validate_suite};
+use atalanta_core::{parse_suite_from_str, validate_suite};
 
 #[test]
 fn readme_suite_examples_parse_and_validate() {
@@ -66,7 +66,7 @@ fn every_repo_suite_has_a_line_for_every_test_and_step() {
     let mut files = vec![
         format!("{root}/tests/smoke/android-settings.yaml"),
         format!("{root}/tests/smoke/ios-settings.yaml"),
-        format!("{root}/examples/web-example/velocity.yaml"),
+        format!("{root}/examples/web-example/atalanta.yaml"),
     ];
     for dir in ["tests", "tests/fixtures"] {
         if let Ok(entries) = std::fs::read_dir(format!("{root}/{dir}")) {
@@ -81,7 +81,7 @@ fn every_repo_suite_has_a_line_for_every_test_and_step() {
     }
     let mut checked = 0;
     for file in files {
-        let Ok((suite, tests)) = velocity_core::parse_suite_with_positions(&file) else {
+        let Ok((suite, tests)) = atalanta_core::parse_suite_with_positions(&file) else {
             continue; // fixtures that are meant not to parse
         };
         let yaml = std::fs::read_to_string(&file).unwrap();
@@ -103,7 +103,7 @@ fn every_repo_suite_has_a_line_for_every_test_and_step() {
 
 /// Every step knows its line, and that line is where the step is written:
 /// it holds the step's action key (or its plain-English text).
-fn assert_steps_point_at_their_lines(suite: &velocity_common::TestSuite, yaml: &str) {
+fn assert_steps_point_at_their_lines(suite: &atalanta_common::TestSuite, yaml: &str) {
     let lines: Vec<&str> = yaml.lines().collect();
     let steps = suite
         .tests
@@ -124,9 +124,9 @@ fn assert_steps_point_at_their_lines(suite: &velocity_common::TestSuite, yaml: &
     }
 }
 
-/// Every Velocity suite under `tests/` and `examples/` parses, validates,
-/// and uses no key Velocity ignores. Maestro inputs for the migrator
-/// (`maestro_compat`) are not Velocity suites.
+/// Every Atalanta suite under `tests/` and `examples/` parses, validates,
+/// and uses no key Atalanta ignores. Maestro inputs for the migrator
+/// (`maestro_compat`) are not Atalanta suites.
 #[test]
 fn every_repo_suite_parses_validates_and_has_no_unknown_keys() {
     fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -154,10 +154,10 @@ fn every_repo_suite_parses_validates_and_has_no_unknown_keys() {
         if !(yaml.contains("appId:") && yaml.contains("tests:")) {
             continue;
         }
-        let suite = velocity_core::parse_suite(&path)
+        let suite = atalanta_core::parse_suite(&path)
             .unwrap_or_else(|e| panic!("{path} failed to parse: {e}"));
         validate_suite(&suite).unwrap_or_else(|e| panic!("{path} failed validation: {e}"));
-        let unknown = velocity_core::config_keys::unknown_keys(&yaml);
+        let unknown = atalanta_core::config_keys::unknown_keys(&yaml);
         assert!(unknown.is_empty(), "{path}: {unknown:#?}");
         checked += 1;
     }

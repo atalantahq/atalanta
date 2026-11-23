@@ -97,7 +97,7 @@ impl<'a> TestExecutor<'a> {
         match action {
             Action::Goto { .. }
             | Action::PressKey {
-                key: velocity_common::Key::Home,
+                key: atalanta_common::Key::Home,
             } => self.app_switched = true,
             Action::LaunchApp { app_id: a, .. } => {
                 self.app_switched = !a.is_empty() && a != &self.app_id;
@@ -109,7 +109,7 @@ impl<'a> TestExecutor<'a> {
         let mode = self.act_mode();
         // Boxed: `execute_action` holds every action's state (~9 KB), which
         // otherwise sits inline in each of `run_action`'s callers.
-        let result = velocity_common::actionability::with_mode(
+        let result = atalanta_common::actionability::with_mode(
             mode,
             Box::pin(self.execute_action(action, device_id, app_id)),
         )
@@ -130,7 +130,7 @@ impl<'a> TestExecutor<'a> {
         if let Err(e) = result {
             // The driver refused the target (VEL-274): it didn't act on it
             // anyway, whatever find_actionable's warning said.
-            if matches!(e, VelocityError::NotActionable { .. }) {
+            if matches!(e, AtalantaError::NotActionable { .. }) {
                 if let Some(sel) = action_selector(action) {
                     let prefix = format!("target {sel} ");
                     self.warnings
@@ -208,7 +208,7 @@ impl<'a> TestExecutor<'a> {
                 Ok(r) => r,
                 Err(detail) => {
                     return (
-                        Err(VelocityError::AppCrashed {
+                        Err(AtalantaError::AppCrashed {
                             app_id: self.app_id.clone(),
                             detail,
                         }),
@@ -228,7 +228,7 @@ impl<'a> TestExecutor<'a> {
                 // Only on this slow path, so a normal step pays nothing.
                 let app_id = self.app_id.clone();
                 if let Some(detail) = self.driver.crash_report(device_id, &app_id).await {
-                    return (Err(VelocityError::AppCrashed { app_id, detail }), None);
+                    return (Err(AtalantaError::AppCrashed { app_id, detail }), None);
                 }
                 self.note_unsettled("after", action);
             }
@@ -259,10 +259,10 @@ impl<'a> TestExecutor<'a> {
     pub(super) async fn keyboard_aware_target(
         &mut self,
         device_id: &str,
-        selector: &velocity_common::Selector,
-        element: &velocity_common::Element,
+        selector: &atalanta_common::Selector,
+        element: &atalanta_common::Element,
         timeout_ms: u64,
-    ) -> Result<velocity_common::Element> {
+    ) -> Result<atalanta_common::Element> {
         let Some(kb) = self.driver.keyboard_frame(device_id).await.ok().flatten() else {
             return Ok(element.clone());
         };
@@ -302,20 +302,20 @@ impl<'a> TestExecutor<'a> {
                 if self.config_before.is_none() {
                     self.config_before = Some((
                         self.config.sync.clone(),
-                        velocity_common::env::settings_snapshot(),
+                        atalanta_common::env::settings_snapshot(),
                     ));
                 }
-                let mut named = velocity_common::env::settings_snapshot();
+                let mut named = atalanta_common::env::settings_snapshot();
                 for (k, v) in values {
-                    check_set_config(k, v).map_err(VelocityError::Config)?;
-                    if let Some(s) = velocity_common::settings::find(k) {
+                    check_set_config(k, v).map_err(AtalantaError::Config)?;
+                    if let Some(s) = atalanta_common::settings::find(k) {
                         named.insert(s.env.to_string(), v.clone());
                     } else {
                         set_sync_field(&mut self.config.sync, k, v)
-                            .map_err(VelocityError::Config)?;
+                            .map_err(AtalantaError::Config)?;
                     }
                 }
-                velocity_common::env::set_settings(named);
+                atalanta_common::env::set_settings(named);
                 *self.sync_manager.sync_config_mut() = self.config.sync.clone();
                 Ok(())
             }
@@ -346,7 +346,7 @@ impl<'a> TestExecutor<'a> {
                     );
                     attempt += 1;
                     let Some(delay) = pause else {
-                        return Err(VelocityError::AssertionFailed {
+                        return Err(AtalantaError::AssertionFailed {
                             expected: problems.join("; "),
                             actual: format!(
                                 "media playing={} titles={:?}, in call={}",
@@ -372,7 +372,7 @@ impl<'a> TestExecutor<'a> {
                 // A stronger reset (reinstall / snapshot) replaces the clear;
                 // if it can't run, fall back to the plain clear.
                 let mut clear = *clear_state;
-                if clear && self.config.reset.strategy != velocity_common::ResetStrategy::Clear {
+                if clear && self.config.reset.strategy != atalanta_common::ResetStrategy::Clear {
                     match self
                         .driver
                         .reset_app(device_id, id, &self.config.reset)
@@ -434,7 +434,7 @@ impl<'a> TestExecutor<'a> {
                 if self.step_force {
                     return self
                         .driver
-                        .touch_forced(device_id, &element, velocity_common::Touch::Tap)
+                        .touch_forced(device_id, &element, atalanta_common::Touch::Tap)
                         .await;
                 }
                 match self.driver.tap(device_id, &element).await {
@@ -460,7 +460,7 @@ impl<'a> TestExecutor<'a> {
                 if self.step_force {
                     return self
                         .driver
-                        .touch_forced(device_id, &element, velocity_common::Touch::DoubleTap)
+                        .touch_forced(device_id, &element, atalanta_common::Touch::DoubleTap)
                         .await;
                 }
                 self.driver.double_tap(device_id, &element).await
@@ -478,7 +478,7 @@ impl<'a> TestExecutor<'a> {
                 if self.step_force {
                     return self
                         .driver
-                        .touch_forced(device_id, &element, velocity_common::Touch::LongPress(ms))
+                        .touch_forced(device_id, &element, atalanta_common::Touch::LongPress(ms))
                         .await;
                 }
                 self.driver.long_press(device_id, &element, ms).await
@@ -539,7 +539,7 @@ impl<'a> TestExecutor<'a> {
                     // the label it was part of.
                     if self.loose_found {
                         self.loose_found = false;
-                        return Err(VelocityError::AssertionFailed {
+                        return Err(AtalantaError::AssertionFailed {
                             expected: "visible".to_string(),
                             actual: format!(
                                 "only part of the merged label {:?} matched ({}); assert \
@@ -557,7 +557,7 @@ impl<'a> TestExecutor<'a> {
                     let pause = next_pause(attempt, deadline, Duration::from_millis(timeout));
                     attempt += 1;
                     let Some(delay) = pause else {
-                        return Err(VelocityError::AssertionFailed {
+                        return Err(AtalantaError::AssertionFailed {
                             expected: "visible".to_string(),
                             actual: format!("present but not visible after {timeout}ms"),
                             selector: format!("{selector}"),
@@ -618,7 +618,7 @@ impl<'a> TestExecutor<'a> {
                     // pass (D-2, VEL-014), unless the step says so
                     // (`appInFront: false`) or the test itself left the app
                     // (openLink/goto, another app's launchApp, the home key).
-                    if let Some(velocity_common::Liveness::Background(front)) = &self.liveness_seen
+                    if let Some(atalanta_common::Liveness::Background(front)) = &self.liveness_seen
                     {
                         let front = front.as_deref().unwrap_or("another app").to_string();
                         if self.step_app_in_front == Some(false) || self.app_switched {
@@ -630,7 +630,7 @@ impl<'a> TestExecutor<'a> {
                                 self.warnings.push(note);
                             }
                         } else {
-                            return Err(VelocityError::AssertionFailed {
+                            return Err(AtalantaError::AssertionFailed {
                                 expected: format!(
                                     "not visible in {} (the app under test)",
                                     self.app_id
@@ -646,7 +646,7 @@ impl<'a> TestExecutor<'a> {
                     }
                 }
                 if !gone {
-                    return Err(VelocityError::AssertionFailed {
+                    return Err(AtalantaError::AssertionFailed {
                         expected: "not visible".to_string(),
                         actual: "visible".to_string(),
                         selector: format!("{selector}"),
@@ -666,15 +666,15 @@ impl<'a> TestExecutor<'a> {
                 // that element, not one the polling tier never sees (which
                 // waited a second timeout and failed with "": review-s8 m-b).
                 let tier = if self.loose_found {
-                    velocity_common::selector_match::Tier::Loose
+                    atalanta_common::selector_match::Tier::Loose
                 } else {
-                    velocity_common::selector_match::ceiling()
+                    atalanta_common::selector_match::ceiling()
                 };
                 let deadline = self.assertion_deadline();
                 let mut poll = Duration::from_millis(100);
                 let mut actual = String::new();
                 let matched = loop {
-                    let found = velocity_common::selector_match::with_ceiling(
+                    let found = atalanta_common::selector_match::with_ceiling(
                         tier,
                         self.selector_engine
                             .find_element_no_heal(self.driver, device_id, selector),
@@ -704,7 +704,7 @@ impl<'a> TestExecutor<'a> {
                     }
                 };
                 if !matched {
-                    return Err(VelocityError::AssertionFailed {
+                    return Err(AtalantaError::AssertionFailed {
                         expected: expected.clone(),
                         actual,
                         selector: format!("{selector}"),
@@ -723,10 +723,10 @@ impl<'a> TestExecutor<'a> {
                 // `down` reveals what is below), so the finger moves the other
                 // way. It used to be passed to `swipe`, whose direction is the
                 // finger's: `down` dragged the list back to the top and nothing
-                // below the fold was ever found (VelocityLab, Android and iOS).
+                // below the fold was ever found (AtalantaLab, Android and iOS).
                 let finger = finger_for_scroll(*direction);
                 let started = std::time::Instant::now();
-                let mut last_aimed: Option<velocity_common::Rect> = None;
+                let mut last_aimed: Option<atalanta_common::Rect> = None;
                 for _ in 0..*max_scrolls {
                     // The container first: bringing it on screen can scroll
                     // the page (web's `reveal`), and the target read before
@@ -836,7 +836,7 @@ impl<'a> TestExecutor<'a> {
                     }
                     Err(_) => {}
                 }
-                Err(VelocityError::ElementNotFound {
+                Err(AtalantaError::ElementNotFound {
                     selector: format!("{selector} ({max_scrolls} scrolls {direction:?})"),
                     timeout_ms: started.elapsed().as_millis() as u64,
                     screenshot: None,
@@ -885,7 +885,7 @@ impl<'a> TestExecutor<'a> {
                 }
             }
             Action::Screenshot { filename } => {
-                use velocity_common::ScreenshotPolicy;
+                use atalanta_common::ScreenshotPolicy;
                 let policy = self.config.artifacts.screenshots;
                 if policy == ScreenshotPolicy::Never {
                     return Ok(());
@@ -953,7 +953,7 @@ impl<'a> TestExecutor<'a> {
             }
             Action::RunFlow { .. } => {
                 // Flows should be resolved before execution
-                Err(VelocityError::Config(
+                Err(AtalantaError::Config(
                     "runFlow encountered during execution; flows must be resolved first"
                         .to_string(),
                 ))
@@ -965,7 +965,7 @@ impl<'a> TestExecutor<'a> {
             Action::Refresh => self.driver.refresh_page(device_id).await,
             // Natural steps are resolved to a concrete action before execute_action
             // is reached; seeing one here means resolution was skipped.
-            Action::Natural { .. } => Err(VelocityError::Internal(anyhow::anyhow!(
+            Action::Natural { .. } => Err(AtalantaError::Internal(anyhow::anyhow!(
                 "internal: natural-language step reached executor unresolved"
             ))),
         }
@@ -976,11 +976,11 @@ impl<'a> TestExecutor<'a> {
     /// checked again here, whatever validated the suite.
     pub(super) async fn run_exec(
         &mut self,
-        e: &velocity_common::exec::ExecStep,
+        e: &atalanta_common::exec::ExecStep,
         device_id: &str,
     ) -> Result<()> {
         if let Some(why) = e.refused_by(self.config.exec.as_ref()) {
-            return Err(VelocityError::Config(why));
+            return Err(AtalantaError::Config(why));
         }
         let argv = e.run.argv();
         // A relative program path (`./scripts/seed.sh`) is the one the
@@ -998,7 +998,7 @@ impl<'a> TestExecutor<'a> {
             }
         };
         let mut cmd = tokio::process::Command::new(&program);
-        cmd.args(&argv[1..]).env("VELOCITY_DEVICE_ID", device_id);
+        cmd.args(&argv[1..]).env("ATALANTA_DEVICE_ID", device_id);
         if let Some(dir) = &e.cwd {
             cmd.current_dir(dir);
         }
@@ -1007,15 +1007,15 @@ impl<'a> TestExecutor<'a> {
         // Its own process group, killed whole on timeout, on cancel and on
         // a second Ctrl-C: `kill_on_drop` alone killed only `sh` and left
         // the script's children running (review 01 #3, VEL-074).
-        let out = match velocity_common::process::output_with_timeout(&mut cmd, limit).await {
+        let out = match atalanta_common::process::output_with_timeout(&mut cmd, limit).await {
             Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "exec `{}` did not finish within {} ms (timeoutMs)",
                     argv[0],
                     limit.as_millis()
                 )))
             }
-            Err(err) => return Err(VelocityError::Config(format!("exec `{}`: {err}", argv[0]))),
+            Err(err) => return Err(AtalantaError::Config(format!("exec `{}`: {err}", argv[0]))),
             Ok(o) => o,
         };
         let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -1029,12 +1029,12 @@ impl<'a> TestExecutor<'a> {
                 .into_iter()
                 .rev()
                 .collect();
-            velocity_common::redact::redact(t.trim()).into_owned()
+            atalanta_common::redact::redact(t.trim()).into_owned()
         };
         let want = e.expect.exit_code.unwrap_or(0);
         let code = out.status.code();
         if code != Some(want) {
-            return Err(VelocityError::AssertionFailed {
+            return Err(AtalantaError::AssertionFailed {
                 expected: format!("exec `{}` to exit {want}", argv[0]),
                 actual: format!(
                     "exit {}: {}",
@@ -1051,7 +1051,7 @@ impl<'a> TestExecutor<'a> {
         }
         if let Some(needle) = &e.expect.contains {
             if !stdout.contains(needle.as_str()) && !stderr.contains(needle.as_str()) {
-                return Err(VelocityError::AssertionFailed {
+                return Err(AtalantaError::AssertionFailed {
                     expected: format!("exec `{}` output containing {needle:?}", argv[0]),
                     actual: tail(&stdout),
                     selector: format!("exec {}", argv[0]),
@@ -1060,8 +1060,8 @@ impl<'a> TestExecutor<'a> {
             }
         }
         if let Some(name) = &e.capture {
-            if velocity_common::redact::is_secret_name(name) {
-                velocity_common::redact::register_secret(&stdout);
+            if atalanta_common::redact::is_secret_name(name) {
+                atalanta_common::redact::register_secret(&stdout);
             }
             self.captured.insert(name.clone(), stdout);
         }
@@ -1070,10 +1070,10 @@ impl<'a> TestExecutor<'a> {
 
     /// An `http` step: sent through the test's session (its cookie jar),
     /// and what it captured kept for the test's later steps.
-    pub(super) async fn run_http(&mut self, req: &velocity_common::HttpRequest) -> Result<()> {
+    pub(super) async fn run_http(&mut self, req: &atalanta_common::HttpRequest) -> Result<()> {
         if self.http.is_none() {
             let config = self.config.http.clone().unwrap_or_default();
-            self.http = Some(velocity_api::HttpSession::new(&config)?);
+            self.http = Some(atalanta_api::HttpSession::new(&config)?);
         }
         let session = self.http.as_ref().expect("made above");
         let timeout = session.request_timeout(self.step_timeout_ms);
@@ -1088,7 +1088,7 @@ impl<'a> TestExecutor<'a> {
 /// the element along that axis, through its middle.
 /// A slider (Android SeekBar or Slider, iOS Slider, the web's range input
 /// or `role=slider`).
-pub(super) fn is_slider(el: &velocity_common::Element) -> bool {
+pub(super) fn is_slider(el: &atalanta_common::Element) -> bool {
     let t = el.element_type.to_ascii_lowercase();
     t.contains("seekbar") || t.contains("slider") || el.role.as_deref() == Some("slider")
 }
@@ -1099,7 +1099,7 @@ pub(super) fn is_slider(el: &velocity_common::Element) -> bool {
 /// 2026-11-08). From a fifth in to two points past the far edge, where the
 /// slider clamps.
 pub(super) fn slider_stroke(
-    b: &velocity_common::Rect,
+    b: &atalanta_common::Rect,
     finger: Direction,
 ) -> ((i32, i32), (i32, i32)) {
     let (x, y, w, h) = (
@@ -1118,7 +1118,7 @@ pub(super) fn slider_stroke(
 }
 
 pub(super) fn line_across(
-    b: &velocity_common::Rect,
+    b: &atalanta_common::Rect,
     finger: Direction,
 ) -> ((i32, i32), (i32, i32)) {
     // In i64: hostile bounds overflowed i32 (VEL-231, review m6).
@@ -1173,7 +1173,7 @@ pub(super) fn to_i32(v: i64) -> i32 {
 /// What `assertSystemState` expected and didn't see (empty: all good). A
 /// title matches a playing session's title that contains it.
 pub(super) fn system_state_mismatch(
-    state: &velocity_common::SystemState,
+    state: &atalanta_common::SystemState,
     media_playing: Option<bool>,
     media_title: Option<&str>,
     in_call: Option<bool>,
@@ -1199,12 +1199,12 @@ pub(super) fn system_state_mismatch(
 
 /// `sync.timeoutMs`, `sync.reactionMs`, `sync.quietMs`, `sync.settleCapMs`.
 pub(super) fn set_sync_field(
-    sync: &mut velocity_common::SyncConfig,
+    sync: &mut atalanta_common::SyncConfig,
     key: &str,
     value: &str,
 ) -> std::result::Result<(), String> {
     let field = key.strip_prefix("sync.").ok_or_else(|| {
-        format!("setConfig: `{key}` isn't a setting or a sync timing (`velocity settings` lists settings)")
+        format!("setConfig: `{key}` isn't a setting or a sync timing (`atalanta settings` lists settings)")
     })?;
     // The key first: `sync.mode: none` said "`none` isn't milliseconds"
     // when the problem is that `mode` can't change mid-test (VEL-218).

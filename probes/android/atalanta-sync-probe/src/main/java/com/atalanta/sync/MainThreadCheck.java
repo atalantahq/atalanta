@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 /**
  * Whether the main thread is idle, asked *on* the main thread the way

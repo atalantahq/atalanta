@@ -1,5 +1,5 @@
 //! Agent guides compiled into the binary, so the one an agent reads always
-//! matches the `velocity` it drives (`velocity skills get <name>`). A skill
+//! matches the `atalanta` it drives (`atalanta skills get <name>`). A skill
 //! file installed into an agent client can go stale on upgrade; this can't.
 
 /// `(name, one-line summary, guide)`.
@@ -37,13 +37,13 @@ pub fn get(name: &str) -> Option<&'static str> {
 /// The short skill file to install into an agent client: it only points at
 /// the guides in the binary, so it never needs updating.
 pub const STUB: &str = "---
-name: velocity
+name: atalanta
 description: Drive Android emulators, iOS simulators and devices to check mobile UI changes, and save what was done as a YAML test that CI replays with no model. Use when verifying a mobile app change on a device or writing a mobile UI test.
 ---
 
-# Velocity
+# Atalanta
 
-Before the first `velocity` command in a session, run `velocity skills get cli` and follow it. It matches the installed binary. Do not probe with `--help` first.
+Before the first `atalanta` command in a session, run `atalanta skills get cli` and follow it. It matches the installed binary. Do not probe with `--help` first.
 ";
 
 #[cfg(test)]
@@ -57,15 +57,15 @@ mod tests {
             assert_eq!(get(&name.to_uppercase()), Some(*body));
         }
         assert!(get("nope").is_none());
-        assert!(STUB.contains("velocity skills get cli"));
+        assert!(STUB.contains("atalanta skills get cli"));
     }
 
-    /// Review 13: a guide that names `velocity skills get X` names one that
+    /// Review 13: a guide that names `atalanta skills get X` names one that
     /// exists.
     #[test]
     fn every_guide_a_guide_names_exists() {
         for (name, _, body) in SKILLS {
-            for part in body.split("velocity skills get ").skip(1) {
+            for part in body.split("atalanta skills get ").skip(1) {
                 let wanted: String = part
                     .chars()
                     .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')

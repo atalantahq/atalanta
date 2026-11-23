@@ -11,7 +11,7 @@
 //!     steps:
 //!       - exec: { run: "./scripts/seed.sh cart 3", capture: CART_ID }
 //!       - exec:
-//!           run: [adb, -s, "${VELOCITY_DEVICE_ID}", shell, pm, grant, com.app, android.permission.CAMERA]
+//!           run: [adb, -s, "${ATALANTA_DEVICE_ID}", shell, pm, grant, com.app, android.permission.CAMERA]
 //!       - launchApp: {}
 //!       - assertVisible: { text: "Cart ${CART_ID}" }
 //! ```
@@ -35,7 +35,7 @@ pub struct ExecStep {
     /// `${NAME}` for its standard output (trimmed), for later steps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture: Option<String>,
-    /// Its working directory (default: where `velocity` runs).
+    /// Its working directory (default: where `atalanta` runs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
 }

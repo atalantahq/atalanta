@@ -1,6 +1,6 @@
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, Element, NaturalKind, Platform, Rect, Result};
 use serde::Deserialize;
-use velocity_common::{Element, NaturalKind, Platform, Rect, Result, VelocityError};
 
 /// Everything a planner needs to turn one natural-language step into a
 /// [`PlannedStep`]. Borrows its inputs — cheap to construct per step.
@@ -32,18 +32,18 @@ pub struct PlanRequest<'a> {
 pub trait NaturalPlanner: Send + Sync {
     async fn plan(&self, req: &PlanRequest<'_>) -> Result<PlannedStep>;
 
-    /// One turn of goal-level planning (`velocity explore`). Planners that
+    /// One turn of goal-level planning (`atalanta explore`). Planners that
     /// only resolve single steps say so.
     async fn plan_goal(
         &self,
         _req: &crate::goal::GoalRequest<'_>,
     ) -> Result<crate::goal::GoalStep> {
-        Err(VelocityError::Config(
-            "this planner can't plan goals (velocity explore)".into(),
+        Err(AtalantaError::Config(
+            "this planner can't plan goals (atalanta explore)".into(),
         ))
     }
 
-    /// Tokens and calls spent so far (for `velocity nl-eval`). Planners
+    /// Tokens and calls spent so far (for `atalanta nl-eval`). Planners
     /// that don't count report zero.
     fn usage(&self) -> Usage {
         Usage::default()
@@ -336,7 +336,7 @@ pub const OUT_OF_TOKENS_REPLY: &str = "planner hit max_tokens";
 /// Whether `e` is the model's own failure to answer (unparseable, refused,
 /// out of tokens) rather than the service's: nl-eval scores the first as a
 /// wrong answer and only the second as an error (review MJ-1).
-pub fn is_model_failure(e: &velocity_common::VelocityError) -> bool {
+pub fn is_model_failure(e: &atalanta_common::AtalantaError) -> bool {
     let m = e.to_string();
     [UNPARSEABLE_REPLY, REFUSED_REPLY, OUT_OF_TOKENS_REPLY]
         .iter()
@@ -357,7 +357,7 @@ impl PlannedStep {
                 Err(e) => last = Some(format!("{e} in {json:?}")),
             }
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "{UNPARSEABLE_REPLY}: {}",
             last.unwrap_or_else(|| format!("no JSON object in {reply:?}"))
         )))
@@ -695,7 +695,7 @@ fn collect(el: &Element, screen: Option<&Rect>, platform: Platform, out: &mut Ve
     }
 }
 
-pub(crate) use velocity_common::selector_build::stable_id;
+pub(crate) use atalanta_common::selector_build::stable_id;
 
 /// `com.app:id/login_button` → `login_button`, for a shorter prompt.
 fn short_id(id: &str) -> &str {
@@ -886,7 +886,7 @@ pub(crate) mod tests {
     }
 
     use super::*;
-    use velocity_common::Rect;
+    use atalanta_common::Rect;
 
     pub(crate) fn el(id: &str, tag: &str, text: Option<&str>, label: Option<&str>) -> Element {
         Element {

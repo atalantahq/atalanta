@@ -4,7 +4,7 @@
 //! environment variable.
 //!
 //! One `provider:model` string works everywhere: `--model groq:llama-…`,
-//! `VELOCITY_NL_MODEL=gemini:gemini-3.8-flash`, `config.ai.model`. A model
+//! `ATALANTA_NL_MODEL=gemini:gemini-3.8-flash`, `config.ai.model`. A model
 //! that only looks prefixed (`llama3.1:8b`, `anthropic.claude-…-v1:0`) is
 //! left alone: the prefix must be a preset name.
 //!
@@ -13,30 +13,30 @@
 //!
 //! | Setting | Environment | `config.ai` |
 //! | --- | --- | --- |
-//! | provider | `VELOCITY_NL_PROVIDER`, or the prefix of `VELOCITY_NL_MODEL` | `provider`, or the prefix of `model` |
-//! | step model | `VELOCITY_NL_MODEL` | `model` |
-//! | goal model | `VELOCITY_NL_EXPLORE_MODEL` | `exploreModel` |
-//! | endpoint | `VELOCITY_NL_API_URL`, then the preset's URL variable | `baseUrl` |
+//! | provider | `ATALANTA_NL_PROVIDER`, or the prefix of `ATALANTA_NL_MODEL` | `provider`, or the prefix of `model` |
+//! | step model | `ATALANTA_NL_MODEL` | `model` |
+//! | goal model | `ATALANTA_NL_EXPLORE_MODEL` | `exploreModel` |
+//! | endpoint | `ATALANTA_NL_API_URL`, then the preset's URL variable | `baseUrl` |
 //! | key | the variable `apiKeyEnv` names, else the preset's | `apiKeyEnv` |
-//! | screenshots | `VELOCITY_NL_IMAGES=0` | `images` |
+//! | screenshots | `ATALANTA_NL_IMAGES=0` | `images` |
 //!
 //! With no provider named, the first preset in [`PRESETS`] order whose key
 //! is set is used (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, Azure's key and
 //! endpoint, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, then the OpenAI-compatible
 //! services, then `AWS_BEARER_TOKEN_BEDROCK`), and the others found are
 //! logged. Plain AWS or Google credentials never pick Bedrock or Vertex on
-//! their own: those are named. `VELOCITY_NL_API_KEY` with
-//! `VELOCITY_NL_API_URL` is a generic OpenAI-compatible endpoint. Keys are
+//! their own: those are named. `ATALANTA_NL_API_KEY` with
+//! `ATALANTA_NL_API_URL` is a generic OpenAI-compatible endpoint. Keys are
 //! only read from the environment, registered for redaction, and never
 //! logged.
 //!
 //! Every default model is provisional: chosen for cost (a small model for
-//! single-step picks), not yet by measured accuracy. `velocity nl-eval
+//! single-step picks), not yet by measured accuracy. `atalanta nl-eval
 //! --model … --recommend` measures them; see docs/research/README.md.
 
 use std::sync::Arc;
 
-use velocity_common::{AiConfig, Result, VelocityError};
+use atalanta_common::{AiConfig, AtalantaError, Result};
 
 use crate::anthropic::AnthropicPlanner;
 use crate::bedrock::{BedrockAuth, BedrockPlanner};
@@ -413,7 +413,7 @@ pub static PRESETS: &[Preset] = &[
         wire: Wire::OpenAi,
         base_url: "",
         url_envs: &[],
-        key_envs: &["VELOCITY_NL_API_KEY"],
+        key_envs: &["ATALANTA_NL_API_KEY"],
         needs_key: false,
         detect: false,
         model: "",
@@ -437,7 +437,7 @@ pub fn preset_names() -> Vec<&'static str> {
 
 fn parse_preset(name: &str) -> Result<&'static Preset> {
     find_preset(name).ok_or_else(|| {
-        VelocityError::Config(format!(
+        AtalantaError::Config(format!(
             "AI provider {name:?} is not one of {}",
             preset_names().join(", ")
         ))
@@ -462,7 +462,7 @@ pub struct Secret(String);
 
 impl Secret {
     fn new(value: String) -> Self {
-        velocity_common::redact::register_secret(&value);
+        atalanta_common::redact::register_secret(&value);
         Self(value)
     }
 
@@ -479,15 +479,15 @@ impl std::fmt::Debug for Secret {
 
 /// The resolved model settings: which preset, which models, where, and
 /// the key (by variable name; the value is held redacted). Public so
-/// `velocity explore` builds its goal planner
+/// `atalanta explore` builds its goal planner
 /// ([`explore_planner`](Self::explore_planner)) and checker from the same
-/// place as `velocity run`.
+/// place as `atalanta run`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AiSettings {
     pub preset: &'static Preset,
     /// Single-step resolution and `verify:` checks.
     pub model: String,
-    /// Goal-level planning (`velocity explore`).
+    /// Goal-level planning (`atalanta explore`).
     pub explore_model: String,
     /// The endpoint (Anthropic: the Messages URL; OpenAI-style: the API
     /// base; Bedrock and Vertex: an origin override). `None`: the preset's.
@@ -531,10 +531,10 @@ impl AiSettings {
         if let Some(name) = &cfg.api_key_env {
             check_env_name(name)?;
         }
-        let env_model = get("VELOCITY_NL_MODEL");
+        let env_model = get("ATALANTA_NL_MODEL");
         let (env_model_preset, _) = env_model.as_deref().map(split_model).unwrap_or((None, ""));
         let (cfg_model_preset, _) = cfg.model.as_deref().map(split_model).unwrap_or((None, ""));
-        let env_named = match get("VELOCITY_NL_PROVIDER") {
+        let env_named = match get("ATALANTA_NL_PROVIDER") {
             Some(p) => Some(parse_preset(&p)?),
             None => env_model_preset,
         };
@@ -570,25 +570,25 @@ impl AiSettings {
             })
             .or_else(|| preset.key_envs.first().map(|k| k.to_string()));
         let api_key = api_key_env.as_deref().and_then(&get).map(Secret::new);
-        let base_url = get("VELOCITY_NL_API_URL")
+        let base_url = get("ATALANTA_NL_API_URL")
             .or_else(|| cfg_field(&cfg.base_url))
             .or_else(|| preset.url_envs.iter().find_map(|k| get(k)));
         if preset.needs_key && api_key.is_none() {
             tracing::warn!(
-                "velocity: the {} provider needs ${}; natural-language steps will only replay",
+                "atalanta: the {} provider needs ${}; natural-language steps will only replay",
                 preset.name,
                 api_key_env.as_deref().unwrap_or("its key")
             );
             return Ok(None);
         }
         if preset.wire == Wire::Azure && base_url.is_none() {
-            return Err(VelocityError::Config(
+            return Err(AtalantaError::Config(
                 "azure-openai needs AZURE_OPENAI_ENDPOINT (or config.ai.baseUrl)".into(),
             ));
         }
         if matches!(preset.wire, Wire::OpenAi) && preset.base_url.is_empty() && base_url.is_none() {
-            return Err(VelocityError::Config(format!(
-                "the {} provider needs a base URL: set VELOCITY_NL_API_URL or config.ai.baseUrl",
+            return Err(AtalantaError::Config(format!(
+                "the {} provider needs a base URL: set ATALANTA_NL_API_URL or config.ai.baseUrl",
                 preset.name
             )));
         }
@@ -604,8 +604,8 @@ impl AiSettings {
             .or_else(|| (preset.wire == Wire::Azure).then(|| get("AZURE_OPENAI_DEPLOYMENT")).flatten())
             .or_else(|| (!preset.model.is_empty()).then(|| preset.model.to_string()))
             .ok_or_else(|| {
-                VelocityError::Config(format!(
-                    "the {} provider has no default model: set VELOCITY_NL_MODEL or config.ai.model{}",
+                AtalantaError::Config(format!(
+                    "the {} provider has no default model: set ATALANTA_NL_MODEL or config.ai.model{}",
                     preset.name,
                     if preset.wire == Wire::Azure {
                         " (the deployment name), or AZURE_OPENAI_DEPLOYMENT"
@@ -614,14 +614,14 @@ impl AiSettings {
                     }
                 ))
             })?;
-        let explore_model = get("VELOCITY_NL_EXPLORE_MODEL")
+        let explore_model = get("ATALANTA_NL_EXPLORE_MODEL")
             .map(strip)
             .or_else(|| cfg_field(&cfg.explore_model).map(strip))
             .or_else(|| {
                 (!preset.explore_model.is_empty()).then(|| preset.explore_model.to_string())
             })
             .unwrap_or_else(|| model.clone());
-        let images = match get("VELOCITY_NL_IMAGES").as_deref() {
+        let images = match get("ATALANTA_NL_IMAGES").as_deref() {
             Some(v) => !matches!(v.trim(), "0" | "false" | "off" | "no"),
             None => cfg
                 .images
@@ -667,7 +667,7 @@ impl AiSettings {
 
     /// Settings for an explicit `provider:model[@base-url]` (`nl-eval
     /// --model`): the provider's key from the environment, nothing else
-    /// from `VELOCITY_NL_*`.
+    /// from `ATALANTA_NL_*`.
     pub fn for_spec(spec: &str) -> Result<Self> {
         Self::for_spec_with(spec, &process_env)
     }
@@ -680,7 +680,7 @@ impl AiSettings {
         };
         let (preset, model) = split_model(head);
         let Some(preset) = preset else {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "--model {spec:?} must be provider:model (providers: {})",
                 preset_names().join(", ")
             )));
@@ -698,26 +698,26 @@ impl AiSettings {
         // openai-compatible:m` could never work, and the error told the user
         // to set the very variable it ignored (AndroidWorld rerun,
         // 2026-11-07).
-        let env_provider = env("VELOCITY_NL_PROVIDER")
+        let env_provider = env("ATALANTA_NL_PROVIDER")
             .and_then(|p| find_preset(&p))
             .is_some_and(|p| std::ptr::eq(p, preset));
         // An inline `@url` always wins.
         let keep_url = cfg.base_url.is_none() && (preset.base_url.is_empty() || env_provider);
         let hide = [
-            "VELOCITY_NL_PROVIDER",
-            "VELOCITY_NL_MODEL",
-            "VELOCITY_NL_EXPLORE_MODEL",
-            "VELOCITY_NL_API_URL",
+            "ATALANTA_NL_PROVIDER",
+            "ATALANTA_NL_MODEL",
+            "ATALANTA_NL_EXPLORE_MODEL",
+            "ATALANTA_NL_API_URL",
         ];
         let filtered = |k: &str| {
-            if hide.contains(&k) && !(keep_url && k == "VELOCITY_NL_API_URL") {
+            if hide.contains(&k) && !(keep_url && k == "ATALANTA_NL_API_URL") {
                 None
             } else {
                 env(k)
             }
         };
         Self::resolve_with(Some(&cfg), &filtered)?.ok_or_else(|| {
-            VelocityError::Config(format!(
+            AtalantaError::Config(format!(
                 "--model {spec}: the {} provider needs ${}",
                 preset.name,
                 preset.key_envs.first().copied().unwrap_or("its key")
@@ -746,7 +746,7 @@ impl AiSettings {
         self.planner_for(&self.model, &process_env)
     }
 
-    /// The goal-level planner (`explore_model`) for `velocity explore`.
+    /// The goal-level planner (`explore_model`) for `atalanta explore`.
     pub fn explore_planner(&self) -> Result<Box<dyn NaturalPlanner>> {
         self.planner_for(&self.explore_model, &process_env)
     }
@@ -779,7 +779,7 @@ impl AiSettings {
             .as_ref()
             .map(|k| k.expose().to_string())
             .ok_or_else(|| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "the {} provider needs its key in ${}",
                     self.preset.name,
                     self.api_key_env.as_deref().unwrap_or("?")
@@ -788,7 +788,7 @@ impl AiSettings {
     }
 
     fn output_mode(&self, env: Env<'_>) -> OutputMode {
-        match env("VELOCITY_NL_OUTPUT").as_deref() {
+        match env("ATALANTA_NL_OUTPUT").as_deref() {
             Some("tools") | Some("tool") | Some("tool_call") => OutputMode::ToolCall,
             Some("text") => OutputMode::Text,
             Some("json_schema") => OutputMode::JsonSchema,
@@ -881,7 +881,7 @@ impl AiSettings {
                 let (token, sa_project) = crate::gcp::GoogleToken::discover(env)?;
                 let token: Arc<dyn crate::gcp::TokenSource> = Arc::new(token);
                 let project = self.project.clone().or(sa_project).ok_or_else(|| {
-                    VelocityError::Config(
+                    AtalantaError::Config(
                         "vertex needs a project: set GOOGLE_CLOUD_PROJECT or config.ai.project"
                             .into(),
                     )
@@ -931,7 +931,7 @@ enum Backend {
 }
 
 fn process_env(k: &str) -> Option<String> {
-    velocity_common::env::var(k).ok()
+    atalanta_common::env::var(k).ok()
 }
 
 /// The first preset whose key is set (Azure also needs its endpoint);
@@ -947,8 +947,8 @@ fn detect(get: &dyn Fn(&str) -> Option<String>) -> Option<&'static Preset> {
         if found.len() > 1 {
             let others: Vec<&str> = found[1..].iter().map(|p| p.name).collect();
             tracing::info!(
-                "velocity: using the {} provider (first key found); also set: {} \
-                 (choose with VELOCITY_NL_PROVIDER)",
+                "atalanta: using the {} provider (first key found); also set: {} \
+                 (choose with ATALANTA_NL_PROVIDER)",
                 first.name,
                 others.join(", ")
             );
@@ -956,7 +956,7 @@ fn detect(get: &dyn Fn(&str) -> Option<String>) -> Option<&'static Preset> {
         return Some(first);
     }
     // A generic key with an endpoint: an OpenAI-compatible service.
-    (get("VELOCITY_NL_API_KEY").is_some() && get("VELOCITY_NL_API_URL").is_some())
+    (get("ATALANTA_NL_API_KEY").is_some() && get("ATALANTA_NL_API_URL").is_some())
         .then(|| find_preset("openai-compatible"))
         .flatten()
 }
@@ -1000,7 +1000,7 @@ fn check_env_name(name: &str) -> Result<()> {
     if valid {
         Ok(())
     } else {
-        Err(VelocityError::Config(
+        Err(AtalantaError::Config(
             "config.ai.apiKeyEnv must be the NAME of an environment variable (like OPENAI_API_KEY), \
              not a key; never write a key into the suite"
                 .into(),
@@ -1008,7 +1008,7 @@ fn check_env_name(name: &str) -> Result<()> {
     }
 }
 
-/// A `--model` entry for `velocity nl-eval` (see [`AiSettings::for_spec`]).
+/// A `--model` entry for `atalanta nl-eval` (see [`AiSettings::for_spec`]).
 pub fn parse_model_spec(spec: &str) -> Result<AiSettings> {
     AiSettings::for_spec(spec)
 }
@@ -1020,16 +1020,16 @@ mod tests {
     use crate::testutil::serve;
 
     /// The schema and validator read the preset names from
-    /// `velocity-common` (core does not depend on this crate).
+    /// `atalanta-common` (core does not depend on this crate).
     #[test]
     fn the_shared_preset_list_matches_the_presets() {
         assert_eq!(
-            velocity_common::natural::AI_PROVIDER_PRESETS,
+            atalanta_common::natural::AI_PROVIDER_PRESETS,
             preset_names().as_slice()
         );
     }
+    use atalanta_common::{NaturalKind, Platform};
     use std::collections::HashMap;
-    use velocity_common::{NaturalKind, Platform};
 
     fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let map: HashMap<String, String> = pairs
@@ -1056,8 +1056,8 @@ mod tests {
         let s = resolve(
             None,
             &[
-                ("VELOCITY_NL_PROVIDER", "ollama"),
-                ("VELOCITY_NL_MODEL", "mistral:7b"),
+                ("ATALANTA_NL_PROVIDER", "ollama"),
+                ("ATALANTA_NL_MODEL", "mistral:7b"),
             ],
         )
         .unwrap();
@@ -1078,8 +1078,8 @@ mod tests {
         let s = resolve(
             None,
             &[
-                ("VELOCITY_NL_PROVIDER", "ollama"),
-                ("VELOCITY_NL_MODEL", "ollama:mistral:7b"),
+                ("ATALANTA_NL_PROVIDER", "ollama"),
+                ("ATALANTA_NL_MODEL", "ollama:mistral:7b"),
             ],
         )
         .unwrap();
@@ -1141,14 +1141,14 @@ mod tests {
         let g = resolve(
             None,
             &[
-                ("VELOCITY_NL_API_KEY", "k"),
-                ("VELOCITY_NL_API_URL", "https://x.example/v1"),
-                ("VELOCITY_NL_MODEL", "m"),
+                ("ATALANTA_NL_API_KEY", "k"),
+                ("ATALANTA_NL_API_URL", "https://x.example/v1"),
+                ("ATALANTA_NL_MODEL", "m"),
             ],
         );
         assert_eq!(name(&g), "openai-compatible");
         assert_eq!(
-            name(&resolve(None, &[("VELOCITY_NL_API_KEY", "k")])),
+            name(&resolve(None, &[("ATALANTA_NL_API_KEY", "k")])),
             "none"
         );
     }
@@ -1158,7 +1158,7 @@ mod tests {
         let s = resolve(
             None,
             &[
-                ("VELOCITY_NL_MODEL", "groq:llama-3.1-8b-instant"),
+                ("ATALANTA_NL_MODEL", "groq:llama-3.1-8b-instant"),
                 ("GROQ_API_KEY", "g"),
                 ("ANTHROPIC_API_KEY", "a"),
             ],
@@ -1189,7 +1189,7 @@ mod tests {
         let s = resolve(
             Some(&cfg),
             &[
-                ("VELOCITY_NL_PROVIDER", "mistral"),
+                ("ATALANTA_NL_PROVIDER", "mistral"),
                 ("MISTRAL_API_KEY", "m"),
             ],
         )
@@ -1269,7 +1269,7 @@ mod tests {
         assert_eq!(s.api_key_env.as_deref(), Some("MY_GROQ"));
         // The key is held redacted and never printed.
         assert!(!format!("{s:?}").contains("gsk-T1-secret"));
-        assert!(!velocity_common::redact::redact("x gsk-T1-secret").contains("gsk-T1-secret"));
+        assert!(!atalanta_common::redact::redact("x gsk-T1-secret").contains("gsk-T1-secret"));
     }
 
     fn req() -> PlanRequest<'static> {
@@ -1309,10 +1309,10 @@ mod tests {
                 pairs.push((k, "test-key"));
             }
             if p.model.is_empty() {
-                pairs.push(("VELOCITY_NL_MODEL", "some-model"));
+                pairs.push(("ATALANTA_NL_MODEL", "some-model"));
             }
             if p.base_url.is_empty() && p.url_envs.is_empty() {
-                pairs.push(("VELOCITY_NL_API_URL", "https://custom.example/v1"));
+                pairs.push(("ATALANTA_NL_API_URL", "https://custom.example/v1"));
             } else if p.base_url.is_empty() {
                 pairs.push((p.url_envs[0], "https://custom.example/v1"));
             }
@@ -1356,7 +1356,7 @@ mod tests {
             let (origin, seen) = serve(vec![(200, "", reply)]).await;
             let mut mocked = pairs.clone();
             let url = format!("{origin}/v1");
-            mocked.push(("VELOCITY_NL_API_URL", &url));
+            mocked.push(("ATALANTA_NL_API_URL", &url));
             let env = env_of(&mocked);
             let s = AiSettings::resolve_with(Some(&cfg), &env).unwrap().unwrap();
             let step = s
@@ -1474,11 +1474,11 @@ mod tests {
         .to_string();
         let (origin, seen) = serve(vec![(200, "", reply)]).await;
         let env = env_of(&[
-            ("VELOCITY_NL_PROVIDER", "bedrock"),
+            ("ATALANTA_NL_PROVIDER", "bedrock"),
             ("AWS_ACCESS_KEY_ID", "AKIDT1"),
             ("AWS_SECRET_ACCESS_KEY", "sk"),
             ("AWS_REGION", "us-west-2"),
-            ("VELOCITY_NL_API_URL", &origin),
+            ("ATALANTA_NL_API_URL", &origin),
         ]);
         let s = AiSettings::resolve_with(None, &env).unwrap().unwrap();
         assert_eq!(
@@ -1502,7 +1502,7 @@ mod tests {
             .contains("/us-west-2/bedrock/aws4_request"));
         // No credentials at all: a configuration error at build.
         let none = env_of(&[
-            ("VELOCITY_NL_PROVIDER", "bedrock"),
+            ("ATALANTA_NL_PROVIDER", "bedrock"),
             ("AWS_REGION", "us-east-1"),
             ("HOME", "/nonexistent"),
         ]);
@@ -1528,10 +1528,10 @@ mod tests {
         let sa = crate::gcp::tests::sa_file(&dir, &format!("{origin}/token"));
         let sa = sa.display().to_string();
         let env = env_of(&[
-            ("VELOCITY_NL_PROVIDER", "vertex"),
+            ("ATALANTA_NL_PROVIDER", "vertex"),
             ("GOOGLE_APPLICATION_CREDENTIALS", &sa),
             ("GOOGLE_CLOUD_LOCATION", "us-east5"),
-            ("VELOCITY_NL_API_URL", &origin),
+            ("ATALANTA_NL_API_URL", &origin),
         ]);
         let s = AiSettings::resolve_with(None, &env).unwrap().unwrap();
         assert_eq!(
@@ -1549,14 +1549,14 @@ mod tests {
             .await
             .unwrap();
         let seen = seen.lock().unwrap().clone();
-        assert_eq!(seen[1].target, "/v1/projects/velocity-test/locations/us-east5/publishers/anthropic/models/claude-haiku-5-5:rawPredict");
+        assert_eq!(seen[1].target, "/v1/projects/atalanta-test/locations/us-east5/publishers/anthropic/models/claude-haiku-5-5:rawPredict");
         assert_eq!(seen[1].header("authorization"), Some("Bearer ya29.vertex"));
         assert_eq!(seen[1].body["anthropic_version"], "vertex-2023-10-16");
         assert!(seen[1].body.get("model").is_none() && seen[1].body.get("output_config").is_none());
         assert!(seen[1].header("x-api-key").is_none());
         assert_eq!(
             seen[3].target,
-            "/v1/projects/velocity-test/locations/us-east5/endpoints/openapi/chat/completions"
+            "/v1/projects/atalanta-test/locations/us-east5/endpoints/openapi/chat/completions"
         );
         assert_eq!(seen[3].body["model"], "google/gemini-3.8-flash");
         assert_eq!(vertex_origin("global"), "https://aiplatform.googleapis.com");
@@ -1588,9 +1588,9 @@ mod tests {
         .await;
         let url = format!("{origin}/v1");
         let env = env_of(&[
-            ("VELOCITY_NL_PROVIDER", "openai-compatible"),
-            ("VELOCITY_NL_API_URL", &url),
-            ("VELOCITY_NL_MODEL", "m"),
+            ("ATALANTA_NL_PROVIDER", "openai-compatible"),
+            ("ATALANTA_NL_API_URL", &url),
+            ("ATALANTA_NL_MODEL", "m"),
         ]);
         let s = AiSettings::resolve_with(None, &env).unwrap().unwrap();
         let p = s.planner_for(&s.model, &env).unwrap();
@@ -1609,8 +1609,8 @@ mod tests {
     fn specs_name_a_provider_and_take_only_its_key() {
         let env = env_of(&[
             ("GROQ_API_KEY", "g"),
-            ("VELOCITY_NL_MODEL", "anthropic:x"),
-            ("VELOCITY_NL_API_URL", "https://ignored"),
+            ("ATALANTA_NL_MODEL", "anthropic:x"),
+            ("ATALANTA_NL_API_URL", "https://ignored"),
         ]);
         let s = AiSettings::for_spec_with("groq:llama-3.1-8b-instant", &env).unwrap();
         assert_eq!(
@@ -1631,8 +1631,8 @@ mod tests {
     #[test]
     fn a_provider_without_an_endpoint_takes_the_environments() {
         let env = env_of(&[
-            ("VELOCITY_NL_API_KEY", "k"),
-            ("VELOCITY_NL_API_URL", "http://127.0.0.1:8788/v1"),
+            ("ATALANTA_NL_API_KEY", "k"),
+            ("ATALANTA_NL_API_URL", "http://127.0.0.1:8788/v1"),
         ]);
         let s = AiSettings::for_spec_with("openai-compatible:claude-sonnet-5-5", &env).unwrap();
         assert_eq!(s.base_url.as_deref(), Some("http://127.0.0.1:8788/v1"));
@@ -1643,14 +1643,14 @@ mod tests {
         // environment names that provider.
         let env = env_of(&[
             ("GROQ_API_KEY", "g"),
-            ("VELOCITY_NL_API_URL", "http://proxy/v1"),
+            ("ATALANTA_NL_API_URL", "http://proxy/v1"),
         ]);
         let s = AiSettings::for_spec_with("groq:llama", &env).unwrap();
         assert_eq!(s.base_url, None);
         let env = env_of(&[
             ("GROQ_API_KEY", "g"),
-            ("VELOCITY_NL_PROVIDER", "groq"),
-            ("VELOCITY_NL_API_URL", "http://proxy/v1"),
+            ("ATALANTA_NL_PROVIDER", "groq"),
+            ("ATALANTA_NL_API_URL", "http://proxy/v1"),
         ]);
         let s = AiSettings::for_spec_with("groq:llama", &env).unwrap();
         assert_eq!(s.base_url.as_deref(), Some("http://proxy/v1"));

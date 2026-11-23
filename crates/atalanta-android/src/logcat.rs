@@ -9,9 +9,9 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+use atalanta_common::evidence::{LogBuffer, LogLine};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use velocity_common::evidence::{LogBuffer, LogLine};
 
 /// The device's wall clock minus the host's, in milliseconds.
 pub async fn clock_offset_ms(adb_path: &str, device_id: &str) -> Option<i64> {

@@ -1,4 +1,4 @@
-//! `velocity history flaky`: per-test flake rate over the last N runs
+//! `atalanta history flaky`: per-test flake rate over the last N runs
 //! (C4: the rolling flake rate CI can gate on).
 #![cfg(unix)]
 
@@ -31,18 +31,18 @@ fn history(dir: &Path, tests: &[(&str, &[&str])]) {
     }
     std::fs::create_dir_all(dir).unwrap();
     std::fs::write(
-        dir.join("velocity-history.json"),
+        dir.join("atalanta-history.json"),
         serde_json::json!({ "version": 3, "durations": {}, "outcomes": outcomes }).to_string(),
     )
     .unwrap()
 }
 
 fn flaky(args: &[&str], dir: &Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_velocity"))
+    Command::new(env!("CARGO_BIN_EXE_atalanta"))
         .args(["history", "flaky"])
         .args([
             "--file",
-            dir.join("velocity-history.json").to_str().unwrap(),
+            dir.join("atalanta-history.json").to_str().unwrap(),
         ])
         .args(args)
         .current_dir(dir)
@@ -152,7 +152,7 @@ fn history_flaky_json() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A CI without retries: pass and fail alternating is flaky, as `velocity
+/// A CI without retries: pass and fail alternating is flaky, as `atalanta
 /// run`'s "history: flakiness" says (the gate read it as 0 and passed).
 #[test]
 fn history_flaky_counts_pass_fail_flips() {
@@ -174,7 +174,7 @@ fn history_flaky_counts_pass_fail_flips() {
 #[test]
 fn history_flaky_missing_file_exits_two() {
     let dir = scratch("missing");
-    let out = flaky(&["--file", "nope/velocity-history.json"], &dir);
+    let out = flaky(&["--file", "nope/atalanta-history.json"], &dir);
     assert_eq!(out.status.code(), Some(2), "{}", text(&out));
     let _ = std::fs::remove_dir_all(&dir);
 }

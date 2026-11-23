@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, Result};
 use chromiumoxide::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType, DispatchMouseEventParams, DispatchMouseEventType,
     MouseButton,
@@ -17,7 +18,6 @@ use chromiumoxide::js::EvaluationResult;
 use chromiumoxide::page::Page as CdpPage;
 use chromiumoxide::types::{Command, CommandResponse};
 use serde_json::Value;
-use velocity_common::{Result, VelocityError};
 
 /// Upper bound on one CDP round-trip. chromiumoxide's own 30 s request
 /// timeout runs inside its handler, so it never fires once the handler has
@@ -152,7 +152,7 @@ impl Tab {
                 let _ = frames.reveal_frame(key).await;
             }
             let v = frames.call(key, op, args).await?;
-            Ok::<_, VelocityError>(match op {
+            Ok::<_, AtalantaError>(match op {
                 "find" | "findAll" | "reveal" | "act" => {
                     let offset = frames.offset(key).await?;
                     let mut v = crate::frames::Frames::to_page(op, key, offset, v);
@@ -170,7 +170,7 @@ impl Tab {
                                 }
                                 Ok(None) => {}
                                 Err(e) => tracing::debug!(
-                                    "velocity-web: frame {key}: no page hit test: {e}"
+                                    "atalanta-web: frame {key}: no page hit test: {e}"
                                 ),
                             }
                         }
@@ -220,7 +220,7 @@ impl Tab {
         for key in keys {
             let left = deadline.saturating_duration_since(now());
             let skip = |out: &mut FrameReplies, why: &str| {
-                tracing::debug!("velocity-web: frame {key} skipped: {why}");
+                tracing::debug!("atalanta-web: frame {key} skipped: {why}");
                 out.skipped.push(frames.describe(key));
             };
             if left.is_zero() {
@@ -271,7 +271,7 @@ impl Tab {
                     continue;
                 }
                 Ok(Err(e)) => {
-                    tracing::debug!("velocity-web: frame {key}: {e}");
+                    tracing::debug!("atalanta-web: frame {key}: {e}");
                     continue;
                 }
                 Err(_) => {
@@ -293,7 +293,7 @@ impl Tab {
                     .found
                     .push(crate::frames::Frames::to_page(op, key, offset, v)),
                 Ok(Err(e)) if !crate::frames::is_timeout(&e) => {
-                    tracing::debug!("velocity-web: frame {key}: {e}")
+                    tracing::debug!("atalanta-web: frame {key}: {e}")
                 }
                 _ => skip(&mut out, "its place on the page is unknown"),
             }
@@ -339,7 +339,7 @@ impl Tab {
             Ok(Err(e)) => Err(cdp_err(e)),
             Err(_) if !self.is_alive() => Err(lost("the browser connection is closed")),
             Err(_) if self.is_crashed() => Err(lost(RENDERER_CRASHED)),
-            Err(_) => Err(VelocityError::Internal(anyhow::anyhow!(
+            Err(_) => Err(AtalantaError::Internal(anyhow::anyhow!(
                 "Chrome did not answer a DevTools call within {limit:?}"
             ))),
         }
@@ -354,7 +354,7 @@ impl Tab {
         self.run(self.page.execute(cmd)).await
     }
 
-    /// Run `op` of Velocity's in-page library (`injected.js`) with `args`,
+    /// Run `op` of Atalanta's in-page library (`injected.js`) with `args`,
     /// in the isolated world, under [`CDP_TIMEOUT`].
     pub async fn call(&self, op: &str, args: Vec<Value>) -> Result<Value> {
         self.call_for(CDP_TIMEOUT, op, args).await
@@ -367,7 +367,7 @@ impl Tab {
     /// the arguments as JSON values. Scripts used to be spliced together
     /// and evaluated in the page's own world, where a page that patched
     /// `querySelectorAll` or `JSON` broke every query and could read or
-    /// forge Velocity's element ids (research P4). The library is
+    /// forge Atalanta's element ids (research P4). The library is
     /// installed on first use in each document.
     pub async fn call_for(&self, limit: Duration, op: &str, args: Vec<Value>) -> Result<Value> {
         let call_args = [Value::from(op), Value::Array(args)];
@@ -435,7 +435,7 @@ impl Tab {
         }
         let ctx = self.isolated_context().await?;
         let mut call = CallFunctionOnParams::new(
-            "function(id){return globalThis.__velocity.fileInputElement(id);}",
+            "function(id){return globalThis.__atalanta.fileInputElement(id);}",
         );
         call.execution_context_id = Some(ctx);
         call.arguments = Some(vec![CallArgument::builder().value(id).build()]);
@@ -471,17 +471,17 @@ impl Tab {
     }
 }
 
-/// Velocity's in-page library, see [`Tab::call`].
+/// Atalanta's in-page library, see [`Tab::call`].
 pub(crate) const LIBRARY: &str = include_str!("injected.js");
 
 /// Calls one library function; says so when the library isn't in this
 /// document yet.
-pub(crate) const DISPATCH: &str = "function(op,args){var v=globalThis.__velocity;\
+pub(crate) const DISPATCH: &str = "function(op,args){var v=globalThis.__atalanta;\
 if(!v)return{velMissing:true};return v[op].apply(null,args);}";
 
 /// Errors that mean the execution context went away under the call (the
 /// document was replaced): worth a retry in the new one.
-fn stale_context(e: &VelocityError) -> bool {
+fn stale_context(e: &AtalantaError) -> bool {
     let m = e.to_string();
     m.contains("Cannot find context") || m.contains("context was destroyed")
 }
@@ -503,14 +503,14 @@ pub(crate) fn is_crash_error(msg: &str) -> bool {
     msg.contains("Target crashed") || msg.contains("Session with given id not found")
 }
 
-pub fn lost(detail: impl std::fmt::Display) -> VelocityError {
-    VelocityError::BrowserConnectionLost {
+pub fn lost(detail: impl std::fmt::Display) -> AtalantaError {
+    AtalantaError::BrowserConnectionLost {
         detail: detail.to_string(),
     }
 }
 
-fn cdp_err(e: impl std::fmt::Display) -> VelocityError {
-    VelocityError::Internal(anyhow::anyhow!("{e}"))
+fn cdp_err(e: impl std::fmt::Display) -> AtalantaError {
+    AtalantaError::Internal(anyhow::anyhow!("{e}"))
 }
 
 /// One left-button mouse event at `(x, y)`. `buttons` is the mask of
@@ -589,7 +589,7 @@ async fn touch(page: &Page, down: bool, x: f64, y: f64) -> Result<()> {
 const TOUCH_DRAG_STEPS: i32 = 10;
 const TOUCH_DRAG_STEP_MS: u64 = 16;
 /// How long the finger rests at the end of a [`touch_drag`] before it lifts:
-/// long enough that the browser sees no velocity and starts no fling, so a
+/// long enough that the browser sees no atalanta and starts no fling, so a
 /// swipe scrolls by the stroke's length and no further, every time.
 const TOUCH_DRAG_REST_MS: u64 = 120;
 
@@ -654,7 +654,7 @@ where
                 touch_points: Vec::new(),
             };
             if let Err(c) = send(cancel).await {
-                tracing::debug!("velocity-web: touchCancel after a failed stroke: {c}");
+                tracing::debug!("atalanta-web: touchCancel after a failed stroke: {c}");
             }
             return Err(e);
         }
@@ -858,7 +858,7 @@ const KEYS: [KeyDef; 11] = [
     kd("ArrowDown", 40, None, Some("moveDown")),
 ];
 
-/// The definition for a key name, `None` for a key Velocity doesn't know.
+/// The definition for a key name, `None` for a key Atalanta doesn't know.
 pub fn key_def(key: &str) -> Option<KeyDef> {
     KEYS.iter().find(|d| d.key == key).copied()
 }
@@ -904,7 +904,7 @@ pub fn key_events(def: &KeyDef, mac: bool) -> [DispatchKeyEventParams; 2] {
 /// Press one key (keyDown + keyUp) with its full definition.
 pub async fn dispatch_key(page: &Page, key: &str) -> Result<()> {
     let def = key_def(key).ok_or_else(|| {
-        VelocityError::Config(format!("velocity-web: no key definition for '{key}'"))
+        AtalantaError::Config(format!("atalanta-web: no key definition for '{key}'"))
     })?;
     for ev in key_events(&def, cfg!(target_os = "macos")) {
         page.exec(ev).await?;
@@ -960,12 +960,12 @@ pub fn char_key(c: char) -> Option<(String, i64)> {
 /// (review 10 #7). Anything else (accented letters, CJK, emoji, a newline)
 /// is inserted as text, as Puppeteer's `sendCharacter` does, so a newline
 /// never presses Enter and submits a form. Text longer than
-/// [`PER_KEY_MAX`], or with `VELOCITY_WEB_TYPING=insert`, is inserted in
+/// [`PER_KEY_MAX`], or with `ATALANTA_WEB_TYPING=insert`, is inserted in
 /// one go, as before.
 pub async fn type_text(page: &Page, text: &str) -> Result<()> {
     use chromiumoxide::cdp::browser_protocol::input::InsertTextParams;
     let per_key = text.chars().count() <= PER_KEY_MAX
-        && std::env::var("VELOCITY_WEB_TYPING").map_or(true, |v| v != "insert");
+        && std::env::var("ATALANTA_WEB_TYPING").map_or(true, |v| v != "insert");
     if !per_key {
         page.exec(InsertTextParams::new(text)).await?;
         return Ok(());

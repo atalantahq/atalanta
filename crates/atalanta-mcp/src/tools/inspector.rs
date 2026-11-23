@@ -1,11 +1,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, PlatformDriver, Result};
+use atalanta_inspector::InspectorServer;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
-use velocity_common::{PlatformDriver, Result, VelocityError};
-use velocity_inspector::InspectorServer;
 
 use crate::session::McpSession;
 
@@ -32,7 +32,7 @@ pub async fn open_inspector(
         .and_then(|v| v.as_u64())
         .map(|p| {
             if p > u16::MAX as u64 {
-                Err(VelocityError::Config(format!(
+                Err(AtalantaError::Config(format!(
                     "Requested inspector port {p} exceeds {}",
                     u16::MAX
                 )))
@@ -46,10 +46,10 @@ pub async fn open_inspector(
     // Find an available port
     let listener = find_available_port(requested_port)
         .await
-        .map_err(|_| VelocityError::Config(no_port_message(requested_port)))?;
+        .map_err(|_| AtalantaError::Config(no_port_message(requested_port)))?;
     let addr = listener
         .local_addr()
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to inspect listener: {e}")))?;
+        .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to inspect listener: {e}")))?;
     let port = addr.port();
 
     let driver_clone = driver.clone();
@@ -70,17 +70,17 @@ pub async fn open_inspector(
         Ok(Ok(Ok(port))) => port,
         Ok(Ok(Err(err))) => {
             handle.abort();
-            return Err(VelocityError::Config(err));
+            return Err(AtalantaError::Config(err));
         }
         Ok(Err(_)) => {
             handle.abort();
-            return Err(VelocityError::Internal(anyhow::anyhow!(
+            return Err(AtalantaError::Internal(anyhow::anyhow!(
                 "Inspector startup channel closed before readiness"
             )));
         }
         Err(_) => {
             handle.abort();
-            return Err(VelocityError::Internal(anyhow::anyhow!(
+            return Err(AtalantaError::Internal(anyhow::anyhow!(
                 "Timed out waiting for inspector startup"
             )));
         }

@@ -1,5 +1,5 @@
+use atalanta_common::Selector;
 use serde_json::{json, Value};
-use velocity_common::Selector;
 
 /// Text cap per element when many are captured at once (`find_elements`),
 /// so a broad selector can't serialise the page's text once per node.
@@ -82,7 +82,7 @@ pub fn selector_to_css(selector: &Selector) -> Option<String> {
         Selector::AccessibilityId(_) => None,
         // A class name, not CSS: `md:block` (Tailwind) is one class, and
         // `btn primary` means both classes, as in a `class` attribute.
-        // An HTML tag name also matches the tag: Velocity's own tree
+        // An HTML tag name also matches the tag: Atalanta's own tree
         // matching reads `className` as the element type, which is the tag
         // on the web, and the selector builder falls back to it for an
         // element with no id, text or label (a bare checkbox). The page
@@ -176,7 +176,7 @@ fn css_ident(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Selector;
+    use atalanta_common::Selector;
 
     #[test]
     fn test_css_passthrough() {
@@ -294,7 +294,7 @@ mod tests {
     fn a_relation_needs_the_tree() {
         let rel = Selector::Relative {
             target: Box::new(Selector::Text("x".into())),
-            relation: velocity_common::Relation::Below,
+            relation: atalanta_common::Relation::Below,
             anchor: Box::new(Selector::Text("y".into())),
         };
         assert!(selector_json(&rel).is_none());

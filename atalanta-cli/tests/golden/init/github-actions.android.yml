@@ -1,11 +1,11 @@
-# Example GitHub Actions workflow written by `velocity init`.
-# Copy it to .github/workflows/velocity.yml (or run `velocity init --ci
-# github`). Two shards run through the Velocity Action (docs/CI.md); the
+# Example GitHub Actions workflow written by `atalanta init`.
+# Copy it to .github/workflows/atalanta.yml (or run `atalanta init --ci
+# github`). Two shards run through the Atalanta Action (docs/CI.md); the
 # results job fails the run when a shard reported nothing.
-# Pinned to v0.2.0, the Velocity that wrote this file. Check the release
-# exists (gh release view v0.2.0 -R omkar-dev/velocity) before relying on it.
+# Pinned to v0.2.0, the Atalanta that wrote this file. Check the release
+# exists (gh release view v0.2.0 -R atalantahq/atalanta) before relying on it.
 
-name: velocity
+name: atalanta
 
 on:
   pull_request:
@@ -23,11 +23,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Build or download your app here and pass it with `args: --app <path>`.
-      - uses: omkar-dev/velocity@v0.2.0
+      - uses: atalantahq/atalanta@v0.2.0
         with:
           version: 0.2.0
           platform: android
-          suite: velocity
+          suite: atalanta
           shard: ${{ matrix.shard }}/2
 
   results:
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Fails the run when a shard reported nothing (docs/CI.md).
-      - uses: omkar-dev/velocity@v0.2.0
+      - uses: atalantahq/atalanta@v0.2.0
         with:
           version: 0.2.0
           platform: android

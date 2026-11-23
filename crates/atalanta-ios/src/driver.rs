@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use atalanta_common::selector_match::locate;
+use atalanta_common::*;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
-use velocity_common::selector_match::locate;
-use velocity_common::*;
 
 use crate::devicectl::Devicectl;
 use crate::parser::parse_ios_hierarchy;
@@ -42,7 +42,7 @@ struct DeviceConn {
     bundle: std::sync::Mutex<String>,
     /// No system-alert check before this: one found none just now. Each
     /// check costs ~80 ms (navigation test 20 s → 30 s when checking every
-    /// read), so like VelocityRunner a miss holds for `ios.alertRecheckMs` (1 s).
+    /// read), so like AtalantaRunner a miss holds for `ios.alertRecheckMs` (1 s).
     alert_clear_until: std::sync::Mutex<Option<Instant>>,
     /// When a hardware key last reached the app. The first one after a
     /// launch is dropped (iOS attaches the hardware keyboard on it), so a
@@ -56,7 +56,7 @@ struct DeviceConn {
     /// Why the runner can't be relaunched (a crash loop, its port taken),
     /// from the last failed recovery: the step fails with it (exit 3)
     /// instead of "unreachable".
-    runner_failing: std::sync::Mutex<Option<VelocityError>>,
+    runner_failing: std::sync::Mutex<Option<AtalantaError>>,
     /// The tree (by address) whose `visible` flags were read under a modal
     /// layer ([`IosDriver::with_visibility`]), so it is read once.
     /// Held as a `Weak`, not an address: a dropped tree's address can come
@@ -103,7 +103,7 @@ impl DeviceConn {
 
     /// `e`, or the reason the runner can't come back when a recovery
     /// found one.
-    fn or_runner_failing(&self, e: VelocityError) -> VelocityError {
+    fn or_runner_failing(&self, e: AtalantaError) -> AtalantaError {
         self.runner_failing
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -227,7 +227,7 @@ impl Drop for CrashWatch {
 }
 
 /// What the device watcher records: the runner says the app isn't running.
-const DEVICE_APP_GONE: &str = "the app is not running on the device (it died since Velocity \
+const DEVICE_APP_GONE: &str = "the app is not running on the device (it died since Atalanta \
                                launched it; seen by the crash watcher)";
 
 /// iOS platform driver using xcrun simctl for device management and
@@ -258,7 +258,7 @@ fn leading_number(s: &str) -> Option<u32> {
 /// restarted WDA is the device's failure, never the test's).
 fn wheel_value(read: Result<String>) -> Result<String> {
     match read {
-        Err(VelocityError::ElementNotFound { .. }) => Ok(String::new()),
+        Err(AtalantaError::ElementNotFound { .. }) => Ok(String::new()),
         other => other,
     }
 }
@@ -285,7 +285,7 @@ pub struct IosDriver {
     /// Real iPhones and iPads.
     devicectl: Devicectl,
     /// A WDA the user runs themselves (e.g. a real device through iproxy);
-    /// every device then shares it. `VELOCITY_WDA_URL` sets it.
+    /// every device then shares it. `ATALANTA_WDA_URL` sets it.
     fixed_url: Option<String>,
     conns: Mutex<HashMap<String, Arc<DeviceConn>>>,
     /// When each (device, app) was last launched: a crash report older than
@@ -302,18 +302,18 @@ pub struct IosDriver {
     /// I3: crashes seen since each launch, and the physical-device watchers.
     crash_watch: CrashWatch,
     /// Check that `inputText`'s target is editable and took focus before
-    /// typing (`VELOCITY_IOS_FOCUS_CHECK=1`; off by default, D-5).
+    /// typing (`ATALANTA_IOS_FOCUS_CHECK=1`; off by default, D-5).
     focus_check: bool,
     /// After `inputText`'s tap, fail when the tree reports focus on
-    /// something else (D-5). On unless `VELOCITY_IOS_FOCUS_CHECK=off`.
+    /// something else (D-5). On unless `ATALANTA_IOS_FOCUS_CHECK=off`.
     strict_focus: bool,
     /// Keep taps out of the status bar (D-4). On unless
-    /// `VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off`, which keeps the rest of the
+    /// `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off`, which keeps the rest of the
     /// tap guard (keyboard, bars, off screen): for an app that hides its
     /// status bar while WDA still reports a height.
     status_bar_guard: bool,
     /// D-38 (`ios.verifyTap`, off by default): before a tap, ask the runner
-    /// what is drawn at the tap point (VelocityRunner's private hit test)
+    /// what is drawn at the tap point (AtalantaRunner's private hit test)
     /// and refuse a tap that would land on something else.
     verify_tap: bool,
     /// Per-call WDA timeout; `None` is the client's default (30 s).
@@ -322,12 +322,12 @@ pub struct IosDriver {
     /// falling back to `simctl terminate` ([`RUNNER_TERMINATE_TIMEOUT`]).
     terminate_timeout: Duration,
     /// The runner refuses keys while nothing has keyboard focus, before
-    /// sending any (VelocityRunner: XCTest's `typeText`), so typing can
+    /// sending any (AtalantaRunner: XCTest's `typeText`), so typing can
     /// start right after a tap and retry until the field takes focus.
     /// WDA sends keys through testmanagerd unchecked: they'd be lost.
     typing_checks_focus: bool,
     /// Each simulator's in-app sync probe port, passed to the app as
-    /// `VELOCITY_SYNC_PORT`: simulators share the Mac's loopback, so a
+    /// `ATALANTA_SYNC_PORT`: simulators share the Mac's loopback, so a
     /// single 19400 let one simulator's host talk to another's app.
     sync_ports: std::sync::Mutex<HashMap<String, u16>>,
     /// Simulators whose status bar is overridden (D-V4), cleared on cleanup.
@@ -341,7 +341,7 @@ const SYNC_PORT_BASE: u16 = 19500;
 const SYNC_PORT_SPAN: u16 = 2000;
 
 /// `udid`'s preferred sync probe port: the same on every run, so a probe
-/// left over from the previous run is on the port Velocity checks.
+/// left over from the previous run is on the port Atalanta checks.
 fn sync_port_candidate(udid: &str) -> u16 {
     let h = udid.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
@@ -351,10 +351,10 @@ fn sync_port_candidate(udid: &str) -> u16 {
 
 /// The first port from `udid`'s candidate on that no other simulator here
 /// has and nothing else on the Mac listens on (another process's app, or
-/// another Velocity's simulator). `None` when the whole range is taken.
+/// another Atalanta's simulator). `None` when the whole range is taken.
 ///
 /// Known race (review-f3-f4-s10 MINOR 8): the test bind is dropped at
-/// once, so two Velocity processes whose UDIDs map to the same or
+/// once, so two Atalanta processes whose UDIDs map to the same or
 /// adjacent ports can both pick a port before either app listens; the
 /// second app's bind then fails. It is not silent crosstalk: the host
 /// checks the probe's `hello` names the app under test and polls
@@ -382,13 +382,13 @@ impl IosDriver {
     /// time (`/wda/pickerwheel/select`), reading its value after each,
     /// until it matches (iOSWorld, 2026-11-08: every alarm task stalled).
     async fn set_picker_wheel(&self, device_id: &str, element: &Element, text: &str) -> Result<()> {
-        // VelocityRunner serves none of the routes below (`POST /elements`
+        // AtalantaRunner serves none of the routes below (`POST /elements`
         // answers `[]`): say so, not "a picker wheel not found" while it is
         // on screen (review 09 #6).
-        if self.fixed_url.is_none() && crate::wda_bootstrap::velocity_runner() {
-            return Err(VelocityError::Config(
+        if self.fixed_url.is_none() && crate::wda_bootstrap::atalanta_runner() {
+            return Err(AtalantaError::Config(
                 "setting a picker wheel needs WebDriverAgent's picker-wheel routes, which \
-                 VelocityRunner (VELOCITY_IOS_RUNNER=velocity) does not serve: run this test \
+                 AtalantaRunner (ATALANTA_IOS_RUNNER=atalanta) does not serve: run this test \
                  with the default WebDriverAgent runner, or tap the wheel's rows instead"
                     .into(),
             ));
@@ -416,7 +416,7 @@ impl IosDriver {
                     }
                 }
                 let Some((_, id)) = best else {
-                    return Err(VelocityError::ElementNotFound {
+                    return Err(AtalantaError::ElementNotFound {
                         selector: "a picker wheel".into(),
                         timeout_ms: 0,
                         screenshot: None,
@@ -474,7 +474,7 @@ impl IosDriver {
                     }
                     now = next;
                 }
-                Err(VelocityError::AssertionFailed {
+                Err(AtalantaError::AssertionFailed {
                     expected: format!("picker wheel set to {target:?}"),
                     actual: format!("it stopped at {now:?}"),
                     selector: "picker wheel".into(),
@@ -485,32 +485,32 @@ impl IosDriver {
         .await
     }
 
-    /// One WDA per simulator on ports from 8100 up, unless `VELOCITY_WDA_URL`
+    /// One WDA per simulator on ports from 8100 up, unless `ATALANTA_WDA_URL`
     /// names a WDA to use instead.
     pub fn new() -> Self {
-        let fixed_url = velocity_common::env::var("VELOCITY_WDA_URL").ok();
+        let fixed_url = atalanta_common::env::var("ATALANTA_WDA_URL").ok();
         Self {
             simctl: Simctl::new(),
             devicectl: Devicectl::new(),
-            typing_checks_focus: fixed_url.is_none() && crate::wda_bootstrap::velocity_runner(),
+            typing_checks_focus: fixed_url.is_none() && crate::wda_bootstrap::atalanta_runner(),
             fixed_url,
             conns: Mutex::new(HashMap::new()),
             launched: std::sync::Mutex::new(HashMap::new()),
             installed: std::sync::Mutex::new(std::collections::HashSet::new()),
             device_crash_logs: CrashLogDirs::default(),
             crash_watch: CrashWatch::default(),
-            focus_check: velocity_common::env::var("VELOCITY_IOS_FOCUS_CHECK")
+            focus_check: atalanta_common::env::var("ATALANTA_IOS_FOCUS_CHECK")
                 .is_ok_and(|v| matches!(v.trim(), "1" | "true" | "on")),
-            strict_focus: !velocity_common::env::var("VELOCITY_IOS_FOCUS_CHECK")
+            strict_focus: !atalanta_common::env::var("ATALANTA_IOS_FOCUS_CHECK")
                 .is_ok_and(|v| matches!(v.trim(), "0" | "false" | "off")),
             status_bar_guard: !matches!(
-                velocity_common::env::var("VELOCITY_IOS_TAP_GUARD_STATUS_BAR")
+                atalanta_common::env::var("ATALANTA_IOS_TAP_GUARD_STATUS_BAR")
                     .as_deref()
                     .map(str::trim),
                 Ok("off" | "0" | "false")
             ),
             verify_tap: matches!(
-                velocity_common::env::var("VELOCITY_IOS_VERIFY_TAP")
+                atalanta_common::env::var("ATALANTA_IOS_VERIFY_TAP")
                     .as_deref()
                     .map(str::trim),
                 Ok("1" | "true" | "on" | "yes")
@@ -543,7 +543,7 @@ impl IosDriver {
     /// The launch environment for a simulator app: its sync probe port.
     fn app_env(&self, device_id: &str) -> Vec<(String, String)> {
         self.sync_port(device_id)
-            .map(|p| vec![("VELOCITY_SYNC_PORT".to_string(), p.to_string())])
+            .map(|p| vec![("ATALANTA_SYNC_PORT".to_string(), p.to_string())])
             .unwrap_or_default()
     }
 
@@ -554,21 +554,21 @@ impl IosDriver {
     }
 
     /// Turn the `inputText` focus check on or off (see
-    /// `VELOCITY_IOS_FOCUS_CHECK`).
+    /// `ATALANTA_IOS_FOCUS_CHECK`).
     pub fn with_focus_check(mut self, on: bool) -> Self {
         self.focus_check = on;
         self
     }
 
     /// Turn the D-5 check that focus landed on `inputText`'s target on or
-    /// off (default on; `VELOCITY_IOS_FOCUS_CHECK=off`).
+    /// off (default on; `ATALANTA_IOS_FOCUS_CHECK=off`).
     pub fn with_strict_focus(mut self, on: bool) -> Self {
         self.strict_focus = on;
         self
     }
 
     /// Keep taps out of the status bar, or not (default on;
-    /// `VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off`, D-4).
+    /// `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off`, D-4).
     pub fn with_status_bar_guard(mut self, on: bool) -> Self {
         self.status_bar_guard = on;
         self
@@ -581,8 +581,8 @@ impl IosDriver {
         self
     }
 
-    /// A physical device has no process table or crash folder Velocity can
-    /// read cheaply: the app Velocity launched (and didn't stop) reporting
+    /// A physical device has no process table or crash folder Atalanta can
+    /// read cheaply: the app Atalanta launched (and didn't stop) reporting
     /// "not running" through the runner means it died (D-50 step 1).
     async fn device_app_gone(&self, device_id: &str, app_id: &str) -> Option<String> {
         self.launched
@@ -598,7 +598,7 @@ impl IosDriver {
         let reports = self.device_crash_reports(device_id, app_id).await;
         Some(match reports.first() {
             Some((_, _, summary)) => summary.clone(),
-            None => "the app is not running on the device (terminated since Velocity \
+            None => "the app is not running on the device (terminated since Atalanta \
                      launched it; no crash report for it on the device)"
                 .to_string(),
         })
@@ -636,7 +636,7 @@ impl IosDriver {
             Some(None) => return Vec::new(),
             None => {
                 let dir = std::env::temp_dir().join(format!(
-                    "velocity-crashlogs-{}-{}-{}",
+                    "atalanta-crashlogs-{}-{}-{}",
                     std::process::id(),
                     device_id.replace(|c: char| !c.is_ascii_alphanumeric(), "_"),
                     since
@@ -683,7 +683,7 @@ impl IosDriver {
     /// the test ran on the previous state as if `clearState` had worked
     /// (VEL-S45).
     async fn clear_sim_data(&self, device_id: &str, app_id: &str) -> Result<()> {
-        let failed = |detail: String| VelocityError::CommandFailed {
+        let failed = |detail: String| AtalantaError::CommandFailed {
             device_id: device_id.to_string(),
             command: "clearState".into(),
             detail,
@@ -747,7 +747,7 @@ impl IosDriver {
         let Some(conn) = self.conns.lock().await.get(device_id).cloned() else {
             return;
         };
-        let every = velocity_common::settings::ms("VELOCITY_CRASH_CHECK_EVERY_MS", 1000)
+        let every = atalanta_common::settings::ms("ATALANTA_CRASH_CHECK_EVERY_MS", 1000)
             .max(Duration::from_millis(250));
         let seen = self.crash_watch.seen.clone();
         let key = CrashWatch::key(device_id, app_id);
@@ -876,10 +876,10 @@ impl IosDriver {
                 wda.client_mut().set_auth(auth);
             }
             conn.wda.lock().await.adopt(device_id).await;
-            // VelocityRunner has no frontmost-app lookup: tell it what is
+            // AtalantaRunner has no frontmost-app lookup: tell it what is
             // installed, so a session without an app reads the screen.
             if self.fixed_url.is_none()
-                && crate::wda_bootstrap::velocity_runner()
+                && crate::wda_bootstrap::atalanta_runner()
                 && !is_physical(device_id)
             {
                 match self.simctl.installed_bundles(device_id).await {
@@ -939,15 +939,15 @@ impl IosDriver {
 
     /// Where a live view can read `device_id`'s screen as MJPEG
     /// (WebDriverAgent's MJPEG server), best first; empty when there is none
-    /// (VelocityRunner, real iPhones: the stream would need its own usbmux
+    /// (AtalantaRunner, real iPhones: the stream would need its own usbmux
     /// forward). Turns the stream up to 30 fps at half scale first.
     ///
-    /// A WDA launched without `MJPEG_SERVER_PORT` (an older Velocity's, kept
+    /// A WDA launched without `MJPEG_SERVER_PORT` (an older Atalanta's, kept
     /// running) serves on 9100. That port is only offered when this driver
     /// knows one device, since it may be another simulator's.
     pub async fn mjpeg_urls(&self, device_id: &str) -> Result<Vec<String>> {
         if is_physical(device_id)
-            || (self.fixed_url.is_none() && crate::wda_bootstrap::velocity_runner())
+            || (self.fixed_url.is_none() && crate::wda_bootstrap::atalanta_runner())
         {
             return Ok(Vec::new());
         }
@@ -1046,7 +1046,7 @@ impl IosDriver {
             if self.renew_session(device_id, conn).await {
                 return true;
             }
-            // `/status` answers off the main thread (VelocityRunner serves
+            // `/status` answers off the main thread (AtalantaRunner serves
             // it on its network queue), so a wedged runner looks alive:
             // when its session cannot be renewed either, restart it
             // (review MAJOR-1).
@@ -1066,7 +1066,7 @@ impl IosDriver {
             };
             if let Err(e) = started {
                 warn!(device_id, "WDA restart failed: {e}");
-                if matches!(e, VelocityError::RunnerFailing { .. }) {
+                if matches!(e, AtalantaError::RunnerFailing { .. }) {
                     *conn
                         .runner_failing
                         .lock()
@@ -1156,7 +1156,7 @@ impl IosDriver {
         conn: &DeviceConn,
         element: &Element,
         before: Option<&Element>,
-        fail: &(dyn Fn(String) -> VelocityError + Sync),
+        fail: &(dyn Fn(String) -> AtalantaError + Sync),
     ) -> Result<()> {
         use std::sync::atomic::Ordering;
         if conn.reports_focus.load(Ordering::Relaxed) == 2 {
@@ -1182,7 +1182,7 @@ impl IosDriver {
                     if Instant::now() >= deadline {
                         return Err(fail(format!(
                             "the focus stayed on {} {:?} at {:?}; the keys would go there \
-                             (select the text field itself, or VELOCITY_IOS_FOCUS_CHECK=off)",
+                             (select the text field itself, or ATALANTA_IOS_FOCUS_CHECK=off)",
                             other.element_type,
                             other.label.as_deref().unwrap_or(&other.platform_id),
                             other.bounds
@@ -1197,11 +1197,11 @@ impl IosDriver {
     async fn read_tree(&self, device_id: &str) -> Result<Arc<Element>> {
         let conn = self.ready(device_id).await?;
         let xml = match Self::fetch_source(&conn).await {
-            Err(VelocityError::WdaUnreachable { .. }) if self.recover(device_id, &conn).await => {
+            Err(AtalantaError::WdaUnreachable { .. }) if self.recover(device_id, &conn).await => {
                 Self::fetch_source(&conn).await?
             }
-            Err(e @ VelocityError::WdaUnreachable { .. }) => return Err(conn.or_runner_failing(e)),
-            Err(VelocityError::WdaSessionLost { .. })
+            Err(e @ AtalantaError::WdaUnreachable { .. }) => return Err(conn.or_runner_failing(e)),
+            Err(AtalantaError::WdaSessionLost { .. })
                 if self.renew_session(device_id, &conn).await =>
             {
                 Self::fetch_source(&conn).await?
@@ -1261,7 +1261,7 @@ impl IosDriver {
     /// behind a sheet included. The tap guard refuses those by tree order,
     /// but an `assertVisible` or a bare selector still took them. Paid only
     /// for the step's lookup tree (never for the settle's polls) and only
-    /// while a modal layer is up: one more `/source` there. VelocityRunner's
+    /// while a modal layer is up: one more `/source` there. AtalantaRunner's
     /// `visible` is frame-only, so it isn't asked. The flags are copied onto
     /// the tree already read, and only when both reads have the same shape
     /// (the screen didn't change between them); otherwise nothing changes.
@@ -1269,11 +1269,11 @@ impl IosDriver {
     /// [`VISIBILITY_REUSE`] (10 s): polling an `assertVisible` under a sheet
     /// reads them once, not once per poll. The read is dropped after every
     /// action and when the screen's shape changes. Off with
-    /// `VELOCITY_IOS_SHEET_VISIBILITY=off`.
+    /// `ATALANTA_IOS_SHEET_VISIBILITY=off`.
     async fn with_visibility(&self, conn: &DeviceConn, tree: Arc<Element>) -> Arc<Element> {
         if !sheet_visibility()
-            || (self.fixed_url.is_none() && crate::wda_bootstrap::velocity_runner())
-            || velocity_common::env::var("VELOCITY_IOS_FULL_SOURCE").as_deref() == Ok("1")
+            || (self.fixed_url.is_none() && crate::wda_bootstrap::atalanta_runner())
+            || atalanta_common::env::var("ATALANTA_IOS_FULL_SOURCE").as_deref() == Ok("1")
             || conn
                 .visible_for
                 .lock()
@@ -1366,25 +1366,25 @@ impl IosDriver {
         let conn = self.ready(device_id).await?;
         conn.invalidate();
         match op(conn.clone()).await {
-            Err(VelocityError::WdaUnreachable { .. }) if self.recover(device_id, &conn).await => {
+            Err(AtalantaError::WdaUnreachable { .. }) if self.recover(device_id, &conn).await => {
                 op(conn).await
             }
-            Err(e @ VelocityError::WdaUnreachable { .. }) => Err(conn.or_runner_failing(e)),
-            Err(VelocityError::WdaSessionLost { .. })
+            Err(e @ AtalantaError::WdaUnreachable { .. }) => Err(conn.or_runner_failing(e)),
+            Err(AtalantaError::WdaSessionLost { .. })
                 if self.renew_session(device_id, &conn).await =>
             {
                 op(conn).await
             }
-            Err(e @ VelocityError::WdaLost { .. }) => {
+            Err(e @ AtalantaError::WdaLost { .. }) => {
                 if !self.wda_alive(&conn).await {
                     self.recover(device_id, &conn).await;
                 }
                 Err(e)
             }
             // WDA named the crash: it sticks until the next launch (I3).
-            Err(VelocityError::AppCrashed { app_id, detail }) => {
+            Err(AtalantaError::AppCrashed { app_id, detail }) => {
                 self.crash_watch.note(device_id, &app_id, detail.clone());
-                Err(VelocityError::AppCrashed { app_id, detail })
+                Err(AtalantaError::AppCrashed { app_id, detail })
             }
             other => other,
         }
@@ -1443,7 +1443,7 @@ impl IosDriver {
                 if e.to_string().contains("No such file or directory")
                     && !e.to_string().contains("Failed to execute") =>
             {
-                Err(VelocityError::Config(format!(
+                Err(AtalantaError::Config(format!(
                     "{app_id} is not installed on simulator {device_id}"
                 )))
             }
@@ -1493,14 +1493,14 @@ impl IosDriver {
         }
     }
 
-    /// Translate a velocity Selector into a WDA locator strategy and value.
+    /// Translate a atalanta Selector into a WDA locator strategy and value.
     /// User text goes into NSPredicate string literals, escaped (VEL-147:
     /// it was spliced into a class chain as is, so a `"` rewrote the query).
     /// Text values are normalised as the tree matcher normalises them
     /// (D-10): WDA can't normalise the element side, but a selector
     /// written with a stray newline or double space still finds the label.
     fn selector_to_wda(selector: &Selector) -> Result<(&'static str, String)> {
-        use velocity_common::selector_match::normalize;
+        use atalanta_common::selector_match::normalize;
         // The query as written and normalised: WDA compares the raw label,
         // so a label that really holds a newline, NBSP or double space is
         // found by the raw form, a stray one in the selector by the
@@ -1537,7 +1537,7 @@ impl IosDriver {
             Selector::AccessibilityId(aid) => Ok(("accessibility id", aid.clone())),
             // WDA wants the full name: `Button` never matched (VEL-308).
             Selector::ClassName(cls) => Ok(("class name", xcui_type(cls))),
-            Selector::Index { .. } => Err(VelocityError::Config(
+            Selector::Index { .. } => Err(AtalantaError::Config(
                 "Index selector must be resolved at driver level".to_string(),
             )),
             Selector::Compound(selectors) => {
@@ -1560,22 +1560,22 @@ impl IosDriver {
                     }
                 }
                 if predicates.is_empty() {
-                    return Err(VelocityError::Config(
+                    return Err(AtalantaError::Config(
                         "Compound selector produced no predicates".to_string(),
                     ));
                 }
                 Ok(("predicate string", predicates.join(" AND ")))
             }
-            Selector::Css(_) | Selector::XPath(_) => Err(VelocityError::Config(
+            Selector::Css(_) | Selector::XPath(_) => Err(AtalantaError::Config(
                 "css/xpath selectors are not supported on iOS (web platform only)".into(),
             )),
             // Regexes run in Rust on the tree (D-11): NSPredicate's ICU
             // regex would mean something else.
-            Selector::TextMatches(_) | Selector::IdMatches(_) => Err(VelocityError::Config(
+            Selector::TextMatches(_) | Selector::IdMatches(_) => Err(AtalantaError::Config(
                 "textMatches/idMatches resolve from the tree, not a WDA query".into(),
             )),
             // Resolved from the tree only; WDA has no layout query.
-            Selector::Relative { .. } => Err(VelocityError::Config(
+            Selector::Relative { .. } => Err(AtalantaError::Config(
                 "relative selectors resolve from the tree, not a WDA query".into(),
             )),
             // Roles, names and states are computed on the tree (S1/S2).
@@ -1584,7 +1584,7 @@ impl IosDriver {
             | Selector::Checked(_)
             | Selector::Focused(_)
             | Selector::Selected(_)
-            | Selector::Enabled(_) => Err(VelocityError::Config(
+            | Selector::Enabled(_) => Err(AtalantaError::Config(
                 "role, name and state selectors resolve from the tree, not a WDA query".into(),
             )),
         }
@@ -1689,8 +1689,8 @@ impl IosDriver {
 
     /// Where to tap `element` (VEL-341): on the screen, off the keyboard,
     /// the bars and the status bar; an error naming what covers it when no
-    /// part is free (as on Android). `VELOCITY_IOS_TAP_GUARD=off` taps the
-    /// centre of the frame as before; `VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off`
+    /// part is free (as on Android). `ATALANTA_IOS_TAP_GUARD=off` taps the
+    /// centre of the frame as before; `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off`
     /// drops only the status bar rule (D-4).
     async fn tap_point(&self, device_id: &str, element: &Element) -> Result<(i32, i32)> {
         if !tap_guard() {
@@ -1727,7 +1727,7 @@ impl IosDriver {
                 Err(_) => {}
             }
         }
-        point.map_err(|why| VelocityError::AssertionFailed {
+        point.map_err(|why| AtalantaError::AssertionFailed {
             expected: format!("{} at {:?} reachable", element.element_type, element.bounds),
             // Not `pressKey: back`: on iOS that navigates away and leaves
             // the keyboard up.
@@ -1735,11 +1735,11 @@ impl IosDriver {
                 crate::hit::Blocker::Covered("keyboard") => format!(
                     "{why}; dismiss the keyboard first (e.g. pressKey: enter, or tap \
                      outside the field) or scroll the element above it, or set \
-                     VELOCITY_IOS_TAP_GUARD=off"
+                     ATALANTA_IOS_TAP_GUARD=off"
                 ),
                 crate::hit::Blocker::Covered("status bar") => format!(
                     "{why}; scroll it into view first, or, if the app hides its status \
-                     bar, set VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off"
+                     bar, set ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off"
                 ),
                 // A tap behind a presented layer lands on its dimming view
                 // and dismisses it (review 09 #2).
@@ -1747,9 +1747,9 @@ impl IosDriver {
                     "sheet" | "popover" | "alert" | "sheet's dimming view",
                 ) => format!(
                     "{why}, which is in front; act on it or dismiss it first, or set \
-                     VELOCITY_IOS_TAP_GUARD=off"
+                     ATALANTA_IOS_TAP_GUARD=off"
                 ),
-                _ => format!("{why}; scroll it into view first, or set VELOCITY_IOS_TAP_GUARD=off"),
+                _ => format!("{why}; scroll it into view first, or set ATALANTA_IOS_TAP_GUARD=off"),
             },
             selector: element
                 .label
@@ -1786,7 +1786,7 @@ impl IosDriver {
                 if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     warn!(
                         "ios.verifyTap: the runner has no hit test here (it needs \
-                         ios.runner: velocity, and XCTest's private hit test); taps \
+                         ios.runner: atalanta, and XCTest's private hit test); taps \
                          are checked against the element tree only"
                     );
                 }
@@ -1825,7 +1825,7 @@ impl IosDriver {
         };
         match blocker {
             None => Ok(Some(hit.owner)),
-            Some(actual) => Err(VelocityError::AssertionFailed {
+            Some(actual) => Err(AtalantaError::AssertionFailed {
                 expected: format!("{} at {:?} reachable", element.element_type, element.bounds),
                 actual: format!("{actual} (ios.verifyTap)"),
                 selector: element
@@ -1913,7 +1913,7 @@ impl IosDriver {
             height: tree.bounds.height,
         };
         if let Some(el) =
-            velocity_common::selector_match::find_in_tree(&tree, selector, Some(&screen))
+            atalanta_common::selector_match::find_in_tree(&tree, selector, Some(&screen))
         {
             return Ok(Some(prefer_in_front(&tree, selector, &screen, el)));
         }
@@ -2077,7 +2077,7 @@ impl PlatformDriver for IosDriver {
 
     async fn boot_device(&self, device_id: &str) -> Result<()> {
         if is_physical(device_id) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "{device_id} is a real device: connect and unlock it instead of booting"
             )));
         }
@@ -2104,7 +2104,7 @@ impl PlatformDriver for IosDriver {
         app_path: &str,
         app_id: &str,
         hash: &str,
-    ) -> Result<velocity_common::InstallOutcome> {
+    ) -> Result<atalanta_common::InstallOutcome> {
         crate::install::install_if_changed(
             &self.simctl,
             &self.devicectl,
@@ -2125,7 +2125,7 @@ impl PlatformDriver for IosDriver {
     ) -> Result<ResetStrategy> {
         // Simulators have no snapshot API; reinstall is the strongest reset.
         let app = reset.app_path.as_deref().ok_or_else(|| {
-            VelocityError::Config("reinstall needs reset.appPath (.app bundle)".into())
+            AtalantaError::Config("reinstall needs reset.appPath (.app bundle)".into())
         })?;
         if is_physical(device_id) {
             let _ = self.devicectl.uninstall(device_id, app_id).await;
@@ -2208,7 +2208,7 @@ impl PlatformDriver for IosDriver {
         }
         // Reused session: `simctl launch`, then wait for the app to be in
         // front. WDA's own launch waits for the app to go quiet as well:
-        // 1.7 s to the home screen against 0.85 s (measured), and Velocity's
+        // 1.7 s to the home screen against 0.85 s (measured), and Atalanta's
         // settle waits for the screen anyway.
         drop(wda);
         if launch_mode() == LaunchMode::Simctl {
@@ -2244,15 +2244,15 @@ impl PlatformDriver for IosDriver {
         }
     }
 
-    /// Whether the simulator app Velocity launched has died since, and why.
+    /// Whether the simulator app Atalanta launched has died since, and why.
     /// The process table is the signal: the app's `UIKitApplication:` job is
-    /// gone although Velocity didn't stop it (`stopApp` / a relaunch clear
+    /// gone although Atalanta didn't stop it (`stopApp` / a relaunch clear
     /// the record). The reason comes from the `.ips` crash report when macOS
     /// wrote one; it skips repeats of a recent identical crash, so it often
-    /// doesn't. Works with WDA and VelocityRunner alike: with VelocityRunner
+    /// doesn't. Works with WDA and AtalantaRunner alike: with AtalantaRunner
     /// a crash used to read "Element not found".
     /// The port the simulator's app was launched with in
-    /// `VELOCITY_SYNC_PORT`; `None` before Velocity launched an app there
+    /// `ATALANTA_SYNC_PORT`; `None` before Atalanta launched an app there
     /// (and on physical devices): the suite's `sync.nativePortIos`.
     fn sync_probe_port(&self, device_id: &str) -> Option<u16> {
         self.sync_ports
@@ -2267,14 +2267,14 @@ impl PlatformDriver for IosDriver {
     async fn start_evidence(
         &self,
         device_id: &str,
-        req: &velocity_common::EvidenceRequest,
-    ) -> Option<Box<dyn velocity_common::EvidenceSession>> {
+        req: &atalanta_common::EvidenceRequest,
+    ) -> Option<Box<dyn atalanta_common::EvidenceSession>> {
         if is_physical(device_id) {
             return None;
         }
         crate::evidence::SimEvidence::start(self.simctl.xcrun_path(), device_id, req)
             .await
-            .map(|e| Box::new(e) as Box<dyn velocity_common::EvidenceSession>)
+            .map(|e| Box::new(e) as Box<dyn atalanta_common::EvidenceSession>)
     }
 
     async fn copy_crash_logs(
@@ -2349,10 +2349,10 @@ impl PlatformDriver for IosDriver {
     }
 
     /// The crash check, then the front app from WDA (`/wda/activeAppInfo`),
-    /// then the app's own state (`/wda/apps/state`), which VelocityRunner
+    /// then the app's own state (`/wda/apps/state`), which AtalantaRunner
     /// answers though it has no front-app lookup.
-    async fn app_liveness(&self, device_id: &str, app_id: &str) -> velocity_common::Liveness {
-        use velocity_common::Liveness;
+    async fn app_liveness(&self, device_id: &str, app_id: &str) -> atalanta_common::Liveness {
+        use atalanta_common::Liveness;
         if let Some(detail) = self.crash_report(device_id, app_id).await {
             return Liveness::Dead(detail);
         }
@@ -2409,7 +2409,7 @@ impl PlatformDriver for IosDriver {
     /// The installed bundle's Info.plist modification time (a reinstall or
     /// rebuild changes it). Simulators only.
     async fn app_fingerprint(&self, device_id: &str, app_id: &str) -> Option<String> {
-        // The build's hash, when Velocity installed it and the installed
+        // The build's hash, when Atalanta installed it and the installed
         // copy is still that one (see `install.rs`).
         let physical = is_physical(device_id);
         if let Some(fp) =
@@ -2442,7 +2442,7 @@ impl PlatformDriver for IosDriver {
     /// container; apps that keep login tokens there need a re-login.
     async fn save_app_state(&self, device_id: &str, app_id: &str, name: &str) -> Result<()> {
         if is_physical(device_id) {
-            return Err(VelocityError::Config(
+            return Err(AtalantaError::Config(
                 "saveState needs a simulator: a real device's app data isn't reachable from the host"
                     .into(),
             ));
@@ -2454,12 +2454,12 @@ impl PlatformDriver for IosDriver {
             .simctl
             .get_app_container(device_id, app_id, "data")
             .await?;
-        let dest = velocity_common::state_dir(device_id, app_id, name);
+        let dest = atalanta_common::state_dir(device_id, app_id, name);
         let _ = tokio::fs::remove_dir_all(&dest).await;
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_err(|e| VelocityError::Config(format!("{}: {e}", parent.display())))?;
+                .map_err(|e| AtalantaError::Config(format!("{}: {e}", parent.display())))?;
         }
         clone_dir(std::path::Path::new(&container), &dest).await?;
         info!(device_id, app_id, name, "app state saved");
@@ -2468,14 +2468,14 @@ impl PlatformDriver for IosDriver {
 
     async fn restore_app_state(&self, device_id: &str, app_id: &str, name: &str) -> Result<()> {
         if is_physical(device_id) {
-            return Err(VelocityError::Config(
+            return Err(AtalantaError::Config(
                 "restoreState needs a simulator: a real device's app data isn't reachable from the host"
                     .into(),
             ));
         }
-        let saved = velocity_common::state_dir(device_id, app_id, name);
+        let saved = atalanta_common::state_dir(device_id, app_id, name);
         if !saved.exists() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "no saved state '{name}' for {app_id} on {device_id}; run a saveState step first"
             )));
         }
@@ -2527,7 +2527,7 @@ impl PlatformDriver for IosDriver {
         debug!(selector = %selector, "finding element");
         self.find_one_via_hierarchy(device_id, selector)
             .await?
-            .ok_or_else(|| VelocityError::ElementNotFound {
+            .ok_or_else(|| AtalantaError::ElementNotFound {
                 selector: selector.to_string(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -2681,7 +2681,7 @@ impl PlatformDriver for IosDriver {
         // WDA restarted while typing replays the typing only, never the tap
         // (VEL-296: the field was tapped twice, after the screen may have
         // changed).
-        let not_focusable = |actual: String| VelocityError::AssertionFailed {
+        let not_focusable = |actual: String| AtalantaError::AssertionFailed {
             expected: format!(
                 "{} at {:?} focused for typing",
                 element.element_type, element.bounds
@@ -2872,8 +2872,8 @@ impl PlatformDriver for IosDriver {
     }
 
     async fn press_key(&self, device_id: &str, key: Key) -> Result<()> {
-        if !key.supported_on(velocity_common::Platform::Ios) {
-            return Err(VelocityError::Config(format!(
+        if !key.supported_on(atalanta_common::Platform::Ios) {
+            return Err(AtalantaError::Config(format!(
                 "pressKey: {} can't be sent on iOS (WebDriverAgent types only back, home, enter, \
                  volumeUp, volumeDown, backspace and tab)",
                 key.name()
@@ -2920,7 +2920,7 @@ impl PlatformDriver for IosDriver {
                     }
                     other => {
                         let button = Self::key_to_button(other.clone()).ok_or_else(|| {
-                            VelocityError::Config(format!("key {other:?} has no iOS button"))
+                            AtalantaError::Config(format!("key {other:?} has no iOS button"))
                         })?;
                         client.press_button(button).await
                     }
@@ -2939,7 +2939,7 @@ impl PlatformDriver for IosDriver {
             }
         }
         if is_physical(device_id) {
-            return Err(VelocityError::WdaUnreachable {
+            return Err(AtalantaError::WdaUnreachable {
                 device_id: device_id.to_string(),
                 url: device_id.to_string(),
                 detail: "screenshot: WebDriverAgent did not answer".into(),
@@ -2959,7 +2959,7 @@ impl PlatformDriver for IosDriver {
         if Self::is_hierarchy_element(element) {
             // Read the live screen, not the copy found before the last action.
             let tree = self.tree(device_id).await?;
-            let found = locate(&tree, element).ok_or_else(|| VelocityError::ElementNotFound {
+            let found = locate(&tree, element).ok_or_else(|| AtalantaError::ElementNotFound {
                 selector: element.platform_id.clone(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -2995,7 +2995,7 @@ impl PlatformDriver for IosDriver {
             let screen = tree.bounds;
             // The shared rule (D-1), `visibility.minArea` included.
             return Ok(locate(&tree, element)
-                .is_some_and(|e| velocity_common::selector_match::shown_on(e, &screen)));
+                .is_some_and(|e| atalanta_common::selector_match::shown_on(e, &screen)));
         }
         let conn = self.ready(device_id).await?;
         let shown = conn
@@ -3013,7 +3013,7 @@ impl PlatformDriver for IosDriver {
 /// clones, falling back to a plain copy on other file systems.
 async fn clone_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
     std::fs::create_dir_all(to)
-        .map_err(|e| VelocityError::Config(format!("{}: {e}", to.display())))?;
+        .map_err(|e| AtalantaError::Config(format!("{}: {e}", to.display())))?;
     let src = format!("{}/.", from.display());
     for clone in [true, false] {
         let mut cmd = tokio::process::Command::new("cp");
@@ -3021,17 +3021,17 @@ async fn clone_dir(from: &std::path::Path, to: &std::path::Path) -> Result<()> {
             cmd.arg("-c");
         }
         cmd.arg("-R").arg(&src).arg(to);
-        let out = velocity_common::process::output_with_timeout(
+        let out = atalanta_common::process::output_with_timeout(
             &mut cmd,
-            velocity_common::process::LONG_TIMEOUT,
+            atalanta_common::process::LONG_TIMEOUT,
         )
         .await
-        .map_err(|e| VelocityError::Config(format!("cp: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("cp: {e}")))?;
         if out.status.success() {
             return Ok(());
         }
         if !clone {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "copying app data failed: {}",
                 String::from_utf8_lossy(&out.stderr).trim()
             )));
@@ -3185,7 +3185,7 @@ fn prefer_in_front(tree: &Element, selector: &Selector, screen: &Rect, first: El
     {
         return first;
     }
-    velocity_common::selector_match::find_all_tree_order(tree, selector, Some(screen))
+    atalanta_common::selector_match::find_all_tree_order(tree, selector, Some(screen))
         .into_iter()
         .find(|e| crate::hit::behind_modal(tree, e).is_none())
         .cloned()
@@ -3211,17 +3211,17 @@ fn wda_can_answer(selector: &Selector) -> bool {
 }
 
 /// Search the parsed Element tree for all elements matching a Selector.
-/// Matching is shared with every other platform (velocity_common::selector_match).
+/// Matching is shared with every other platform (atalanta_common::selector_match).
 fn find_matching_elements(root: &Element, selector: &Selector, screen: &Rect) -> Vec<Element> {
     match selector {
         Selector::Index { .. } => {
-            velocity_common::selector_match::find_in_tree(root, selector, Some(screen))
+            atalanta_common::selector_match::find_in_tree(root, selector, Some(screen))
                 .into_iter()
                 .collect()
         }
         _ => {
             let mut out = Vec::new();
-            velocity_common::selector_match::find_all_in_tree(
+            atalanta_common::selector_match::find_all_in_tree(
                 root,
                 selector,
                 Some(screen),
@@ -3234,21 +3234,21 @@ fn find_matching_elements(root: &Element, selector: &Selector, screen: &Rect) ->
 
 /// Press before a swipe's drag, in seconds. WDA's `duration` is only a
 /// wait before the drag (the drag speed is XCTest's own), so the old 0.3 s
-/// was dead time on every swipe and scroll; VelocityRunner already uses
+/// was dead time on every swipe and scroll; AtalantaRunner already uses
 /// 0.05 s. Measured by hand: 1.64 s → 1.38 s a drag, same scroll.
 const DRAG_PRESS_S: f64 = 0.05;
 
 /// How long a "no system alert" answer is trusted.
 fn alert_recheck() -> Duration {
-    velocity_common::settings::ms("VELOCITY_IOS_ALERT_RECHECK_MS", 1000)
+    atalanta_common::settings::ms("ATALANTA_IOS_ALERT_RECHECK_MS", 1000)
 }
 
-/// `VELOCITY_IOS_TAP_GUARD=off` taps the centre of the frame, as before the
+/// `ATALANTA_IOS_TAP_GUARD=off` taps the centre of the frame, as before the
 /// tap-point resolver ([`crate::hit`]).
-/// `VELOCITY_IOS_SHEET_VISIBILITY=off`: don't read `visible` under a sheet.
+/// `ATALANTA_IOS_SHEET_VISIBILITY=off`: don't read `visible` under a sheet.
 fn sheet_visibility() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_IOS_SHEET_VISIBILITY").as_deref(),
+        atalanta_common::env::var("ATALANTA_IOS_SHEET_VISIBILITY").as_deref(),
         Ok("off") | Ok("0") | Ok("false")
     )
 }
@@ -3258,19 +3258,19 @@ fn sheet_visibility() -> bool {
 const ROW_SWITCH_WAIT: Duration = Duration::from_millis(600);
 
 fn tap_guard() -> bool {
-    velocity_common::env::var("VELOCITY_IOS_TAP_GUARD")
+    atalanta_common::env::var("ATALANTA_IOS_TAP_GUARD")
         .as_deref()
         .map(str::trim)
         != Ok("off")
 }
 
-/// `VELOCITY_IOS_SYSTEM_ALERTS=0` skips the system-alert check on each read.
+/// `ATALANTA_IOS_SYSTEM_ALERTS=0` skips the system-alert check on each read.
 fn system_alerts_enabled() -> bool {
-    velocity_common::env::var("VELOCITY_IOS_SYSTEM_ALERTS").as_deref() != Ok("0")
+    atalanta_common::env::var("ATALANTA_IOS_SYSTEM_ALERTS").as_deref() != Ok("0")
 }
 
 /// How a simulator relaunches an app in a reused session
-/// (`VELOCITY_IOS_LAUNCH=simctl|wda`, default simctl).
+/// (`ATALANTA_IOS_LAUNCH=simctl|wda`, default simctl).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum LaunchMode {
     Simctl,
@@ -3278,7 +3278,7 @@ enum LaunchMode {
 }
 
 fn launch_mode() -> LaunchMode {
-    match velocity_common::env::var("VELOCITY_IOS_LAUNCH").as_deref() {
+    match atalanta_common::env::var("ATALANTA_IOS_LAUNCH").as_deref() {
         Ok("wda") => LaunchMode::Wda,
         _ => LaunchMode::Simctl,
     }
@@ -3427,7 +3427,7 @@ fn summarize_ips(text: &str, bundle_id: &str) -> Option<String> {
 }
 
 /// `platform_id` prefix of a system-alert button; the rest is its label.
-const ALERT_BUTTON_ID: &str = "velocity-system-alert-button:";
+const ALERT_BUTTON_ID: &str = "atalanta-system-alert-button:";
 
 /// A SpringBoard alert as a tree node, so selectors and the dialog handler
 /// see it like an in-app one. Its buttons have no real frames (WDA gives only
@@ -3555,7 +3555,7 @@ mod device_kind_tests {
             "iPhone 17 Pro",
             "290403AAC40F404B9CB0DAFB6A943142",
             "",
-            "velocity-iPhone-17-Pro-1",
+            "atalanta-iPhone-17-Pro-1",
         ] {
             assert!(!is_physical(sim), "{sim}");
         }
@@ -3601,8 +3601,8 @@ where
 
 /// The runner's "nothing has keyboard focus" (see `WdaClient`'s error
 /// mapping): no key was sent.
-fn is_unfocused(e: &VelocityError) -> bool {
-    matches!(e, VelocityError::AssertionFailed { actual, .. } if actual.contains("has keyboard focus"))
+fn is_unfocused(e: &AtalantaError) -> bool {
+    matches!(e, AtalantaError::AssertionFailed { actual, .. } if actual.contains("has keyboard focus"))
 }
 
 /// Whether `inputText` pastes `text` (`ios.text`): `paste` always, `keys`
@@ -3618,10 +3618,10 @@ fn use_paste(text: &str, field_empty: bool, primed: bool) -> bool {
     if text.contains(['\n', '\r', '\u{8}']) {
         return false;
     }
-    if velocity_common::redact::redact(text) != text {
+    if atalanta_common::redact::redact(text) != text {
         return false;
     }
-    match velocity_common::env::var("VELOCITY_IOS_TEXT")
+    match atalanta_common::env::var("ATALANTA_IOS_TEXT")
         .unwrap_or_default()
         .as_str()
     {
@@ -3650,9 +3650,9 @@ async fn paste_or_type(
         match client.paste_text(text, !primed).await {
             Ok(()) => return Ok(true),
             Err(
-                e @ (VelocityError::WdaLost { .. }
-                | VelocityError::WdaUnreachable { .. }
-                | VelocityError::WdaSessionLost { .. }),
+                e @ (AtalantaError::WdaLost { .. }
+                | AtalantaError::WdaUnreachable { .. }
+                | AtalantaError::WdaSessionLost { .. }),
             ) => return Err(e),
             Err(e) => debug!("paste failed, typing instead: {e}"),
         }
@@ -3694,7 +3694,7 @@ mod paste_tests {
     async fn a_paste_that_may_have_run_is_not_typed_again() {
         let (f, c) = wda_with_paste(|| crate::driver::fake_wda::Resp::Close).await;
         let e = paste_or_type(&c, "hello", true, true).await.unwrap_err();
-        assert!(matches!(e, VelocityError::WdaLost { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::WdaLost { .. }), "{e:?}");
         assert_eq!(f.count("POST", "/wda/keys"), 0, "typed after a lost paste");
     }
 
@@ -3722,7 +3722,7 @@ mod paste_tests {
         assert!(!use_paste(&format!("{long}\n"), true, true));
         // A registered secret is typed, never put on the pasteboard.
         let secret = format!("pw-{}", "s".repeat(60));
-        velocity_common::redact::register_secret(&secret);
+        atalanta_common::redact::register_secret(&secret);
         assert!(!use_paste(&secret, true, true));
         assert!(select_to_clear(45, 370) && select_to_clear(30, 200));
         assert!(!select_to_clear(5, 370) && !select_to_clear(0, 370));
@@ -3876,7 +3876,7 @@ mod wda_query_tests {
         sheet.children = vec![in_front];
         root.children = vec![behind.clone(), sheet];
         let sel = Selector::Text("Save".into());
-        let first = velocity_common::selector_match::find_in_tree(&root, &sel, Some(&screen))
+        let first = atalanta_common::selector_match::find_in_tree(&root, &sel, Some(&screen))
             .expect("a match");
         assert_eq!(first.platform_id, "Save", "tree order puts it first");
         let picked = prefer_in_front(&root, &sel, &screen, first.clone());
@@ -3998,7 +3998,7 @@ mod recovery_tests {
         d
     }
 
-    /// VelocityRunner: no `/wda/activeAppInfo`; `/wda/apps/state` answers
+    /// AtalantaRunner: no `/wda/activeAppInfo`; `/wda/apps/state` answers
     /// `state` for every app.
     async fn runner_with_state(state: u8) -> FakeWda {
         FakeWda::start(move |r| {
@@ -4034,7 +4034,7 @@ mod recovery_tests {
         );
         assert!(matches!(
             d.app_liveness(DEV, "com.example.app").await,
-            velocity_common::Liveness::Dead(m) if m.contains("not running")
+            atalanta_common::Liveness::Dead(m) if m.contains("not running")
         ));
         d.forget_launch(DEV, "com.example.app");
         assert_eq!(
@@ -4047,7 +4047,7 @@ mod recovery_tests {
         let d = IosDriver::with_wda_url(&f.url);
         assert_eq!(
             d.app_liveness(SIM, "com.example.app").await,
-            velocity_common::Liveness::Foreground,
+            atalanta_common::Liveness::Foreground,
             "the runner's app state stands in for activeAppInfo"
         );
     }
@@ -4123,7 +4123,7 @@ mod recovery_tests {
         assert_eq!(
             sim.pending_crash(SIM, APP).await,
             None,
-            "nothing pending for an app Velocity didn't launch"
+            "nothing pending for an app Atalanta didn't launch"
         );
     }
 
@@ -4135,7 +4135,7 @@ mod recovery_tests {
     async fn a_device_crash_report_is_copied_off_with_devicectl() {
         const DEV: &str = "00008130-001451402EC1001D";
         const APP: &str = "com.example.app";
-        let dir = std::env::temp_dir().join(format!("velocity-d50-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-d50-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let ips = |bundle: &str, ts: &str| {
@@ -4194,7 +4194,7 @@ mod recovery_tests {
     async fn a_failed_crash_log_copy_is_not_retried_and_copies_are_cleaned_up() {
         const DEV: &str = "00008130-001451402EC1002E";
         const APP: &str = "com.example.app";
-        let dir = std::env::temp_dir().join(format!("velocity-m12-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-m12-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("args.log");
@@ -4246,7 +4246,7 @@ mod recovery_tests {
             ok("null")
         })
         .await;
-        let dir = std::env::temp_dir().join(format!("velocity-missing-app-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-missing-app-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let xcrun = dir.join("xcrun");
@@ -4262,7 +4262,7 @@ mod recovery_tests {
             .launch_app(SIM, "com.apple.mobiletimer", false)
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e:?}");
         assert!(e.to_string().contains("not installed"), "{e}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -4271,7 +4271,7 @@ mod recovery_tests {
     async fn clear_state_that_could_not_clear_fails_the_launch() {
         // VEL-S45: an unresolvable container was a WARN and the test ran on
         // the previous run's data; a failed wipe was ignored.
-        let dir = std::env::temp_dir().join(format!("velocity-s45-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-s45-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         // Shaped like simctl's answer (clear_sim_data checks it).
@@ -4363,7 +4363,7 @@ mod sync_port_tests {
     #[tokio::test]
     async fn freeze_status_bar_overrides_a_simulator_once_and_cleanup_clears_it() {
         // D-V4: command lines only, through a logging xcrun stub.
-        let dir = std::env::temp_dir().join(format!("velocity-statusbar-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-statusbar-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let (simctl, log) = logging_xcrun(&dir);
         let mut d = IosDriver::with_wda_url("http://127.0.0.1:9");
@@ -4397,7 +4397,7 @@ mod sync_port_tests {
     #[tokio::test]
     async fn unfreeze_status_bar_clears_the_override_and_a_later_freeze_redoes_it() {
         let dir =
-            std::env::temp_dir().join(format!("velocity-statusbar-thaw-{}", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-statusbar-thaw-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let (simctl, log) = logging_xcrun(&dir);
         let mut d = IosDriver::with_wda_url("http://127.0.0.1:9");
@@ -4415,7 +4415,7 @@ mod sync_port_tests {
     }
 
     /// An `xcrun` that logs each simctl call with the app's
-    /// `SIMCTL_CHILD_VELOCITY_SYNC_PORT`.
+    /// `SIMCTL_CHILD_ATALANTA_SYNC_PORT`.
     fn logging_xcrun(dir: &std::path::Path) -> (Simctl, std::path::PathBuf) {
         std::fs::create_dir_all(dir).unwrap();
         let log = dir.join("calls.log");
@@ -4423,7 +4423,7 @@ mod sync_port_tests {
         crate::write_stub(
             &xcrun,
             &format!(
-                "echo \"$* port=$SIMCTL_CHILD_VELOCITY_SYNC_PORT\" >> '{}'\nexit 0",
+                "echo \"$* port=$SIMCTL_CHILD_ATALANTA_SYNC_PORT\" >> '{}'\nexit 0",
                 log.display()
             ),
         );
@@ -4433,7 +4433,7 @@ mod sync_port_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_new_session_launches_the_app_with_the_simulators_sync_port() {
         let f = wda(false).await;
-        let dir = std::env::temp_dir().join(format!("velocity-syncport-a-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-syncport-a-{}", std::process::id()));
         let (simctl, _) = logging_xcrun(&dir);
         let mut d = IosDriver::with_wda_url(&f.url);
         d.simctl = simctl;
@@ -4456,7 +4456,7 @@ mod sync_port_tests {
         assert_eq!(always["shouldWaitForQuiescence"], false, "{body}");
         assert_eq!(always["waitForIdleTimeout"], 0, "{body}");
         assert_eq!(
-            always["environment"]["VELOCITY_SYNC_PORT"],
+            always["environment"]["ATALANTA_SYNC_PORT"],
             port.to_string(),
             "{body}"
         );
@@ -4471,7 +4471,7 @@ mod sync_port_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn launch_arguments_go_after_the_bundle_id_on_simctl() {
         let f = wda(true).await;
-        let dir = std::env::temp_dir().join(format!("velocity-launchargs-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-launchargs-{}", std::process::id()));
         let (simctl, log) = logging_xcrun(&dir);
         let mut d = IosDriver::with_wda_url(&f.url);
         d.simctl = simctl;
@@ -4528,7 +4528,7 @@ mod sync_port_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_reused_session_launches_through_simctl_with_the_port_in_simctl_child() {
         let f = wda(true).await;
-        let dir = std::env::temp_dir().join(format!("velocity-syncport-b-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-syncport-b-{}", std::process::id()));
         let (simctl, log) = logging_xcrun(&dir);
         let mut d = IosDriver::with_wda_url(&f.url);
         d.simctl = simctl;
@@ -4555,7 +4555,7 @@ mod sync_port_tests {
         assert_eq!(d.sync_port("00000000-0000-0000-0000-00000000000A"), Some(a));
         assert_eq!(
             d.app_env("00000000-0000-0000-0000-00000000000A"),
-            vec![("VELOCITY_SYNC_PORT".to_string(), a.to_string())]
+            vec![("ATALANTA_SYNC_PORT".to_string(), a.to_string())]
         );
         // Real devices reach the probe through usbmux: no port, no env.
         assert_eq!(d.sync_port("00008130-001451402EC1001C"), None);
@@ -4653,20 +4653,20 @@ mod relaunch_and_typing_tests {
     fn a_failed_wheel_read_is_the_devices_error_not_an_empty_value() {
         // Review 03 M4: a dead WDA read was folded into "" and the loop
         // ended in an assertion failure (exit 1).
-        let lost = wheel_value(Err(VelocityError::WdaLost {
+        let lost = wheel_value(Err(AtalantaError::WdaLost {
             device_id: String::new(),
             url: "http://127.0.0.1:8100".into(),
             detail: "connection reset".into(),
         }))
         .unwrap_err();
         assert_eq!(lost.exit_code(), 3, "{lost}");
-        let busy = wheel_value(Err(VelocityError::CommandFailed {
+        let busy = wheel_value(Err(AtalantaError::CommandFailed {
             device_id: "http://127.0.0.1:8100".into(),
             command: "WDA element value".into(),
             detail: "WDA busy".into(),
         }));
         assert!(busy.is_err());
-        let gone = wheel_value(Err(VelocityError::ElementNotFound {
+        let gone = wheel_value(Err(AtalantaError::ElementNotFound {
             selector: "element value".into(),
             timeout_ms: 0,
             screenshot: None,
@@ -4755,7 +4755,7 @@ mod relaunch_and_typing_tests {
 
     /// An `xcrun` logging each call to `<dir>/calls.log`.
     fn xcrun(tag: &str) -> (Simctl, std::path::PathBuf, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("velocity-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("calls.log");
@@ -4902,7 +4902,7 @@ mod relaunch_and_typing_tests {
         let field = field(&d).await;
         let started = Instant::now();
         let e = d.input_text(SIM, &field, "hi").await.unwrap_err();
-        assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::AssertionFailed { .. }), "{e:?}");
         assert!(started.elapsed() >= FOCUS_WAIT, "{:?}", started.elapsed());
         assert!(f.count("POST", "/wda/keys") >= 2, "polled");
     }

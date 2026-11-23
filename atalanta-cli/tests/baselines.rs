@@ -1,4 +1,4 @@
-//! `velocity baselines review|accept|reject` (U1) over a results dir laid
+//! `atalanta baselines review|accept|reject` (U1) over a results dir laid
 //! out the way a failed `assertScreenshot` leaves it.
 
 use std::path::{Path, PathBuf};
@@ -35,9 +35,9 @@ fn fail(root: &Path, shots: &[(&str, &str)]) -> Vec<PathBuf> {
     shots
         .iter()
         .map(|(sub, name)| {
-            let diffs = root.join("velocity-results").join(sub).join("diffs");
+            let diffs = root.join("atalanta-results").join(sub).join("diffs");
             std::fs::create_dir_all(&diffs).unwrap();
-            let baseline = root.join(format!("suite/velocity-baselines/android/1x1/{name}.png"));
+            let baseline = root.join(format!("suite/atalanta-baselines/android/1x1/{name}.png"));
             std::fs::create_dir_all(baseline.parent().unwrap()).unwrap();
             // A failing run never rewrites the baseline: write it once, so
             // it isn't newer than an earlier shard's record (fi56).
@@ -51,10 +51,10 @@ fn fail(root: &Path, shots: &[(&str, &str)]) -> Vec<PathBuf> {
             ] {
                 std::fs::write(diffs.join(format!("{name}-{kind}.png")), png).unwrap();
             }
-            velocity_core::baselines::record_failure(
+            atalanta_core::baselines::record_failure(
                 &diffs,
                 &format!("{name}.png"),
-                &velocity_core::baselines::ReviewRecord {
+                &atalanta_core::baselines::ReviewRecord {
                     name: name.to_string(),
                     baseline: baseline.clone(),
                     detail: "93.10% similar; largest change 40 px".into(),
@@ -67,8 +67,8 @@ fn fail(root: &Path, shots: &[(&str, &str)]) -> Vec<PathBuf> {
         .collect()
 }
 
-fn velocity(dir: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_velocity"))
+fn atalanta(dir: &Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_atalanta"))
         .args(args)
         .current_dir(dir)
         .env("NO_COLOR", "1")
@@ -89,7 +89,7 @@ fn review_lists_and_accept_writes_the_actual_screen() {
     let root = tmp("accept");
     let b = fail(&root, &[("", "home"), ("", "cart"), ("shard-2", "home")]);
 
-    let o = velocity(&root, &["baselines", "review"]);
+    let o = atalanta(&root, &["baselines", "review"]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(0), "{out}");
     assert!(out.contains("3 failed screenshot comparison(s)"), "{out}");
@@ -99,23 +99,23 @@ fn review_lists_and_accept_writes_the_actual_screen() {
         "shard-2/diffs/home",
         "93.10% similar",
         "home-diff.png",
-        "velocity-baselines/android/1x1/home.png",
+        "atalanta-baselines/android/1x1/home.png",
     ] {
         assert!(out.contains(want), "{want} missing:\n{out}");
     }
-    let o = velocity(&root, &["baselines", "review", "--json"]);
+    let o = atalanta(&root, &["baselines", "review", "--json"]);
     let list: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 3);
 
     // A name accepts every comparison under it.
-    let o = velocity(&root, &["baselines", "accept", "home"]);
+    let o = atalanta(&root, &["baselines", "accept", "home"]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(0), "{out}");
     assert_eq!(out.matches("accepted; wrote").count(), 2, "{out}");
     assert_eq!(std::fs::read(&b[0]).unwrap(), WHITE);
     assert_eq!(std::fs::read(&b[1]).unwrap(), BLACK, "cart untouched");
 
-    let o = velocity(&root, &["baselines", "review"]);
+    let o = atalanta(&root, &["baselines", "review"]);
     let out = text(&o);
     assert!(out.contains("1 failed screenshot comparison(s)"), "{out}");
     assert!(!out.contains("diffs/home"), "{out}");
@@ -127,24 +127,24 @@ fn reject_keeps_the_baseline_and_unknown_names_exit_2() {
     let root = tmp("reject");
     let b = fail(&root, &[("", "home"), ("", "cart")]);
 
-    let o = velocity(&root, &["baselines", "accept", "nope"]);
+    let o = atalanta(&root, &["baselines", "accept", "nope"]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(2), "{out}");
     assert!(out.contains("cart") && out.contains("home"), "{out}");
 
-    let o = velocity(&root, &["baselines", "reject", "all"]);
+    let o = atalanta(&root, &["baselines", "reject", "all"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o));
     assert_eq!(std::fs::read(&b[0]).unwrap(), BLACK);
     assert_eq!(std::fs::read(&b[1]).unwrap(), BLACK);
-    let o = velocity(&root, &["baselines", "review"]);
+    let o = atalanta(&root, &["baselines", "review"]);
     assert!(text(&o).contains("No failed screenshot comparisons"));
     // `all` with nothing pending is fine.
-    let o = velocity(&root, &["baselines", "accept", "all"]);
+    let o = atalanta(&root, &["baselines", "accept", "all"]);
     assert_eq!(o.status.code(), Some(0), "{}", text(&o));
 
     // --results-dir points elsewhere.
     let other = tmp("reject-other");
-    let o = velocity(
+    let o = atalanta(
         &root,
         &[
             "baselines",
@@ -164,12 +164,12 @@ fn reject_keeps_the_baseline_and_unknown_names_exit_2() {
 fn accept_into_a_local_checkout_with_baselines_dir() {
     let root = tmp("ci");
     let b = fail(&root, &[("", "home")]);
-    let local = root.join("checkout/velocity-baselines");
+    let local = root.join("checkout/atalanta-baselines");
     // The checkout holds the same baseline CI compared against (its
     // content, not its mtime, is what counts: review-fi56 MAJOR-2).
     std::fs::create_dir_all(local.join("android/1x1")).unwrap();
     std::fs::write(local.join("android/1x1/home.png"), BLACK).unwrap();
-    let o = velocity(
+    let o = atalanta(
         &root,
         &[
             "baselines",
@@ -209,7 +209,7 @@ fn accept_all_skips_a_baseline_newer_than_its_record() {
             .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60))
             .unwrap();
     }
-    let o = velocity(&root, &["baselines", "accept", "all"]);
+    let o = atalanta(&root, &["baselines", "accept", "all"]);
     let out = text(&o);
     assert_eq!(o.status.code(), Some(0), "{out}");
     assert!(
@@ -223,7 +223,7 @@ fn accept_all_skips_a_baseline_newer_than_its_record() {
 
 #[test]
 fn review_serve_takes_baselines_dir() {
-    let o = velocity(
+    let o = atalanta(
         &std::env::temp_dir(),
         &[
             "baselines",
@@ -236,7 +236,7 @@ fn review_serve_takes_baselines_dir() {
     );
     assert!(text(&o).contains("--baselines-dir"), "{}", text(&o));
     // Without --serve it is refused (it only matters to the page's Accept).
-    let o = velocity(
+    let o = atalanta(
         &std::env::temp_dir(),
         &["baselines", "review", "--baselines-dir", "x"],
     );

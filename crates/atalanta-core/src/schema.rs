@@ -1,6 +1,6 @@
-//! JSON Schema (draft 2020-12) for Velocity suite YAML, for editor
-//! completion and validation (`velocity schema > velocity.schema.json`, then
-//! `# yaml-language-server: $schema=./velocity.schema.json` at the top of a
+//! JSON Schema (draft 2020-12) for Atalanta suite YAML, for editor
+//! completion and validation (`atalanta schema > atalanta.schema.json`, then
+//! `# yaml-language-server: $schema=./atalanta.schema.json` at the top of a
 //! suite). Written by hand from the parser's DSL structs; the tests check
 //! it accepts every example suite in the repo and the README, rejects the
 //! mistakes the parser rejects, and covers every action the parser knows.
@@ -58,7 +58,7 @@ fn selector_fields() -> Value {
         "idMatches": { "type": "string", "description": "Regex the whole id (or its short form) matches, ignoring case (Maestro's id:)" },
         "accessibilityId": { "type": "string" },
         "className": { "type": "string", "description": "Full (android.widget.Button) or short (Button)" },
-        "role": { "anyOf": [{ "enum": velocity_common::role::ROLES }, { "type": "string", "pattern": "\\$\\{" }], "description": "Role, by Playwright's role names (web: computed ARIA role; devices: the class or element type mapped, see the README's role table)" },
+        "role": { "anyOf": [{ "enum": atalanta_common::role::ROLES }, { "type": "string", "pattern": "\\$\\{" }], "description": "Role, by Playwright's role names (web: computed ARIA role; devices: the class or element type mapped, see the README's role table)" },
         "name": { "type": "string", "description": "Accessible name (label, else text, else the content of a button/link/…), compared like text:" },
         "checked": { "type": "boolean", "description": "State filter: a checkbox / switch / radio is checked (only checkable elements have the state)" },
         "focused": { "type": "boolean", "description": "State filter: the element has input focus. Never matches where the driver can't report focus (headless)" },
@@ -93,7 +93,7 @@ fn any_value() -> Value {
 fn action_arg(action: &str) -> Value {
     let sel = json!({ "$ref": "#/$defs/selector" });
     let key =
-        json!({ "enum": velocity_common::Key::ALL.iter().map(|k| k.name()).collect::<Vec<_>>() });
+        json!({ "enum": atalanta_common::Key::ALL.iter().map(|k| k.name()).collect::<Vec<_>>() });
     let direction = json!({ "enum": ["up", "down", "left", "right"] });
     let point = obj(
         json!({ "x": { "type": "integer" }, "y": { "type": "integer" } }),
@@ -144,7 +144,7 @@ fn action_arg(action: &str) -> Value {
         "clearMocks" | "goBack" | "refresh" | "hideKeyboard" => no_args(),
         "setConfig" => json!({
             "type": "object",
-            "description": "Change settings (`velocity settings`) or sync.timeoutMs/reactionMs/quietMs/settleCapMs for the rest of this test",
+            "description": "Change settings (`atalanta settings`) or sync.timeoutMs/reactionMs/quietMs/settleCapMs for the rest of this test",
             "additionalProperties": { "type": ["string", "number", "boolean"] }
         }),
         "tap" | "doubleTap" | "clearText" | "assertVisible" | "assertNotVisible" => sel,
@@ -264,7 +264,7 @@ fn scalar_map() -> Value {
     })
 }
 
-/// The `http` step (velocity-common's `HttpRequest`).
+/// The `http` step (atalanta-common's `HttpRequest`).
 fn http_request() -> Value {
     let matcher = json!({ "$ref": "#/$defs/matcher" });
     let matchers = json!({ "type": "object", "additionalProperties": matcher });
@@ -301,7 +301,7 @@ fn http_request() -> Value {
             "capture": { "type": "object", "additionalProperties": capture, "description": "NAME → where its value comes from; used as ${NAME} in later steps" },
             "retry": obj(
                 json!({
-                    "count": { "type": "integer", "minimum": 0, "maximum": velocity_api::validate::MAX_RETRIES },
+                    "count": { "type": "integer", "minimum": 0, "maximum": atalanta_api::validate::MAX_RETRIES },
                     "intervalMs": { "type": "integer", "minimum": 0 }
                 }),
                 &["count"],
@@ -323,7 +323,7 @@ fn matcher_schema() -> Value {
             "contains": { "description": "Substring, list element, or object subset" },
             "matches": { "type": "string", "description": "Regex the whole value must match" },
             "exists": { "type": "boolean" },
-            "type": { "enum": velocity_common::JsonType::ALL },
+            "type": { "enum": atalanta_common::JsonType::ALL },
             "length": { "$ref": "#/$defs/matcher" },
             "oneOf": { "type": "array" }
         }),
@@ -431,8 +431,8 @@ fn step() -> Value {
 pub fn suite_schema() -> Value {
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://velocity.dev/schema/suite.json",
-        "title": "Velocity test suite",
+        "$id": "https://atalanta.sh/schema/suite.json",
+        "title": "Atalanta test suite",
         "type": "object",
         "required": ["tests"],
         "additionalProperties": false,
@@ -443,7 +443,7 @@ pub fn suite_schema() -> Value {
                 "properties": {
                     "platform": { "enum": ["ios", "android", "web"] },
                     "app": {
-                        "description": "App build Velocity installs before the first test (skipped when the device has this exact build): one path, or one per platform",
+                        "description": "App build Atalanta installs before the first test (skipped when the device has this exact build): one path, or one per platform",
                         "oneOf": [
                             { "type": "string" },
                             {
@@ -477,7 +477,7 @@ pub fn suite_schema() -> Value {
                             "on_failure": { "type": "boolean" },
                             "outputDir": { "type": "string" },
                             "output_dir": { "type": "string" },
-                            "screenshots": { "enum": crate::config_keys::variants::<velocity_common::ScreenshotPolicy>(), "description": "screenshot: steps write at once, only for a failing test, or not at all" },
+                            "screenshots": { "enum": crate::config_keys::variants::<atalanta_common::ScreenshotPolicy>(), "description": "screenshot: steps write at once, only for a failing test, or not at all" },
                             "stepScreenshots": { "type": "boolean", "description": "Screen after every step, written only for a failing test" },
                             "step_screenshots": { "type": "boolean" },
                             "video": { "enum": ["off", "on-failure", "onFailure", "always"], "description": "Record each test's screen (Android: H.264 ring buffer; iOS simulator: simctl recordVideo; web: screencast frames), kept for failed tests by default, as traces/<test>/video.mp4" },
@@ -511,7 +511,7 @@ pub fn suite_schema() -> Value {
                     ),
                     "settings": {
                         "type": "object",
-                        "description": "Driver and runtime settings (`velocity settings` lists them); flat `android.scroll:` or nested keys"
+                        "description": "Driver and runtime settings (`atalanta settings` lists them); flat `android.scroll:` or nested keys"
                     },
                     "dialog": { "type": "object" },
                     "healing": {
@@ -539,16 +539,16 @@ pub fn suite_schema() -> Value {
                         "additionalProperties": false
                     },
                     "verify": {
-                        "enum": velocity_common::VerifyLevel::NAMES,
+                        "enum": atalanta_common::VerifyLevel::NAMES,
                         "description": "AI checks: off (default; deterministic assertions only), final (the test's description holds at the end), checkpoints (also after assert: and checkpoint: steps; failures reported at the end), strict (the first failed check fails the test)"
                     },
                     "ai": {
                         "type": "object",
-                        "description": "The model service for natural-language steps and checks; VELOCITY_NL_* environment variables win over it",
+                        "description": "The model service for natural-language steps and checks; ATALANTA_NL_* environment variables win over it",
                         "properties": {
-                            "provider": { "enum": velocity_common::natural::AI_PROVIDER_PRESETS, "description": "A provider preset: the native APIs (anthropic, openai, azure-openai, gemini, bedrock, vertex), OpenAI-compatible services (openrouter, groq, mistral, deepseek, xai, together, fireworks, dashscope, perplexity), local servers (ollama, lmstudio, vllm) or openai-compatible with baseUrl; docs/AI-PROVIDERS.md" },
+                            "provider": { "enum": atalanta_common::natural::AI_PROVIDER_PRESETS, "description": "A provider preset: the native APIs (anthropic, openai, azure-openai, gemini, bedrock, vertex), OpenAI-compatible services (openrouter, groq, mistral, deepseek, xai, together, fireworks, dashscope, perplexity), local servers (ollama, lmstudio, vllm) or openai-compatible with baseUrl; docs/AI-PROVIDERS.md" },
                             "model": { "type": "string", "description": "Model for single steps and checks; may be provider:model" },
-                            "exploreModel": { "type": "string", "description": "Model for goal-level planning (velocity explore)" },
+                            "exploreModel": { "type": "string", "description": "Model for goal-level planning (atalanta explore)" },
                             "baseUrl": { "type": "string", "description": "API base URL, e.g. http://localhost:11434/v1" },
                             "apiKeyEnv": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "description": "Name of the environment variable holding the key (never the key itself)" },
                             "images": { "type": "boolean", "description": "Send screenshots to the checker (default: the provider's)" },
@@ -574,7 +574,7 @@ pub fn suite_schema() -> Value {
                             "block": { "type": "array", "items": { "type": "string" } },
                             "device": {
                                 "type": "string",
-                                "examples": velocity_common::web_devices::LEGACY_NAMES.to_vec(),
+                                "examples": atalanta_common::web_devices::LEGACY_NAMES.to_vec(),
                                 "description": "A mobile-web profile from Playwright's device list (any name, or \"<name> landscape\"): viewport, pixel ratio, user agent, mobile layout and touch (Chromium, not Safari)"
                             },
                             "parallelMode": {
@@ -634,8 +634,8 @@ pub fn suite_schema() -> Value {
                             "hierarchy": { "enum": ["semantics", "widgets"], "description": "semantics (default) or widgets (deprecated opt-out)" }
                         }
                     },
-                    "driver": { "enum": crate::config_keys::variants::<velocity_common::config::DriverMode>() },
-                    "framework": { "enum": crate::config_keys::variants::<velocity_common::config::Framework>() },
+                    "driver": { "enum": crate::config_keys::variants::<atalanta_common::config::DriverMode>() },
+                    "framework": { "enum": crate::config_keys::variants::<atalanta_common::config::Framework>() },
                     "batch": { "type": "boolean", "description": "Share one launch across consecutive tests" }
                 }
             },
@@ -656,7 +656,7 @@ pub fn suite_schema() -> Value {
                     "depends_on": { "type": "array", "items": { "type": "string" } },
                     "sideEffects": { "type": "boolean", "description": "Never skip this test from the result cache" },
                     "description": { "type": "string", "description": "What the test shows; verify: final checks it on the last screen (the name stands in without it)" },
-                    "verify": { "enum": velocity_common::VerifyLevel::NAMES, "description": "This test's AI verification level, over config.verify" },
+                    "verify": { "enum": atalanta_common::VerifyLevel::NAMES, "description": "This test's AI verification level, over config.verify" },
                     "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
                 }), &["name", "steps"])
             }
@@ -795,7 +795,7 @@ mod tests {
         let mut files = vec![
             format!("{root}/tests/smoke/android-settings.yaml"),
             format!("{root}/tests/smoke/ios-settings.yaml"),
-            format!("{root}/examples/web-example/velocity.yaml"),
+            format!("{root}/examples/web-example/atalanta.yaml"),
         ];
         if let Ok(dir) = std::fs::read_dir(format!("{root}/tests/fixtures")) {
             for e in dir.flatten() {
@@ -1037,7 +1037,7 @@ mod tests {
             }
         }
         let config = props(&schema["properties"]["config"]);
-        for k in crate::config_keys::fields::<velocity_common::SuiteConfig>() {
+        for k in crate::config_keys::fields::<atalanta_common::SuiteConfig>() {
             // Both spellings are accepted; the schema lists the camelCase one.
             if k.contains('_') {
                 continue;

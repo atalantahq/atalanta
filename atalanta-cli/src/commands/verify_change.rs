@@ -1,4 +1,4 @@
-//! `velocity verify-change "<description>"` (row 1.4: AI-088, VOI-002,
+//! `atalanta verify-change "<description>"` (row 1.4: AI-088, VOI-002,
 //! VOI-003): did this change do what it says on the device? It answers
 //! with evidence a reviewer can accept: pass/fail, a video and screenshots
 //! of the flow, `failures.md`, and a manifest, in one folder ready for
@@ -9,10 +9,10 @@
 //! - **Key:** sha256 of the precondition (the app, the `--after` login's
 //!   content), the goal and the platform. The entry also keeps the flow's
 //!   own sha256, so an edited file is a miss.
-//! - **Hit:** a trusted flow for the key replays with `velocity run`: no
+//! - **Hit:** a trusted flow for the key replays with `atalanta run`: no
 //!   model. If it fails, the flow may be stale or the app may be broken, so
 //!   it is a miss.
-//! - **Miss:** `velocity explore` writes a new flow. Only a flow that passed
+//! - **Miss:** `atalanta explore` writes a new flow. Only a flow that passed
 //!   explore's trust gates (burn-in, the wrong-path replay, goal text) is
 //!   saved, and then it replays for the evidence.
 //!
@@ -64,13 +64,13 @@ pub struct VerifyChangeArgs {
     /// the run's reports, video and screenshots under run/
     #[arg(
         long,
-        default_value = "velocity-results/verify-change",
+        default_value = "atalanta-results/verify-change",
         value_name = "DIR"
     )]
     bundle: PathBuf,
 
     /// Where saved tests live (commit it to share them)
-    #[arg(long, default_value = ".velocity/verify-cache", value_name = "DIR")]
+    #[arg(long, default_value = ".atalanta/verify-cache", value_name = "DIR")]
     cache: PathBuf,
 
     /// Explore even when a saved test exists
@@ -87,7 +87,7 @@ pub fn cache_key(app_id: &str, goal: &str, platform: &str, after: Option<&str>) 
         .to_lowercase();
     let mut h = Sha256::new();
     for part in [
-        "velocity-verify-1",
+        "atalanta-verify-1",
         app_id,
         &goal,
         platform,
@@ -121,7 +121,7 @@ pub struct Plan<'a> {
     pub program: &'a Path,
     pub args: &'a VerifyChangeArgs,
     pub platform_label: String,
-    /// Extra environment for the `velocity` children (tests use it).
+    /// Extra environment for the `atalanta` children (tests use it).
     pub child_env: Vec<(String, String)>,
 }
 
@@ -253,7 +253,7 @@ pub fn verify(plan: &Plan) -> anyhow::Result<(Verdict, Value)> {
     Ok((verdict, manifest))
 }
 
-/// `velocity run` of the saved flow, with evidence kept for the bundle.
+/// `atalanta run` of the saved flow, with evidence kept for the bundle.
 fn run_flow(plan: &Plan, flow: &Path, dir: &Path) -> anyhow::Result<i32> {
     let a = plan.args;
     let mut cmd = Command::new(plan.program);
@@ -279,7 +279,7 @@ fn run_flow(plan: &Plan, flow: &Path, dir: &Path) -> anyhow::Result<i32> {
     Ok(status.code().unwrap_or(5))
 }
 
-/// `velocity explore --json` writing `out`; its exit code and JSON.
+/// `atalanta explore --json` writing `out`; its exit code and JSON.
 fn explore(plan: &Plan, out: &Path) -> anyhow::Result<(i32, Value)> {
     let a = plan.args;
     let mut cmd = Command::new(plan.program);
@@ -461,7 +461,7 @@ fn write_bundle(
         Verdict::Error(_) => "⚠️",
     };
     let comment = format!(
-        "### {icon} Velocity verify-change: {verdict_s}\n\n> {}\n\n| | |\n|---|---|\n| App | `{}` ({}) |\n| Saved flow | {} |\n| Model calls | {model_calls} |\n| Evidence | {} video(s), {} screenshot(s) in the run artifacts |\n\n{}",
+        "### {icon} Atalanta verify-change: {verdict_s}\n\n> {}\n\n| | |\n|---|---|\n| App | `{}` ({}) |\n| Saved flow | {} |\n| Model calls | {model_calls} |\n| Evidence | {} video(s), {} screenshot(s) in the run artifacts |\n\n{}",
         a.description,
         if a.app_id.chars().count() > 60 {
             format!("{}…", a.app_id.chars().take(60).collect::<String>())
@@ -485,7 +485,7 @@ pub async fn execute(args: VerifyChangeArgs) -> anyhow::Result<i32> {
         .clone()
         .or_else(|| {
             args.device.as_deref().map(|d| {
-                velocity_common::Platform::of_device_id(d)
+                atalanta_common::Platform::of_device_id(d)
                     .to_string()
                     .to_lowercase()
             })
@@ -570,11 +570,11 @@ mod tests {
         );
     }
 
-    /// A fake `velocity`: `explore` writes a flow and answers with gates;
+    /// A fake `atalanta`: `explore` writes a flow and answers with gates;
     /// `run` passes or fails per $FAKE_RUN and leaves a video. It logs its
     /// argv to $FAKE_LOG.
     fn fake(dir: &Path) -> PathBuf {
-        let p = dir.join("velocity");
+        let p = dir.join("atalanta");
         std::fs::write(
             &p,
             r#"#!/bin/sh

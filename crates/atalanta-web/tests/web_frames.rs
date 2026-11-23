@@ -6,8 +6,8 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::{PlatformDriver, Selector};
 use common::{css, driver, serve};
-use velocity_common::{PlatformDriver, Selector};
 
 /// The frame: a button that logs where the click landed (in the frame's
 /// own coordinates) and starts a slow request, a card field, a hidden
@@ -34,7 +34,7 @@ fn outer(frame_port: &str) -> String {
 
 /// The frame's server, the top page's server and a driver on the top page,
 /// with the frame loaded.
-async fn setup() -> velocity_web::WebDriver {
+async fn setup() -> atalanta_web::WebDriver {
     let inner = serve(&[("/inner.html", INNER), ("/slow-api.json", "{\"ok\":1}")]);
     let port = inner.rsplit(':').next().unwrap().to_string();
     let page = outer(&port);
@@ -47,7 +47,7 @@ async fn setup() -> velocity_web::WebDriver {
 }
 
 /// Finds `s` (waiting for the frame to load, up to 5 s).
-async fn find_in_frame(d: &velocity_web::WebDriver, s: &Selector) -> velocity_common::Element {
+async fn find_in_frame(d: &atalanta_web::WebDriver, s: &Selector) -> atalanta_common::Element {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         match d.find_element("web", s).await {
@@ -58,7 +58,7 @@ async fn find_in_frame(d: &velocity_web::WebDriver, s: &Selector) -> velocity_co
     }
 }
 
-async fn text_in_frame(d: &velocity_web::WebDriver, s: &str) -> String {
+async fn text_in_frame(d: &atalanta_web::WebDriver, s: &str) -> String {
     let el = find_in_frame(d, &css(s)).await;
     d.get_element_text("web", &el).await.unwrap()
 }
@@ -320,7 +320,7 @@ fn blocking_frame(ms: u64) -> String {
 
 /// The top page with `frame` (HTML) in a cross-origin <iframe>, launched;
 /// the frame's library installed (its "Block" button found).
-async fn with_frame(frame: &str) -> velocity_web::WebDriver {
+async fn with_frame(frame: &str) -> atalanta_web::WebDriver {
     let inner = serve(&[("/f.html", frame)]);
     let port = inner.rsplit(':').next().unwrap().to_string();
     let page = format!(
@@ -338,7 +338,7 @@ async fn with_frame(frame: &str) -> velocity_web::WebDriver {
 
 /// Clicks the frame's "Block" button and waits until its renderer is in
 /// the long task.
-async fn block(d: &velocity_web::WebDriver) {
+async fn block(d: &atalanta_web::WebDriver) {
     let b = find_in_frame(d, &css("#block")).await;
     d.tap("web", &b).await.unwrap();
     tokio::time::sleep(Duration::from_millis(900)).await;
@@ -377,7 +377,7 @@ async fn a_miss_while_a_frame_does_not_answer_is_not_not_found() {
         .await
         .expect_err("the frame didn't answer");
     assert!(
-        !matches!(err, velocity_common::VelocityError::ElementNotFound { .. }),
+        !matches!(err, atalanta_common::AtalantaError::ElementNotFound { .. }),
         "a skipped frame read as not found: {err}"
     );
     let text = err.to_string();

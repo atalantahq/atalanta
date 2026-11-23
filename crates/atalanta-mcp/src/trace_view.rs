@@ -11,9 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
+use atalanta_common::{AtalantaError, Element, Rect, Result, StepStatus};
+use atalanta_core::trace::{load_trace, StepTrace, TestTrace};
 use serde_json::Value;
-use velocity_common::{Element, Rect, Result, StepStatus, VelocityError};
-use velocity_core::trace::{load_trace, StepTrace, TestTrace};
 
 /// What `inspect_trace` returns: JSON for the text block and maybe an image.
 pub struct Inspected {
@@ -26,7 +26,7 @@ pub fn find_trace(artifacts: &Path, test: Option<&str>) -> Result<PathBuf> {
     let mut files = crate::tools::failure::trace_files(artifacts, test);
     files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
     files.into_iter().next().map(|(p, _)| p).ok_or_else(|| {
-        VelocityError::Config(match test {
+        AtalantaError::Config(match test {
             Some(t) => format!(
                 "no trace for '{t}' under {}; runs keep traces for failed tests (run_task keeps every test's)",
                 artifacts.join("traces").display()
@@ -84,10 +84,10 @@ fn tree_texts(e: &Element, out: &mut Vec<String>) {
 
 fn step_arg(args: &Value, trace: &TestTrace) -> Result<usize> {
     let n = args.get("step").and_then(Value::as_u64).ok_or_else(|| {
-        VelocityError::Config("'step' (1-based, as in the summary) is required".into())
+        AtalantaError::Config("'step' (1-based, as in the summary) is required".into())
     })? as usize;
     if n == 0 || n > trace.steps.len() {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "step {n} is out of range: the trace has steps 1..={}",
             trace.steps.len()
         )));
@@ -100,7 +100,7 @@ pub fn inspect(artifacts: &Path, args: &Value) -> Result<Inspected> {
     let test = args.get("test").and_then(Value::as_str);
     let file = find_trace(artifacts, test)?;
     let (trace, trees) =
-        load_trace(&file).map_err(|e| VelocityError::Config(format!("{}: {e}", file.display())))?;
+        load_trace(&file).map_err(|e| AtalantaError::Config(format!("{}: {e}", file.display())))?;
     let view = args
         .get("view")
         .and_then(Value::as_str)
@@ -132,7 +132,7 @@ pub fn inspect(artifacts: &Path, args: &Value) -> Result<Inspected> {
                 .get("query")
                 .and_then(Value::as_str)
                 .filter(|q| !q.trim().is_empty())
-                .ok_or_else(|| VelocityError::Config("search needs a 'query'".into()))?
+                .ok_or_else(|| AtalantaError::Config("search needs a 'query'".into()))?
                 .to_lowercase();
             let mut hits = Vec::new();
             for s in &trace.steps {
@@ -198,13 +198,13 @@ pub fn inspect(artifacts: &Path, args: &Value) -> Result<Inspected> {
             let i = step_arg(args, &trace)?;
             let s = &trace.steps[i];
             let (shot, which) = screenshot_for(artifacts, &trace, i).ok_or_else(|| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "no screenshot kept for step {}: screenshots are kept for failing tests \
                      (run_task keeps one per step for them); try step_details",
                     i + 1
                 ))
             })?;
-            let bytes = std::fs::read(&shot).map_err(|e| VelocityError::io(shot.display(), e))?;
+            let bytes = std::fs::read(&shot).map_err(|e| AtalantaError::io(shot.display(), e))?;
             let root_width = s
                 .trees
                 .first()
@@ -227,7 +227,7 @@ pub fn inspect(artifacts: &Path, args: &Value) -> Result<Inspected> {
                 png: Some(png),
             })
         }
-        other => Err(VelocityError::Config(format!(
+        other => Err(AtalantaError::Config(format!(
             "unknown view '{other}': use summary, search, step_details or step_screenshot"
         ))),
     }
@@ -290,7 +290,7 @@ pub fn overlay(png_bytes: &[u8], point: (i32, i32), tree_width: Option<i32>) -> 
     // A header claiming a huge size would abort on allocation (audit
     // 2026-11 CORE-2).
     let (w, h) = (reader.info().width, reader.info().height);
-    if u64::from(w) * u64::from(h) > velocity_core::visual::MAX_PNG_PIXELS {
+    if u64::from(w) * u64::from(h) > atalanta_core::visual::MAX_PNG_PIXELS {
         return None;
     }
     let mut buf = vec![0; reader.output_buffer_size()?];
@@ -381,8 +381,8 @@ mod tests {
     }
 
     fn write_trace(dir: &Path) -> PathBuf {
-        use velocity_common::{Selector, TestStatus};
-        use velocity_core::trace::TracedElement;
+        use atalanta_common::{Selector, TestStatus};
+        use atalanta_core::trace::TracedElement;
         let tree = Element {
             element_type: "Frame".into(),
             bounds: Rect {
@@ -406,7 +406,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let hash = velocity_core::trace::tree_hash(&tree);
+        let hash = atalanta_core::trace::tree_hash(&tree);
         let step = |i: usize, label: &str, status, error: Option<&str>| StepTrace {
             index: i,
             label: label.into(),
@@ -439,7 +439,7 @@ mod tests {
             start_ms: 0,
         };
         let trace = TestTrace {
-            version: velocity_core::trace::TRACE_VERSION,
+            version: atalanta_core::trace::TRACE_VERSION,
             test: "checkout".into(),
             device: "emulator-5554".into(),
             platform: None,
@@ -456,7 +456,7 @@ mod tests {
                 ),
             ],
         };
-        let tdir = velocity_core::trace::trace_dir(dir, "checkout");
+        let tdir = atalanta_core::trace::trace_dir(dir, "checkout");
         std::fs::create_dir_all(tdir.join("trees")).unwrap();
         std::fs::write(tdir.join("steps.json"), serde_json::to_vec(&trace).unwrap()).unwrap();
         std::fs::write(

@@ -1,7 +1,7 @@
-//! Install-by-hash on iOS (see `velocity_common::install`).
+//! Install-by-hash on iOS (see `atalanta_common::install`).
 //!
 //! A simulator's apps live on this Mac, so the marker does too:
-//! `~/.velocity/installs/<udid>/<bundle>.sha`, holding the build's hash and
+//! `~/.atalanta/installs/<udid>/<bundle>.sha`, holding the build's hash and
 //! the installed bundle's path and `Info.plist` mtime right after the
 //! install. `simctl install` puts every install in a fresh container, so a
 //! reinstall by anyone else changes the stamp and the next run installs
@@ -10,9 +10,9 @@
 
 use std::path::Path;
 
+use atalanta_common::install::{fingerprint as hash_fingerprint, host_marker_path, Marker};
+use atalanta_common::{InstallOutcome, Result};
 use tracing::debug;
-use velocity_common::install::{fingerprint as hash_fingerprint, host_marker_path, Marker};
-use velocity_common::{InstallOutcome, Result};
 
 use crate::devicectl::Devicectl;
 use crate::simctl::Simctl;
@@ -154,17 +154,17 @@ mod tests {
         {
             return; // not macOS
         }
-        let dir = std::env::temp_dir().join(format!("velocity-bundle-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-bundle-{}", std::process::id()));
         let app = dir.join("Demo.app");
         std::fs::create_dir_all(&app).unwrap();
         std::fs::write(
             app.join("Info.plist"),
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.velocity.demo</string></dict></plist>"#,
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>dev.atalanta.demo</string></dict></plist>"#,
         )
         .unwrap();
-        assert_eq!(bundle_id(&app).as_deref(), Some("dev.velocity.demo"));
+        assert_eq!(bundle_id(&app).as_deref(), Some("dev.atalanta.demo"));
         assert_eq!(bundle_id(&dir.join("Missing.app")), None);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn a_plutil_that_never_answers_is_given_up_on() {
         // VEL-S50: plutil ran with no deadline on the caller's thread.
-        let dir = std::env::temp_dir().join(format!("velocity-plutil-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-plutil-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let stub = dir.join("plutil");
         crate::write_stub(&stub, "exec sleep 60");

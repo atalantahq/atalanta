@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "VelocitySyncProbe",
+    name: "AtalantaSyncProbe",
     platforms: [.iOS(.v14)],
     products: [
         .library(
-            name: "VelocitySyncProbe",
-            targets: ["VelocitySyncProbe"]
+            name: "AtalantaSyncProbe",
+            targets: ["AtalantaSyncProbe"]
         ),
     ],
     targets: [
         .target(
-            name: "VelocitySyncProbe",
+            name: "AtalantaSyncProbe",
             path: "Sources"
         ),
     ]

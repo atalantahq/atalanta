@@ -1,5 +1,5 @@
 [package]
-name = "velocity-flutter-bridge"
+name = "atalanta-flutter-bridge"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,10 @@ readme = "README.md"
 authors.workspace = true
 keywords = ["testing", "flutter", "headless", "mobile", "widget"]
 categories = ["development-tools::testing"]
-description = "Flutter bridge for Velocity — headless rendering via flutter test with WidgetTester"
+description = "Flutter bridge for Atalanta — headless rendering via flutter test with WidgetTester"
 
 [dependencies]
-velocity-common = { workspace = true }
+atalanta-common = { workspace = true }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }

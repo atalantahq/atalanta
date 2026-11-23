@@ -3,8 +3,8 @@
 
 mod common;
 
+use atalanta_common::{PlatformDriver, Relation, Selector};
 use common::{driver, serve};
-use velocity_common::{PlatformDriver, Relation, Selector};
 
 const PAGE: &str = r#"<!doctype html><html><body>
 <h2 id="h">Payment</h2>
@@ -38,7 +38,7 @@ fn name(n: &str) -> Selector {
     Selector::Name(n.into())
 }
 
-async fn dom_id(d: &velocity_web::WebDriver, s: &Selector) -> Option<String> {
+async fn dom_id(d: &atalanta_web::WebDriver, s: &Selector) -> Option<String> {
     let el = d.find_element("web", s).await.ok()?;
     el.dom_id
 }

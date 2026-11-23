@@ -3,14 +3,14 @@
 
 Lanes (one thread each, its own device):
 - android: agent commands (launch, snapshot, tap, find, assert, back, a
-  stale ref) and a `velocity run` of one saved Android test per cycle;
+  stale ref) and a `atalanta run` of one saved Android test per cycle;
   one real-model `explore` on the first cycle.
 - android-b: a second agent (its own session) snapshotting the same
   emulator throughout: each reply must be ok or DEVICE_BUSY.
-- ios: the same on the simulator (Settings), `velocity run` of a saved
+- ios: the same on the simulator (Settings), `atalanta run` of a saved
   iOS test, one `explore`.
-- web: agent commands through `velocity daemon` on the pilot app, a
-  `velocity run` of a saved web test, and every 3rd cycle that test against
+- web: agent commands through `atalanta daemon` on the pilot app, a
+  `atalanta run` of a saved web test, and every 3rd cycle that test against
   the app with its feature broken (it must fail); one `explore`.
 
 Every operation is one JSON line in out/soak/ops.jsonl:
@@ -29,13 +29,13 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-V = os.environ.get("VELOCITY_BIN", str(HERE.parents[1] / "target" / "debug" / "velocity"))
+V = os.environ.get("ATALANTA_BIN", str(HERE.parents[1] / "target" / "debug" / "atalanta"))
 OUT = HERE / "out" / "soak"
 TESTS = HERE / "out"
 LOCK = threading.Lock()
 STOP = threading.Event()
-ENV = dict(os.environ, VELOCITY_AGENT_DIR=str(OUT / "agent"), VELOCITY_DAEMON_SOCKET="/tmp/vel-soak.sock",
-           VELOCITY_KEEP_WDA="1")
+ENV = dict(os.environ, ATALANTA_AGENT_DIR=str(OUT / "agent"), ATALANTA_DAEMON_SOCKET="/tmp/vel-soak.sock",
+           ATALANTA_KEEP_WDA="1")
 
 
 def log(lane, op, ok, ms, code=None, detail=None, expected=False):

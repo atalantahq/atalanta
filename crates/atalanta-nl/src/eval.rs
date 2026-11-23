@@ -33,7 +33,7 @@
 //! against `--max-error-rate`, so k identical errors no longer read as
 //! "self-consistent" (VEL-039).
 //!
-//! [`compare`] runs one task set across several models (`velocity nl-eval
+//! [`compare`] runs one task set across several models (`atalanta nl-eval
 //! --model anthropic:… --model openai:…`) and adds tokens, cost and wall
 //! time per model; [`Comparison::recommend`] names the model to make the
 //! default. [`builtin_tasks`] is a fixed task set (recorded screens and the
@@ -43,11 +43,11 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
-use velocity_common::selector_match::find_all_ref;
-use velocity_common::{
-    Action, Element, NaturalKind, Platform, Rect, Result, Selector, VelocityError,
+use atalanta_common::selector_match::find_all_ref;
+use atalanta_common::{
+    Action, AtalantaError, Element, NaturalKind, Platform, Rect, Result, Selector,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::planner::{NaturalPlanner, Usage};
 use crate::resolver::{plan_step_outcome, NaturalStep, PlanFailure, StepKeys};
@@ -117,7 +117,7 @@ pub fn write_trace(
     };
     let name = step.cache_key();
     let mut json = serde_json::to_value(&trace).map_err(std::io::Error::other)?;
-    velocity_common::redact::redact_value(&mut json);
+    atalanta_common::redact::redact_value(&mut json);
     let path = dir.join(format!("{name}.json"));
     let tmp = dir.join(format!(".{name}.json.{}.tmp", std::process::id()));
     std::fs::write(&tmp, json.to_string())?;
@@ -175,7 +175,7 @@ pub fn load_traces(dir: &Path) -> Result<Vec<Trace>> {
 /// traces, run a suite first" (VEL-328).
 pub fn load_traces_counted(dir: &Path) -> Result<LoadedTraces> {
     let entries = std::fs::read_dir(dir)
-        .map_err(|e| VelocityError::Config(format!("no traces at {}: {e}", dir.display())))?;
+        .map_err(|e| AtalantaError::Config(format!("no traces at {}: {e}", dir.display())))?;
     let mut paths: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
@@ -572,7 +572,7 @@ pub async fn compare(
         let report = evaluate_with(*planner, traces, samples, k).await;
         let usage = planner.usage().since(before);
         // `Usage::cost` bills the cache reads and writes inside
-        // `input_tokens` at their own rates, as `velocity explore` does: at
+        // `input_tokens` at their own rates, as `atalanta explore` does: at
         // the plain input price a cached prompt read as ten times its cost.
         let cost_usd = prices.get(label).map(|(i, o)| usage.cost(*i, *o));
         rows.push(ModelRow {
@@ -787,7 +787,7 @@ mod tests {
     #[async_trait]
     impl NaturalPlanner for Down {
         async fn plan(&self, _: &PlanRequest<'_>) -> Result<PlannedStep> {
-            Err(VelocityError::ServiceUnavailable {
+            Err(AtalantaError::ServiceUnavailable {
                 service: "Anthropic API".into(),
                 detail: "529".into(),
             })
@@ -1054,7 +1054,7 @@ mod tests {
     }
 
     /// The source of `fixtures/eval/tasks.json` (regenerate with
-    /// `VELOCITY_BLESS=1 cargo test -p velocity-nl builtin_tasks`).
+    /// `ATALANTA_BLESS=1 cargo test -p atalanta-nl builtin_tasks`).
     fn builtin_task_source() -> Vec<Trace> {
         use NaturalKind::{Act, Assert};
         use Platform::{Android, Ios, Web};
@@ -1317,14 +1317,14 @@ mod tests {
     fn builtin_tasks_match_the_fixture_file() {
         let want = serde_json::to_string_pretty(&builtin_task_source()).unwrap() + "\n";
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/eval/tasks.json");
-        if std::env::var("VELOCITY_BLESS").as_deref() == Ok("1") {
+        if std::env::var("ATALANTA_BLESS").as_deref() == Ok("1") {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &want).unwrap();
         }
         assert_eq!(
             std::fs::read_to_string(&path).unwrap_or_default(),
             want,
-            "regenerate with VELOCITY_BLESS=1 cargo test -p velocity-nl builtin_tasks"
+            "regenerate with ATALANTA_BLESS=1 cargo test -p atalanta-nl builtin_tasks"
         );
         assert_eq!(builtin_tasks().len(), builtin_task_source().len());
     }

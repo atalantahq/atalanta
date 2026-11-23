@@ -4,7 +4,7 @@
 //!
 //! Its own test binary: it sets `SSL_CERT_FILE` for the whole process. It
 //! needs the `openssl` command for the CA and the TLS server; without one
-//! it says so and passes, except on CI (`CI` or `VELOCITY_TEST_STRICT`
+//! it says so and passes, except on CI (`CI` or `ATALANTA_TEST_STRICT`
 //! set), where that fails.
 
 use std::net::TcpListener;
@@ -12,8 +12,8 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use velocity_api::HttpSession;
-use velocity_common::{HttpConfig, HttpRequest};
+use atalanta_api::HttpSession;
+use atalanta_common::{HttpConfig, HttpRequest};
 
 fn openssl(dir: &Path, args: &[&str]) -> bool {
     Command::new("openssl")
@@ -43,7 +43,7 @@ fn make_ca(dir: &Path) -> bool {
             "-days",
             "2",
             "-subj",
-            "/CN=Velocity test CA",
+            "/CN=Atalanta test CA",
             "-keyout",
             "ca.key",
             "-out",
@@ -96,13 +96,13 @@ impl Drop for Server {
 
 #[tokio::test]
 async fn a_ca_from_ssl_cert_file_is_trusted() {
-    let dir = std::env::temp_dir().join(format!("velocity-ca-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("atalanta-ca-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     if !make_ca(&dir) {
         // A green CI run must not mean "skipped" (review 07 M6): on CI the
         // runner image has openssl, so its absence is a failure there.
-        let strict = ["CI", "VELOCITY_TEST_STRICT"]
+        let strict = ["CI", "ATALANTA_TEST_STRICT"]
             .iter()
             .any(|k| std::env::var(k).is_ok_and(|v| !v.is_empty() && v != "0" && v != "false"));
         assert!(

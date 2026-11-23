@@ -8,19 +8,19 @@ A small run of the trust benchmark with a real model. It checks the harness end 
 - 11 goals chosen on the day;
 - no day-7 or release-N rerun.
 
-Its numbers measure the harness and the gates. They don't measure Velocity on real apps.
+Its numbers measure the harness and the gates. They don't measure Atalanta on real apps.
 
 ## Setup
 
 | | |
 |---|---|
-| Velocity | this tree, debug build, 2026-11-07 (rounds 1–4 differ only by the fixes listed below) |
-| Model | `claude-sonnet-5-5` (goal), `claude-haiku-5-5` (steps), through `claude_bridge.py`: an OpenAI-compatible endpoint over the Claude Code CLI (`claude -p`, no tools, no project settings). Text only (`VELOCITY_NL_IMAGES=0`). |
+| Atalanta | this tree, debug build, 2026-11-07 (rounds 1–4 differ only by the fixes listed below) |
+| Model | `claude-sonnet-5-5` (goal), `claude-haiku-5-5` (steps), through `claude_bridge.py`: an OpenAI-compatible endpoint over the Claude Code CLI (`claude -p`, no tools, no project settings). Text only (`ATALANTA_NL_IMAGES=0`). |
 | Devices | Android emulator (API 34, arm64), iOS 26.0.1 simulator (iPhone 17), headless Chrome |
 | Apps | `app/` (Pilot Shop: sign-in, plans, cart, search, settings), `com.android.settings`, `com.apple.Preferences` |
 | Goals | `goals.json`: 6 web (1 behind a login), 3 Android, 2 iOS |
 | Seeded regressions | each web goal has one: `app/bug.js` set to `plan`, `cart`, `search`, `dark`, `signin` or `price` breaks that feature only |
-| Per goal | `velocity explore` with 5 replays, the wrong-path gate and the goal-text gate (explore's defaults). For web goals, the written test then gets 3 replays against the broken app: any pass is a false pass. |
+| Per goal | `atalanta explore` with 5 replays, the wrong-path gate and the goal-text gate (explore's defaults). For web goals, the written test then gets 3 replays against the broken app: any pass is a false pass. |
 | Cost | the CLI's list-price figure per call. Explore's own estimate used `--price 3,15`. |
 
 The three lanes (web, Android, iOS) ran in parallel, one device each.
@@ -87,9 +87,9 @@ Each item was found by a pilot round and fixed before the next. The CHANGELOG ha
 cd bench/pilot
 python3 -m http.server 8790 --bind 127.0.0.1 --directory app &
 python3 claude_bridge.py --port 8787 --log out/calls.jsonl &      # or any provider: docs/AI-PROVIDERS.md
-export VELOCITY_NL_PROVIDER=openai-compatible VELOCITY_NL_API_URL=http://127.0.0.1:8787/v1 \
-  VELOCITY_NL_MODEL=claude-haiku-5-5 VELOCITY_NL_EXPLORE_MODEL=claude-sonnet-5-5 VELOCITY_NL_IMAGES=0 \
-  PILOT_EMAIL=pilot@example.com PILOT_PASSWORD=correct-horse-7 VELOCITY_SECRETS=PILOT_PASSWORD VELOCITY_KEEP_WDA=1
+export ATALANTA_NL_PROVIDER=openai-compatible ATALANTA_NL_API_URL=http://127.0.0.1:8787/v1 \
+  ATALANTA_NL_MODEL=claude-haiku-5-5 ATALANTA_NL_EXPLORE_MODEL=claude-sonnet-5-5 ATALANTA_NL_IMAGES=0 \
+  PILOT_EMAIL=pilot@example.com PILOT_PASSWORD=correct-horse-7 ATALANTA_SECRETS=PILOT_PASSWORD ATALANTA_KEEP_WDA=1
 python3 run_pilot.py web --device web &
 python3 run_pilot.py android --device emulator-5554 &
 python3 run_pilot.py ios --device <simulator udid> &

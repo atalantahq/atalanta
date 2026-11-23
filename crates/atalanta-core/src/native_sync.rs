@@ -1,10 +1,10 @@
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
-use velocity_common::{Result, VelocityError};
 
 /// Request sent to the native sync probe.
 #[derive(Debug, Default, Serialize)]
@@ -87,10 +87,10 @@ pub fn ignore_glob_to_regex(pattern: &str) -> String {
     out
 }
 
-/// The suite's `web.networkIgnore` (`VELOCITY_WEB_NETWORK_IGNORE`, comma
+/// The suite's `web.networkIgnore` (`ATALANTA_WEB_NETWORK_IGNORE`, comma
 /// separated) as probe regexes.
 fn network_ignore_regexes() -> Vec<String> {
-    velocity_common::env::var("VELOCITY_WEB_NETWORK_IGNORE")
+    atalanta_common::env::var("ATALANTA_WEB_NETWORK_IGNORE")
         .map(|v| {
             v.split(',')
                 .map(str::trim)
@@ -286,9 +286,9 @@ impl NativeSyncClient {
             .map_err(|e| self.lost(format!("unreadable hello reply: {e}")))?;
         match reply.error {
             Some(e) if e.contains("unknown command") => Ok(Handshake::Legacy),
-            Some(e) => Err(VelocityError::Config(format!("Probe error: {e}"))),
+            Some(e) => Err(AtalantaError::Config(format!("Probe error: {e}"))),
             None if reply.hello => Ok(Handshake::Identified(reply.info)),
-            None => Err(VelocityError::Config(format!(
+            None => Err(AtalantaError::Config(format!(
                 "Unexpected probe hello reply: {}",
                 line.trim()
             ))),
@@ -342,7 +342,7 @@ impl NativeSyncClient {
         let reply: Reply = serde_json::from_str(&line)
             .map_err(|e| self.lost(format!("unreadable config reply: {e}")))?;
         match reply.error {
-            Some(e) => Err(VelocityError::Config(format!("Probe error: {e}"))),
+            Some(e) => Err(AtalantaError::Config(format!("Probe error: {e}"))),
             None => Ok(reply.reply),
         }
     }
@@ -362,8 +362,8 @@ impl NativeSyncClient {
 
     /// The probe's socket broke or went quiet: transient, not a config
     /// error (review 03 M2).
-    fn lost(&self, detail: impl Into<String>) -> VelocityError {
-        VelocityError::SyncProbeLost {
+    fn lost(&self, detail: impl Into<String>) -> AtalantaError {
+        AtalantaError::SyncProbeLost {
             port: self.port,
             detail: detail.into(),
         }
@@ -411,7 +411,7 @@ impl NativeSyncClient {
             serde_json::from_str(&line).map_err(|e| self.lost(format!("unreadable reply: {e}")))?;
 
         if let Some(error) = response.error {
-            return Err(VelocityError::Config(format!("Probe error: {error}")));
+            return Err(AtalantaError::Config(format!("Probe error: {error}")));
         }
 
         Ok(response)
@@ -441,11 +441,11 @@ impl NativeSyncClient {
         }
         // Serialize request as JSON + newline
         let mut json = serde_json::to_string(&request)
-            .map_err(|e| VelocityError::io("Failed to serialize probe request", e))?;
+            .map_err(|e| AtalantaError::io("Failed to serialize probe request", e))?;
         json.push('\n');
 
         let port = self.port;
-        let lost = |detail: String| VelocityError::SyncProbeLost { port, detail };
+        let lost = |detail: String| AtalantaError::SyncProbeLost { port, detail };
         let Some(stream) = self.stream.as_mut() else {
             return Err(lost("not connected".into()));
         };
@@ -478,7 +478,7 @@ impl NativeSyncClient {
 
 /// Unified sync manager that supports native probe, polling, or auto-detection.
 pub struct SyncManager {
-    mode: velocity_common::SyncMode,
+    mode: atalanta_common::SyncMode,
     native_client: Option<NativeSyncClient>,
     polling_engine: crate::sync::AdaptiveSyncEngine,
     native_available: Option<bool>,
@@ -510,7 +510,7 @@ pub struct SyncManager {
     warned: std::collections::HashSet<&'static str>,
     /// The suite's `sync.nativePort*`, tried when nothing listens on the
     /// driver's per-device port: a probe built before
-    /// `VELOCITY_SYNC_PORT`, or an app that passes its own port, still
+    /// `ATALANTA_SYNC_PORT`, or an app that passes its own port, still
     /// listens there.
     suite_port: u16,
     /// The per-device port had no probe past the grace period and the
@@ -537,7 +537,7 @@ pub struct SyncManager {
     probe_ignore: Option<Vec<String>>,
     /// The suite's `framework`: `react_native` asks the probe for React
     /// Native tracking in `config`.
-    framework: velocity_common::Framework,
+    framework: atalanta_common::Framework,
 }
 
 /// How long the per-device port may refuse after a launch before the
@@ -569,7 +569,7 @@ pub const WEB_SETTLE_CAP_MS: u64 = 1_000;
 /// `sync.*`, a step's `settle:`), else the web defaults. Only an unset
 /// timing gets the web's: a value that happened to equal the native default
 /// (`settle: { reactionMs: 300 }`) was swapped for 30 ms (NB-8, SUM-4).
-fn web_timings(config: &velocity_common::SyncConfig) -> (u64, u64) {
+fn web_timings(config: &atalanta_common::SyncConfig) -> (u64, u64) {
     (
         config.reaction_ms.unwrap_or(WEB_REACTION_MS),
         config.settle_cap_ms.unwrap_or(WEB_SETTLE_CAP_MS),
@@ -577,12 +577,12 @@ fn web_timings(config: &velocity_common::SyncConfig) -> (u64, u64) {
 }
 
 impl SyncManager {
-    pub fn new(config: &velocity_common::SyncConfig, platform: velocity_common::Platform) -> Self {
+    pub fn new(config: &atalanta_common::SyncConfig, platform: atalanta_common::Platform) -> Self {
         // Web platform: there is no native probe; the page reports its own
         // settle. The mode used to be forced to `none`, so a user's
         // `sync.mode`/`quietMs`/`reactionMs` were ignored without a word
         // and nothing waited for a render (VEL-067).
-        if platform == velocity_common::Platform::Web {
+        if platform == atalanta_common::Platform::Web {
             return Self {
                 mode: config.mode,
                 native_client: None,
@@ -604,26 +604,26 @@ impl SyncManager {
                 device_port_silent: false,
                 suite_steps: 0,
                 probe_ignore: None,
-                framework: velocity_common::Framework::default(),
+                framework: atalanta_common::Framework::default(),
             };
         }
 
-        let defaults = velocity_common::SyncConfig::default();
+        let defaults = atalanta_common::SyncConfig::default();
         let ports = match platform {
-            velocity_common::Platform::Ios => {
+            atalanta_common::Platform::Ios => {
                 Some((config.native_port_ios, defaults.native_port_ios))
             }
-            velocity_common::Platform::Android => {
+            atalanta_common::Platform::Android => {
                 Some((config.native_port_android, defaults.native_port_android))
             }
             // Returned above.
-            velocity_common::Platform::Web => None,
+            atalanta_common::Platform::Web => None,
         };
         let (native_port, default_port) = ports.unwrap_or((0, 0));
 
         let native_client = match config.mode {
             _ if ports.is_none() => None,
-            velocity_common::SyncMode::Polling | velocity_common::SyncMode::None => None,
+            atalanta_common::SyncMode::Polling | atalanta_common::SyncMode::None => None,
             _ => Some(NativeSyncClient::new(
                 native_port,
                 config.probe_connect_timeout_ms,
@@ -646,24 +646,24 @@ impl SyncManager {
             warned: Default::default(),
             suite_port: native_port,
             on_suite_port: false,
-            suite_fallback: platform == velocity_common::Platform::Ios,
+            suite_fallback: platform == atalanta_common::Platform::Ios,
             device_refused_since: None,
             device_port_silent: false,
             suite_steps: 0,
             probe_ignore: None,
-            framework: velocity_common::Framework::default(),
+            framework: atalanta_common::Framework::default(),
         }
     }
 
     /// The app's framework (the suite's `framework`): `react_native` turns
     /// on the probe's React Native tracking (JS timers, mounting, ...).
-    pub fn with_framework(mut self, framework: velocity_common::Framework) -> Self {
+    pub fn with_framework(mut self, framework: atalanta_common::Framework) -> Self {
         self.framework = framework;
         self
     }
 
     /// The framework the probe is told about.
-    pub fn framework(&self) -> velocity_common::Framework {
+    pub fn framework(&self) -> atalanta_common::Framework {
         self.framework
     }
 
@@ -690,7 +690,7 @@ impl SyncManager {
 
     /// Wait for the UI to stabilize using the configured sync strategy.
     /// The polling settle's timings (per-step `settle:`, `setConfig`).
-    pub fn sync_config_mut(&mut self) -> &mut velocity_common::SyncConfig {
+    pub fn sync_config_mut(&mut self) -> &mut atalanta_common::SyncConfig {
         self.polling_engine.config_mut()
     }
 
@@ -699,7 +699,7 @@ impl SyncManager {
     /// probe errors aren't swallowed. Auto mode falls back to polling, so
     /// its errors come from reading the screen.
     pub(crate) fn probe_errors_surface(&self) -> bool {
-        !self.web && matches!(self.mode, velocity_common::SyncMode::Native)
+        !self.web && matches!(self.mode, atalanta_common::SyncMode::Native)
     }
 
     /// The settle cap in force: the web's own default when none is set
@@ -725,7 +725,7 @@ impl SyncManager {
     /// paid the window twice.
     async fn network_idle(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
         since: std::time::Instant,
         cap: Duration,
@@ -753,7 +753,7 @@ impl SyncManager {
 
     pub async fn wait_for_idle(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
     ) -> Result<()> {
         self.polling_engine.clear_stats();
@@ -761,17 +761,17 @@ impl SyncManager {
             return self.web_wait_for_idle(driver, device_id).await;
         }
         match self.mode {
-            velocity_common::SyncMode::None => Ok(()),
-            velocity_common::SyncMode::Native => {
+            atalanta_common::SyncMode::None => Ok(()),
+            atalanta_common::SyncMode::Native => {
                 if self.native_or_rejected(driver, device_id).await? {
                     return Ok(());
                 }
                 self.polling_engine.wait_for_idle(driver, device_id).await
             }
-            velocity_common::SyncMode::Polling => {
+            atalanta_common::SyncMode::Polling => {
                 self.polling_engine.wait_for_idle(driver, device_id).await
             }
-            velocity_common::SyncMode::Auto => {
+            atalanta_common::SyncMode::Auto => {
                 // Try native first, fallback to polling
                 if self.try_native(driver, device_id).await {
                     match self.native_wait_for_idle(driver, device_id).await {
@@ -807,7 +807,7 @@ impl SyncManager {
     /// behaviour); `polling` uses the tree-polling engine.
     async fn web_wait_for_idle(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
     ) -> Result<()> {
         let config = self.polling_engine.config_mut().clone();
@@ -815,8 +815,8 @@ impl SyncManager {
         let cap = Duration::from_millis(cap_ms.max(1));
         let start = std::time::Instant::now();
         match self.mode {
-            velocity_common::SyncMode::None => {}
-            velocity_common::SyncMode::Polling => {
+            atalanta_common::SyncMode::None => {}
+            atalanta_common::SyncMode::Polling => {
                 // Tree settle, then the network wait in what is left of the cap.
                 self.acted = false;
                 let settled = self.polling_engine.wait_for_idle(driver, device_id).await;
@@ -826,7 +826,7 @@ impl SyncManager {
                 self.polling_engine.set_stats(stats);
                 return settled;
             }
-            velocity_common::SyncMode::Auto | velocity_common::SyncMode::Native => {
+            atalanta_common::SyncMode::Auto | atalanta_common::SyncMode::Native => {
                 if self.acted {
                     // The page answers when it is quiet; a page that can't
                     // (mid-navigation) just gets the network wait.
@@ -849,7 +849,7 @@ impl SyncManager {
     /// Wait for idle with a selector-specific key for prediction.
     pub async fn wait_for_idle_keyed(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
         key: &str,
     ) -> Result<()> {
@@ -858,8 +858,8 @@ impl SyncManager {
         }
         self.polling_engine.clear_stats();
         match self.mode {
-            velocity_common::SyncMode::None => Ok(()),
-            velocity_common::SyncMode::Native => {
+            atalanta_common::SyncMode::None => Ok(()),
+            atalanta_common::SyncMode::Native => {
                 if self.native_or_rejected(driver, device_id).await? {
                     return Ok(());
                 }
@@ -867,12 +867,12 @@ impl SyncManager {
                     .wait_for_idle_keyed(driver, device_id, key)
                     .await
             }
-            velocity_common::SyncMode::Polling => {
+            atalanta_common::SyncMode::Polling => {
                 self.polling_engine
                     .wait_for_idle_keyed(driver, device_id, key)
                     .await
             }
-            velocity_common::SyncMode::Auto => {
+            atalanta_common::SyncMode::Auto => {
                 if self.try_native(driver, device_id).await {
                     match self.native_wait_for_idle(driver, device_id).await {
                         Ok(()) => {
@@ -912,7 +912,7 @@ impl SyncManager {
     /// and a re-handshake every time.
     async fn native_or_rejected(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
     ) -> Result<bool> {
         if self.probe_rejected {
@@ -966,7 +966,7 @@ impl SyncManager {
     /// Point the client at the device's own probe port when the driver
     /// forwards one per device (Android `adb forward tcp:0`), instead of the
     /// suite-wide port every device used to share.
-    fn select_probe_port(&mut self, driver: &dyn velocity_common::PlatformDriver, device_id: &str) {
+    fn select_probe_port(&mut self, driver: &dyn atalanta_common::PlatformDriver, device_id: &str) {
         if self.suite_port_explicit {
             // m6: `sync.nativePort*` set by the suite (an app that starts
             // its probe on its own port, forwarded by the team) wins.
@@ -1001,14 +1001,14 @@ impl SyncManager {
     /// not be used until the next launch. `Err`: no usable probe.
     async fn ensure_probe(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
     ) -> Result<bool> {
         self.select_probe_port(driver, device_id);
         let client = self
             .native_client
             .as_mut()
-            .ok_or_else(|| VelocityError::Config("Native sync client not available".to_string()))?;
+            .ok_or_else(|| AtalantaError::Config("Native sync client not available".to_string()))?;
         // MJ-A: while on the suite port, the device's own probe is tried
         // again every few steps, and whenever the suite probe dropped.
         if self.on_suite_port {
@@ -1046,7 +1046,7 @@ impl SyncManager {
                     && suite != 0
                     && device_port != suite;
                 if !can_fall_back {
-                    return Err(VelocityError::Config(
+                    return Err(AtalantaError::Config(
                         "Cannot connect to native sync probe".to_string(),
                     ));
                 }
@@ -1073,7 +1073,7 @@ impl SyncManager {
                 }
                 if !up {
                     if first.elapsed() < DEVICE_PORT_GRACE {
-                        return Err(VelocityError::Config(
+                        return Err(AtalantaError::Config(
                             "native sync probe not up yet on the per-device port".to_string(),
                         ));
                     }
@@ -1090,7 +1090,7 @@ impl SyncManager {
                         in_flight: false,
                     };
                     if !fallback.connect().await {
-                        return Err(VelocityError::Config(
+                        return Err(AtalantaError::Config(
                             "Cannot connect to native sync probe".to_string(),
                         ));
                     }
@@ -1126,9 +1126,9 @@ impl SyncManager {
         match handshake {
             Handshake::Identified(hello) if self.on_suite_port => {
                 // Review f5-f6 MAJOR-4: an identified probe reads
-                // `VELOCITY_SYNC_PORT`, so one on the shared suite port
+                // `ATALANTA_SYNC_PORT`, so one on the shared suite port
                 // while this device has its own port was started outside
-                // Velocity's launch, or runs on another simulator, maybe
+                // Atalanta's launch, or runs on another simulator, maybe
                 // with the same bundle id. Nothing in its `hello` proves
                 // it is this device's app, so it is never latched; only a
                 // probe that predates the handshake (and so the per-device
@@ -1143,7 +1143,7 @@ impl SyncManager {
                         hello.pid.map_or("?".to_string(), |p| p.to_string())
                     )
                 });
-                return Err(VelocityError::Config(
+                return Err(AtalantaError::Config(
                     "the suite port's probe can't be proven to be this device's".to_string(),
                 ));
             }
@@ -1162,7 +1162,7 @@ impl SyncManager {
                                     "native sync probe on the suite port {port} belongs to {app}, not {expected}; not using it"
                                 )
                             });
-                            return Err(VelocityError::Config(
+                            return Err(AtalantaError::Config(
                                 "the suite port's probe belongs to another app".to_string(),
                             ));
                         }
@@ -1189,7 +1189,7 @@ impl SyncManager {
                 let app = self.app_id.clone().unwrap_or_else(|| "the app".to_string());
                 self.warn_once("probe-legacy", || {
                     format!(
-                        "native sync probe on port {port} predates the hello handshake, so Velocity can't check it belongs to {app}; update VelocitySyncProbe"
+                        "native sync probe on port {port} predates the hello handshake, so Atalanta can't check it belongs to {app}; update AtalantaSyncProbe"
                     )
                 });
             }
@@ -1216,7 +1216,7 @@ impl SyncManager {
             .clone()
             .unwrap_or_else(network_ignore_regexes);
         let mut framework = match self.framework {
-            velocity_common::Framework::ReactNative => Some("react_native"),
+            atalanta_common::Framework::ReactNative => Some("react_native"),
             _ => None,
         };
         if framework.is_some() && version.unwrap_or(0) < PROBE_FRAMEWORK_VERSION {
@@ -1224,7 +1224,7 @@ impl SyncManager {
             let v = version.map_or("?".to_string(), |v| v.to_string());
             self.warn_once("probe-rn-old", || {
                 format!(
-                    "native sync probe (protocol {v}) has no React Native tracking (JS timers, mounting); update VelocitySyncProbe"
+                    "native sync probe (protocol {v}) has no React Native tracking (JS timers, mounting); update AtalantaSyncProbe"
                 )
             });
         }
@@ -1234,7 +1234,7 @@ impl SyncManager {
             let v = version.map_or("?".to_string(), |v| v.to_string());
             self.warn_once("probe-max-timer-old", || {
                 format!(
-                    "native sync probe (protocol {v}) predates per-connection sync.maxTimerMs, so it isn't sent; update VelocitySyncProbe"
+                    "native sync probe (protocol {v}) predates per-connection sync.maxTimerMs, so it isn't sent; update AtalantaSyncProbe"
                 )
             });
         }
@@ -1257,7 +1257,7 @@ impl SyncManager {
                 if let Some(fw) = framework {
                     if reply.framework.as_deref() != Some(fw) {
                         self.warn_once("probe-rn-off", || {
-                            format!("native sync probe did not turn on {fw} tracking; update VelocitySyncProbe")
+                            format!("native sync probe did not turn on {fw} tracking; update AtalantaSyncProbe")
                         });
                     } else if !reply.unknown.is_empty() {
                         let unknown = reply.unknown.join(", ");
@@ -1270,7 +1270,7 @@ impl SyncManager {
             Err(e) => {
                 debug!(error = %e, "native sync probe config");
                 self.warn_once("probe-config", || {
-                    format!("native sync probe did not take web.networkIgnore / sync.maxTimerMs ({e}); update VelocitySyncProbe")
+                    format!("native sync probe did not take web.networkIgnore / sync.maxTimerMs ({e}); update AtalantaSyncProbe")
                 });
             }
         }
@@ -1280,7 +1280,7 @@ impl SyncManager {
     /// MAX_NATIVE_CONNECT_ATTEMPTS before Auto mode settles on polling.
     async fn try_native(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
     ) -> bool {
         match self.native_available {
@@ -1321,18 +1321,18 @@ impl SyncManager {
     /// Use native probe to wait for idle.
     async fn native_wait_for_idle(
         &mut self,
-        driver: &dyn velocity_common::PlatformDriver,
+        driver: &dyn atalanta_common::PlatformDriver,
         device_id: &str,
     ) -> Result<()> {
         if !self.ensure_probe(driver, device_id).await? {
-            return Err(VelocityError::Config(
+            return Err(AtalantaError::Config(
                 "Native sync probe belongs to another app".to_string(),
             ));
         }
         let client = self
             .native_client
             .as_mut()
-            .ok_or_else(|| VelocityError::Config("Native sync client not available".to_string()))?;
+            .ok_or_else(|| AtalantaError::Config("Native sync client not available".to_string()))?;
 
         // Bounded by the settle cap like a polling settle: an app with a
         // looping animation never idles, and waiting the whole sync timeout
@@ -1546,7 +1546,7 @@ mod tests {
         let mut client = NativeSyncClient::new(port, 1_000);
         assert!(client.connect().await);
         let e = client.wait_for_idle(100).await.unwrap_err();
-        assert!(matches!(e, VelocityError::SyncProbeLost { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::SyncProbeLost { .. }), "{e:?}");
         assert!(e.is_transient(), "{e}");
     }
 
@@ -1566,14 +1566,14 @@ mod tests {
                 .write_all(b"{\"idle\":false,\"pending\":[\"animation\"]}\n")
                 .await;
         });
-        let config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: port,
             timeout_ms: 10_000,
             settle_cap_ms: Some(300),
             ..Default::default()
         };
-        let mut sync = SyncManager::new(&config, velocity_common::Platform::Android);
+        let mut sync = SyncManager::new(&config, atalanta_common::Platform::Android);
         // This probe predates `hello` (it answers the first line with a
         // status): a probe that can't identify itself is an error, so ask
         // the client directly.
@@ -1694,15 +1694,15 @@ mod tests {
     }
 
     fn native_sync(port: u16) -> SyncManager {
-        let config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Auto,
+        let config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Auto,
             native_port_android: port,
             settle_cap_ms: Some(300),
             reaction_ms: Some(50),
             quiet_ms: Some(20),
             ..Default::default()
         };
-        SyncManager::new(&config, velocity_common::Platform::Android).for_app("com.app")
+        SyncManager::new(&config, atalanta_common::Platform::Android).for_app("com.app")
     }
 
     #[tokio::test]
@@ -1785,7 +1785,7 @@ mod tests {
             ..Default::default()
         };
         // The suite keeps the default port (the shared one).
-        let mut sync = native_sync(velocity_common::SyncConfig::default().native_port_android);
+        let mut sync = native_sync(atalanta_common::SyncConfig::default().native_port_android);
         sync.invalidate();
         sync.wait_for_idle(&page, "device-b").await.unwrap();
         assert!(b.lines().iter().any(|l| l.contains("wait_idle")));
@@ -2096,13 +2096,13 @@ mod tests {
     async fn wait_idle_asks_for_idle_that_holds() {
         let probe = FakeProbe::spawn(probe_of("com.app", true)).await;
         let page = Page::default();
-        let config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: probe.port,
             ..Default::default()
         };
         let mut sync =
-            SyncManager::new(&config, velocity_common::Platform::Android).for_app("com.app");
+            SyncManager::new(&config, atalanta_common::Platform::Android).for_app("com.app");
         sync.wait_for_idle(&page, "dev").await.unwrap();
         let wait = probe
             .lines()
@@ -2113,14 +2113,14 @@ mod tests {
     }
 
     fn native(port: u16) -> SyncManager {
-        let config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: port,
             reaction_ms: Some(120),
             settle_cap_ms: Some(2_000),
             ..Default::default()
         };
-        SyncManager::new(&config, velocity_common::Platform::Android).for_app("com.app")
+        SyncManager::new(&config, atalanta_common::Platform::Android).for_app("com.app")
     }
 
     fn idle_asks(probe: &FakeProbe) -> usize {
@@ -2210,15 +2210,15 @@ mod tests {
             }
         })
         .await;
-        let config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: probe.port,
             reaction_ms: Some(120),
             settle_cap_ms: Some(200),
             ..Default::default()
         };
         let mut sync =
-            SyncManager::new(&config, velocity_common::Platform::Android).for_app("com.app");
+            SyncManager::new(&config, atalanta_common::Platform::Android).for_app("com.app");
         let page = Page {
             grows: true,
             read_ms: 90,
@@ -2334,7 +2334,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl velocity_common::PlatformDriver for Page {
+    impl atalanta_common::PlatformDriver for Page {
         fn sync_probe_port(&self, _: &str) -> Option<u16> {
             self.probe_port
         }
@@ -2344,26 +2344,26 @@ mod tests {
             reaction_ms: u64,
             quiet_ms: u64,
             cap_ms: u64,
-        ) -> Option<velocity_common::DeviceSettle> {
+        ) -> Option<atalanta_common::DeviceSettle> {
             self.asked
                 .lock()
                 .unwrap()
                 .push((reaction_ms, quiet_ms, cap_ms));
             self.settles
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Some(velocity_common::DeviceSettle {
+            Some(atalanta_common::DeviceSettle {
                 settled: true,
                 reacted: true,
                 elapsed_ms: 1,
             })
         }
-        async fn get_hierarchy(&self, _: &str) -> Result<velocity_common::Element> {
+        async fn get_hierarchy(&self, _: &str) -> Result<atalanta_common::Element> {
             let n = self.trees.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.read_ms > 0 {
                 tokio::time::sleep(Duration::from_millis(self.read_ms)).await;
             }
             let moved = self.moved.load(std::sync::atomic::Ordering::SeqCst);
-            Ok(velocity_common::Element {
+            Ok(atalanta_common::Element {
                 hint: None,
                 platform_id: if self.grows {
                     let n = if self.still_from > 0 {
@@ -2378,7 +2378,7 @@ mod tests {
                 label: None,
                 text: None,
                 element_type: "body".into(),
-                bounds: velocity_common::Rect {
+                bounds: atalanta_common::Rect {
                     x: 0,
                     y: 0,
                     width: 10,
@@ -2390,7 +2390,7 @@ mod tests {
                 ..Default::default()
             })
         }
-        async fn list_devices(&self) -> Result<Vec<velocity_common::DeviceInfo>> {
+        async fn list_devices(&self) -> Result<Vec<atalanta_common::DeviceInfo>> {
             Ok(vec![])
         }
         async fn boot_device(&self, _: &str) -> Result<()> {
@@ -2411,39 +2411,39 @@ mod tests {
         async fn find_element(
             &self,
             _: &str,
-            s: &velocity_common::Selector,
-        ) -> Result<velocity_common::Element> {
-            Err(VelocityError::Config(format!("{s}")))
+            s: &atalanta_common::Selector,
+        ) -> Result<atalanta_common::Element> {
+            Err(AtalantaError::Config(format!("{s}")))
         }
         async fn find_elements(
             &self,
             _: &str,
-            _: &velocity_common::Selector,
-        ) -> Result<Vec<velocity_common::Element>> {
+            _: &atalanta_common::Selector,
+        ) -> Result<Vec<atalanta_common::Element>> {
             Ok(vec![])
         }
-        async fn tap(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn tap(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn double_tap(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn double_tap(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn long_press(&self, _: &str, _: &velocity_common::Element, _: u64) -> Result<()> {
+        async fn long_press(&self, _: &str, _: &atalanta_common::Element, _: u64) -> Result<()> {
             Ok(())
         }
-        async fn input_text(&self, _: &str, _: &velocity_common::Element, _: &str) -> Result<()> {
+        async fn input_text(&self, _: &str, _: &atalanta_common::Element, _: &str) -> Result<()> {
             Ok(())
         }
-        async fn clear_text(&self, _: &str, _: &velocity_common::Element) -> Result<()> {
+        async fn clear_text(&self, _: &str, _: &atalanta_common::Element) -> Result<()> {
             Ok(())
         }
-        async fn swipe(&self, _: &str, _: velocity_common::Direction) -> Result<()> {
+        async fn swipe(&self, _: &str, _: atalanta_common::Direction) -> Result<()> {
             Ok(())
         }
         async fn swipe_coords(&self, _: &str, _: (i32, i32), _: (i32, i32)) -> Result<()> {
             Ok(())
         }
-        async fn press_key(&self, _: &str, _: velocity_common::Key) -> Result<()> {
+        async fn press_key(&self, _: &str, _: atalanta_common::Key) -> Result<()> {
             Ok(())
         }
         async fn screenshot(&self, _: &str) -> Result<Vec<u8>> {
@@ -2452,22 +2452,22 @@ mod tests {
         async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
             Ok((10, 10))
         }
-        async fn get_element_text(&self, _: &str, _: &velocity_common::Element) -> Result<String> {
+        async fn get_element_text(&self, _: &str, _: &atalanta_common::Element) -> Result<String> {
             Ok(String::new())
         }
-        async fn is_element_visible(&self, _: &str, _: &velocity_common::Element) -> Result<bool> {
+        async fn is_element_visible(&self, _: &str, _: &atalanta_common::Element) -> Result<bool> {
             Ok(true)
         }
     }
 
-    fn web(mode: velocity_common::SyncMode) -> SyncManager {
-        let config = velocity_common::SyncConfig {
+    fn web(mode: atalanta_common::SyncMode) -> SyncManager {
+        let config = atalanta_common::SyncConfig {
             mode,
             reaction_ms: Some(250),
             quiet_ms: Some(80),
             ..Default::default()
         };
-        SyncManager::new(&config, velocity_common::Platform::Web)
+        SyncManager::new(&config, atalanta_common::Platform::Web)
     }
 
     /// VEL-067: on the web an action is followed by the page's render
@@ -2476,7 +2476,7 @@ mod tests {
     #[tokio::test]
     async fn web_waits_for_the_page_to_settle_after_an_action() {
         let page = Page::default();
-        let mut sync = web(velocity_common::SyncMode::Auto);
+        let mut sync = web(atalanta_common::SyncMode::Auto);
         sync.wait_for_idle(&page, "web").await.unwrap();
         assert_eq!(
             page.settles.load(std::sync::atomic::Ordering::SeqCst),
@@ -2502,12 +2502,12 @@ mod tests {
     #[tokio::test]
     async fn set_web_timings_are_never_swapped_for_the_web_defaults() {
         let page = Page::default();
-        let config = velocity_common::SyncConfig {
+        let config = atalanta_common::SyncConfig {
             reaction_ms: Some(300),
             settle_cap_ms: Some(3_000),
             ..Default::default()
         };
-        let mut sync = SyncManager::new(&config, velocity_common::Platform::Web);
+        let mut sync = SyncManager::new(&config, atalanta_common::Platform::Web);
         sync.invalidate();
         sync.wait_for_idle(&page, "web").await.unwrap();
         // A step's override is "set" too.
@@ -2531,8 +2531,8 @@ mod tests {
     #[tokio::test]
     async fn web_defaults_keep_a_static_page_cheap() {
         let page = Page::default();
-        let config = velocity_common::SyncConfig::default();
-        let mut sync = SyncManager::new(&config, velocity_common::Platform::Web);
+        let config = atalanta_common::SyncConfig::default();
+        let mut sync = SyncManager::new(&config, atalanta_common::Platform::Web);
         let start = std::time::Instant::now();
         for _ in 0..10 {
             sync.invalidate();
@@ -2562,12 +2562,12 @@ mod tests {
     #[tokio::test]
     async fn web_honours_the_sync_mode() {
         let page = Page::default();
-        let mut sync = web(velocity_common::SyncMode::None);
+        let mut sync = web(atalanta_common::SyncMode::None);
         sync.invalidate();
         sync.wait_for_idle(&page, "web").await.unwrap();
         assert_eq!(page.settles.load(std::sync::atomic::Ordering::SeqCst), 0);
 
-        let mut sync = web(velocity_common::SyncMode::Polling);
+        let mut sync = web(atalanta_common::SyncMode::Polling);
         sync.invalidate();
         sync.wait_for_idle(&page, "web").await.unwrap();
         assert!(
@@ -2688,7 +2688,7 @@ mod tests {
             for t in texts {
                 assert_eq!(
                     re.is_match(t),
-                    velocity_common::glob_match(p, t),
+                    atalanta_common::glob_match(p, t),
                     "pattern {p:?} on {t:?}: {}",
                     ignore_glob_to_regex(p)
                 );
@@ -2711,8 +2711,8 @@ mod tests {
             }
         })
         .await;
-        let mut config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let mut config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: probe.port,
             settle_cap_ms: Some(300),
             reaction_ms: Some(50),
@@ -2720,7 +2720,7 @@ mod tests {
             ..Default::default()
         };
         config.max_timer_ms = Some(250);
-        let mut sync = SyncManager::new(&config, velocity_common::Platform::Android)
+        let mut sync = SyncManager::new(&config, atalanta_common::Platform::Android)
             .for_app("com.app")
             .with_probe_ignore(vec!["x".to_string()]);
         sync.wait_for_idle(&Page::default(), "dev").await.unwrap();
@@ -2741,8 +2741,8 @@ mod tests {
     #[tokio::test]
     async fn the_probe_gets_ignore_urls_and_max_timer_after_hello() {
         let probe = FakeProbe::spawn(configurable_probe).await;
-        let mut config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let mut config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: probe.port,
             settle_cap_ms: Some(300),
             reaction_ms: Some(50),
@@ -2750,7 +2750,7 @@ mod tests {
             ..Default::default()
         };
         config.max_timer_ms = Some(250);
-        let mut sync = SyncManager::new(&config, velocity_common::Platform::Android)
+        let mut sync = SyncManager::new(&config, atalanta_common::Platform::Android)
             .for_app("com.app")
             .with_probe_ignore(vec!["^.*/analytics/.*$".to_string()]);
         let page = Page::default();
@@ -2834,18 +2834,18 @@ mod tests {
     }
 
     fn rn_sync(port: u16) -> SyncManager {
-        let config = velocity_common::SyncConfig {
-            mode: velocity_common::SyncMode::Native,
+        let config = atalanta_common::SyncConfig {
+            mode: atalanta_common::SyncMode::Native,
             native_port_android: port,
             settle_cap_ms: Some(300),
             reaction_ms: Some(50),
             quiet_ms: Some(20),
             ..Default::default()
         };
-        SyncManager::new(&config, velocity_common::Platform::Android)
+        SyncManager::new(&config, atalanta_common::Platform::Android)
             .for_app("com.app")
             .with_probe_ignore(Vec::new())
-            .with_framework(velocity_common::Framework::ReactNative)
+            .with_framework(atalanta_common::Framework::ReactNative)
     }
 
     fn config_line(probe: &FakeProbe) -> Option<serde_json::Value> {
@@ -2886,7 +2886,7 @@ mod tests {
         assert!(sync.warned.contains("probe-rn-old"));
 
         let probe = FakeProbe::spawn_with(Box::new(rn_probe(4, r#"{"ok":true}"#))).await;
-        let mut sync = rn_sync(probe.port).with_framework(velocity_common::Framework::Native);
+        let mut sync = rn_sync(probe.port).with_framework(atalanta_common::Framework::Native);
         sync.wait_for_idle(&Page::default(), "dev").await.unwrap();
         assert!(config_line(&probe).is_none(), "{:?}", probe.lines());
         assert!(!sync.warned.contains("probe-rn-old"));

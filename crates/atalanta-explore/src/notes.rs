@@ -160,7 +160,7 @@ impl TurnNote {
 
 /// The notes block of a goal turn: one `- ` line per note, redacted.
 pub fn render_all(notes: &[TurnNote]) -> String {
-    velocity_common::redact::redact(
+    atalanta_common::redact::redact(
         &notes
             .iter()
             .map(|n| format!("- {}", n.render()))

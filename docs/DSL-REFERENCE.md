@@ -1,12 +1,12 @@
-# Velocity DSL reference
+# Atalanta DSL reference
 
-<!-- Generated from crates/velocity-core/src/schema.rs by `velocity schema --markdown`.
-     Do not edit by hand: `cargo test -p velocity-core --test dsl_reference` fails when this
-     file is out of date; `VELOCITY_BLESS=1` on that test rewrites it. -->
+<!-- Generated from crates/atalanta-core/src/schema.rs by `atalanta schema --markdown`.
+     Do not edit by hand: `cargo test -p atalanta-core --test dsl_reference` fails when this
+     file is out of date; `ATALANTA_BLESS=1` on that test rewrites it. -->
 
 Every key a suite file can use. For how the pieces fit together, with examples, see
 [DSL.md](DSL.md). Editors can validate suites with the JSON Schema from
-`velocity schema -o velocity.schema.json`.
+`atalanta schema -o atalanta.schema.json`.
 
 ## Suite file
 
@@ -207,7 +207,7 @@ Argument: nothing or string or map: `filename`?.
 
 ### `assertScreenshot`
 
-Compare the screen with the baseline `velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`; a missing baseline is written and the step fails.
+Compare the screen with the baseline `atalanta-baselines/<platform>[-headless]/<W>x<H>/<name>.png`; a missing baseline is written and the step fails.
 
 Argument: string or map: `clusterPx`?, `comparator`?, `crop`?, `mask`?, `name`, `threshold`?, `tolerance`?.
 
@@ -334,7 +334,7 @@ Argument: map (keys below).
 
 ### `exec`
 
-Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `VELOCITY_DEVICE_ID` is set for it.
+Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `ATALANTA_DEVICE_ID` is set for it.
 
 Argument: map: `capture`?, `cwd`?, `expect`?, `run`.
 
@@ -398,8 +398,8 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 
 - `accessibility` (map: `audit`?, `density`?, `fail`?) - Accessibility audit of the screens each test reads (docs/DSL.md#accessibility-audit)
 - `actionability` (one of `strict`, `lenient`) - strict (default): an action fails when its target never holds still, stays disabled or is covered; lenient: act anyway with a warning
-- `ai` (map: `apiKeyEnv`?, `apiVersion`?, `baseUrl`?, `exploreModel`?, `images`?, `model`?, `project`?, `provider`?, `region`?) - The model service for natural-language steps and checks; VELOCITY_NL_* environment variables win over it
-- `app` (string or map: `android`?, `ios`?) - App build Velocity installs before the first test (skipped when the device has this exact build): one path, or one per platform
+- `ai` (map: `apiKeyEnv`?, `apiVersion`?, `baseUrl`?, `exploreModel`?, `images`?, `model`?, `project`?, `provider`?, `region`?) - The model service for natural-language steps and checks; ATALANTA_NL_* environment variables win over it
+- `app` (string or map: `android`?, `ios`?) - App build Atalanta installs before the first test (skipped when the device has this exact build): one path, or one per platform
 - `artifacts` (map (keys below))
 - `batch` (boolean) - Share one launch across consecutive tests
 - `dialog` (map)
@@ -417,7 +417,7 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 - `reset` (map: `appPath`?, `snapshot`?, `strategy`?)
 - `retry` (map: `count`?, `flakyResult`?)
 - `screenshots` (map: `freezeStatusBar`?)
-- `settings` (map) - Driver and runtime settings (`velocity settings` lists them); flat `android.scroll:` or nested keys
+- `settings` (map) - Driver and runtime settings (`atalanta settings` lists them); flat `android.scroll:` or nested keys
 - `sync` (map: `intervalMs`?, `maxTimerMs`?, `mode`?, `quietMs`?, `reactionMs`?, `settleCapMs`?, `stabilityCount`?, `timeoutMs`?)
 - `verify` (one of `off`, `final`, `checkpoints`, `strict`) - AI checks: off (default; deterministic assertions only), final (the test's description holds at the end), checkpoints (also after assert: and checkpoint: steps; failures reported at the end), strict (the first failed check fails the test)
 - `web` (map: `block`?, `device`?, `mocks`?, `parallelMode`?, `settle`?)
@@ -433,7 +433,7 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 - `apiKeyEnv` (string) - Name of the environment variable holding the key (never the key itself)
 - `apiVersion` (string) - Azure OpenAI api-version (deployments URL); unset uses /openai/v1
 - `baseUrl` (string) - API base URL, e.g. http://localhost:11434/v1
-- `exploreModel` (string) - Model for goal-level planning (velocity explore)
+- `exploreModel` (string) - Model for goal-level planning (atalanta explore)
 - `images` (boolean) - Send screenshots to the checker (default: the provider's)
 - `model` (string) - Model for single steps and checks; may be provider:model
 - `project` (string) - Vertex Google Cloud project
@@ -549,60 +549,60 @@ A selector is a map. `css` or `xpath` (web only) stand alone; otherwise at least
 
 ## Settings
 
-Named settings go under `config: settings:` (flat `android.scroll: semantic` or nested), per run as `velocity run --set key=value`, per test with `setConfig`, or as the environment variable. `velocity settings` prints this table with the current values.
+Named settings go under `config: settings:` (flat `android.scroll: semantic` or nested), per run as `atalanta run --set key=value`, per test with `setConfig`, or as the environment variable. `atalanta settings` prints this table with the current values.
 
 | Setting | Values | Default | Variable | What it does |
 |---|---|---|---|---|
-| `android.text` | auto\|fast\|keys | auto | `VELOCITY_ANDROID_TEXT` | How inputText/clearText put text in: one ACTION_SET_TEXT (fast), key events (keys), or fast for 16+ characters (auto) |
-| `android.imeEnter` | 1\|0 | 1 | `VELOCITY_ANDROID_IME_ENTER` | pressKey enter uses the keyboard's own action (Search/Go/Send) first |
-| `android.scroll` | drag\|semantic | drag | `VELOCITY_ANDROID_SCROLL` | scrollUntilVisible: touch drags, or the list's own scroll action (~3x faster, no touch) |
-| `android.keepAccessibility` | 1\|0 | 0 | `VELOCITY_ANDROID_KEEP_A11Y` | Keep TalkBack and other accessibility services running during the run |
-| `android.eventSettle` | 1\|0 | 0 | `VELOCITY_ANDROID_EVENT_SETTLE` | Settle on the device from accessibility events instead of tree reads |
-| `android.keepAnimations` | 1\|0 | 0 | `VELOCITY_KEEP_ANIMATIONS` | Leave device animations on (Velocity turns them off by default) |
-| `android.treeServer` | 1\|0 | 1 | `VELOCITY_ANDROID_TREE_SERVER` | Use Velocity's on-device tree server (0: uiautomator dump, much slower) |
-| `android.composeTestTag` | 1\|0 | 1 | `VELOCITY_ANDROID_COMPOSE_TESTTAG` | Read a Compose testTag as the element's id when the app doesn't set testTagsAsResourceId (tree server, API 26+; costs up to 50 ms of main-thread reads per full dump, cached per node) |
-| `android.focusCheck` | 1\|0 | 1 | `VELOCITY_ANDROID_FOCUS_CHECK` | inputText fails when its tap left the focus on another element, instead of typing there |
-| `android.adbMode` | subprocess\|tcp | subprocess | `VELOCITY_ADB_MODE` | How adb is reached: the adb binary, or the adb server's TCP protocol |
-| `ios.runner` | wda\|velocity | wda | `VELOCITY_IOS_RUNNER` | iOS automation server: WebDriverAgent, or Velocity's own XCUITest runner |
-| `ios.launch` | simctl\|wda | simctl | `VELOCITY_IOS_LAUNCH` | Simulator relaunch in a warm session: simctl (~0.85 s) or WDA (~1.7 s) |
-| `ios.systemAlerts` | 1\|0 | 1 | `VELOCITY_IOS_SYSTEM_ALERTS` | Look for SpringBoard alerts (permissions, Open in…) so they can be answered |
-| `ios.text` | auto\|paste\|keys | auto | `VELOCITY_IOS_TEXT` | How inputText puts text in: the pasteboard and Cmd+V (paste, ~0.4 s for any length), typed keys (~9 ms a character), or paste into empty fields when quicker: 50+ characters, 100+ for the first after a launch (auto) |
-| `ios.typingFrequency` | keys per minute | 180 | `VELOCITY_IOS_TYPING_FREQUENCY` | WDA typing speed |
-| `ios.fullSource` | 1\|0 | 0 | `VELOCITY_IOS_FULL_SOURCE` | Read WDA's full source (visible/accessible attributes; ~7x slower) |
-| `ios.keepWda` | 1\|0 | 0 | `VELOCITY_KEEP_WDA` | Leave WDA running after the run so the next one reattaches |
-| `ios.wdaRef` | a WDA git tag | pinned | `VELOCITY_WDA_REF` | WebDriverAgent version to build |
-| `ios.teamId` | Apple team id | - | `VELOCITY_IOS_TEAM_ID` | Team that signs the runner for real devices |
-| `ios.wdaBundleId` | bundle id | com.<team>.velocity.WebDriverAgentRunner | `VELOCITY_WDA_BUNDLE_ID` | Runner bundle id on real devices |
-| `ios.swipeMs` | ms | 250 | `VELOCITY_IOS_SWIPE_MS` | Stroke time of an iOS swipe gesture (it flings) |
-| `ios.scrollMs` | ms | 350 | `VELOCITY_IOS_SCROLL_MS` | Stroke time of an iOS scroll drag (ends slowly, so it doesn't fling) |
-| `ios.tapGuardStatusBar` | 1\|0 | 1 | `VELOCITY_IOS_TAP_GUARD_STATUS_BAR` | Refuse a tap whose only free part is under the status bar (0: tap there; for apps that hide the bar) |
-| `ios.allowWifiRunner` | 1\|0 | 0 | `VELOCITY_IOS_ALLOW_WIFI_RUNNER` | Run the runner on an iPhone reached over Wi-Fi only (needs ios.runner: velocity, whose per-launch token is then required; an ios.runnerToken must be 16+ characters); otherwise such a phone fails with "connect a cable" |
-| `ios.runnerToken` | 16+ characters | - | `VELOCITY_IOS_RUNNER_TOKEN` | Fixed bearer token for VelocityRunner in place of the random one Velocity makes per launch (a runner at VELOCITY_WDA_URL started by hand needs it as its VELOCITY_RUNNER_TOKEN); every request carries the token (masked; use ${VAR}) |
-| `ios.accessibilityDeadlineMs` | ms | 5000 | `VELOCITY_IOS_ACCESSIBILITY_DEADLINE_MS` | Longest WDA spends on one accessibility query; past it WDA aborts the request with an error (WDA's accessibilityDeadline setting, sent in seconds). The 5000 default is sent only to a WebDriverAgent Velocity built from v16.14.1 or later; any other WDA gets nothing unless this is set. 0 leaves WDA's default |
-| `ios.snapshotMaxDepth` | depth | 60 | `VELOCITY_IOS_SNAPSHOT_MAX_DEPTH` | How deep WDA (snapshotMaxDepth) and VelocityRunner (its deep-tree recovery read) read the element tree; deeper nodes are left out (0 leaves the runners' defaults) |
-| `ios.verifyTap` | 1\|0 | 0 | `VELOCITY_IOS_VERIFY_TAP` | Before a tap, ask VelocityRunner what is drawn at the tap point (a private XCTest hit test, skipped where it is missing) and fail when something else is on top; also lets a tap under the status bar through when the app hides the bar. Needs ios.runner: velocity |
-| `ios.alertRecheckMs` | ms | 1000 | `VELOCITY_IOS_ALERT_RECHECK_MS` | How long a "no system alert" answer is trusted (each check ~80 ms) |
-| `web.networkIdle` | 1\|0 | 1 | `VELOCITY_WEB_NETWORK_IDLE` | The settle after an action also waits for the page's requests to finish (not websockets, event streams or long polls) |
-| `web.networkIgnore` | URL globs, comma-separated | - | `VELOCITY_WEB_NETWORK_IGNORE` | Requests the network-idle wait doesn't wait for (analytics, polling); also sent to the in-app sync probe as ignore_urls |
-| `web.networkIdleMaxMs` | ms | 5000 | `VELOCITY_WEB_NETWORK_IDLE_MAX_MS` | A request open longer than this is a long poll: the settle stops waiting for it |
-| `visibility.minArea` | 0..1 | 0 | `VELOCITY_VISIBILITY_MIN_AREA` | Share of an element's box that must be on screen for assertVisible/assertNotVisible to count it as visible (0: any pixel; Maestro uses 0.1) |
-| `web.focusCheck` | 1\|0 | 1 | `VELOCITY_WEB_FOCUS_CHECK` | inputText fails when its click left the focus on something that takes no text (a focused cross-origin iframe counts as unknown and passes, unless it already had the focus before the click) |
-| `web.frames` | 1\|0 | 1 | `VELOCITY_WEB_FRAMES` | Reach into cross-origin iframes: selectors find elements there, taps and typing land there, and their requests count for the network-idle wait (0: such frames are opaque boxes) |
-| `web.visibility` | viewport\|page | viewport | `VELOCITY_WEB_VISIBILITY` | What visible means for web assertions: on screen (in the viewport, not clipped by an overflow ancestor) or anywhere on the page (the old rule) |
-| `web.dialogs` | dismiss\|accept | dismiss | `VELOCITY_WEB_DIALOGS` | How a page's confirm() and prompt() are answered, in the page and in its cross-origin frames (alert() and beforeunload are always accepted); accept lets a suite test a confirm-guarded action |
-| `web.promptText` | text | - | `VELOCITY_WEB_PROMPT_TEXT` | What an accepted prompt() returns (with web.dialogs: accept) |
-| `web.insecureCerts` | 1\|0 | 0 | `VELOCITY_WEB_INSECURE_CERTS` | Accept any TLS certificate in Chrome (a self-signed dev server); off by default, so a network attacker can't serve a page (that a secret is typed into) with a forged certificate |
-| `web.downloads` | deny\|a folder | deny | `VELOCITY_WEB_DOWNLOADS` | Where files the page downloads are saved (relative to the working directory); deny refuses them, with a warning naming the file |
-| `selectors.strict` | 1\|0 | 0 | `VELOCITY_SELECTORS_STRICT` | Fail a tap, press or text entry whose selector matches several elements on screen, listing them (default: act on the first and warn; while unset the warning says 1.0 makes this an error, 0 keeps today's behaviour) |
-| `actionableWaitMs` | ms | 2000 | `VELOCITY_ACTIONABLE_WAIT_MS` | Wait for a tap target to be enabled and still before acting anyway |
-| `crash.watchAfterMs` | ms | 1000 | `VELOCITY_CRASH_WATCH_AFTER_MS` | When a slow post-action settle starts checking the crash log |
-| `crash.watchEveryMs` | ms | 500 | `VELOCITY_CRASH_WATCH_EVERY_MS` | How often it checks after that |
-| `crash.checkEveryMs` | ms | 1000 | `VELOCITY_CRASH_CHECK_EVERY_MS` | How often a waiting element lookup checks for a crash, and how often a physical iPhone's crash watcher asks for the app's state (at least 250 ms) |
-| `breaker.threshold` | failures | 5 | `VELOCITY_BREAKER_THRESHOLD` | Device failures in a row before the circuit breaker opens |
-| `breaker.resetMs` | ms | 30000 | `VELOCITY_BREAKER_RESET_MS` | How long an open breaker waits before restarting the session and probing |
-| `commandTimeoutMs` | ms | 60000 | `VELOCITY_COMMAND_TIMEOUT_MS` | Longest a single adb/simctl/xcrun command may run |
-| `secrets` | VAR,VAR,… | - | `VELOCITY_SECRETS` | Extra variables whose values are masked in every report and log |
-| `nl.model` | model id | - | `VELOCITY_NL_MODEL` | Model that plans natural-language steps (default: the provider's step model, claude-haiku-5-5 for Anthropic) |
-| `nl.effort` | low\|medium\|high | low | `VELOCITY_NL_EFFORT` | Planner reasoning effort |
-| `nl.cache` | normal\|read-only\|frozen\|prune | normal | `VELOCITY_NL_CACHE` | How the natural-language plan cache is used |
-| `nl.traces` | 1\|0 | 1 | `VELOCITY_NL_TRACES` | Save planner traces for `velocity nl-eval` |
+| `android.text` | auto\|fast\|keys | auto | `ATALANTA_ANDROID_TEXT` | How inputText/clearText put text in: one ACTION_SET_TEXT (fast), key events (keys), or fast for 16+ characters (auto) |
+| `android.imeEnter` | 1\|0 | 1 | `ATALANTA_ANDROID_IME_ENTER` | pressKey enter uses the keyboard's own action (Search/Go/Send) first |
+| `android.scroll` | drag\|semantic | drag | `ATALANTA_ANDROID_SCROLL` | scrollUntilVisible: touch drags, or the list's own scroll action (~3x faster, no touch) |
+| `android.keepAccessibility` | 1\|0 | 0 | `ATALANTA_ANDROID_KEEP_A11Y` | Keep TalkBack and other accessibility services running during the run |
+| `android.eventSettle` | 1\|0 | 0 | `ATALANTA_ANDROID_EVENT_SETTLE` | Settle on the device from accessibility events instead of tree reads |
+| `android.keepAnimations` | 1\|0 | 0 | `ATALANTA_KEEP_ANIMATIONS` | Leave device animations on (Atalanta turns them off by default) |
+| `android.treeServer` | 1\|0 | 1 | `ATALANTA_ANDROID_TREE_SERVER` | Use Atalanta's on-device tree server (0: uiautomator dump, much slower) |
+| `android.composeTestTag` | 1\|0 | 1 | `ATALANTA_ANDROID_COMPOSE_TESTTAG` | Read a Compose testTag as the element's id when the app doesn't set testTagsAsResourceId (tree server, API 26+; costs up to 50 ms of main-thread reads per full dump, cached per node) |
+| `android.focusCheck` | 1\|0 | 1 | `ATALANTA_ANDROID_FOCUS_CHECK` | inputText fails when its tap left the focus on another element, instead of typing there |
+| `android.adbMode` | subprocess\|tcp | subprocess | `ATALANTA_ADB_MODE` | How adb is reached: the adb binary, or the adb server's TCP protocol |
+| `ios.runner` | wda\|atalanta | wda | `ATALANTA_IOS_RUNNER` | iOS automation server: WebDriverAgent, or Atalanta's own XCUITest runner |
+| `ios.launch` | simctl\|wda | simctl | `ATALANTA_IOS_LAUNCH` | Simulator relaunch in a warm session: simctl (~0.85 s) or WDA (~1.7 s) |
+| `ios.systemAlerts` | 1\|0 | 1 | `ATALANTA_IOS_SYSTEM_ALERTS` | Look for SpringBoard alerts (permissions, Open in…) so they can be answered |
+| `ios.text` | auto\|paste\|keys | auto | `ATALANTA_IOS_TEXT` | How inputText puts text in: the pasteboard and Cmd+V (paste, ~0.4 s for any length), typed keys (~9 ms a character), or paste into empty fields when quicker: 50+ characters, 100+ for the first after a launch (auto) |
+| `ios.typingFrequency` | keys per minute | 180 | `ATALANTA_IOS_TYPING_FREQUENCY` | WDA typing speed |
+| `ios.fullSource` | 1\|0 | 0 | `ATALANTA_IOS_FULL_SOURCE` | Read WDA's full source (visible/accessible attributes; ~7x slower) |
+| `ios.keepWda` | 1\|0 | 0 | `ATALANTA_KEEP_WDA` | Leave WDA running after the run so the next one reattaches |
+| `ios.wdaRef` | a WDA git tag | pinned | `ATALANTA_WDA_REF` | WebDriverAgent version to build |
+| `ios.teamId` | Apple team id | - | `ATALANTA_IOS_TEAM_ID` | Team that signs the runner for real devices |
+| `ios.wdaBundleId` | bundle id | com.<team>.atalanta.WebDriverAgentRunner | `ATALANTA_WDA_BUNDLE_ID` | Runner bundle id on real devices |
+| `ios.swipeMs` | ms | 250 | `ATALANTA_IOS_SWIPE_MS` | Stroke time of an iOS swipe gesture (it flings) |
+| `ios.scrollMs` | ms | 350 | `ATALANTA_IOS_SCROLL_MS` | Stroke time of an iOS scroll drag (ends slowly, so it doesn't fling) |
+| `ios.tapGuardStatusBar` | 1\|0 | 1 | `ATALANTA_IOS_TAP_GUARD_STATUS_BAR` | Refuse a tap whose only free part is under the status bar (0: tap there; for apps that hide the bar) |
+| `ios.allowWifiRunner` | 1\|0 | 0 | `ATALANTA_IOS_ALLOW_WIFI_RUNNER` | Run the runner on an iPhone reached over Wi-Fi only (needs ios.runner: atalanta, whose per-launch token is then required; an ios.runnerToken must be 16+ characters); otherwise such a phone fails with "connect a cable" |
+| `ios.runnerToken` | 16+ characters | - | `ATALANTA_IOS_RUNNER_TOKEN` | Fixed bearer token for AtalantaRunner in place of the random one Atalanta makes per launch (a runner at ATALANTA_WDA_URL started by hand needs it as its ATALANTA_RUNNER_TOKEN); every request carries the token (masked; use ${VAR}) |
+| `ios.accessibilityDeadlineMs` | ms | 5000 | `ATALANTA_IOS_ACCESSIBILITY_DEADLINE_MS` | Longest WDA spends on one accessibility query; past it WDA aborts the request with an error (WDA's accessibilityDeadline setting, sent in seconds). The 5000 default is sent only to a WebDriverAgent Atalanta built from v16.14.1 or later; any other WDA gets nothing unless this is set. 0 leaves WDA's default |
+| `ios.snapshotMaxDepth` | depth | 60 | `ATALANTA_IOS_SNAPSHOT_MAX_DEPTH` | How deep WDA (snapshotMaxDepth) and AtalantaRunner (its deep-tree recovery read) read the element tree; deeper nodes are left out (0 leaves the runners' defaults) |
+| `ios.verifyTap` | 1\|0 | 0 | `ATALANTA_IOS_VERIFY_TAP` | Before a tap, ask AtalantaRunner what is drawn at the tap point (a private XCTest hit test, skipped where it is missing) and fail when something else is on top; also lets a tap under the status bar through when the app hides the bar. Needs ios.runner: atalanta |
+| `ios.alertRecheckMs` | ms | 1000 | `ATALANTA_IOS_ALERT_RECHECK_MS` | How long a "no system alert" answer is trusted (each check ~80 ms) |
+| `web.networkIdle` | 1\|0 | 1 | `ATALANTA_WEB_NETWORK_IDLE` | The settle after an action also waits for the page's requests to finish (not websockets, event streams or long polls) |
+| `web.networkIgnore` | URL globs, comma-separated | - | `ATALANTA_WEB_NETWORK_IGNORE` | Requests the network-idle wait doesn't wait for (analytics, polling); also sent to the in-app sync probe as ignore_urls |
+| `web.networkIdleMaxMs` | ms | 5000 | `ATALANTA_WEB_NETWORK_IDLE_MAX_MS` | A request open longer than this is a long poll: the settle stops waiting for it |
+| `visibility.minArea` | 0..1 | 0 | `ATALANTA_VISIBILITY_MIN_AREA` | Share of an element's box that must be on screen for assertVisible/assertNotVisible to count it as visible (0: any pixel; Maestro uses 0.1) |
+| `web.focusCheck` | 1\|0 | 1 | `ATALANTA_WEB_FOCUS_CHECK` | inputText fails when its click left the focus on something that takes no text (a focused cross-origin iframe counts as unknown and passes, unless it already had the focus before the click) |
+| `web.frames` | 1\|0 | 1 | `ATALANTA_WEB_FRAMES` | Reach into cross-origin iframes: selectors find elements there, taps and typing land there, and their requests count for the network-idle wait (0: such frames are opaque boxes) |
+| `web.visibility` | viewport\|page | viewport | `ATALANTA_WEB_VISIBILITY` | What visible means for web assertions: on screen (in the viewport, not clipped by an overflow ancestor) or anywhere on the page (the old rule) |
+| `web.dialogs` | dismiss\|accept | dismiss | `ATALANTA_WEB_DIALOGS` | How a page's confirm() and prompt() are answered, in the page and in its cross-origin frames (alert() and beforeunload are always accepted); accept lets a suite test a confirm-guarded action |
+| `web.promptText` | text | - | `ATALANTA_WEB_PROMPT_TEXT` | What an accepted prompt() returns (with web.dialogs: accept) |
+| `web.insecureCerts` | 1\|0 | 0 | `ATALANTA_WEB_INSECURE_CERTS` | Accept any TLS certificate in Chrome (a self-signed dev server); off by default, so a network attacker can't serve a page (that a secret is typed into) with a forged certificate |
+| `web.downloads` | deny\|a folder | deny | `ATALANTA_WEB_DOWNLOADS` | Where files the page downloads are saved (relative to the working directory); deny refuses them, with a warning naming the file |
+| `selectors.strict` | 1\|0 | 0 | `ATALANTA_SELECTORS_STRICT` | Fail a tap, press or text entry whose selector matches several elements on screen, listing them (default: act on the first and warn; while unset the warning says 1.0 makes this an error, 0 keeps today's behaviour) |
+| `actionableWaitMs` | ms | 2000 | `ATALANTA_ACTIONABLE_WAIT_MS` | Wait for a tap target to be enabled and still before acting anyway |
+| `crash.watchAfterMs` | ms | 1000 | `ATALANTA_CRASH_WATCH_AFTER_MS` | When a slow post-action settle starts checking the crash log |
+| `crash.watchEveryMs` | ms | 500 | `ATALANTA_CRASH_WATCH_EVERY_MS` | How often it checks after that |
+| `crash.checkEveryMs` | ms | 1000 | `ATALANTA_CRASH_CHECK_EVERY_MS` | How often a waiting element lookup checks for a crash, and how often a physical iPhone's crash watcher asks for the app's state (at least 250 ms) |
+| `breaker.threshold` | failures | 5 | `ATALANTA_BREAKER_THRESHOLD` | Device failures in a row before the circuit breaker opens |
+| `breaker.resetMs` | ms | 30000 | `ATALANTA_BREAKER_RESET_MS` | How long an open breaker waits before restarting the session and probing |
+| `commandTimeoutMs` | ms | 60000 | `ATALANTA_COMMAND_TIMEOUT_MS` | Longest a single adb/simctl/xcrun command may run |
+| `secrets` | VAR,VAR,… | - | `ATALANTA_SECRETS` | Extra variables whose values are masked in every report and log |
+| `nl.model` | model id | - | `ATALANTA_NL_MODEL` | Model that plans natural-language steps (default: the provider's step model, claude-haiku-5-5 for Anthropic) |
+| `nl.effort` | low\|medium\|high | low | `ATALANTA_NL_EFFORT` | Planner reasoning effort |
+| `nl.cache` | normal\|read-only\|frozen\|prune | normal | `ATALANTA_NL_CACHE` | How the natural-language plan cache is used |
+| `nl.traces` | 1\|0 | 1 | `ATALANTA_NL_TRACES` | Save planner traces for `atalanta nl-eval` |

@@ -1,4 +1,4 @@
-# A small spec for `velocity api scaffold`: a create, a read by id, a list,
+# A small spec for `atalanta api scaffold`: a create, a read by id, a list,
 # a delete, an enum, a uuid id, a date-time, `$ref`s and `allOf`, and an
 # order that needs a pet created by another resource.
 openapi: 3.0.3

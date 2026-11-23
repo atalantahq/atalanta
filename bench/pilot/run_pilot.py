@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pilot of the trust benchmark: one lane (web, android or ios) of goals.json.
 
-For each goal: `velocity explore` with a real model writes a test (5 replays,
+For each goal: `atalanta explore` with a real model writes a test (5 replays,
 the wrong-path gate, the goal-text gate), and its result is appended to
 out/runs.jsonl in score.py's format plus pilot fields. For web goals the
 written test is then replayed 3 times against the app with that goal's
@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-VELOCITY = os.environ.get("VELOCITY_BIN", str(HERE.parents[1] / "target" / "debug" / "velocity"))
+ATALANTA = os.environ.get("ATALANTA_BIN", str(HERE.parents[1] / "target" / "debug" / "atalanta"))
 OUT = HERE / "out"
 LOCK = threading.Lock()
 MUTANT_REPLAYS = 3
@@ -43,8 +43,8 @@ def explore(lane, app_id, device, g):
     d = OUT / g["id"]
     d.mkdir(parents=True, exist_ok=True)
     test = d / "test.yaml"
-    env = dict(os.environ, VELOCITY_EVENTS_FILE=str(d / "events.jsonl"))
-    cmd = [VELOCITY, "explore", g["goal"], "--app-id", app_id, "-p", lane, "-d", device,
+    env = dict(os.environ, ATALANTA_EVENTS_FILE=str(d / "events.jsonl"))
+    cmd = [ATALANTA, "explore", g["goal"], "--app-id", app_id, "-p", lane, "-d", device,
            "--out", str(test), "--force", "--json", "--no-demos",
            "--price", os.environ.get("PILOT_PRICE", "2,10"), "--max-cost", "1.5"]
     for n in g.get("data", []):
@@ -84,7 +84,7 @@ def mutant(g, test):
         for _ in range(MUTANT_REPLAYS):
             # Argument list, no shell; the values come from this script's own flags and the developer's env.
             # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
-            p = subprocess.run([VELOCITY, "run", str(test), "-p", "web"],
+            p = subprocess.run([ATALANTA, "run", str(test), "-p", "web"],
                                capture_output=True, text=True, timeout=300, cwd=test.parent)
             passes += int(p.returncode == 0)
         return passes

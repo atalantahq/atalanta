@@ -2,9 +2,9 @@
 // Assemble the npm packages for one release from its tarballs:
 //
 //   node npm/assemble.mjs --version 0.2.0 --artifacts <dir> [--out npm/dist]
-//   node npm/assemble.mjs --version 0.2.0 --binary darwin-arm64=target/release/velocity
+//   node npm/assemble.mjs --version 0.2.0 --binary darwin-arm64=target/release/atalanta
 //
-// <dir> holds velocity-<version>-<target>.tar.gz (the release assets).
+// <dir> holds atalanta-<version>-<target>.tar.gz (the release assets).
 // --binary takes a binary directly (a local build; repeatable), for testing
 // with `npm pack`. Writes <out>/cli (the launcher package, its version and
 // optionalDependencies stamped) and <out>/cli-<os>-<cpu> for every platform
@@ -60,13 +60,13 @@ fs.mkdirSync(args.out, { recursive: true });
 function binaryFor(key) {
   if (args.binaries[key]) return args.binaries[key];
   if (!args.artifacts) return null;
-  const base = `velocity-${args.version}-${TARGETS[key]}`;
+  const base = `atalanta-${args.version}-${TARGETS[key]}`;
   const tarball = path.join(args.artifacts, `${base}.tar.gz`);
   if (!fs.existsSync(tarball)) return null;
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "velocity-npm-"));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "atalanta-npm-"));
   execFileSync("tar", ["-xzf", tarball, "-C", tmp]);
-  const bin = path.join(tmp, base, "velocity");
-  if (!fs.existsSync(bin)) die(`${tarball} has no ${base}/velocity`);
+  const bin = path.join(tmp, base, "atalanta");
+  if (!fs.existsSync(bin)) die(`${tarball} has no ${base}/atalanta`);
   return bin;
 }
 
@@ -81,8 +81,8 @@ for (const [key, target] of Object.entries(TARGETS)) {
   const name = `${scope}/cli-${key}`;
   const dir = path.join(args.out, `cli-${key}`);
   fs.mkdirSync(path.join(dir, "bin"), { recursive: true });
-  fs.copyFileSync(bin, path.join(dir, "bin", "velocity"));
-  fs.chmodSync(path.join(dir, "bin", "velocity"), 0o755);
+  fs.copyFileSync(bin, path.join(dir, "bin", "atalanta"));
+  fs.chmodSync(path.join(dir, "bin", "atalanta"), 0o755);
   fs.copyFileSync(path.join(root, "LICENSE"), path.join(dir, "LICENSE"));
   fs.copyFileSync(path.join(root, "NOTICE"), path.join(dir, "NOTICE"));
   // NOTICE points at the third-party inventories by these paths.
@@ -93,28 +93,28 @@ for (const [key, target] of Object.entries(TARGETS)) {
   const pkg = {
     name,
     version: args.version,
-    description: `The velocity binary for ${key} (${target}). Install ${main.name} instead.`,
+    description: `The atalanta binary for ${key} (${target}). Install ${main.name} instead.`,
     homepage: main.homepage,
     repository: main.repository,
     license: main.license,
     os: [platform],
     cpu: [cpu],
-    files: ["bin/velocity", "LICENSE", "NOTICE", "docs/licenses"],
+    files: ["bin/atalanta", "LICENSE", "NOTICE", "docs/licenses"],
     preferUnplugged: true,
   };
   fs.writeFileSync(path.join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
-  fs.writeFileSync(path.join(dir, "README.md"), `# ${name}\n\nThe \`velocity\` binary for ${key}. Install [\`${main.name}\`](https://www.npmjs.com/package/${main.name}); it picks this package on ${key}.\n`);
+  fs.writeFileSync(path.join(dir, "README.md"), `# ${name}\n\nThe \`atalanta\` binary for ${key}. Install [\`${main.name}\`](https://www.npmjs.com/package/${main.name}); it picks this package on ${key}.\n`);
   built.push(name);
 }
 
 const cliDir = path.join(args.out, "cli");
 fs.mkdirSync(path.join(cliDir, "bin"), { recursive: true });
-fs.copyFileSync(path.join(here, "cli", "bin", "velocity.js"), path.join(cliDir, "bin", "velocity.js"));
-fs.chmodSync(path.join(cliDir, "bin", "velocity.js"), 0o755);
+fs.copyFileSync(path.join(here, "cli", "bin", "atalanta.js"), path.join(cliDir, "bin", "atalanta.js"));
+fs.chmodSync(path.join(cliDir, "bin", "atalanta.js"), 0o755);
 fs.copyFileSync(path.join(root, "LICENSE"), path.join(cliDir, "LICENSE"));
 fs.copyFileSync(path.join(here, "README.md"), path.join(cliDir, "README.md"));
 main.version = args.version;
-main.files = ["bin/velocity.js", "LICENSE", "README.md"];
+main.files = ["bin/atalanta.js", "LICENSE", "README.md"];
 for (const dep of Object.keys(main.optionalDependencies)) main.optionalDependencies[dep] = args.version;
 fs.writeFileSync(path.join(cliDir, "package.json"), `${JSON.stringify(main, null, 2)}\n`);
 

@@ -1,5 +1,5 @@
+use atalanta_common::{AtalantaError, Result};
 use tracing::debug;
-use velocity_common::{Result, VelocityError};
 
 use crate::wda::WdaClient;
 
@@ -149,7 +149,7 @@ impl WdaManager {
             }
             Err(e) => {
                 debug!(device_id, "WDA session recovery failed: {e}");
-                Err(VelocityError::WdaSessionLost {
+                Err(AtalantaError::WdaSessionLost {
                     test_name: test_name.to_string(),
                     attempt,
                     max: max_attempts,

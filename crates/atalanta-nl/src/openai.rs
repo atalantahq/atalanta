@@ -14,7 +14,7 @@
 //! Screenshots go as `image_url` data URIs (`detail: "low"` for goal turns:
 //! the screen list carries the detail). A model that rejects images
 //! degrades to text-only once, with a warning, or never gets them with
-//! `images: false` / `VELOCITY_NL_IMAGES=0`.
+//! `images: false` / `ATALANTA_NL_IMAGES=0`.
 //!
 //! Each request also asks for a bounded, cheap, repeatable answer:
 //! `max_completion_tokens`, `reasoning_effort: "low"`, `temperature: 0` and
@@ -29,8 +29,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, NaturalKind, Result};
 use serde_json::{json, Value};
-use velocity_common::{NaturalKind, Result, VelocityError};
 
 use crate::anthropic::{
     attempt_budget, fnv1a, is_retryable, retry_after, retry_delay, step_schema, SYSTEM_PROMPT,
@@ -164,7 +164,7 @@ impl OpenAiPlanner {
     /// A backend from full options (see [`OpenAiOptions`]).
     pub fn with_options(o: OpenAiOptions) -> Result<Self> {
         if !(o.endpoint.starts_with("http://") || o.endpoint.starts_with("https://")) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "the {} URL {:?} must start with http:// or https://",
                 o.service, o.endpoint
             )));
@@ -172,7 +172,7 @@ impl OpenAiPlanner {
         if cleartext_to_remote(&o.endpoint) && !matches!(o.auth, Auth::None) {
             tracing::warn!(
                 endpoint = %o.endpoint,
-                "velocity-nl: the {} key goes over plain http to a host that isn't this machine; use https",
+                "atalanta-nl: the {} key goes over plain http to a host that isn't this machine; use https",
                 o.service
             );
         }
@@ -182,7 +182,7 @@ impl OpenAiPlanner {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(LIMITS.0)
             .build()
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
         let mode = if o.mode == OutputMode::ToolCall && !o.tools {
             OutputMode::Text
         } else {
@@ -405,7 +405,7 @@ impl OpenAiPlanner {
                     if has_image && lower.contains("image") {
                         tracing::warn!(
                             model = %self.model,
-                            "velocity-nl: the model rejected the screenshot; checking with text only from now on"
+                            "atalanta-nl: the model rejected the screenshot; checking with text only from now on"
                         );
                         self.images.store(false, Ordering::Relaxed);
                         continue;
@@ -425,7 +425,7 @@ impl OpenAiPlanner {
                         let next = self.fall_back_from(mode);
                         tracing::warn!(
                             model = %self.model,
-                            "velocity-nl: the endpoint rejected {mode:?} output; using {next:?} from now on"
+                            "atalanta-nl: the endpoint rejected {mode:?} output; using {next:?} from now on"
                         );
                         self.mode.store(next.code(), Ordering::Relaxed);
                         continue;
@@ -435,7 +435,7 @@ impl OpenAiPlanner {
                 Err(Failed(e)) => return Err(e),
             }
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "{} at {} rejected every output mode for {}",
             self.service, self.endpoint, self.model
         )))
@@ -494,7 +494,7 @@ impl OpenAiPlanner {
         self.params.store(p, Ordering::Relaxed);
         tracing::warn!(
             model = %self.model,
-            "velocity-nl: the endpoint rejected {name}; not sending it from now on"
+            "atalanta-nl: the endpoint rejected {name}; not sending it from now on"
         );
         Some(*bit)
     }
@@ -514,12 +514,12 @@ impl OpenAiPlanner {
         let choice = &parsed["choices"][0];
         let message = &choice["message"];
         if let Some(refusal) = message["refusal"].as_str().filter(|r| !r.is_empty()) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "{REFUSED_REPLY}: {what:?} ({refusal})"
             )));
         }
         if choice["finish_reason"] == "length" {
-            return Err(VelocityError::Internal(anyhow::anyhow!(
+            return Err(AtalantaError::Internal(anyhow::anyhow!(
                 "{OUT_OF_TOKENS_REPLY} for step {what:?}"
             )));
         }
@@ -540,7 +540,7 @@ impl OpenAiPlanner {
         };
         match from_tool.or(from_content).filter(|t| !t.trim().is_empty()) {
             Some(t) => Ok(t),
-            None => Err(VelocityError::Config(format!(
+            None => Err(AtalantaError::Config(format!(
                 "planner returned empty content for step {what:?}"
             ))),
         }
@@ -588,7 +588,7 @@ impl OpenAiPlanner {
                             // login page, a wrong base URL): a setup problem.
                             Ok(text) => {
                                 return serde_json::from_str(&text).map_err(|e| {
-                                    Failed(VelocityError::Config(format!(
+                                    Failed(AtalantaError::Config(format!(
                                         "{} answered 200 with something that isn't a chat completion ({e}); \
                                          check the base URL",
                                         self.endpoint
@@ -621,11 +621,11 @@ impl OpenAiPlanner {
                 if attempt_budget(started.elapsed() + delay, LIMITS).is_none() {
                     break;
                 }
-                tracing::warn!(attempt, ?delay, "velocity-nl: {last_err}; retrying");
+                tracing::warn!(attempt, ?delay, "atalanta-nl: {last_err}; retrying");
                 tokio::time::sleep(delay).await;
             }
         }
-        Err(Failed(VelocityError::ServiceUnavailable {
+        Err(Failed(AtalantaError::ServiceUnavailable {
             service: service(),
             detail: format!("{last_err} (gave up after {:.0?})", started.elapsed()),
         }))
@@ -636,19 +636,19 @@ impl OpenAiPlanner {
 /// error.
 enum SendError {
     Rejected { status: u16, text: String },
-    Failed(VelocityError),
+    Failed(AtalantaError),
 }
 use SendError::{Failed, Rejected};
 
 /// A 4xx that no fallback fixes: a bad key or model is configuration
 /// (exit 2), not a test failure.
-fn client_error(service: &str, status: u16, text: &str) -> VelocityError {
+fn client_error(service: &str, status: u16, text: &str) -> AtalantaError {
     let hint = match status {
         401 | 403 => " (check the API key and its environment variable)",
         404 => " (check the base URL and the model name)",
         _ => "",
     };
-    VelocityError::Config(format!("{service} error {status}{hint}: {}", clip(text)))
+    AtalantaError::Config(format!("{service} error {status}{hint}: {}", clip(text)))
 }
 
 /// The chat-completions URL under an API base (`…/v1`); a URL that
@@ -753,8 +753,8 @@ impl ScreenChecker for OpenAiPlanner {
 pub(crate) mod tests {
     use super::*;
     use crate::planner::Op;
+    use atalanta_common::Platform;
     use std::sync::{Arc, Mutex};
-    use velocity_common::Platform;
 
     /// A scripted reply: status, extra header lines, body.
     pub(crate) type Reply = (u16, &'static str, String);
@@ -991,7 +991,7 @@ pub(crate) mod tests {
         let (base, seen) = mock(vec![r(), r(), r()]).await;
         let e = backend(&base, Some("k")).plan(&req()).await.unwrap_err();
         assert!(
-            matches!(e, VelocityError::ServiceUnavailable { .. }),
+            matches!(e, AtalantaError::ServiceUnavailable { .. }),
             "{e:?}"
         );
         assert!(e.is_transient(), "{e:?}");

@@ -1,4 +1,4 @@
-package com.velocity.tree;
+package com.atalanta.tree;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

@@ -1,26 +1,26 @@
 use std::sync::Arc;
 
+use atalanta_common::{AtalantaError, Direction, Element, Key, PlatformDriver, Result, Selector};
 use serde_json::Value;
-use velocity_common::{Direction, Element, Key, PlatformDriver, Result, Selector, VelocityError};
 
 /// The tool call's `selector`, checked: an invalid `textMatches` /
 /// `idMatches` pattern is an error, not a lookup that never matches (D-11).
 pub(crate) fn parse_selector(args: &Value) -> Result<Selector> {
     let selector_val = args
         .get("selector")
-        .ok_or_else(|| VelocityError::Config("Missing 'selector' argument".to_string()))?;
+        .ok_or_else(|| AtalantaError::Config("Missing 'selector' argument".to_string()))?;
 
     // The DSL's flat map (`{"role": "button", "name": "Pay", "enabled":
     // true}`), as a suite writes it (S1/S2), and only that: serde's tagged
     // form of `Selector` skipped the DSL's checks, so `{"enabled": true}`
     // tapped the first enabled element (review 02 H2). A ref resolves to
     // the flat form too (`refs::resolve_args`).
-    let selector: Selector = velocity_core::parser::selector_from_value(selector_val.clone())
-        .map_err(|flat| VelocityError::Config(format!("Invalid selector: {flat}")))?;
-    velocity_common::selector_match::check_patterns(&selector)
-        .map_err(|e| VelocityError::Config(format!("Invalid selector: {e}")))?;
+    let selector: Selector = atalanta_core::parser::selector_from_value(selector_val.clone())
+        .map_err(|flat| AtalantaError::Config(format!("Invalid selector: {flat}")))?;
+    atalanta_common::selector_match::check_patterns(&selector)
+        .map_err(|e| AtalantaError::Config(format!("Invalid selector: {e}")))?;
     if let Some(why) = role_problem(&selector) {
-        return Err(VelocityError::Config(format!("Invalid selector: {why}")));
+        return Err(AtalantaError::Config(format!("Invalid selector: {why}")));
     }
     Ok(selector)
 }
@@ -50,7 +50,7 @@ pub(crate) async fn find_live_for_action(
     let deadline = std::time::Instant::now() + FIND_GRACE;
     loop {
         match find_live(driver, device_id, selector).await {
-            Err(velocity_common::VelocityError::ElementNotFound { .. })
+            Err(atalanta_common::AtalantaError::ElementNotFound { .. })
                 if std::time::Instant::now() + FIND_POLL < deadline =>
             {
                 tokio::time::sleep(FIND_POLL).await;
@@ -68,7 +68,7 @@ const FIND_POLL: std::time::Duration = std::time::Duration::from_millis(250);
 /// An unknown `role:` anywhere in `selector` (S1): it would never match.
 fn role_problem(selector: &Selector) -> Option<String> {
     match selector {
-        Selector::Role(r) => velocity_core::validator::role_problem(r),
+        Selector::Role(r) => atalanta_core::validator::role_problem(r),
         Selector::Compound(parts) => parts.iter().find_map(role_problem),
         Selector::Index { selector, .. } => role_problem(selector),
         Selector::Relative { target, anchor, .. } => {
@@ -146,47 +146,47 @@ fn is_var_name(name: &str) -> bool {
 }
 
 /// `text` or `secret` (exactly one). A secret's value comes from the
-/// server's environment (or `.velocity` settings) and is registered for
+/// server's environment (or `.atalanta` settings) and is registered for
 /// masking, so it can't come back in a result, an error or a log. Only
-/// names listed in `VELOCITY_SECRETS`, or used as secrets by a suite in
+/// names listed in `ATALANTA_SECRETS`, or used as secrets by a suite in
 /// this process, can be read.
 pub fn typed_input(args: &Value) -> Result<Typed> {
     let text = args.get("text").and_then(|v| v.as_str());
     let secret = args.get("secret").and_then(|v| v.as_str());
     match (text, secret) {
-        (Some(_), Some(_)) => Err(VelocityError::Config(
+        (Some(_), Some(_)) => Err(AtalantaError::Config(
             "type_text takes 'text' or 'secret', not both".into(),
         )),
         (Some(t), None) => Ok(Typed::Text(t.to_string())),
         (None, Some(name)) => {
             if !is_var_name(name) {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "'secret' names an environment variable (letters, digits, _): {name:?}"
                 )));
             }
             // Review MAJOR 4: any variable of the server's environment
             // could be typed into a page that sends it home.
-            if !velocity_common::redact::is_allowed_secret_name(name) {
-                return Err(VelocityError::Config(format!(
-                    "secret {name} is not an allowed secret: list it in VELOCITY_SECRETS \
+            if !atalanta_common::redact::is_allowed_secret_name(name) {
+                return Err(AtalantaError::Config(format!(
+                    "secret {name} is not an allowed secret: list it in ATALANTA_SECRETS \
                      (the `secrets` setting) for type_text to read it"
                 )));
             }
-            let value = velocity_common::env::var(name)
+            let value = atalanta_common::env::var(name)
                 .ok()
                 .filter(|v| !v.is_empty())
                 .ok_or_else(|| {
-                    VelocityError::Config(format!(
+                    AtalantaError::Config(format!(
                         "secret {name} is not set in the MCP server's environment"
                     ))
                 })?;
-            velocity_common::redact::register_secret(&value);
+            atalanta_common::redact::register_secret(&value);
             Ok(Typed::Secret {
                 name: name.to_string(),
                 value,
             })
         }
-        (None, None) => Err(VelocityError::Config(
+        (None, None) => Err(AtalantaError::Config(
             "Missing 'text' (or 'secret': the name of an environment variable) argument"
                 .to_string(),
         )),
@@ -201,11 +201,11 @@ pub async fn swipe(
     let direction_str = args
         .get("direction")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| VelocityError::Config("Missing 'direction' argument".to_string()))?;
+        .ok_or_else(|| AtalantaError::Config("Missing 'direction' argument".to_string()))?;
 
     let direction: Direction =
         serde_json::from_value(Value::String(normalize_direction(direction_str))).map_err(|e| {
-            VelocityError::Config(format!(
+            AtalantaError::Config(format!(
                 "Invalid direction '{direction_str}': {e}. Use: up, down, left, right"
             ))
         })?;
@@ -223,21 +223,21 @@ pub async fn swipe(
 pub async fn press_key(
     driver: &Arc<dyn PlatformDriver>,
     device_id: &str,
-    platform: Option<velocity_common::Platform>,
+    platform: Option<atalanta_common::Platform>,
     args: &Value,
 ) -> Result<Value> {
     let key_str = args
         .get("key")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| VelocityError::Config("Missing 'key' argument".to_string()))?;
+        .ok_or_else(|| AtalantaError::Config("Missing 'key' argument".to_string()))?;
 
     let key: Key = serde_json::from_value(Value::String(normalize_key(key_str))).map_err(|e| {
-        VelocityError::Config(format!(
+        AtalantaError::Config(format!(
             "Invalid key '{key_str}': {e}. Use: back, home, enter, volumeUp, volumeDown, backspace, tab, escape, delete, arrowUp, arrowDown, arrowLeft, arrowRight"
         ))
     })?;
 
-    if key == Key::Escape && platform == Some(velocity_common::Platform::Ios) {
+    if key == Key::Escape && platform == Some(atalanta_common::Platform::Ios) {
         driver.press_key(device_id, Key::Back).await?;
         return Ok(serde_json::json!({
             "action": "press_key",

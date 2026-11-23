@@ -10,7 +10,7 @@ config:
     count: 1
   artifacts:
     on_failure: true
-    output_dir: ./velocity-results
+    output_dir: ./atalanta-results
 
 flows:
   - id: login

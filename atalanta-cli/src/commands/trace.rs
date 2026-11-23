@@ -1,11 +1,11 @@
-//! `velocity trace view <dir|report>`: open a test's `trace.html`, or an
+//! `atalanta trace view <dir|report>`: open a test's `trace.html`, or an
 //! index of every kept trace of a run.
 
 use std::path::{Path, PathBuf};
 
+use atalanta_core::trace_html::{self, IndexEntry};
 use clap::Subcommand;
 use colored::Colorize;
-use velocity_core::trace_html::{self, IndexEntry};
 
 #[derive(Subcommand)]
 pub enum TraceCommand {
@@ -13,8 +13,8 @@ pub enum TraceCommand {
     /// `steps.json` or `trace.html`, a run's artifacts folder or its
     /// `results.json` (an index of every kept trace)
     View {
-        /// What to open [default: ./velocity-results]
-        #[arg(default_value = "./velocity-results")]
+        /// What to open [default: ./atalanta-results]
+        #[arg(default_value = "./atalanta-results")]
         path: String,
 
         /// Only write and print the page; don't open a browser
@@ -94,7 +94,7 @@ fn newest_steps(dir: &Path) -> Option<PathBuf> {
 
 /// An index of the run in `results.json`, written next to it.
 fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
-    let suite = velocity_runner::reporter::json::parse_results(&std::fs::read_to_string(results)?)
+    let suite = atalanta_runner::reporter::json::parse_results(&std::fs::read_to_string(results)?)
         .map_err(|e| usage_err!("{}: not a results.json: {e}", results.display()))?;
     let dir = results.parent().unwrap_or(Path::new("."));
     let out = dir.join("trace-index.html");
@@ -103,7 +103,7 @@ fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
         let html = t
             .attachments
             .iter()
-            .find(|a| a.kind == velocity_common::AttachmentKind::Trace)
+            .find(|a| a.kind == atalanta_common::AttachmentKind::Trace)
             .map(|a| a.path.clone())
             .or_else(|| {
                 // `results.json` names the trace; write a page only for one
@@ -124,11 +124,11 @@ fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
             error: t
                 .error_message
                 .clone()
-                .map(|e| velocity_common::redact::redact(&e).into_owned()),
+                .map(|e| atalanta_common::redact::redact(&e).into_owned()),
             attachments: t
                 .attachments
                 .iter()
-                .filter(|a| a.kind != velocity_common::AttachmentKind::Trace)
+                .filter(|a| a.kind != atalanta_common::AttachmentKind::Trace)
                 .map(|a| (a.title().to_string(), trace_html::relative(&a.path, dir)))
                 .collect(),
         });
@@ -136,9 +136,9 @@ fn index_from_results(results: &Path) -> anyhow::Result<PathBuf> {
     if entries.is_empty() {
         usage_bail!("{} lists no test with a kept trace", results.display());
     }
-    velocity_common::fsutil::write_atomic(
+    atalanta_common::fsutil::write_atomic(
         &out,
-        trace_html::render_index("Velocity traces", &entries).as_bytes(),
+        trace_html::render_index("Atalanta traces", &entries).as_bytes(),
     )?;
     Ok(out)
 }
@@ -156,7 +156,7 @@ fn index_from_folders(traces: &Path, out: &Path) -> anyhow::Result<PathBuf> {
         let Some(steps) = newest_steps(&d) else {
             continue;
         };
-        let Ok((trace, _)) = velocity_core::trace::load_trace(&steps) else {
+        let Ok((trace, _)) = atalanta_core::trace::load_trace(&steps) else {
             continue;
         };
         let html = trace_html::write_for_steps(&steps)?;
@@ -177,9 +177,9 @@ fn index_from_folders(traces: &Path, out: &Path) -> anyhow::Result<PathBuf> {
     if entries.is_empty() {
         usage_bail!("no trace in {}", traces.display());
     }
-    velocity_common::fsutil::write_atomic(
+    atalanta_common::fsutil::write_atomic(
         out,
-        trace_html::render_index("Velocity traces", &entries).as_bytes(),
+        trace_html::render_index("Atalanta traces", &entries).as_bytes(),
     )?;
     Ok(out.to_path_buf())
 }
@@ -206,9 +206,9 @@ mod tests {
 
     #[test]
     fn a_trace_folder_gets_its_page_and_a_run_its_index() {
-        use velocity_common::{StepResult, StepStatus, TestStatus, TraceMode};
+        use atalanta_common::{StepResult, StepStatus, TestStatus, TraceMode};
         let root = tempfile::tempdir().unwrap();
-        let mut rec = velocity_core::trace::TraceRecorder::new(TraceMode::OnFailure);
+        let mut rec = atalanta_core::trace::TraceRecorder::new(TraceMode::OnFailure);
         rec.begin_test();
         rec.begin_step(0, "tap { text: \"Pay\" }".into(), None);
         rec.end_step(

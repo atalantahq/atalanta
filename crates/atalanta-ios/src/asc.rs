@@ -9,19 +9,19 @@
 //! It never revokes certificates or deletes profiles: on a shared team that
 //! would break other developers' signing.
 //!
-//! The key comes from `VELOCITY_ASC_KEY_PATH` (the `.p8` file),
-//! `VELOCITY_ASC_KEY_ID` and `VELOCITY_ASC_ISSUER_ID` (App Store Connect →
+//! The key comes from `ATALANTA_ASC_KEY_PATH` (the `.p8` file),
+//! `ATALANTA_ASC_KEY_ID` and `ATALANTA_ASC_ISSUER_ID` (App Store Connect →
 //! Users and Access → Integrations → App Store Connect API). Neither the key
 //! nor the tokens made from it are logged.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use atalanta_common::{AtalantaError, Result};
 use base64::Engine;
 use ring::rand::SystemRandom;
 use ring::signature::{EcdsaKeyPair, ECDSA_P256_SHA256_FIXED_SIGNING};
 use serde_json::{json, Value};
-use velocity_common::{Result, VelocityError};
 
 const API: &str = "https://api.appstoreconnect.apple.com";
 /// Apple accepts tokens that live at most 20 minutes.
@@ -48,7 +48,7 @@ impl std::fmt::Debug for AscKey {
     }
 }
 
-/// Where the key's three parts come from (`VELOCITY_ASC_*`), when all are set.
+/// Where the key's three parts come from (`ATALANTA_ASC_*`), when all are set.
 #[derive(Debug, Clone)]
 pub struct AscKeyRef {
     pub path: PathBuf,
@@ -60,14 +60,14 @@ impl AscKeyRef {
     /// `None` when no part is set; an error when only some are.
     pub fn from_env() -> Result<Option<Self>> {
         let get = |k: &str| {
-            velocity_common::env::var(k)
+            atalanta_common::env::var(k)
                 .ok()
                 .filter(|v| !v.trim().is_empty())
         };
         let (path, key_id, issuer) = (
-            get("VELOCITY_ASC_KEY_PATH"),
-            get("VELOCITY_ASC_KEY_ID"),
-            get("VELOCITY_ASC_ISSUER_ID"),
+            get("ATALANTA_ASC_KEY_PATH"),
+            get("ATALANTA_ASC_KEY_ID"),
+            get("ATALANTA_ASC_ISSUER_ID"),
         );
         match (path, key_id, issuer) {
             (None, None, None) => Ok(None),
@@ -77,8 +77,8 @@ impl AscKeyRef {
                 issuer_id,
             })),
             _ => Err(config(
-                "App Store Connect key: set all of VELOCITY_ASC_KEY_PATH, VELOCITY_ASC_KEY_ID \
-                 and VELOCITY_ASC_ISSUER_ID, or none",
+                "App Store Connect key: set all of ATALANTA_ASC_KEY_PATH, ATALANTA_ASC_KEY_ID \
+                 and ATALANTA_ASC_ISSUER_ID, or none",
             )),
         }
     }
@@ -187,7 +187,7 @@ pub struct AscClient {
 
 impl AscClient {
     pub fn new(key: AscKey) -> Self {
-        let base = velocity_common::env::var("VELOCITY_ASC_API_URL").unwrap_or_else(|_| API.into());
+        let base = atalanta_common::env::var("ATALANTA_ASC_API_URL").unwrap_or_else(|_| API.into());
         Self {
             key,
             http: reqwest::Client::builder()
@@ -459,23 +459,23 @@ fn backoff(attempt: u32, retry_after: Option<u64>) -> std::time::Duration {
     }
 }
 
-fn unavailable(detail: String) -> VelocityError {
-    VelocityError::ServiceUnavailable {
+fn unavailable(detail: String) -> AtalantaError {
+    AtalantaError::ServiceUnavailable {
         service: "App Store Connect".into(),
         detail,
     }
 }
 
-fn config(msg: &str) -> VelocityError {
-    VelocityError::Config(msg.to_string())
+fn config(msg: &str) -> AtalantaError {
+    AtalantaError::Config(msg.to_string())
 }
 
 /// Apple's error (`errors[0]`) as a readable message.
-fn api_error(status: u16, body: &Value) -> VelocityError {
+fn api_error(status: u16, body: &Value) -> AtalantaError {
     let detail = error_detail(body);
     let hint = match status {
         401 => {
-            " (check VELOCITY_ASC_KEY_ID / VELOCITY_ASC_ISSUER_ID and that the key isn't revoked)"
+            " (check ATALANTA_ASC_KEY_ID / ATALANTA_ASC_ISSUER_ID and that the key isn't revoked)"
         }
         403 => " (the key's role can't do this: it needs Admin or App Manager / Developer access)",
         _ => "",
@@ -671,14 +671,14 @@ mod tests {
     #[test]
     fn a_bundle_id_must_match_exactly_not_by_prefix() {
         let list = json!({ "data": [
-            { "id": "A1", "attributes": { "identifier": "com.acme.velocity.WebDriverAgentRunner.extra" } },
-            { "id": "B2", "attributes": { "identifier": "com.acme.velocity.WebDriverAgentRunner" } }
+            { "id": "A1", "attributes": { "identifier": "com.acme.atalanta.WebDriverAgentRunner.extra" } },
+            { "id": "B2", "attributes": { "identifier": "com.acme.atalanta.WebDriverAgentRunner" } }
         ] });
         assert_eq!(
-            exact_bundle_id(&list, "com.acme.velocity.WebDriverAgentRunner").as_deref(),
+            exact_bundle_id(&list, "com.acme.atalanta.WebDriverAgentRunner").as_deref(),
             Some("B2")
         );
-        assert_eq!(exact_bundle_id(&list, "com.acme.velocity"), None);
+        assert_eq!(exact_bundle_id(&list, "com.acme.atalanta"), None);
     }
 
     #[test]
@@ -694,7 +694,7 @@ mod tests {
         ] }));
         assert_eq!(certs[0].id, "C1");
         let body = profile_body(
-            "Velocity runner",
+            "Atalanta runner",
             "B2",
             &["C1".into()],
             &["D1".into(), "D2".into()],
@@ -719,7 +719,7 @@ mod tests {
         let body = json!({ "errors": [ { "title": "Authentication credentials are missing or invalid." } ] });
         let e = api_error(401, &body).to_string();
         assert!(
-            e.contains("401") && e.contains("VELOCITY_ASC_KEY_ID"),
+            e.contains("401") && e.contains("ATALANTA_ASC_KEY_ID"),
             "{e}"
         );
         let e = api_error(403, &json!({ "errors": [ { "detail": "forbidden" } ] })).to_string();
@@ -778,18 +778,18 @@ mod tests {
         let f = FakeWda::start(|_| Resp::Json(503, "{}".into())).await;
         let e = client(&f.url).devices().await.unwrap_err();
         assert!(
-            matches!(e, VelocityError::ServiceUnavailable { .. }),
+            matches!(e, AtalantaError::ServiceUnavailable { .. }),
             "{e:?}"
         );
         assert_eq!(f.count("GET", "/v1/devices"), ATTEMPTS as usize);
-        assert_eq!(e.kind(), velocity_common::ErrorKind::ConnectionLost);
+        assert_eq!(e.kind(), atalanta_common::ErrorKind::ConnectionLost);
         // A POST that may have been acted on is not repeated.
         let e = client(&f.url)
             .create_development_profile("p", "B", &[], &[])
             .await
             .unwrap_err();
         assert!(
-            matches!(e, VelocityError::ServiceUnavailable { .. }),
+            matches!(e, AtalantaError::ServiceUnavailable { .. }),
             "{e:?}"
         );
         assert_eq!(f.count("POST", "/v1/profiles"), 1);

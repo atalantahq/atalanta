@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
+use atalanta_common::{AtalantaError, PlatformDriver, Result, TestSuite};
+use atalanta_core::{parse_suite, resolve_flows, TestExecutor};
 use serde_json::Value;
-use velocity_common::{PlatformDriver, Result, TestSuite, VelocityError};
-use velocity_core::{parse_suite, resolve_flows, TestExecutor};
 
 fn load_suite(config_path: &Option<String>) -> Result<TestSuite> {
-    let path = config_path.as_deref().unwrap_or("velocity.yaml");
+    let path = config_path.as_deref().unwrap_or("atalanta.yaml");
     parse_suite(path)
 }
 
-/// The suite as `velocity run` executes it: `${VAR}` filled in from the
+/// The suite as `atalanta run` executes it: `${VAR}` filled in from the
 /// server's environment, which also registers secret-looking values for
 /// redaction. Without this `${PASSWORD}` was typed literally (VEL-088).
 fn load_runnable_suite(config_path: &Option<String>) -> Result<TestSuite> {
     let mut suite = load_suite(config_path)?;
-    velocity_core::env::interpolate_suite(&mut suite, &Default::default())?;
+    atalanta_core::env::interpolate_suite(&mut suite, &Default::default())?;
     Ok(suite)
 }
 
@@ -46,13 +46,13 @@ pub async fn run_flow(
     let flow_id = args
         .get("id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| VelocityError::Config("Missing 'id' argument".to_string()))?;
+        .ok_or_else(|| AtalantaError::Config("Missing 'id' argument".to_string()))?;
 
     // `env`: the runFlow parameters, as a test's `runFlow: { flow, env }`.
     let mut env = std::collections::BTreeMap::new();
     if let Some(map) = args.get("env") {
         let map = map.as_object().ok_or_else(|| {
-            VelocityError::Config("'env' must be an object of strings".to_string())
+            AtalantaError::Config("'env' must be an object of strings".to_string())
         })?;
         for (k, v) in map {
             let v = match v {
@@ -60,7 +60,7 @@ pub async fn run_flow(
                 Value::Number(n) if n.is_i64() || n.is_u64() => n.to_string(),
                 Value::Bool(b) => b.to_string(),
                 _ => {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "env {k}: give a string (or a whole number, true or false)"
                     )))
                 }
@@ -71,7 +71,7 @@ pub async fn run_flow(
 
     let suite = load_runnable_suite(config_path)?;
     if !suite.flows.iter().any(|f| f.id == flow_id) {
-        return Err(VelocityError::UnknownFlowRef {
+        return Err(AtalantaError::UnknownFlowRef {
             flow_id: flow_id.to_string(),
             test_name: "<mcp>".to_string(),
         });
@@ -82,13 +82,13 @@ pub async fn run_flow(
     // are inlined; a parameter with no value is an error, never a literal
     // `${NAME}` typed into the app.
     let steps = resolve_flows(&TestSuite {
-        tests: vec![velocity_common::TestCase {
+        tests: vec![atalanta_common::TestCase {
             name: format!("flow {flow_id}"),
             tags: vec![],
             isolated: false,
             depends_on: vec![],
-            steps: vec![velocity_common::Step {
-                action: velocity_common::Action::RunFlow {
+            steps: vec![atalanta_common::Step {
+                action: atalanta_common::Action::RunFlow {
                     flow_id: flow_id.to_string(),
                     env,
                 },
@@ -110,7 +110,7 @@ pub async fn run_flow(
     for (i, step) in steps.iter().enumerate() {
         match executor.execute_step(step, device_id, app_id, i).await {
             Ok(result) => {
-                let passed = result.status == velocity_common::StepStatus::Passed;
+                let passed = result.status == atalanta_common::StepStatus::Passed;
                 results.push(serde_json::json!({
                     "step": i,
                     "action": result.action_name,
@@ -168,17 +168,17 @@ pub async fn run_test(
     let test_name = args
         .get("name")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| VelocityError::Config("Missing 'name' argument".to_string()))?;
+        .ok_or_else(|| AtalantaError::Config("Missing 'name' argument".to_string()))?;
 
     let suite = load_runnable_suite(config_path)?;
-    // Inline `runFlow` steps first, as `velocity run` does: the raw test
+    // Inline `runFlow` steps first, as `atalanta run` does: the raw test
     // failed at its first `runFlow` ("flows must be resolved before
     // execution"), so any test built on a shared flow couldn't run here.
     let tests = resolve_flows(&suite)?;
     let test = tests
         .iter()
         .find(|t| t.name == test_name)
-        .ok_or_else(|| VelocityError::Config(format!("Test '{test_name}' not found in suite")))?;
+        .ok_or_else(|| AtalantaError::Config(format!("Test '{test_name}' not found in suite")))?;
 
     let app_id = &suite.app_id;
     let mut executor = TestExecutor::new(driver.as_ref(), suite.config.clone(), &suite.app_id);
@@ -201,9 +201,9 @@ pub async fn run_test(
 #[derive(Default)]
 pub struct SkeletonSource<'a> {
     pub recorder: Option<&'a crate::recording::Recorder>,
-    pub screen: Option<&'a velocity_common::Element>,
-    pub screen_rect: Option<velocity_common::Rect>,
-    pub platform: Option<velocity_common::Platform>,
+    pub screen: Option<&'a atalanta_common::Element>,
+    pub screen_rect: Option<atalanta_common::Rect>,
+    pub platform: Option<atalanta_common::Platform>,
 }
 
 /// A test from the session: its recorded actions (with their assertions)
@@ -271,7 +271,7 @@ pub fn generate_test_skeleton(
             (steps, "recorded")
         }
         (_, Some(tree)) => {
-            let platform = from.platform.unwrap_or(velocity_common::Platform::Android);
+            let platform = from.platform.unwrap_or(atalanta_common::Platform::Android);
             let rect = from.screen_rect;
             let mut steps = vec![launch()];
             if let Some(sel) = pick_assertion(None, tree, rect.as_ref(), platform, &[]) {
@@ -340,16 +340,16 @@ mod tests {
             &None,
             &serde_json::json!({
                 "description": "Log in, see welcome!",
-                "app_id": "com.velocity.lab"
+                "app_id": "com.atalanta.lab"
             }),
             Default::default(),
         )
         .unwrap();
         let yaml = out["yaml"].as_str().unwrap();
-        let suite = velocity_core::parser::parse_suite_from_str(yaml)
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml)
             .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
-        velocity_core::validate_suite(&suite).unwrap();
-        assert_eq!(suite.app_id, "com.velocity.lab");
+        atalanta_core::validate_suite(&suite).unwrap();
+        assert_eq!(suite.app_id, "com.atalanta.lab");
         assert_eq!(suite.tests[0].name, "log_in_see_welcome");
         assert_eq!(suite.tests[0].steps.len(), 2);
     }
@@ -368,9 +368,9 @@ mod tests {
         )
         .unwrap();
         let yaml = out["yaml"].as_str().unwrap();
-        let suite = velocity_core::parser::parse_suite_from_str(yaml)
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml)
             .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
-        velocity_core::validate_suite(&suite).unwrap();
+        atalanta_core::validate_suite(&suite).unwrap();
         assert_eq!(suite.app_id, "com.app # not a comment: {");
         assert_eq!(suite.tests.len(), 1);
         assert_eq!(suite.tests[0].steps.len(), 2);
@@ -388,9 +388,9 @@ mod tests {
             )
             .unwrap();
             let yaml = out["yaml"].as_str().unwrap();
-            let suite = velocity_core::parser::parse_suite_from_str(yaml)
+            let suite = atalanta_core::parser::parse_suite_from_str(yaml)
                 .unwrap_or_else(|e| panic!("{sep:?}: {e}\n{yaml}"));
-            velocity_core::validate_suite(&suite).unwrap();
+            atalanta_core::validate_suite(&suite).unwrap();
             assert_eq!(suite.app_id, "com.app", "{sep:?}");
             assert_eq!(suite.tests.len(), 1, "{sep:?}");
             assert_eq!(suite.tests[0].steps.len(), 2, "{sep:?}");
@@ -402,7 +402,7 @@ mod tests {
     fn runnable_suite_is_interpolated() {
         let d = std::env::temp_dir().join(format!("vel-mcp-interp-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
-        let path = d.join("velocity.yaml");
+        let path = d.join("atalanta.yaml");
         std::fs::write(
             &path,
             "appId: ${VEL088_APP:-com.interpolated}\ntests:\n- name: t\n  steps:\n  - launchApp: {}\n",

@@ -2,12 +2,12 @@
 //! that failed (U1).
 //!
 //! A baseline is
-//! `<suite dir>/velocity-baselines/<platform>[-headless]/<W>x<H>/<file>`
+//! `<suite dir>/atalanta-baselines/<platform>[-headless]/<W>x<H>/<file>`
 //! ([`baseline_path`]; `W`x`H` is the device's full capture). A failed
 //! comparison leaves `<stem>-expected.png`, `<stem>-actual.png` and
 //! `<stem>-diff.png` in `<results dir>/diffs`, plus a `<stem>-review.json`
 //! record naming the baseline the step compared against, so a reviewer
-//! (`velocity baselines`, the inspector's `/review` page) can replace it
+//! (`atalanta baselines`, the inspector's `/review` page) can replace it
 //! with the actual frame without re-resolving the suite's layout.
 
 use std::path::{Component, Path, PathBuf};
@@ -15,7 +15,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// The folder under a suite's directory that holds its baselines.
-pub const BASELINES_DIR: &str = "velocity-baselines";
+pub const BASELINES_DIR: &str = "atalanta-baselines";
 
 /// Suffix of the record a failed comparison leaves next to its images.
 const RECORD_SUFFIX: &str = "-review.json";
@@ -58,7 +58,7 @@ pub fn baseline_space(platform: &str, headless: bool) -> String {
 }
 
 /// Where `assertScreenshot(name)` writes its baseline for a `w`x`h`
-/// capture: `<suite_dir>/velocity-baselines/<space>/<W>x<H>/<file>`.
+/// capture: `<suite_dir>/atalanta-baselines/<space>/<W>x<H>/<file>`.
 pub fn baseline_path(suite_dir: &Path, space: &str, (w, h): (u32, u32), name: &str) -> PathBuf {
     suite_dir
         .join(BASELINES_DIR)
@@ -208,7 +208,7 @@ pub struct PendingBaseline {
 }
 
 /// A baseline path a record may name: an absolute `.png` path under a
-/// `velocity-baselines` folder, with no `..`. A results dir is plain files
+/// `atalanta-baselines` folder, with no `..`. A results dir is plain files
 /// anyone can write, so accepting never writes anywhere else (and
 /// [`accept_into`] checks the real, symlink-resolved target too).
 fn plausible_baseline(p: &Path) -> bool {
@@ -261,7 +261,7 @@ fn walk(root: &Path, dir: &Path, depth: usize, out: &mut Vec<PendingBaseline>) {
             tracing::warn!(
                 record = %path.display(),
                 baseline = %record.baseline.display(),
-                "ignoring a review record whose baseline isn't under velocity-baselines/"
+                "ignoring a review record whose baseline isn't under atalanta-baselines/"
             );
             continue;
         }
@@ -328,7 +328,7 @@ pub fn accept(p: &PendingBaseline) -> Result<PathBuf, AcceptError> {
     accept_into(p, None)
 }
 
-/// The part of `baseline` after its last `velocity-baselines` folder
+/// The part of `baseline` after its last `atalanta-baselines` folder
 /// (`ios/1179x2556/home.png`).
 fn under_baselines_dir(baseline: &Path) -> Option<PathBuf> {
     let parts: Vec<Component> = baseline.components().collect();
@@ -336,7 +336,7 @@ fn under_baselines_dir(baseline: &Path) -> Option<PathBuf> {
     Some(parts[at + 1..].iter().collect())
 }
 
-/// The `velocity-baselines` folder `baseline` sits in (its path up to and
+/// The `atalanta-baselines` folder `baseline` sits in (its path up to and
 /// including the last such component).
 fn baselines_root_of(baseline: &Path) -> Option<PathBuf> {
     let parts: Vec<Component> = baseline.components().collect();
@@ -346,7 +346,7 @@ fn baselines_root_of(baseline: &Path) -> Option<PathBuf> {
 
 /// Create `target`'s parent folders and check that they resolve (symlinks
 /// followed) inside `root`. A results dir from CI is plain files anyone
-/// can write, and so is a checkout: a symlinked `velocity-baselines/ios`
+/// can write, and so is a checkout: a symlinked `atalanta-baselines/ios`
 /// must not turn an accept into a write elsewhere.
 fn checked_parent(root: &Path, target: &Path) -> Result<(), String> {
     let refuse = |why: String| Err(format!("refusing to write {}: {why}", target.display()));
@@ -401,7 +401,7 @@ fn checked_parent(root: &Path, target: &Path) -> Result<(), String> {
 /// recorded frame is out of date. By content: the record's
 /// [`ReviewRecord::baseline_hash`] against the target's now (with
 /// `--baselines-dir`, the file in that folder), which holds across
-/// machines and checkouts. A record without a hash (older Velocity) falls
+/// machines and checkouts. A record without a hash (older Atalanta) falls
 /// back to "the baseline's mtime is newer than the record's", with a
 /// warning: that is only meaningful on the machine that ran the test.
 fn changed_since_record(p: &PendingBaseline, target: &Path) -> bool {
@@ -410,7 +410,7 @@ fn changed_since_record(p: &PendingBaseline, target: &Path) -> bool {
     }
     tracing::warn!(
         record = %p.record.display(),
-        "review record has no baseline hash (written by an older Velocity): judging staleness \
+        "review record has no baseline hash (written by an older Atalanta): judging staleness \
          by modification times, which a checkout or unzip changes; re-run to record a hash"
     );
     let modified = |path: &Path| std::fs::metadata(path).and_then(|m| m.modified()).ok();
@@ -420,13 +420,13 @@ fn changed_since_record(p: &PendingBaseline, target: &Path) -> bool {
     }
 }
 
-/// [`accept`], but into the `velocity-baselines` folder `root` when given,
+/// [`accept`], but into the `atalanta-baselines` folder `root` when given,
 /// at the same `<platform>/<W>x<H>/<file>` the run used. For artifacts
 /// from another machine (a CI runner), whose absolute paths don't exist
 /// here. Returns the path written.
 ///
 /// The target must resolve inside `root` (or, without one, inside the
-/// `velocity-baselines` folder the record names) with no symlinked
+/// `atalanta-baselines` folder the record names) with no symlinked
 /// folder on the way. A baseline whose content changed after the
 /// comparison was recorded is skipped ([`AcceptError::Stale`]) and its
 /// record kept.
@@ -489,7 +489,7 @@ fn accept_target(
         None => {
             let root = baselines_root_of(&p.baseline).ok_or_else(|| {
                 failed(format!(
-                    "{} isn't under velocity-baselines/",
+                    "{} isn't under atalanta-baselines/",
                     p.baseline.display()
                 ))
             })?;
@@ -500,7 +500,7 @@ fn accept_target(
                 .map_err(|e| failed(format!("can't resolve {}: {e}", root.display())))?;
             let under = under_baselines_dir(&p.baseline).ok_or_else(|| {
                 failed(format!(
-                    "{} isn't under velocity-baselines/",
+                    "{} isn't under atalanta-baselines/",
                     p.baseline.display()
                 ))
             })?;
@@ -550,7 +550,7 @@ mod tests {
     fn baseline_path_is_the_documented_layout() {
         assert_eq!(
             baseline_path(Path::new("suite"), "ios", (1179, 2556), "home"),
-            Path::new("suite/velocity-baselines/ios/1179x2556/home.png")
+            Path::new("suite/atalanta-baselines/ios/1179x2556/home.png")
         );
         assert_eq!(baseline_space("android", true), "android-headless");
         assert_eq!(baseline_file("cart total"), baseline_file("cart total"));
@@ -564,7 +564,7 @@ mod tests {
         let diffs = results.join("diffs");
         let baseline = tmp
             .path()
-            .join("suite/velocity-baselines/ios/10x10/home.png");
+            .join("suite/atalanta-baselines/ios/10x10/home.png");
         std::fs::create_dir_all(baseline.parent().unwrap()).unwrap();
         std::fs::write(&baseline, png(10, 10, 0)).unwrap();
         std::fs::create_dir_all(&diffs).unwrap();
@@ -604,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn a_record_naming_a_file_outside_velocity_baselines_is_ignored() {
+    fn a_record_naming_a_file_outside_atalanta_baselines_is_ignored() {
         let tmp = tempfile::tempdir().unwrap();
         let diffs = tmp.path().join("diffs");
         std::fs::create_dir_all(&diffs).unwrap();
@@ -612,8 +612,8 @@ mod tests {
         std::fs::write(diffs.join("x-actual.png"), png(1, 1, 0)).unwrap();
         for target in [
             tmp.path().join("victim.png"),
-            tmp.path().join("velocity-baselines/../victim.png"),
-            tmp.path().join("velocity-baselines/ios/1x1/x.sh"),
+            tmp.path().join("atalanta-baselines/../victim.png"),
+            tmp.path().join("atalanta-baselines/ios/1x1/x.sh"),
         ] {
             record_failure(
                 &diffs,
@@ -640,13 +640,13 @@ mod tests {
         // As a CI runner recorded it: a path that doesn't exist here.
         let rec = ReviewRecord {
             name: "a".into(),
-            baseline: "/home/runner/work/app/suite/velocity-baselines/ios/4x4/a.png".into(),
+            baseline: "/home/runner/work/app/suite/atalanta-baselines/ios/4x4/a.png".into(),
             detail: String::new(),
             baseline_hash: None,
         };
         record_failure(&diffs, "a.png", &rec).unwrap();
         let list = pending(&tmp.path().join("r"));
-        let root = tmp.path().join("checkout/velocity-baselines");
+        let root = tmp.path().join("checkout/atalanta-baselines");
         let written = accept_into(&list[0], Some(&root)).unwrap();
         assert_eq!(written, root.join("ios/4x4/a.png"));
         assert_eq!(std::fs::read(&written).unwrap(), png(4, 4, 1));
@@ -656,7 +656,7 @@ mod tests {
     fn reject_keeps_the_baseline() {
         let tmp = tempfile::tempdir().unwrap();
         let diffs = tmp.path().join("r/diffs");
-        let baseline = tmp.path().join("velocity-baselines/web/4x4/a.png");
+        let baseline = tmp.path().join("atalanta-baselines/web/4x4/a.png");
         std::fs::create_dir_all(&diffs).unwrap();
         std::fs::write(diffs.join("a-expected.png"), png(4, 4, 0)).unwrap();
         std::fs::write(diffs.join("a-actual.png"), png(4, 4, 1)).unwrap();
@@ -706,7 +706,7 @@ mod tests {
         // fi56 MAJOR 1: accepting an old record wrote its frame over a
         // baseline re-recorded since.
         let tmp = tempfile::tempdir().unwrap();
-        let baseline = tmp.path().join("suite/velocity-baselines/ios/4x4/a.png");
+        let baseline = tmp.path().join("suite/atalanta-baselines/ios/4x4/a.png");
         std::fs::create_dir_all(baseline.parent().unwrap()).unwrap();
         std::fs::write(&baseline, png(4, 4, 0)).unwrap();
         let p = recorded(&tmp.path().join("r"), &baseline);
@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(std::fs::read(&baseline).unwrap(), png(4, 4, 7));
         assert!(p.record.is_file(), "the record is kept");
         // Into another checkout, the target there is what's compared.
-        let root = tmp.path().join("checkout/velocity-baselines");
+        let root = tmp.path().join("checkout/atalanta-baselines");
         let there = root.join("ios/4x4/a.png");
         std::fs::create_dir_all(there.parent().unwrap()).unwrap();
         std::fs::write(&there, png(4, 4, 9)).unwrap();
@@ -745,7 +745,7 @@ mod tests {
     #[test]
     fn staleness_is_by_content_not_mtime_across_checkouts() {
         let tmp = tempfile::tempdir().unwrap();
-        let ci = Path::new("/home/runner/work/app/velocity-baselines/ios/4x4/a.png");
+        let ci = Path::new("/home/runner/work/app/atalanta-baselines/ios/4x4/a.png");
         // What CI compared against, hashed on CI.
         let p = {
             let diffs = tmp.path().join("artifact/diffs");
@@ -766,7 +766,7 @@ mod tests {
         let now = std::time::SystemTime::now();
         let day = std::time::Duration::from_secs(86_400);
         set_mtime(&p.record, now - day); // unzip restored CI's time
-        let root = tmp.path().join("checkout/velocity-baselines");
+        let root = tmp.path().join("checkout/atalanta-baselines");
         let here = root.join("ios/4x4/a.png");
         std::fs::create_dir_all(here.parent().unwrap()).unwrap();
         std::fs::write(&here, png(4, 4, 0)).unwrap();
@@ -805,7 +805,7 @@ mod tests {
     #[test]
     fn a_legacy_record_without_a_hash_falls_back_to_mtimes() {
         let tmp = tempfile::tempdir().unwrap();
-        let baseline = tmp.path().join("suite/velocity-baselines/ios/4x4/a.png");
+        let baseline = tmp.path().join("suite/atalanta-baselines/ios/4x4/a.png");
         std::fs::create_dir_all(baseline.parent().unwrap()).unwrap();
         std::fs::write(&baseline, png(4, 4, 0)).unwrap();
         let diffs = tmp.path().join("r/diffs");
@@ -830,10 +830,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let small = tmp
             .path()
-            .join("suite/velocity-baselines/android/720x1280/home.png");
+            .join("suite/atalanta-baselines/android/720x1280/home.png");
         let big = tmp
             .path()
-            .join("suite/velocity-baselines/android/1080x2400/home.png");
+            .join("suite/atalanta-baselines/android/1080x2400/home.png");
         let p = recorded(&tmp.path().join("r"), &small);
         let diffs = tmp.path().join("r/diffs");
         clear_record(&diffs, "home.png", &[&big]);
@@ -849,7 +849,7 @@ mod tests {
     fn clear_record_matches_another_spelling_of_the_same_baseline() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join("app")).unwrap();
-        let rel = "velocity-baselines/ios/1x1/a.png";
+        let rel = "atalanta-baselines/ios/1x1/a.png";
         let plain = tmp.path().join("flows").join(rel);
         let dotted = tmp.path().join("app/../flows").join(rel);
         for exists in [false, true] {
@@ -916,7 +916,7 @@ mod tests {
         std::fs::write(diffs.join("x-expected.png"), png(1, 1, 0)).unwrap();
         std::fs::write(diffs.join("x-actual.png"), png(1, 1, 0)).unwrap();
         // record_failure makes paths absolute; a crafted record needn't.
-        let json = br#"{"name":"x","baseline":"velocity-baselines/ios/1x1/x.png"}"#;
+        let json = br#"{"name":"x","baseline":"atalanta-baselines/ios/1x1/x.png"}"#;
         std::fs::write(diffs.join("x-review.json"), json).unwrap();
         assert!(pending(tmp.path()).is_empty());
     }
@@ -927,12 +927,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let elsewhere = tmp.path().join("Pictures");
         std::fs::create_dir_all(elsewhere.join("4x4")).unwrap();
-        let root = tmp.path().join("checkout/velocity-baselines");
+        let root = tmp.path().join("checkout/atalanta-baselines");
         std::fs::create_dir_all(&root).unwrap();
         std::os::unix::fs::symlink(&elsewhere, root.join("ios")).unwrap();
         let p = recorded(
             &tmp.path().join("r"),
-            Path::new("/home/runner/work/app/velocity-baselines/ios/4x4/a.png"),
+            Path::new("/home/runner/work/app/atalanta-baselines/ios/4x4/a.png"),
         );
         let e = accept_into(&p, Some(&root)).unwrap_err();
         assert!(e.to_string().contains("symlink"), "{e}");
@@ -943,7 +943,7 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, suite.join(BASELINES_DIR)).unwrap();
         let p = recorded(
             &tmp.path().join("r2"),
-            &suite.join("velocity-baselines/4x4/a.png"),
+            &suite.join("atalanta-baselines/4x4/a.png"),
         );
         let e = accept(&p).unwrap_err();
         assert!(e.to_string().contains("symlink"), "{e}");
@@ -955,7 +955,7 @@ mod tests {
         // Two shards failed on one baseline: accepting the first must not
         // make the second look newer-than-its-record.
         let tmp = tempfile::tempdir().unwrap();
-        let baseline = tmp.path().join("suite/velocity-baselines/ios/4x4/a.png");
+        let baseline = tmp.path().join("suite/atalanta-baselines/ios/4x4/a.png");
         std::fs::create_dir_all(baseline.parent().unwrap()).unwrap();
         std::fs::write(&baseline, png(4, 4, 0)).unwrap();
         set_mtime(

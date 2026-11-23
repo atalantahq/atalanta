@@ -43,7 +43,7 @@ final class TimerTracker {
         Self.swizzle(
             cls: Timer.self,
             original: #selector(Timer.scheduledTimer(withTimeInterval:repeats:block:) as (TimeInterval, Bool, @escaping (Timer) -> Void) -> Timer),
-            replacement: #selector(Timer.velocity_scheduledTimer(withTimeInterval:repeats:block:))
+            replacement: #selector(Timer.atalanta_scheduledTimer(withTimeInterval:repeats:block:))
         )
         // The target/selector API (`scheduledTimer(timeInterval:target:
         // selector:userInfo:repeats:)`) is what Objective-C code and most
@@ -51,7 +51,7 @@ final class TimerTracker {
         Self.swizzle(
             cls: Timer.self,
             original: #selector(Timer.scheduledTimer(timeInterval:target:selector:userInfo:repeats:)),
-            replacement: #selector(Timer.velocity_scheduledTimer(timeInterval:target:selector:userInfo:repeats:))
+            replacement: #selector(Timer.atalanta_scheduledTimer(timeInterval:target:selector:userInfo:repeats:))
         )
     }
 
@@ -106,24 +106,24 @@ final class TimerTracker {
 extension Timer {
     // After the swizzle these names point at the original implementations,
     // so the calls below are not recursive.
-    @objc class func velocity_scheduledTimer(
+    @objc class func atalanta_scheduledTimer(
         withTimeInterval interval: TimeInterval,
         repeats: Bool,
         block: @escaping (Timer) -> Void
     ) -> Timer {
-        let timer = velocity_scheduledTimer(withTimeInterval: interval, repeats: repeats, block: block)
+        let timer = atalanta_scheduledTimer(withTimeInterval: interval, repeats: repeats, block: block)
         TimerTracker.track(timer, interval: interval, repeats: repeats)
         return timer
     }
 
-    @objc class func velocity_scheduledTimer(
+    @objc class func atalanta_scheduledTimer(
         timeInterval interval: TimeInterval,
         target: Any,
         selector: Selector,
         userInfo: Any?,
         repeats: Bool
     ) -> Timer {
-        let timer = velocity_scheduledTimer(
+        let timer = atalanta_scheduledTimer(
             timeInterval: interval, target: target, selector: selector,
             userInfo: userInfo, repeats: repeats)
         TimerTracker.track(timer, interval: interval, repeats: repeats)

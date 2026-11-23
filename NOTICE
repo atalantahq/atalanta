@@ -1,9 +1,9 @@
-Velocity
-Copyright the Velocity authors. Licensed under the GNU Affero General Public License, version 3 only
+Atalanta
+Copyright the Atalanta authors. Licensed under the GNU Affero General Public License, version 3 only
 (AGPL-3.0-only); the full text is in LICENSE.
 
 This file lists third-party material that is copied into, adapted into, or
-compiled into Velocity. Rust crate dependencies are listed with their
+compiled into Atalanta. Rust crate dependencies are listed with their
 licenses in docs/licenses/THIRD-PARTY-RUST.md and the inspector frontend's
 npm packages in docs/licenses/THIRD-PARTY-NPM.md.
 
@@ -13,13 +13,13 @@ npm packages in docs/licenses/THIRD-PARTY-NPM.md.
 
 This product includes data from Playwright (https://github.com/microsoft/playwright):
 
-  crates/velocity-common/data/playwright-devices.json
+  crates/atalanta-common/data/playwright-devices.json
     Playwright's device descriptor list (lib/server/deviceDescriptorsSource.json,
     playwright-core 1.61.1), used unmodified for `web.device` and compiled
     into the binary.
     Copyright (c) Microsoft Corporation.
     Licensed under the Apache License, Version 2.0; a copy of the licence is in
-    crates/velocity-common/data/playwright-LICENSE.
+    crates/atalanta-common/data/playwright-LICENSE.
 
   Playwright's own NOTICE reads:
     Playwright
@@ -35,9 +35,9 @@ This product includes data from Playwright (https://github.com/microsoft/playwri
 
 This product includes code adapted from scrcpy (https://github.com/Genymobile/scrcpy):
 
-  probes/android/velocity-tree-server/src/com/velocity/tree/VideoServer.java
-  (compiled into crates/velocity-android/assets/velocity-tree.jar, which is
-  embedded in the velocity binary)
+  probes/android/atalanta-tree-server/src/com/atalanta/tree/VideoServer.java
+  (compiled into crates/atalanta-android/assets/atalanta-tree.jar, which is
+  embedded in the atalanta binary)
     The screen capture and H.264 streaming design (a DisplayManager virtual
     display or SurfaceControl display mirroring the screen onto a MediaCodec
     input surface, the encoder format keys, the size fallbacks, and the
@@ -49,13 +49,13 @@ This product includes code adapted from scrcpy (https://github.com/Genymobile/sc
     Copyright (C) 2018 Genymobile
     Copyright (C) 2018-2025 Romain Vimont
     Licensed under the Apache License, Version 2.0.
-    Modified for Velocity: one client per process, H.264 only, no audio,
+    Modified for Atalanta: one client per process, H.264 only, no audio,
     control or OpenGL filters, a key-frame request from the host, and the
     process exits when its client goes.
 
-  The host side (crates/velocity-android/src/video.rs, mp4.rs) and the
+  The host side (crates/atalanta-android/src/video.rs, mp4.rs) and the
   on-device animation guard (animations.rs) follow scrcpy's approach of a
-  server started with `app_process` over `adb forward`; they are Velocity's
+  server started with `app_process` over `adb forward`; they are Atalanta's
   own code.
 
 -------------------------------------------------------------------------------
@@ -65,7 +65,7 @@ This product includes code adapted from scrcpy (https://github.com/Genymobile/sc
 This product includes an algorithm adapted from pixelmatch
 (https://github.com/mapbox/pixelmatch):
 
-  crates/velocity-core/src/visual.rs (`antialiased`, `brightness`)
+  crates/atalanta-core/src/visual.rs (`antialiased`, `brightness`)
     The anti-aliased pixel detector (after V. Vysniauskas, "Anti-aliased
     Pixel and Intensity Slope Detector", 2009) and its YIQ brightness
     weights, ported to Rust.
@@ -88,20 +88,20 @@ This product includes an algorithm adapted from pixelmatch
 4. Noto Sans fonts (bundled, unmodified)
 -------------------------------------------------------------------------------
 
-  crates/velocity-headless/fonts/NotoSans-Regular.ttf
-  crates/velocity-headless/fonts/NotoSans-Bold.ttf
+  crates/atalanta-headless/fonts/NotoSans-Regular.ttf
+  crates/atalanta-headless/fonts/NotoSans-Bold.ttf
     Embedded in the binary (include_bytes!) for headless text rendering.
     Copyright 2022 The Noto Project Authors
     (https://github.com/notofonts/latin-greek-cyrillic)
     Licensed under the SIL Open Font License, Version 1.1; the full licence
-    is in crates/velocity-headless/fonts/OFL-LICENSE.txt. The fonts are not
+    is in crates/atalanta-headless/fonts/OFL-LICENSE.txt. The fonts are not
     modified and are not sold on their own.
 
 -------------------------------------------------------------------------------
 5. Inspector frontend (bundled JavaScript)
 -------------------------------------------------------------------------------
 
-The inspector's web UI (crates/velocity-inspector/frontend) is bundled by
+The inspector's web UI (crates/atalanta-inspector/frontend) is bundled by
 Vite and embedded in the binary. The bundle contains:
 
   react 19.2.4, react-dom 19.2.4, scheduler 0.27.0
@@ -136,7 +136,7 @@ Vite and embedded in the binary. The bundle contains:
 6. Rust crates
 -------------------------------------------------------------------------------
 
-The velocity binary statically links the Rust crates listed in
+The atalanta binary statically links the Rust crates listed in
 docs/licenses/THIRD-PARTY-RUST.md, all under permissive licenses (MIT,
 Apache-2.0, BSD-2/3-Clause, ISC, Zlib, Unicode-3.0, BSL-1.0, CC0-1.0,
 Unlicense, 0BSD, MIT-0, CDLA-Permissive-2.0) except `colored`, which is
@@ -148,9 +148,9 @@ keeps that list enforced.
 Acknowledgements (no code copied)
 -------------------------------------------------------------------------------
 
-probes/ios/VelocityRunner implements the subset of WebDriverAgent's HTTP API
-(https://github.com/appium/WebDriverAgent) that Velocity's client uses, and
+probes/ios/AtalantaRunner implements the subset of WebDriverAgent's HTTP API
+(https://github.com/appium/WebDriverAgent) that Atalanta's client uses, and
 borrows ideas (not code) from WebDriverAgent and Maestro
 (https://github.com/mobile-dev-inc/maestro), such as the deep-tree snapshot
-recovery depth. At build time Velocity can also clone WebDriverAgent at a
+recovery depth. At build time Atalanta can also clone WebDriverAgent at a
 pinned tag and patch it locally; WebDriverAgent is not redistributed.

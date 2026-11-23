@@ -1,6 +1,6 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
-import static com.velocity.sync.HostChecks.check;
+import static com.atalanta.sync.HostChecks.check;
 
 import android.os.Message;
 import android.os.MessageQueue;

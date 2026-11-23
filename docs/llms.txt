@@ -1,4 +1,4 @@
-# Velocity
+# Atalanta
 
 > Mobile (Android, iOS), web and API UI tests in one YAML suite, run by one static binary. It has an MCP server and a CLI for coding agents, an agent that writes deterministic tests replayed with no model, and failure evidence (video, logs, traces) for CI and pull requests.
 
@@ -6,16 +6,16 @@ Exit codes: 0 passed, 1 a test failed, 2 usage or config, 3 device or infrastruc
 
 ## Docs
 
-- [GUIDE.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/GUIDE.md): The long form of the README: a glossary, how it compares, selectors and roles, natural-language steps, visual checks, healing, sharding and parallel runs, app state and caching, headless, configuration, a command cheat sheet, troubleshooting
-- [ARCHITECTURE.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/ARCHITECTURE.md): Crates, how a run and a step execute, live events, sync, selectors, dialogs, healing, natural-language steps, exploration and diagnostics, visual assertions, the console
-- [DSL.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/DSL.md): How to write suites, with examples
-- [DSL-REFERENCE.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/DSL-REFERENCE.md): Every action, modifier, selector key, config key and setting. Generated from the schema (`velocity schema --markdown`); a test fails when it is out of date
-- [DRIVERS.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/DRIVERS.md): Android, iOS (simulators; real iPhones are coded but unverified), web, headless, Flutter, the in-app probes
-- [CLI.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/CLI.md): Commands, `init`, `doctor`, `run`, `explore` and `inspect` flags, artifacts, failure evidence, exit codes
-- [CI.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/CI.md): Sharding and shared history, cancelled jobs, secrets, baselines, the opt-in device workflows
-- [AI-PROVIDERS.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/AI-PROVIDERS.md): Model providers for natural-language steps, `verify:` checks and `velocity explore`: presets, environment variables, default models, capabilities, fallbacks
-- [EXPLORE.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/EXPLORE.md): `velocity explore`: an AI agent reaches a goal once and writes a deterministic test with assertions that replays with no model; the loop, the YAML rules, replay and repair, the library API
-- [BENCHMARKS.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/BENCHMARKS.md): Public benchmarks Velocity runs on: AndroidWorld (how the numbers were produced, how to run it, what is measured, the result, caveats)
-- [AGENTS.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/AGENTS.md): Velocity from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does
-- [MCP.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/MCP.md): The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed)
-- [STATUS.md](https://raw.githubusercontent.com/omkar-dev/velocity/main/docs/STATUS.md): What has been verified on emulators, simulators, browsers and hardware, and what has not
+- [GUIDE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/GUIDE.md): The long form of the README: a glossary, how it compares, selectors and roles, natural-language steps, visual checks, healing, sharding and parallel runs, app state and caching, headless, configuration, a command cheat sheet, troubleshooting
+- [ARCHITECTURE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/ARCHITECTURE.md): Crates, how a run and a step execute, live events, sync, selectors, dialogs, healing, natural-language steps, exploration and diagnostics, visual assertions, the console
+- [DSL.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/DSL.md): How to write suites, with examples
+- [DSL-REFERENCE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/DSL-REFERENCE.md): Every action, modifier, selector key, config key and setting. Generated from the schema (`atalanta schema --markdown`); a test fails when it is out of date
+- [DRIVERS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/DRIVERS.md): Android, iOS (simulators; real iPhones are coded but unverified), web, headless, Flutter, the in-app probes
+- [CLI.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/CLI.md): Commands, `init`, `doctor`, `run`, `explore` and `inspect` flags, artifacts, failure evidence, exit codes
+- [CI.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/CI.md): Sharding and shared history, cancelled jobs, secrets, baselines, the opt-in device workflows
+- [AI-PROVIDERS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/AI-PROVIDERS.md): Model providers for natural-language steps, `verify:` checks and `atalanta explore`: presets, environment variables, default models, capabilities, fallbacks
+- [EXPLORE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/EXPLORE.md): `atalanta explore`: an AI agent reaches a goal once and writes a deterministic test with assertions that replays with no model; the loop, the YAML rules, replay and repair, the library API
+- [BENCHMARKS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/BENCHMARKS.md): Public benchmarks Atalanta runs on: AndroidWorld (how the numbers were produced, how to run it, what is measured, the result, caveats)
+- [AGENTS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/AGENTS.md): Atalanta from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does
+- [MCP.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/MCP.md): The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed)
+- [STATUS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/STATUS.md): What has been verified on emulators, simulators, browsers and hardware, and what has not

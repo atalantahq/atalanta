@@ -1,20 +1,20 @@
 import Foundation
 
-/// VelocitySyncProbe: Embedded in debug app builds to provide native idle detection.
+/// AtalantaSyncProbe: Embedded in debug app builds to provide native idle detection.
 ///
 /// Usage:
 ///   In your AppDelegate or @main:
 ///     #if DEBUG
-///     VelocitySyncProbe.start()
+///     AtalantaSyncProbe.start()
 ///     #endif
 ///
 /// The probe tracks RunLoop, animations, network requests, and timers to determine
 /// when the app is idle. A TCP server on the loopback interface (port 19400, or
-/// `VELOCITY_SYNC_PORT` from the launch environment) exposes this state to
-/// the Velocity test runner, which checks the probe's `hello` (bundle id and
+/// `ATALANTA_SYNC_PORT` from the launch environment) exposes this state to
+/// the Atalanta test runner, which checks the probe's `hello` (bundle id and
 /// pid) before trusting it.
-public final class VelocitySyncProbe {
-    public static let shared = VelocitySyncProbe()
+public final class AtalantaSyncProbe {
+    public static let shared = AtalantaSyncProbe()
 
     private let stateTracker = AppStateTracker.shared
     private var server: SyncServer?
@@ -25,7 +25,7 @@ public final class VelocitySyncProbe {
 
     private init() {}
 
-    /// Start the probe. `port` defaults to `VELOCITY_SYNC_PORT` from the
+    /// Start the probe. `port` defaults to `ATALANTA_SYNC_PORT` from the
     /// environment, else 19400.
     public static func start(port: UInt16? = nil) {
         let resolved = SyncServer.resolvePort(

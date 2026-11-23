@@ -1,4 +1,4 @@
-//! `velocity results check`: did every job of a sharded run report? (NEW-001)
+//! `atalanta results check`: did every job of a sharded run report? (NEW-001)
 //!
 //! A shard whose job died before uploading, uploaded an empty folder or
 //! wrote a damaged report can't say so itself: the process that writes the
@@ -14,7 +14,7 @@
 //!   so a test may be in nobody's shard, or in two; or, with one plan, a
 //!   test is planned in two shards or the shards' plans don't add up to
 //!   the whole plan;
-//! - a file was written by a newer Velocity (`format_version` above
+//! - a file was written by a newer Atalanta (`format_version` above
 //!   [`FORMAT_VERSION`]).
 
 use crate::reporter::json::{ShardPlanRecord, FORMAT_VERSION};
@@ -89,7 +89,7 @@ pub fn check(files: &[PathBuf], expect_shards: Option<usize>) -> Checked {
             Ok(r) => r,
             Err(e) => {
                 c.problems
-                    .push(format!("{}: not a Velocity results file: {e}", f.display()));
+                    .push(format!("{}: not a Atalanta results file: {e}", f.display()));
                 continue;
             }
         };
@@ -107,8 +107,8 @@ pub fn check(files: &[PathBuf], expect_shards: Option<usize>) -> Checked {
         }
         if let Some(v) = version.filter(|v| *v > u64::from(FORMAT_VERSION)) {
             c.problems.push(format!(
-                "{label}: results format version {v} is newer than this Velocity reads \
-                 ({FORMAT_VERSION}); run `results check` with the Velocity that wrote it"
+                "{label}: results format version {v} is newer than this Atalanta reads \
+                 ({FORMAT_VERSION}); run `results check` with the Atalanta that wrote it"
             ));
         }
         if r.tests.is_empty() {
@@ -167,7 +167,7 @@ pub fn check(files: &[PathBuf], expect_shards: Option<usize>) -> Checked {
 }
 
 /// Did every shard compute the same partition? `plans` holds each sharded
-/// file's label and its `shard_plan` (`None`: written before Velocity
+/// file's label and its `shard_plan` (`None`: written before Atalanta
 /// recorded it).
 fn check_plans(plans: &[(String, Option<ShardPlanRecord>)], problems: &mut Vec<String>) {
     let with: Vec<(&String, &ShardPlanRecord)> = plans
@@ -175,13 +175,13 @@ fn check_plans(plans: &[(String, Option<ShardPlanRecord>)], problems: &mut Vec<S
         .filter_map(|(l, p)| p.as_ref().map(|p| (l, p)))
         .collect();
     if with.is_empty() {
-        return; // all from an older Velocity: nothing to compare
+        return; // all from an older Atalanta: nothing to compare
     }
     for (label, plan) in plans {
         if plan.is_none() {
             problems.push(format!(
-                "{label}: no shard plan recorded (written by an older Velocity?), so it can't \
-                 be compared with the other shards; run every shard with the same Velocity"
+                "{label}: no shard plan recorded (written by an older Atalanta?), so it can't \
+                 be compared with the other shards; run every shard with the same Atalanta"
             ));
         }
     }
@@ -294,7 +294,7 @@ mod tests {
             None,
         );
         assert!(
-            c.problems[0].contains("not a Velocity results file"),
+            c.problems[0].contains("not a Atalanta results file"),
             "{:?}",
             c.problems
         );

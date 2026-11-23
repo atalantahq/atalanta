@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use velocity_common::{ResourceDelta, ResourceSnapshot};
+use atalanta_common::{ResourceDelta, ResourceSnapshot};
 
 /// Accumulates resource metrics during test execution.
 /// No background tasks, no Arc/Mutex — pure synchronous data accumulation.

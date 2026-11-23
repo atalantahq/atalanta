@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the Velocity tree server into a dex jar and copy it where the Rust
-# Android driver embeds it (crates/velocity-android/assets/velocity-tree.jar).
+# Build the Atalanta tree server into a dex jar and copy it where the Rust
+# Android driver embeds it (crates/atalanta-android/assets/atalanta-tree.jar).
 #
 # Needs only the Android SDK (the platform and build-tools in toolchain.env)
 # and a JDK (toolchain.env's TREE_JDK; javac output feeds d8) — no Gradle.
@@ -36,11 +36,11 @@ javac --release 11 -cp "$ANDROID_JAR" -d build/classes "${FILES[@]}"
 mkdir -p build/test
 files test '*.java'
 javac --release 11 -cp "build/classes:$ANDROID_JAR" -d build/test "${FILES[@]}"
-java -cp "build/test:build/classes:$ANDROID_JAR" com.velocity.tree.HostChecks
+java -cp "build/test:build/classes:$ANDROID_JAR" com.atalanta.tree.HostChecks
 files build/classes '*.class'
-"$D8" --release --min-api 21 --lib "$ANDROID_JAR" --output build/velocity-tree.jar \
+"$D8" --release --min-api 21 --lib "$ANDROID_JAR" --output build/atalanta-tree.jar \
     "${FILES[@]}"
-OUT=../../../crates/velocity-android/assets
+OUT=../../../crates/atalanta-android/assets
 mkdir -p "$OUT"
-cp build/velocity-tree.jar "$OUT/velocity-tree.jar"
-echo "built $(wc -c < "$OUT/velocity-tree.jar") bytes -> $OUT/velocity-tree.jar ($PLATFORM, build-tools $BUILD_TOOLS)"
+cp build/atalanta-tree.jar "$OUT/atalanta-tree.jar"
+echo "built $(wc -c < "$OUT/atalanta-tree.jar") bytes -> $OUT/atalanta-tree.jar ($PLATFORM, build-tools $BUILD_TOOLS)"

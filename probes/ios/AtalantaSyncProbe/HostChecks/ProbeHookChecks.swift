@@ -97,7 +97,7 @@ func hookChecks(port: UInt16) {
     check(t.hits == hitsBefore, "P2: the app's own cancel still cancels (the swizzle passes it through)")
     var ran = false
     DelayedWorkTracker.asyncAfter(deadline: .now() + 0.2, queue: .main) { ran = true }
-    check(DelayedWorkTracker.pendingCount(maxInterval: nil) == 1, "P2: VelocitySyncProbe.asyncAfter is a pending timer")
+    check(DelayedWorkTracker.pendingCount(maxInterval: nil) == 1, "P2: AtalantaSyncProbe.asyncAfter is a pending timer")
     spin(0.4)
     check(ran && DelayedWorkTracker.pendingCount(maxInterval: nil) == 0, "P2: ... until its work ran")
     if let m = class_getInstanceMethod(FakeMountingManager.self, #selector(FakeMountingManager.takesAnObject(_:))) {

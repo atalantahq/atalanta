@@ -1,5 +1,5 @@
 [package]
-name = "velocity-core"
+name = "atalanta-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,11 +10,11 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "mobile", "yaml", "e2e", "automation"]
 categories = ["development-tools::testing"]
-description = "Core engine for Velocity: YAML parser, validator, sync engine, executor"
+description = "Core engine for Atalanta: YAML parser, validator, sync engine, executor"
 
 [dependencies]
-velocity-common = { workspace = true }
-velocity-api = { workspace = true }
+atalanta-common = { workspace = true }
+atalanta-api = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

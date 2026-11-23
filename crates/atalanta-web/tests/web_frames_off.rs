@@ -1,22 +1,22 @@
 //! review-i2 m4: with `web.frames: off` (no frames connection) a
 //! cross-origin iframe's document must not keep the network busy: the
 //! VEL-132 heuristic covers it. Its own test binary: it changes
-//! Velocity's process-wide settings.
+//! Atalanta's process-wide settings.
 
 mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::PlatformDriver;
 use common::{css, driver, serve};
-use velocity_common::PlatformDriver;
 
 #[tokio::test]
 async fn frames_off_a_cross_origin_iframe_does_not_keep_the_network_busy() {
     require_chrome!();
-    // Through Velocity's settings, not `set_var`, which races with every
+    // Through Atalanta's settings, not `set_var`, which races with every
     // thread reading the environment (review 07 M7).
-    velocity_common::env::set_settings(
-        [("VELOCITY_WEB_FRAMES".to_string(), "off".to_string())].into(),
+    atalanta_common::env::set_settings(
+        [("ATALANTA_WEB_FRAMES".to_string(), "off".to_string())].into(),
     );
     let inner = serve(&[(
         "/inner.html",

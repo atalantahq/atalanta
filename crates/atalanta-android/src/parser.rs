@@ -1,6 +1,6 @@
+use atalanta_common::{AtalantaError, Element, Rect, Result};
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use velocity_common::{Element, Rect, Result, VelocityError};
 
 /// Parse a uiautomator XML dump into an Element tree.
 pub fn parse_hierarchy(xml: &str) -> Result<Element> {
@@ -146,8 +146,8 @@ fn union(a: Rect, b: Rect) -> Rect {
 
 /// A dump that can't be the screen. The device id is filled in by the
 /// driver; this is not a config error (it is not the user's file).
-fn bad_dump(detail: String) -> VelocityError {
-    VelocityError::CommandFailed {
+fn bad_dump(detail: String) -> AtalantaError {
+    AtalantaError::CommandFailed {
         device_id: String::new(),
         command: "parse uiautomator XML".into(),
         detail,
@@ -252,7 +252,7 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
     // A role description counts only when it names a Playwright role.
     let role = role_desc
         .as_deref()
-        .and_then(velocity_common::role::role_from_description)
+        .and_then(atalanta_common::role::role_from_description)
         .map(str::to_string);
 
     Ok(Element {
@@ -276,10 +276,10 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
 }
 
 /// Whether a dump's Compose `test-tag` is used (D-53): on unless
-/// `VELOCITY_ANDROID_COMPOSE_TESTTAG=0` (or `off`/`false`).
+/// `ATALANTA_ANDROID_COMPOSE_TESTTAG=0` (or `off`/`false`).
 pub(crate) fn compose_test_tags() -> bool {
     test_tags_on(
-        velocity_common::env::var("VELOCITY_ANDROID_COMPOSE_TESTTAG")
+        atalanta_common::env::var("ATALANTA_ANDROID_COMPOSE_TESTTAG")
             .ok()
             .as_deref(),
     )
@@ -423,7 +423,7 @@ mod tests {
         ] {
             let e = parse_hierarchy_v2(bad).unwrap_err();
             assert!(
-                matches!(e, VelocityError::CommandFailed { .. }),
+                matches!(e, AtalantaError::CommandFailed { .. }),
                 "{bad:?}: {e}"
             );
         }
@@ -523,12 +523,12 @@ mod tests {
         assert_eq!(k[1].selected, Some(true));
         assert_eq!(k[2].selected, None, "no attribute: unknown");
         assert_eq!(k[2].role, None, "a description that names no role");
-        let sel = velocity_common::Selector::Compound(vec![
-            velocity_common::Selector::Role("switch".into()),
-            velocity_common::Selector::Name("Wi-Fi".into()),
-            velocity_common::Selector::Checked(true),
+        let sel = atalanta_common::Selector::Compound(vec![
+            atalanta_common::Selector::Role("switch".into()),
+            atalanta_common::Selector::Name("Wi-Fi".into()),
+            atalanta_common::Selector::Checked(true),
         ]);
-        assert!(velocity_common::selector_match::find_in_tree(&root, &sel, None).is_some());
+        assert!(atalanta_common::selector_match::find_in_tree(&root, &sel, None).is_some());
     }
 
     /// D-39: focus, password and checkbox state come from the dump. A lite
@@ -560,7 +560,7 @@ mod tests {
         let root = parse_hierarchy(xml).unwrap();
         assert_eq!(root.children[0].platform_id, "login_button");
         assert_eq!(root.children[1].platform_id, "com.app:id/real");
-        let sel = velocity_common::Selector::Id("login_button".into());
+        let sel = atalanta_common::Selector::Id("login_button".into());
         let found = crate::selector::find_element(&root, &sel, &Default::default(), &root.bounds);
         assert!(found.is_some(), "id: matches the testTag");
     }

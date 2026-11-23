@@ -1,9 +1,9 @@
-//! Maestro flow → Velocity suite.
+//! Maestro flow → Atalanta suite.
 //!
 //! A Maestro file is usually two YAML documents: a header (`appId`, `name`,
 //! `tags`) and the list of steps. Steps are either a bare command
 //! (`- launchApp`, `- back`) or a one-key map (`- tapOn: "Login"`). Each one
-//! is converted to the Velocity DSL the parser reads, and a `runFlow` of
+//! is converted to the Atalanta DSL the parser reads, and a `runFlow` of
 //! another file is converted too and added to the suite's `flows:`, so the
 //! output runs as it is. Anything that can't be converted is reported (with
 //! the step's line) and left out; the output is written only when nothing
@@ -13,13 +13,13 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use atalanta_common::{AtalantaError, Result};
 use serde::Deserialize;
 use serde_yaml::{Mapping, Value};
-use velocity_common::{Result, VelocityError};
 
 use crate::compat::{FileMigrationResult, MigrationIssue, MigrationReport, Severity};
 
-/// Maestro commands with no Velocity equivalent: reported and skipped.
+/// Maestro commands with no Atalanta equivalent: reported and skipped.
 const UNSUPPORTED_CONSTRUCTS: &[&str] = &[
     "runScript",
     "evalScript",
@@ -42,7 +42,7 @@ const UNSUPPORTED_CONSTRUCTS: &[&str] = &[
     "extractTextWithAI",
 ];
 
-/// Commands that need no step in Velocity (its sync engine already waits).
+/// Commands that need no step in Atalanta (its sync engine already waits).
 const NOT_NEEDED: &[&str] = &["waitForAnimationToEnd", "hideKeyboard"];
 
 pub struct MaestroMigrator;
@@ -67,7 +67,7 @@ struct Converted {
     exec_allow: std::collections::BTreeSet<String>,
 }
 
-/// Header keys that are read (or that need nothing in Velocity).
+/// Header keys that are read (or that need nothing in Atalanta).
 const KNOWN_HEADER_KEYS: &[&str] = &[
     "appId",
     "name",
@@ -85,17 +85,17 @@ impl MaestroMigrator {
     pub fn migrate_directory(&self, input_dir: &str, output_dir: &str) -> Result<MigrationReport> {
         let input_path = Path::new(input_dir);
         if !input_path.is_dir() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "Input directory does not exist: {input_dir}"
             )));
         }
         let output_path = Path::new(output_dir);
         fs::create_dir_all(output_path).map_err(|e| {
-            VelocityError::Internal(anyhow::anyhow!("Failed to create output directory: {e}"))
+            AtalantaError::Internal(anyhow::anyhow!("Failed to create output directory: {e}"))
         })?;
 
         let mut files: Vec<PathBuf> = fs::read_dir(input_path)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to read directory: {e}")))?
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to read directory: {e}")))?
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml")))
             .collect();
@@ -109,10 +109,10 @@ impl MaestroMigrator {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
             // flow.yaml and flow.yml must not write the same file (VEL-239).
-            let mut name = format!("{stem}.velocity.yaml");
+            let mut name = format!("{stem}.atalanta.yaml");
             if !used_names.insert(name.clone()) {
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                name = format!("{stem}.{ext}.velocity.yaml");
+                name = format!("{stem}.{ext}.atalanta.yaml");
                 used_names.insert(name.clone());
             }
             let output = output_path.join(name);
@@ -127,12 +127,12 @@ impl MaestroMigrator {
     pub fn dry_run_directory(&self, input_dir: &str) -> Result<MigrationReport> {
         let input_path = Path::new(input_dir);
         if !input_path.is_dir() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "Input directory does not exist: {input_dir}"
             )));
         }
         let mut files: Vec<PathBuf> = fs::read_dir(input_path)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to read directory: {e}")))?
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to read directory: {e}")))?
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| matches!(p.extension().and_then(|e| e.to_str()), Some("yaml" | "yml")))
             .collect();
@@ -168,23 +168,23 @@ impl MaestroMigrator {
             .issues
             .iter()
             .all(|i| i.severity != Severity::Error);
-        let yaml = build_velocity_yaml(&converted);
+        let yaml = build_atalanta_yaml(&converted);
         // Success means the output runs: parse and validate it the way
-        // `velocity run` will (VEL-080).
+        // `atalanta run` will (VEL-080).
         if success {
             if let Err(e) = check_output(&yaml) {
                 converted.issues.push(issue(
                     0,
                     Severity::Error,
                     "output",
-                    &format!("the migrated suite doesn't load in Velocity, nothing written: {e}"),
+                    &format!("the migrated suite doesn't load in Atalanta, nothing written: {e}"),
                 ));
                 success = false;
             }
         }
         if let (true, Some(output)) = (success, output) {
             fs::write(output, yaml).map_err(|e| {
-                VelocityError::Internal(anyhow::anyhow!("Failed to write {output}: {e}"))
+                AtalantaError::Internal(anyhow::anyhow!("Failed to write {output}: {e}"))
             })?;
         }
         Ok(FileMigrationResult {
@@ -260,7 +260,7 @@ impl MaestroMigrator {
                     note.push_str("; ");
                 }
                 note.push_str(&format!(
-                    "pass {} with `velocity run --env KEY=VALUE` (the value can't be a default)",
+                    "pass {} with `atalanta run --env KEY=VALUE` (the value can't be a default)",
                     left.join(", ")
                 ));
             }
@@ -271,7 +271,7 @@ impl MaestroMigrator {
                 lines.header,
                 Severity::Info,
                 "env",
-                "Maestro `env:` values aren't carried over; pass them with `velocity run --env KEY=VALUE`",
+                "Maestro `env:` values aren't carried over; pass them with `atalanta run --env KEY=VALUE`",
             ));
         }
         let mut visiting = HashSet::from([canonical(input)]);
@@ -335,12 +335,12 @@ fn read_flow(path: &Path) -> Result<(Mapping, Vec<Value>, Lines)> {
     // A missing, unreadable or non-UTF-8 flow is the user's input, not an
     // internal fault: exit 2, not 5.
     let content = fs::read_to_string(path)
-        .map_err(|e| VelocityError::Config(format!("Failed to read {file}: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("Failed to read {file}: {e}")))?;
     let mut docs = Vec::new();
     for doc in serde_yaml::Deserializer::from_str(&content) {
         let v = Value::deserialize(doc).map_err(|e| {
             let loc = e.location();
-            VelocityError::YamlParse {
+            AtalantaError::YamlParse {
                 file: file.clone().into(),
                 line: loc.as_ref().map_or(0, |l| l.line()),
                 col: loc.as_ref().map_or(0, |l| l.column()),
@@ -404,7 +404,7 @@ fn step_lines(content: &str) -> Vec<usize> {
     out
 }
 
-/// `launchApp.arguments` without the names Velocity rejects (a leading `-`,
+/// `launchApp.arguments` without the names Atalanta rejects (a leading `-`,
 /// characters outside `[A-Za-z0-9_.-]`): each one is dropped with a warning,
 /// so the rest of the file still converts.
 fn launch_arguments(args: Value, line: usize, ctx: &mut Ctx) -> Value {
@@ -414,7 +414,7 @@ fn launch_arguments(args: Value, line: usize, ctx: &mut Ctx) -> Value {
     let mut kept = Mapping::new();
     for (k, v) in m {
         let invalid = match &k {
-            Value::String(name) => velocity_common::validate_launch_arg_name(name).err(),
+            Value::String(name) => atalanta_common::validate_launch_arg_name(name).err(),
             _ => None,
         };
         match invalid {
@@ -457,7 +457,7 @@ fn issue(line: usize, severity: Severity, construct: &str, message: &str) -> Mig
 }
 
 /// A whole flow file: its steps, with the header's `onFlowStart` commands
-/// before them and `onFlowComplete` after (VEL-081). Header keys Velocity
+/// before them and `onFlowComplete` after (VEL-081). Header keys Atalanta
 /// doesn't read are reported.
 fn convert_flow(header: &Mapping, steps: &[Value], lines: &Lines, ctx: &mut Ctx) -> Vec<Value> {
     for k in header.keys().filter_map(Value::as_str) {
@@ -547,19 +547,19 @@ fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> 
             }
         };
         // `back` straight after typing usually closed the keyboard in
-        // Maestro. In Velocity it is navigation everywhere: history back on
+        // Maestro. In Atalanta it is navigation everywhere: history back on
         // the web, which leaves the page (D-9).
         if after_input && is_back(command, &arg) {
             ctx.issues.push(issue(
                 line,
                 Severity::Warning,
                 command,
-                "`back` straight after `inputText`: if it only closed the keyboard, drop it (Velocity doesn't need hideKeyboard); on the web `back` goes back a page, and `pressKey: backspace` deletes a character",
+                "`back` straight after `inputText`: if it only closed the keyboard, drop it (Atalanta doesn't need hideKeyboard); on the web `back` goes back a page, and `pressKey: backspace` deletes a character",
             ));
         }
         after_input = command.starts_with("input");
         // `longPressOn` then `swipe` is Maestro's drag-to-reorder workaround
-        // (issue #1203). Velocity's `drag` holds and moves one element onto
+        // (issue #1203). Atalanta's `drag` holds and moves one element onto
         // another, which a swipe's screen points can't be turned into.
         if after_long_press && command == "swipe" {
             ctx.issues.push(issue(
@@ -567,7 +567,7 @@ fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> 
                 Severity::Info,
                 command,
                 "`longPressOn` then `swipe` looks like a drag-to-reorder workaround: kept as a swipe; \
-                 Velocity's `drag: { from: <row>, to: <row> }` picks the row up and drops it on another \
+                 Atalanta's `drag: { from: <row>, to: <row> }` picks the row up and drops it on another \
                  (docs/DSL.md#reordering-drag)",
             ));
         }
@@ -605,7 +605,7 @@ fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> 
         }
         match convert_step(command, &arg, line, ctx) {
             Some(mut s) => {
-                // Maestro's `optional: true` is Velocity's step-level
+                // Maestro's `optional: true` is Atalanta's step-level
                 // `optional: true`: a failure is a warning (D-12).
                 if arg
                     .as_mapping()
@@ -635,7 +635,7 @@ fn convert_steps(steps: &[Value], lines: &[usize], ctx: &mut Ctx) -> Vec<Value> 
     out
 }
 
-/// `retry: {maxRetries, commands}`: the body, once, with a warning. Velocity
+/// `retry: {maxRetries, commands}`: the body, once, with a warning. Atalanta
 /// retries whole tests (`retry.count`), not blocks; skipping the block
 /// emptied the flow and the migration still reported success (VEL-240).
 fn inline_retry(arg: &Value, line: usize, ctx: &mut Ctx) -> Vec<Value> {
@@ -740,7 +740,7 @@ const MAX_UNROLL: u64 = 100;
 
 /// Most steps all the `repeat` blocks of one file may unroll to. Nested
 /// blocks multiply (100 x 100 x 100 is a million steps from a few lines),
-/// and `velocity run` refuses a test of more than 100 000 steps.
+/// and `atalanta run` refuses a test of more than 100 000 steps.
 const MAX_UNROLLED_STEPS: usize = 100_000;
 
 /// `repeat: { times: N, commands: [...] }` with no `while` is exactly the
@@ -828,7 +828,7 @@ fn tap_repeat(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> u64 {
 }
 
 /// A number field written as a number or a numeric string. Anything else
-/// (`${VAR}`, an expression) can't go into a numeric Velocity field: it is
+/// (`${VAR}`, an expression) can't go into a numeric Atalanta field: it is
 /// reported and dropped (VEL-080).
 fn as_number(v: &Value, line: usize, field: &str, ctx: &mut Ctx) -> Option<u64> {
     let n = match v {
@@ -842,7 +842,7 @@ fn as_number(v: &Value, line: usize, field: &str, ctx: &mut Ctx) -> Option<u64> 
             Severity::Warning,
             field,
             &format!(
-                "'{field}' must be a number in Velocity, got {}; dropped",
+                "'{field}' must be a number in Atalanta, got {}; dropped",
                 yaml_inline(v)
             ),
         ));
@@ -893,14 +893,14 @@ fn map(pairs: Vec<(&str, Value)>) -> Value {
 fn unsupported_hint(command: &str, arg: &Value) -> &'static str {
     match command {
         "runScript" | "evalScript" => {
-            ": Velocity runs no JavaScript. An HTTP call the script made becomes an `http` \
+            ": Atalanta runs no JavaScript. An HTTP call the script made becomes an `http` \
              step (its `capture:` replaces `output.*`; docs/DSL.md#http-and-api-tests); a \
              script that seeds data on the host can run as an `exec` step \
              (`exec: { run: \"./seed.sh\", capture: NAME }`, the program listed in \
              config.exec.allow; docs/DSL.md#host-commands-exec)"
         }
         "copyTextFrom" => {
-            ": Velocity can't read text off the screen into a variable. Get the value where \
+            ": Atalanta can't read text off the screen into a variable. Get the value where \
              the app got it: an `http` step's `capture:` (the order id from the API), an \
              `exec` step's `capture:`, or `--env NAME=value`; then use `${NAME}` \
              (inputText: ${NAME}, assertVisible: ${NAME})"
@@ -910,19 +910,19 @@ fn unsupported_hint(command: &str, arg: &Value) -> &'static str {
              `inputText: ${NAME}` once it is captured (see the copyTextFrom note)"
         }
         "travel" => {
-            ": write one `exec` step per point instead (adb -s ${VELOCITY_DEVICE_ID} emu geo \
-             fix LON LAT on an emulator, xcrun simctl location ${VELOCITY_DEVICE_ID} set \
+            ": write one `exec` step per point instead (adb -s ${ATALANTA_DEVICE_ID} emu geo \
+             fix LON LAT on an emulator, xcrun simctl location ${ATALANTA_DEVICE_ID} set \
              LAT,LON on a simulator), with a `wait` between them"
         }
         "setPermissions" => {
-            ": grant them with an `exec` step (adb -s ${VELOCITY_DEVICE_ID} shell pm grant \
-             APP PERMISSION; xcrun simctl privacy ${VELOCITY_DEVICE_ID} grant SERVICE APP), \
+            ": grant them with an `exec` step (adb -s ${ATALANTA_DEVICE_ID} shell pm grant \
+             APP PERMISSION; xcrun simctl privacy ${ATALANTA_DEVICE_ID} grant SERVICE APP), \
              or launchApp with clearState and accept the dialogs"
         }
         "addMedia" | "clearKeychain" | "setAirplaneMode" | "toggleAirplaneMode"
         | "setOrientation" => {
             ": an `exec` step can do it with adb or xcrun simctl on the test's device \
-             (${VELOCITY_DEVICE_ID}); docs/DSL.md#host-commands-exec"
+             (${ATALANTA_DEVICE_ID}); docs/DSL.md#host-commands-exec"
         }
         "repeat" if arg.as_mapping().is_some_and(|m| m.contains_key("while")) => {
             ": a `while` loop depends on the screen at run time; write the steps out, or use \
@@ -951,7 +951,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
             Severity::Info,
             command,
             &format!(
-                "'{command}' isn't needed: Velocity waits for the screen to settle on its own"
+                "'{command}' isn't needed: Atalanta waits for the screen to settle on its own"
             ),
         ));
         return None;
@@ -960,7 +960,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
     match command {
         // D-12: a natural-language `assert:`, optional unless the flow
         // says `optional: false` (Maestro's default is optional). Maestro
-        // judges a screenshot; Velocity checks the element tree, so visual
+        // judges a screenshot; Atalanta checks the element tree, so visual
         // claims ("the button is red") may not resolve.
         "assertWithAI" => {
             let assertion = match arg {
@@ -1030,7 +1030,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
         "stopApp" | "killApp" => {
             if command == "killApp" {
                 // Maestro's killApp is the system killing the process
-                // (Android) or stopApp (iOS); Velocity has only the stop.
+                // (Android) or stopApp (iOS); Atalanta has only the stop.
                 ctx.issues.push(issue(
                     line,
                     Severity::Info,
@@ -1060,7 +1060,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                 line,
                 Severity::Info,
                 command,
-                "clearState became launchApp with clearState: true (Velocity clears on launch)",
+                "clearState became launchApp with clearState: true (Atalanta clears on launch)",
             ));
             let mut pairs = vec![("clearState", Value::Bool(true))];
             match arg {
@@ -1099,7 +1099,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                         line,
                         Severity::Warning,
                         command,
-                        "a point inside an element has no Velocity equivalent; skipped",
+                        "a point inside an element has no Atalanta equivalent; skipped",
                     ));
                     return None;
                 }
@@ -1174,7 +1174,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                         Severity::Warning,
                         command,
                         &format!(
-                            "{command} has no literal text; the step types ${{{var}}}, which must be set (velocity run --env {var}=...)"
+                            "{command} has no literal text; the step types ${{{var}}}, which must be set (atalanta run --env {var}=...)"
                         ),
                     ));
                     format!("${{{var}:?{command} from Maestro needs a value}}")
@@ -1209,7 +1209,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                         line,
                         Severity::Warning,
                         command,
-                        &format!("pressKey '{name}' has no Velocity key (enter, home, back, volumeUp, volumeDown, backspace, tab, escape, delete, arrowUp/Down/Left/Right); skipped"),
+                        &format!("pressKey '{name}' has no Atalanta key (enter, home, back, volumeUp, volumeDown, backspace, tab, escape, delete, arrowUp/Down/Left/Right); skipped"),
                     ));
                     return None;
                 }
@@ -1239,7 +1239,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
                 .and_then(|d| d.as_str().map(str::to_lowercase))
                 .unwrap_or_else(|| "down".into());
             // Maestro scrolls until a time budget (`timeout`, 20 s by default)
-            // runs out; Velocity counts scrolls (default 5). Without this a
+            // runs out; Atalanta counts scrolls (default 5). Without this a
             // migrated scroll to a far row gave up after 5 scrolls / 6 s where
             // the Maestro flow had 20 s. One scroll per second of budget.
             let timeout_ms = get("timeout")
@@ -1282,7 +1282,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
         "assertScreenshot" => convert_assert_screenshot(arg, line, ctx),
         "openLink" => {
             // `autoVerify` (Android app-link verification) and `browser`
-            // (open in the browser, not the app) have no Velocity field.
+            // (open in the browser, not the app) have no Atalanta field.
             warn_unused(arg, &["link", "label"], line, command, ctx);
             let link = arg
                 .as_str()
@@ -1316,7 +1316,7 @@ fn convert_step(command: &str, arg: &Value, line: usize, ctx: &mut Ctx) -> Optio
 /// Maestro's `thresholdPercentage` when the flow gives none, as a fraction.
 const MAESTRO_DEFAULT_THRESHOLD: f64 = 0.95;
 
-/// Large enough that Velocity's cluster gate never fails a comparison on
+/// Large enough that Atalanta's cluster gate never fails a comparison on
 /// its own: Maestro judges only the share of differing pixels.
 const NO_CLUSTER_GATE: u64 = 1_000_000;
 
@@ -1347,7 +1347,7 @@ fn convert_assert_screenshot(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<
     );
     let file = path.rsplit(['/', '\\']).next().unwrap_or(&path);
     // A name that is already a portable file name, so the baseline file
-    // Velocity reads is `<name>.png` and the hint below names it: a raw
+    // Atalanta reads is `<name>.png` and the hint below names it: a raw
     // `home.v2` was read as a hashed `home_v2-….png` (review M-7).
     let stem = file.strip_suffix(".png").unwrap_or(file);
     let mut name: String = stem
@@ -1366,12 +1366,12 @@ fn convert_assert_screenshot(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<
     }
     let mut pairs = vec![("name", Value::from(name.clone()))];
     match get("thresholdPercentage") {
-        // Maestro's default is 95%; Velocity's own (0.98) was stricter, so
+        // Maestro's default is 95%; Atalanta's own (0.98) was stricter, so
         // flows that passed at 96% failed after migration (review M-6).
         None => pairs.push(("threshold", Value::from(MAESTRO_DEFAULT_THRESHOLD))),
         Some(v) => match as_number_f64(&v) {
             // Both are the similarity required: Maestro's in percent,
-            // Velocity's as a fraction.
+            // Atalanta's as a fraction.
             Some(pct) if (0.0..=100.0).contains(&pct) => {
                 pairs.push(("threshold", Value::from(pct / 100.0)))
             }
@@ -1390,7 +1390,7 @@ fn convert_assert_screenshot(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<
         },
     }
     pairs.push(("clusterPx", Value::from(NO_CLUSTER_GATE)));
-    // Maestro's `cropOn: <selector>` is Velocity's `crop: <selector>`
+    // Maestro's `cropOn: <selector>` is Atalanta's `crop: <selector>`
     // (VT-12): the comparison covers that element only.
     if let Some(on) = get("cropOn") {
         if let Some(sel) = selector(&on, line, "assertScreenshot", ctx) {
@@ -1402,8 +1402,8 @@ fn convert_assert_screenshot(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<
         Severity::Info,
         "assertScreenshot",
         &format!(
-            "copy the reference image to Velocity's baseline: cp {} \
-             velocity-baselines/<platform>/<W>x<H>/{name}.png (<W>x<H>: the device's full \
+            "copy the reference image to Atalanta's baseline: cp {} \
+             atalanta-baselines/<platform>/<W>x<H>/{name}.png (<W>x<H>: the device's full \
              screenshot size in pixels, e.g. 1080x2400)",
             sh_quote(&path)
         ),
@@ -1420,7 +1420,7 @@ fn as_number_f64(v: &Value) -> Option<f64> {
     }
 }
 
-/// A Maestro selector (a string, or a map) as a Velocity selector map.
+/// A Maestro selector (a string, or a map) as a Atalanta selector map.
 fn selector(value: &Value, line: usize, command: &str, ctx: &mut Ctx) -> Option<Value> {
     match value {
         Value::String(text) => {
@@ -1482,7 +1482,7 @@ fn selector(value: &Value, line: usize, command: &str, ctx: &mut Ctx) -> Option<
                         let anchor = selector(v, line, command, ctx)?;
                         out.insert(Value::from(key), anchor);
                     }
-                    // Maestro's state filters are Velocity's (S2).
+                    // Maestro's state filters are Atalanta's (S2).
                     "enabled" | "checked" | "focused" | "selected" => match v.as_bool() {
                         Some(b) => {
                             out.insert(Value::from(key), Value::from(b));
@@ -1513,7 +1513,7 @@ fn selector(value: &Value, line: usize, command: &str, ctx: &mut Ctx) -> Option<
                             Severity::Warning,
                             command,
                             &format!(
-                                "selector field '{other}' has no Velocity equivalent; dropped"
+                                "selector field '{other}' has no Atalanta equivalent; dropped"
                             ),
                         ));
                     }
@@ -1528,7 +1528,7 @@ fn selector(value: &Value, line: usize, command: &str, ctx: &mut Ctx) -> Option<
                 ));
                 return None;
             }
-            // `index` or a state filter alone isn't a selector in Velocity.
+            // `index` or a state filter alone isn't a selector in Atalanta.
             let modifier = |k: &Value| {
                 matches!(
                     k.as_str(),
@@ -1558,7 +1558,7 @@ fn selector(value: &Value, line: usize, command: &str, ctx: &mut Ctx) -> Option<
     }
 }
 
-/// Maestro matches text as a regular expression; Velocity's `text:` is
+/// Maestro matches text as a regular expression; Atalanta's `text:` is
 /// exact. Plain text carries over as `text:`; a real pattern becomes
 /// `textMatches:`, which has Maestro's semantics (D-11).
 fn text_value(text: &str, line: usize, command: &str, ctx: &mut Ctx) -> (&'static str, Value) {
@@ -1583,11 +1583,11 @@ fn pattern_or_literal(
     if let Some(literal) = regex_literal(value) {
         return (exact, Value::from(literal));
     }
-    // Never write a pattern `velocity validate` rejects (review MAJOR 6):
+    // Never write a pattern `atalanta validate` rejects (review MAJOR 6):
     // Maestro falls back to the plain text when its regex doesn't compile
     // (`+44 20 …`, `* Email`, `Done :)`), and so does this.
-    let checked = velocity_core::validator::without_env_refs(value);
-    if let Err(why) = velocity_common::selector_match::compile_pattern(&checked) {
+    let checked = atalanta_core::validator::without_env_refs(value);
+    if let Err(why) = atalanta_common::selector_match::compile_pattern(&checked) {
         ctx.issues.push(issue(
             line,
             Severity::Warning,
@@ -1691,7 +1691,7 @@ fn regex_literal(text: &str) -> Option<String> {
     Some(out)
 }
 
-/// Maestro's `${...}` is JavaScript; Velocity reads `${NAME}` as an
+/// Maestro's `${...}` is JavaScript; Atalanta reads `${NAME}` as an
 /// environment variable. Anything but a plain name can't carry over (VEL-082).
 fn flag_expressions(text: &str, line: usize, command: &str, ctx: &mut Ctx) {
     let mut rest = text;
@@ -1709,7 +1709,7 @@ fn flag_expressions(text: &str, line: usize, command: &str, ctx: &mut Ctx) {
                 Severity::Warning,
                 command,
                 &format!(
-                    "'${{{expr}}}' is a JavaScript expression in Maestro; Velocity reads ${{...}} as an environment variable, so set it with --env or rewrite the step"
+                    "'${{{expr}}}' is a JavaScript expression in Maestro; Atalanta reads ${{...}} as an environment variable, so set it with --env or rewrite the step"
                 ),
             ));
         }
@@ -1760,7 +1760,7 @@ fn convert_point_tap(command: &str, point: &Value, line: usize, ctx: &mut Ctx) -
                 Severity::Warning,
                 command,
                 "a percentage point (or a double-tap/long-press at a point) can't be converted: \
-                 Velocity's tapXY takes pixels; skipped",
+                 Atalanta's tapXY takes pixels; skipped",
             ));
             None
         }
@@ -1880,7 +1880,7 @@ fn convert_set_location(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Vec<V
         m.insert(Value::from("optional"), Value::from(true));
         Value::Mapping(m)
     };
-    let dev = "${VELOCITY_DEVICE_ID}";
+    let dev = "${ATALANTA_DEVICE_ID}";
     let ll = format!("{lat},{lon}");
     ctx.exec_allow.insert("adb".into());
     ctx.exec_allow.insert("xcrun".into());
@@ -1945,7 +1945,7 @@ fn permission_names(name: &str) -> Option<(Option<&'static str>, Option<&'static
 }
 
 /// `setPermissions`, `clearKeychain`, `addMedia`, `setAirplaneMode` and
-/// `setOrientation` as `exec` steps on `${VELOCITY_DEVICE_ID}` (review 15
+/// `setOrientation` as `exec` steps on `${ATALANTA_DEVICE_ID}` (review 15
 /// §2: each is one adb or simctl call). `None` when the command isn't one
 /// of these or its argument can't be converted: the caller reports it.
 fn convert_device_command(
@@ -1954,7 +1954,7 @@ fn convert_device_command(
     line: usize,
     ctx: &mut Ctx,
 ) -> Option<Vec<Value>> {
-    let dev = "${VELOCITY_DEVICE_ID}";
+    let dev = "${ATALANTA_DEVICE_ID}";
     let (steps, tools, note): (Vec<Value>, &[&str], String) = match command {
         "setPermissions" => {
             let m = arg.as_mapping()?;
@@ -2084,7 +2084,7 @@ fn convert_device_command(
                 &["adb", "xcrun"],
                 "addMedia became optional `exec` steps (adb push + a media scan on Android, \
                  simctl addmedia on an iOS simulator). The paths are as the flow wrote them: \
-                 relative to where `velocity run` starts"
+                 relative to where `atalanta run` starts"
                     .into(),
             )
         }
@@ -2236,7 +2236,7 @@ fn apply_env_defaults(v: &mut Value, defaults: &[(String, String)]) {
 
 /// A `runFlow`'s `when:` as a gate step at the start of the flow: an
 /// `assertVisible` / `assertNotVisible` for `visible:` / `notVisible:`.
-/// `None` for a condition Velocity can't check (`platform:`, `true:` with
+/// `None` for a condition Atalanta can't check (`platform:`, `true:` with
 /// a JavaScript expression).
 fn when_gate(when: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
     let m = when.as_mapping()?;
@@ -2302,7 +2302,7 @@ fn convert_run_flow(arg: &Value, line: usize, ctx: &mut Ctx) -> Option<Value> {
                 Severity::Warning,
                 "runFlow",
                 &format!(
-                    "runFlow `when: {}` can't be checked in Velocity (only visible/notVisible \
+                    "runFlow `when: {}` can't be checked in Atalanta (only visible/notVisible \
                      convert); the flow runs as an optional block: it is attempted every \
                      time and a failure in it is a warning, not a test failure",
                     yaml_inline(&when)
@@ -2486,21 +2486,21 @@ fn unique_flow_id(file: &str, flows: &BTreeMap<String, Vec<Value>>) -> String {
         .unwrap_or_default()
 }
 
-/// Parse and validate migrated YAML the way `velocity run` loads a suite.
+/// Parse and validate migrated YAML the way `atalanta run` loads a suite.
 fn check_output(yaml: &str) -> Result<()> {
-    let suite = velocity_core::parser::parse_suite_from_str(yaml)?;
-    velocity_core::validate_suite(&suite)?;
-    // `velocity run` inlines the flows too, and refuses what is too deep or
+    let suite = atalanta_core::parser::parse_suite_from_str(yaml)?;
+    atalanta_core::validate_suite(&suite)?;
+    // `atalanta run` inlines the flows too, and refuses what is too deep or
     // expands to too many steps: a file that only fails there isn't a
     // successful migration.
-    velocity_core::resolve_flows(&suite).map(|_| ())
+    atalanta_core::resolve_flows(&suite).map(|_| ())
 }
 
 fn canonical(p: &Path) -> PathBuf {
     p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
 }
 
-fn build_velocity_yaml(c: &Converted) -> String {
+fn build_atalanta_yaml(c: &Converted) -> String {
     let mut doc = Mapping::new();
     doc.insert("appId".into(), Value::from(c.app_id.clone()));
     if !c.exec_allow.is_empty() {
@@ -2533,7 +2533,7 @@ fn build_velocity_yaml(c: &Converted) -> String {
     ]);
     doc.insert("tests".into(), Value::Sequence(vec![test]));
     let body = serde_yaml::to_string(&Value::Mapping(doc)).unwrap_or_default();
-    format!("# Migrated from Maestro by `velocity migrate maestro`. Review the warnings it printed.\n{body}")
+    format!("# Migrated from Maestro by `atalanta migrate maestro`. Review the warnings it printed.\n{body}")
 }
 
 #[cfg(test)]
@@ -2548,16 +2548,16 @@ mod tests {
     }
 
     /// Convert `files` (name → Maestro YAML) and parse + validate the main
-    /// one's output with Velocity's own parser.
+    /// one's output with Atalanta's own parser.
     fn migrate(
         name: &str,
         files: &[(&str, &str)],
-    ) -> (FileMigrationResult, velocity_common::TestSuite) {
+    ) -> (FileMigrationResult, atalanta_common::TestSuite) {
         let d = dir(name);
         for (f, body) in files {
             fs::write(d.join(f), body).unwrap();
         }
-        let out = d.join("out.velocity.yaml");
+        let out = d.join("out.atalanta.yaml");
         let result = MaestroMigrator::new()
             .migrate_file(
                 &d.join(files[0].0).to_string_lossy(),
@@ -2565,9 +2565,9 @@ mod tests {
             )
             .unwrap();
         let yaml = fs::read_to_string(&out).unwrap_or_default();
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
             .unwrap_or_else(|e| panic!("migrated output doesn't parse: {e}\n{yaml}"));
-        velocity_core::validate_suite(&suite)
+        atalanta_core::validate_suite(&suite)
             .unwrap_or_else(|e| panic!("migrated output doesn't validate: {e}\n{yaml}"));
         let _ = fs::remove_dir_all(&d);
         (result, suite)
@@ -2588,8 +2588,8 @@ mod tests {
     }
 
     /// D-9: `back` right after typing is flagged (it closed the keyboard
-    /// in Maestro; Velocity's back navigates, on the web through history),
-    /// and Maestro's Backspace/Tab/D-pad keys now have Velocity keys.
+    /// in Maestro; Atalanta's back navigates, on the web through history),
+    /// and Maestro's Backspace/Tab/D-pad keys now have Atalanta keys.
     #[test]
     fn back_after_input_text_is_flagged_and_editing_keys_map() {
         let (result, suite) = migrate(
@@ -2606,15 +2606,15 @@ mod tests {
             .map(|i| i.line)
             .collect();
         assert_eq!(flagged.len(), 1, "{:?}", result.issues);
-        let keys: Vec<velocity_common::Key> = suite.tests[0]
+        let keys: Vec<atalanta_common::Key> = suite.tests[0]
             .steps
             .iter()
             .filter_map(|s| match &s.action {
-                velocity_common::Action::PressKey { key } => Some(key.clone()),
+                atalanta_common::Action::PressKey { key } => Some(key.clone()),
                 _ => None,
             })
             .collect();
-        use velocity_common::Key;
+        use atalanta_common::Key;
         assert_eq!(
             keys,
             [Key::Back, Key::Back, Key::Backspace, Key::Tab, Key::ArrowUp]
@@ -2633,7 +2633,7 @@ mod tests {
             )],
         );
         assert!(result.success);
-        let velocity_common::Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action
+        let atalanta_common::Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action
         else {
             panic!(
                 "expected LaunchApp, got {:?}",
@@ -2652,7 +2652,7 @@ mod tests {
     }
 
     #[test]
-    fn a_launch_argument_velocity_rejects_is_dropped_with_a_warning() {
+    fn a_launch_argument_atalanta_rejects_is_dropped_with_a_warning() {
         let (result, suite) = migrate(
             "badarg",
             &[(
@@ -2661,7 +2661,7 @@ mod tests {
             )],
         );
         assert!(result.success, "{:?}", result.issues);
-        let velocity_common::Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action
+        let atalanta_common::Action::LaunchApp { arguments, .. } = &suite.tests[0].steps[0].action
         else {
             panic!("expected LaunchApp");
         };
@@ -2691,13 +2691,13 @@ mod tests {
             "{:?}",
             result.issues
         );
-        let tests = velocity_core::resolve_flows(&suite).unwrap();
+        let tests = atalanta_core::resolve_flows(&suite).unwrap();
         let typed: Vec<String> = tests[0]
             .steps
             .iter()
             .filter_map(|s| match &s.action {
                 // A bare Maestro `inputText` types into what has focus.
-                velocity_common::Action::InputRaw { text } => Some(text.clone()),
+                atalanta_common::Action::InputRaw { text } => Some(text.clone()),
                 _ => None,
             })
             .collect();
@@ -2765,7 +2765,7 @@ mod tests {
             .steps
             .iter()
             .filter_map(|s| match &s.action {
-                velocity_common::Action::AssertScreenshot {
+                atalanta_common::Action::AssertScreenshot {
                     name,
                     threshold,
                     cluster_px,
@@ -2782,23 +2782,23 @@ mod tests {
         assert_eq!(shots[2].0, "menu");
         // review-d5 m-5: cropOn is crop:, no longer "not supported".
         let crop = suite.tests[0].steps.iter().find_map(|s| match &s.action {
-            velocity_common::Action::AssertScreenshot { crop, .. } => crop.clone(),
+            atalanta_common::Action::AssertScreenshot { crop, .. } => crop.clone(),
             _ => None,
         });
         assert_eq!(
             crop,
-            Some(velocity_common::ScreenshotCrop::Element(
-                velocity_common::Selector::Id("menu".into())
+            Some(atalanta_common::ScreenshotCrop::Element(
+                atalanta_common::Selector::Id("menu".into())
             ))
         );
         assert!(!result.issues.iter().any(|i| i.message.contains("cropOn")));
         // review-d5 m-5: the hint names the sized layout (D-V3).
         assert!(result.issues.iter().any(|i| i
             .message
-            .contains("velocity-baselines/<platform>/<W>x<H>/home.png")));
+            .contains("atalanta-baselines/<platform>/<W>x<H>/home.png")));
     }
 
-    // Review M-7: the hint named `home.v2.png`, but Velocity reads a
+    // Review M-7: the hint named `home.v2.png`, but Atalanta reads a
     // cleaned, hashed file for that name; the name is now clean.
     #[test]
     fn a_screenshot_name_is_the_baseline_file_the_hint_names() {
@@ -2814,7 +2814,7 @@ mod tests {
             .steps
             .iter()
             .find_map(|s| match &s.action {
-                velocity_common::Action::AssertScreenshot { name, .. } => Some(name.clone()),
+                atalanta_common::Action::AssertScreenshot { name, .. } => Some(name.clone()),
                 _ => None,
             })
             .unwrap();
@@ -2824,7 +2824,7 @@ mod tests {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
         assert!(result.issues.iter().any(|i| i
             .message
-            .contains("velocity-baselines/<platform>/<W>x<H>/home_v2.png")));
+            .contains("atalanta-baselines/<platform>/<W>x<H>/home_v2.png")));
     }
 
     #[test]
@@ -3012,7 +3012,7 @@ mod tests {
             "{a}"
         );
         assert!(
-            a.contains("\"privacy\", \"${VELOCITY_DEVICE_ID}\", \"revoke\", \"location\""),
+            a.contains("\"privacy\", \"${ATALANTA_DEVICE_ID}\", \"revoke\", \"location\""),
             "{a}"
         );
         assert!(a.contains("\"keychain\""), "{a}");
@@ -3067,7 +3067,7 @@ mod tests {
         assert!(result.success, "{:?}", result.issues);
         assert!(!warned(&result, "always runs"), "{:?}", result.issues);
         assert!(suite.tests[0].steps[0].modifiers.optional);
-        let tests = velocity_core::resolver::resolve_flows(&suite).unwrap();
+        let tests = atalanta_core::resolver::resolve_flows(&suite).unwrap();
         let steps = &tests[0].steps;
         // The first inlined step is the gate, inside one optional block.
         let first = format!("{:?}", steps[0].action);
@@ -3097,7 +3097,7 @@ mod tests {
             ],
         );
         assert!(warned(&result, "can't be checked"), "{:?}", result.issues);
-        let tests = velocity_core::resolver::resolve_flows(&suite).unwrap();
+        let tests = atalanta_core::resolver::resolve_flows(&suite).unwrap();
         assert!(!tests[0].steps[0].modifiers.optional_flows.is_empty());
     }
 
@@ -3171,7 +3171,7 @@ mod tests {
             .any(|i| i.severity == Severity::Warning && i.message.contains(needle))
     }
 
-    fn actions(suite: &velocity_common::TestSuite) -> Vec<String> {
+    fn actions(suite: &atalanta_common::TestSuite) -> Vec<String> {
         suite.tests[0]
             .steps
             .iter()
@@ -3208,7 +3208,7 @@ mod tests {
             )
             .unwrap();
         assert!(r.success, "{:?}", r.issues);
-        let suite = velocity_core::parser::parse_suite_from_str(&fs::read_to_string(&out).unwrap())
+        let suite = atalanta_core::parser::parse_suite_from_str(&fs::read_to_string(&out).unwrap())
             .unwrap();
         let _ = fs::remove_dir_all(&d);
         assert_eq!(suite.flows.len(), 2);
@@ -3243,7 +3243,7 @@ mod tests {
     }
 
     // S2: Maestro's `enabled` / `checked` / `focused` / `selected` carry
-    // over as Velocity's state filters (they were dropped with a warning,
+    // over as Atalanta's state filters (they were dropped with a warning,
     // so `tapOn: { text: Next, enabled: true }` tapped a disabled Next).
     #[test]
     fn maestro_state_keys_carry_over() {
@@ -3265,7 +3265,7 @@ mod tests {
         );
         assert_eq!(a.len(), 2, "a state alone is skipped: {a:?}");
         assert!(warned(&r, "state without a selector"), "{:?}", r.issues);
-        assert!(!warned(&r, "no Velocity equivalent"), "{:?}", r.issues);
+        assert!(!warned(&r, "no Atalanta equivalent"), "{:?}", r.issues);
     }
 
     // VEL-081: header hooks become steps; dropped keys are warnings.
@@ -3333,7 +3333,7 @@ mod tests {
         assert_eq!(steps.len(), 3, "{:?}", r.issues);
         assert!(matches!(
             &steps[0].action,
-            velocity_common::Action::Natural { intent, kind: velocity_common::NaturalKind::Assert, .. }
+            atalanta_common::Action::Natural { intent, kind: atalanta_common::NaturalKind::Assert, .. }
                 if intent == "The cart shows 2 items"
         ));
         assert!(steps[0].modifiers.optional);
@@ -3405,8 +3405,8 @@ mod tests {
         assert!(a[6].contains("TextMatches(\"Item [0-9]+\")"), "{a:?}");
         assert!(warned(&r, "+44 20"), "{:?}", r.issues);
         assert!(!warned(&r, "Price (USD)"), "{:?}", r.issues);
-        // Every selector the migration wrote passes `velocity validate`.
-        velocity_core::validate_suite(&suite).unwrap();
+        // Every selector the migration wrote passes `atalanta validate`.
+        atalanta_core::validate_suite(&suite).unwrap();
     }
 
     // D-11: Maestro's `id:` is a regex too; a plain id stays `id:`.
@@ -3466,7 +3466,7 @@ mod tests {
             "appId: a\n---\n- tapOn:\n    text: Item\n    index: ${IDX}\n",
         )
         .unwrap();
-        let out = d.join("out.velocity.yaml");
+        let out = d.join("out.atalanta.yaml");
         let r = MaestroMigrator::new()
             .migrate_file(&d.join("f.yaml").to_string_lossy(), &out.to_string_lossy())
             .unwrap();

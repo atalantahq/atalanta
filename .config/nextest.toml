@@ -15,7 +15,7 @@ filter = "test(a_moving_element_is_tapped_where_it_stops)"
 threads-required = "num-cpus"
 
 [[profile.default.overrides]]
-filter = "(package(velocity-web) & kind(test)) | binary(web_parallel)"
+filter = "(package(atalanta-web) & kind(test)) | binary(web_parallel)"
 test-group = "chrome"
 
 [profile.default]
@@ -25,7 +25,7 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 [profile.ci]
 # Run everything, so one failure doesn't hide the others.
 fail-fast = false
-# A pass on retry is reported as flaky, not hidden: Velocity's own tests
+# A pass on retry is reported as flaky, not hidden: Atalanta's own tests
 # drive real headless Chrome and local sockets.
 retries = 1
 failure-output = "immediate-final"

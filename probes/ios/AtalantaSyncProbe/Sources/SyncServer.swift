@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// TCP server that exposes app idle state to the Velocity test runner.
+/// TCP server that exposes app idle state to the Atalanta test runner.
 /// Protocol: newline-delimited JSON over TCP, bound to the loopback
 /// interface only (a physical device on Wi-Fi exposed it to the LAN).
 ///
@@ -49,14 +49,14 @@ final class SyncServer {
         self.port = port
     }
 
-    /// The port to listen on: an explicit one, else `VELOCITY_SYNC_PORT`
+    /// The port to listen on: an explicit one, else `ATALANTA_SYNC_PORT`
     /// (the host passes a per-device port through
-    /// `SIMCTL_CHILD_VELOCITY_SYNC_PORT` / the launch environment, so
+    /// `SIMCTL_CHILD_ATALANTA_SYNC_PORT` / the launch environment, so
     /// parallel simulators sharing the Mac's loopback don't collide), else
     /// 19400.
     static func resolvePort(explicit: UInt16?, environment: [String: String]) -> UInt16 {
         if let explicit { return explicit }
-        if let raw = environment["VELOCITY_SYNC_PORT"]?.trimmingCharacters(in: .whitespaces),
+        if let raw = environment["ATALANTA_SYNC_PORT"]?.trimmingCharacters(in: .whitespaces),
            let port = UInt16(raw), port != 0 {
             return port
         }
@@ -73,7 +73,7 @@ final class SyncServer {
         do {
             listener = try NWListener(using: params)
         } catch {
-            print("[VelocitySyncProbe] Failed to create listener: \(error)")
+            print("[AtalantaSyncProbe] Failed to create listener: \(error)")
             return
         }
 
@@ -84,15 +84,15 @@ final class SyncServer {
         listener?.stateUpdateHandler = { [port] state in
             switch state {
             case .ready:
-                print("[VelocitySyncProbe] Sync server listening on port \(port)")
+                print("[AtalantaSyncProbe] Sync server listening on port \(port)")
             case .failed(let error):
-                print("[VelocitySyncProbe] Listener failed: \(error)")
+                print("[AtalantaSyncProbe] Listener failed: \(error)")
             default:
                 break
             }
         }
 
-        listener?.start(queue: DispatchQueue(label: "com.velocity.sync-server"))
+        listener?.start(queue: DispatchQueue(label: "com.atalanta.sync-server"))
     }
 
     func stop() {
@@ -101,7 +101,7 @@ final class SyncServer {
     }
 
     private func handleConnection(_ connection: NWConnection) {
-        connection.start(queue: DispatchQueue(label: "com.velocity.sync-client"))
+        connection.start(queue: DispatchQueue(label: "com.atalanta.sync-client"))
         readLine(from: connection, buffer: Data(), session: Session())
     }
 

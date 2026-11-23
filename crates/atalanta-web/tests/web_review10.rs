@@ -9,9 +9,9 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::selector_build::robust_selector;
+use atalanta_common::{AtalantaError, Element, Platform, PlatformDriver, Rect, Selector};
 use common::{driver, find, serve};
-use velocity_common::selector_build::robust_selector;
-use velocity_common::{Element, Platform, PlatformDriver, Rect, Selector, VelocityError};
 
 const TWINS: &str = r#"<!doctype html><html><body style="margin:0">
 <div style="display:none"><button class="add" id="h">Add to cart</button></div>
@@ -112,7 +112,7 @@ async fn a_page_banner_over_a_same_origin_frame_fails_the_tap() {
         .unwrap();
     let err = d.tap("web", &pay).await.expect_err("the banner covers it");
     assert!(
-        matches!(err, VelocityError::NotActionable { .. }),
+        matches!(err, AtalantaError::NotActionable { .. }),
         "{err:?}"
     );
     assert!(err.to_string().contains("div"), "{err}");
@@ -269,7 +269,7 @@ async fn a_renderer_crash_is_a_lost_connection() {
             .find_element("web", &Selector::Text("Second page".into()))
             .await
         {
-            Err(e @ VelocityError::BrowserConnectionLost { .. }) => {
+            Err(e @ AtalantaError::BrowserConnectionLost { .. }) => {
                 err = Some(e);
                 break;
             }

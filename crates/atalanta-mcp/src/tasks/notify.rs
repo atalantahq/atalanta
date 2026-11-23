@@ -1,9 +1,9 @@
-//! Completion notifiers (`velocity mcp --notify …`): told once when a task
+//! Completion notifiers (`atalanta mcp --notify …`): told once when a task
 //! ends, with the task as JSON.
 //!
 //! - `webhook=<url>`: POST the task JSON (http or https).
 //! - `script=<path>`: run the program with the task file's path as its one
-//!   argument and `VELOCITY_TASK_ID` / `VELOCITY_TASK_STATE` set. Its output
+//!   argument and `ATALANTA_TASK_ID` / `ATALANTA_TASK_STATE` set. Its output
 //!   goes to the server's stderr, never to stdout (the protocol).
 //! - `jsonl=<path>`: append the task JSON as one line.
 //! - `desktop`: a desktop notification (`osascript` on macOS, `notify-send`
@@ -92,13 +92,13 @@ impl Notifier {
             Self::Script(path) => {
                 let mut cmd = tokio::process::Command::new(path);
                 cmd.arg(task_file)
-                    .env("VELOCITY_TASK_ID", id)
-                    .env("VELOCITY_TASK_STATE", state)
+                    .env("ATALANTA_TASK_ID", id)
+                    .env("ATALANTA_TASK_STATE", state)
                     .stdin(std::process::Stdio::null())
                     // Never our stdout: it carries the protocol.
                     .stdout(stderr_stdio())
                     .stderr(std::process::Stdio::inherit());
-                let out = velocity_common::process::output_with_timeout(
+                let out = atalanta_common::process::output_with_timeout(
                     &mut cmd,
                     Duration::from_secs(60),
                 )
@@ -121,12 +121,12 @@ impl Notifier {
                     .map_err(|e| format!("{}: {e}", path.display()))
             }
             Self::Desktop => {
-                let title = format!("Velocity task {id}");
+                let title = format!("Atalanta task {id}");
                 let body = desktop_body(task);
                 let mut cmd =
                     desktop_command(&title, &body).ok_or("no desktop notifier on this platform")?;
                 cmd.stdin(std::process::Stdio::null());
-                let out = velocity_common::process::output_with_timeout(
+                let out = atalanta_common::process::output_with_timeout(
                     &mut cmd,
                     Duration::from_secs(10),
                 )
@@ -173,7 +173,7 @@ fn desktop_command(title: &str, body: &str) -> Option<tokio::process::Command> {
         }
         "linux" => {
             let mut c = tokio::process::Command::new("notify-send");
-            c.args(["--app-name=Velocity", "--", title, body]);
+            c.args(["--app-name=Atalanta", "--", title, body]);
             Some(c)
         }
         _ => None,
@@ -215,7 +215,7 @@ mod tests {
     #[test]
     fn desktop_text_is_passed_as_arguments_not_script() {
         let evil = "\" & do shell script \"touch /tmp/pwned\" & \"";
-        let cmd = desktop_command("Velocity task t1", evil);
+        let cmd = desktop_command("Atalanta task t1", evil);
         if let Some(cmd) = cmd {
             let args: Vec<String> = cmd
                 .as_std()
@@ -246,7 +246,7 @@ mod tests {
         {
             let script = crate::test_util::script(
                 "notify-hook",
-                "#!/bin/sh\necho \"$VELOCITY_TASK_ID $VELOCITY_TASK_STATE $1\" > \"$1.out\"\necho on-stdout\n",
+                "#!/bin/sh\necho \"$ATALANTA_TASK_ID $ATALANTA_TASK_STATE $1\" > \"$1.out\"\necho on-stdout\n",
             );
             let out = dir.path().join("task.json.out");
             Notifier::Script(script).notify(&task, &file).await;

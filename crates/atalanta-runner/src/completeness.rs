@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use velocity_common::TestResult;
+use atalanta_common::TestResult;
 
 /// Add a failed, internal-error result for each `planned` test that has
 /// none in `results`. Returns how many were missing.
@@ -24,7 +24,7 @@ pub fn account_for_every_test(planned: &[String], results: &mut Vec<TestResult>)
         let mut r = TestResult::failed(
             name,
             "no result: the test was planned but the run never reported it (a worker \
-             stopped, or a Velocity bug); this is not a pass"
+             stopped, or a Atalanta bug); this is not a pass"
                 .into(),
             Duration::ZERO,
         );
@@ -37,7 +37,7 @@ pub fn account_for_every_test(planned: &[String], results: &mut Vec<TestResult>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::TestStatus;
+    use atalanta_common::TestStatus;
 
     #[test]
     fn a_planned_test_with_no_result_fails_as_an_internal_error() {

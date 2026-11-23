@@ -1,19 +1,19 @@
-//! `velocity nl-eval` — measure natural-language planner consistency (pass^k)
+//! `atalanta nl-eval` — measure natural-language planner consistency (pass^k)
 //! on the traces saved by earlier runs, or compare models on a fixed task
 //! set (`--model provider:model`, repeatable) and recommend a default.
 
 use std::collections::HashMap;
 
+use atalanta_nl::eval::{builtin_tasks, compare, evaluate_with, load_traces_counted, Price, Trace};
+use atalanta_nl::provider::parse_model_spec;
+use atalanta_nl::{AiSettings, NaturalPlanner};
 use clap::Args;
 use colored::Colorize;
-use velocity_nl::eval::{builtin_tasks, compare, evaluate_with, load_traces_counted, Price, Trace};
-use velocity_nl::provider::parse_model_spec;
-use velocity_nl::{AiSettings, NaturalPlanner};
 
 #[derive(Args)]
 pub struct NlEvalArgs {
-    /// Directory of traces written by `velocity run` (one per planned step)
-    #[arg(long, default_value = velocity_runner::nl::TRACES_DIR)]
+    /// Directory of traces written by `atalanta run` (one per planned step)
+    #[arg(long, default_value = atalanta_runner::nl::TRACES_DIR)]
     traces: String,
 
     /// pass^k: the chance that k re-plans all reproduce the recorded action
@@ -47,7 +47,7 @@ pub struct NlEvalArgs {
     #[arg(long = "model", value_name = "PROVIDER:MODEL")]
     models: Vec<String>,
 
-    /// The task set: `builtin` (the fixed set shipped with Velocity, the
+    /// The task set: `builtin` (the fixed set shipped with Atalanta, the
     /// default with --model) or a directory of traces (the default without)
     #[arg(long)]
     tasks: Option<String>,
@@ -192,7 +192,7 @@ pub async fn execute(args: NlEvalArgs) -> anyhow::Result<i32> {
     let Some(settings) = AiSettings::from_env()? else {
         usage_bail!(
             "nl-eval needs a model: set ANTHROPIC_API_KEY, OPENAI_API_KEY, or \
-             VELOCITY_NL_API_KEY with VELOCITY_NL_API_URL (or pass --model)"
+             ATALANTA_NL_API_KEY with ATALANTA_NL_API_URL (or pass --model)"
         );
     };
     let planner = settings.planner()?;

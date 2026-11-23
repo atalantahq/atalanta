@@ -1,9 +1,9 @@
 use std::time::{Duration, Instant};
 
-use velocity_common::{
-    PlatformDriver, Result, RuntimeConfig, SuiteResult, TestResult, TestStatus, VelocityError,
+use atalanta_common::{
+    AtalantaError, PlatformDriver, Result, RuntimeConfig, SuiteResult, TestResult, TestStatus,
 };
-use velocity_core::TestExecutor;
+use atalanta_core::TestExecutor;
 
 use crate::history;
 use crate::retry::{print_result, run_test_with_retries};
@@ -18,7 +18,7 @@ pub enum Termination {
     Completed,
     /// `--timeout` passed: the test it cut off failed and the rest were
     /// skipped. Holds the `SuiteTimeout` error (exit 4).
-    TimedOut(VelocityError),
+    TimedOut(AtalantaError),
     /// The run was asked to stop (`RuntimeConfig::stop`): the test running
     /// then and the rest were skipped with this reason.
     Stopped(String),
@@ -50,7 +50,7 @@ pub(crate) enum Cut {
 impl Cut {
     /// Whatever comes first: the stop request or the deadline.
     pub(crate) async fn first(
-        stop: &velocity_common::StopHandle,
+        stop: &atalanta_common::StopHandle,
         deadline: Option<tokio::time::Instant>,
     ) -> Cut {
         tokio::select! {
@@ -66,7 +66,7 @@ impl Cut {
 
     /// Already cut: a stop was asked for or the deadline passed.
     pub(crate) fn now(
-        stop: &velocity_common::StopHandle,
+        stop: &atalanta_common::StopHandle,
         deadline: Option<tokio::time::Instant>,
     ) -> Option<Cut> {
         if let Some(r) = stop.reason() {
@@ -106,7 +106,7 @@ impl Cut {
         total: usize,
     ) -> Termination {
         match self {
-            Cut::Timeout => Termination::TimedOut(VelocityError::SuiteTimeout {
+            Cut::Timeout => Termination::TimedOut(AtalantaError::SuiteTimeout {
                 timeout_ms,
                 completed,
                 total,
@@ -118,7 +118,7 @@ impl Cut {
 
 impl SuiteRunner {
     pub async fn run(
-        suite: velocity_common::TestSuite,
+        suite: atalanta_common::TestSuite,
         config: RuntimeConfig,
         driver: &dyn PlatformDriver,
     ) -> Result<SuiteResult> {
@@ -132,7 +132,7 @@ impl SuiteRunner {
     /// the rest as skipped with the reason (VEL-044). History and the
     /// result cache keep only the tests that finished.
     pub async fn run_outcome(
-        suite: velocity_common::TestSuite,
+        suite: atalanta_common::TestSuite,
         config: RuntimeConfig,
         driver: &dyn PlatformDriver,
     ) -> Result<RunOutcome> {
@@ -142,7 +142,7 @@ impl SuiteRunner {
         let suite_timeout = config.suite_timeout_ms.map(Duration::from_millis);
 
         // Determine the device and take its cross-process lease, so another
-        // Velocity run (or an MCP agent) can't drive it at the same time.
+        // Atalanta run (or an MCP agent) can't drive it at the same time.
         let (device_id, _device_lock) = match &config.device_id {
             Some(id) => match crate::lease::lock_waiting(id).await {
                 Ok(lock) => (id.clone(), lock),
@@ -150,7 +150,7 @@ impl SuiteRunner {
                     return Err(device_unavailable(
                         &format!("Device {id}"),
                         format!(
-                            "in use by another Velocity process ({holder}). \
+                            "in use by another Atalanta process ({holder}). \
                              Wait for it to finish or pick another device with --device."
                         ),
                     ))
@@ -169,7 +169,7 @@ impl SuiteRunner {
                 }
                 // Booted devices first; then the first one nobody else holds.
                 let mut ordered: Vec<_> = devices.iter().collect();
-                ordered.sort_by_key(|d| d.state != velocity_common::DeviceState::Booted);
+                ordered.sort_by_key(|d| d.state != atalanta_common::DeviceState::Booted);
                 let mut held = Vec::new();
                 let mut picked = None;
                 for d in ordered {
@@ -189,7 +189,7 @@ impl SuiteRunner {
                 picked.ok_or_else(|| {
                     device_unavailable(
                         "Every device",
-                        format!("in use by another Velocity process: {}", held.join(", ")),
+                        format!("in use by another Atalanta process: {}", held.join(", ")),
                     )
                 })?
             }
@@ -213,7 +213,7 @@ impl SuiteRunner {
             crate::retry::capped_retries(config.retry_count.unwrap_or(suite.config.retry.count));
         let app_id = suite.app_id.clone();
 
-        println!("\n  Velocity v{}", env!("CARGO_PKG_VERSION"));
+        println!("\n  Atalanta v{}", env!("CARGO_PKG_VERSION"));
         println!(
             "  Tests: {total_tests}{}",
             match (shard_index, shard_total) {
@@ -512,8 +512,8 @@ impl SuiteRunner {
 
 /// No device the run can use: a device problem (exit 3), not a
 /// configuration error (exit 2) as it was reported (VEL-051).
-pub(crate) fn device_unavailable(what: &str, detail: String) -> VelocityError {
-    VelocityError::ServiceUnavailable {
+pub(crate) fn device_unavailable(what: &str, detail: String) -> AtalantaError {
+    AtalantaError::ServiceUnavailable {
         service: what.to_string(),
         detail,
     }
@@ -535,7 +535,7 @@ fn early_flake_runs(duration: Duration) -> u32 {
 /// a `dependsOn` chain can't be repeated on its own). Off when more than
 /// 30% of the run is new — then it's a new suite, not a few new tests.
 fn early_flake_candidates(
-    tests: &[velocity_common::TestCase],
+    tests: &[atalanta_common::TestCase],
     hist: &history::TestHistory,
     config: &RuntimeConfig,
 ) -> std::collections::HashSet<String> {
@@ -576,8 +576,8 @@ mod tests {
         assert_eq!(early_flake_runs(Duration::from_secs(900)), 0);
     }
 
-    fn case(name: &str, deps: &[&str]) -> velocity_common::TestCase {
-        velocity_common::TestCase {
+    fn case(name: &str, deps: &[&str]) -> atalanta_common::TestCase {
+        atalanta_common::TestCase {
             name: name.into(),
             tags: vec![],
             isolated: false,
@@ -659,7 +659,7 @@ mod tests {
         }
     }
 
-    use velocity_common::{DeviceInfo, DeviceState, Direction, Element, Key, Rect, Selector};
+    use atalanta_common::{DeviceInfo, DeviceState, Direction, Element, Key, Rect, Selector};
 
     #[async_trait::async_trait]
     impl PlatformDriver for FlipDriver {
@@ -667,7 +667,7 @@ mod tests {
             Ok(vec![DeviceInfo {
                 id: self.device.clone(),
                 name: self.device.clone(),
-                platform: velocity_common::Platform::Android,
+                platform: atalanta_common::Platform::Android,
                 state: DeviceState::Booted,
                 os_version: Some("14".into()),
                 device_type: Default::default(),
@@ -697,7 +697,7 @@ mod tests {
             if self.visible() {
                 Ok(Self::button())
             } else {
-                Err(VelocityError::ElementNotFound {
+                Err(AtalantaError::ElementNotFound {
                     selector: format!("{s:?}"),
                     timeout_ms: 0,
                     screenshot: None,
@@ -802,7 +802,7 @@ mod tests {
     }
 
     /// One test per app, each launching `com.<name>` and checking the button.
-    fn flip_suite(names: &[&str]) -> velocity_common::TestSuite {
+    fn flip_suite(names: &[&str]) -> atalanta_common::TestSuite {
         let mut yaml = String::from(
             "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\n    quietMs: 10\n    reactionMs: 10\ntests:\n",
         );
@@ -811,18 +811,18 @@ mod tests {
                 "  - name: {n}\n    steps:\n      - launchApp: {{ appId: com.{n} }}\n      - assertVisible: {{ text: \"Go\" }}\n"
             ));
         }
-        velocity_core::parser::parse_suite_from_str(&yaml).unwrap()
+        atalanta_core::parser::parse_suite_from_str(&yaml).unwrap()
     }
 
     fn scratch(name: &str) -> (std::path::PathBuf, RuntimeConfig) {
-        let dir = std::env::temp_dir().join(format!("velocity-run-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-run-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let config = RuntimeConfig {
             artifacts_dir: dir.to_string_lossy().into_owned(),
             device_id: Some(format!("run-{name}-{}", std::process::id())),
-            // Healing state in the scratch dir, not this crate's `.velocity/`.
-            state_dir: Some(dir.join(".velocity")),
+            // Healing state in the scratch dir, not this crate's `.atalanta/`.
+            state_dir: Some(dir.join(".atalanta")),
             ..Default::default()
         };
         (dir, config)
@@ -886,7 +886,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // VEL-051: a `--device` another Velocity process holds is a device
+    // VEL-051: a `--device` another Atalanta process holds is a device
     // problem (exit 3), not a configuration error (exit 2).
     #[tokio::test]
     async fn a_device_held_by_another_process_exits_3() {
@@ -898,7 +898,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(e.exit_code(), 3, "{e}");
-        assert!(e.to_string().contains("another Velocity process"), "{e}");
+        assert!(e.to_string().contains("another Atalanta process"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -998,7 +998,7 @@ mod tests {
             .unwrap();
         assert!(cached.tests[0].from_cache, "control: the cache works");
         let update = RuntimeConfig {
-            update_baselines: velocity_common::BaselineUpdate::Changed,
+            update_baselines: atalanta_common::BaselineUpdate::Changed,
             ..config
         };
         let r = SuiteRunner::run(flip_suite(&["t"]), update, &driver)
@@ -1010,9 +1010,9 @@ mod tests {
     }
 
     /// Two quick tests, then two that wait 3 s each.
-    fn slow_suite() -> velocity_common::TestSuite {
+    fn slow_suite() -> atalanta_common::TestSuite {
         let mut suite = flip_suite(&["a", "b"]);
-        let slow = velocity_core::parser::parse_suite_from_str(
+        let slow = atalanta_core::parser::parse_suite_from_str(
             "appId: com.example\ntests:\n  - name: slow1\n    steps:\n      - wait: { ms: 3000 }\n  - name: slow2\n    steps:\n      - wait: { ms: 3000 }\n",
         )
         .unwrap();

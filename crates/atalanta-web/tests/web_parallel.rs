@@ -4,11 +4,11 @@
 
 mod common;
 
+use atalanta_common::{MockRule, PlatformDriver};
 use common::serve;
-use velocity_common::{MockRule, PlatformDriver};
 
-fn driver() -> velocity_web::WebDriver {
-    velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+fn driver() -> atalanta_web::WebDriver {
+    atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         instances: 2,
@@ -16,7 +16,7 @@ fn driver() -> velocity_web::WebDriver {
     })
 }
 
-async fn text_of(d: &velocity_web::WebDriver, dev: &str, css: &str) -> String {
+async fn text_of(d: &atalanta_web::WebDriver, dev: &str, css: &str) -> String {
     let el = d.find_element(dev, &common::css(css)).await.unwrap();
     d.get_element_text(dev, &el).await.unwrap()
 }
@@ -268,8 +268,8 @@ async fn a_hung_shared_chrome_is_replaced_on_restart() {
 async fn a_busy_shared_chrome_is_not_killed() {
     require_chrome!();
     let base = serve(&[("/ok.html", "<html><body><p id=ok>ok</p></body></html>")]);
-    let d = std::sync::Arc::new(velocity_web::WebDriver::new(
-        velocity_web::WebDriverConfig {
+    let d = std::sync::Arc::new(atalanta_web::WebDriver::new(
+        atalanta_web::WebDriverConfig {
             chrome_path: common::chrome_path(),
             extra_args: vec!["--no-sandbox".into()],
             instances: 4,
@@ -297,7 +297,7 @@ async fn a_busy_shared_chrome_is_not_killed() {
                 d.prepare(dev).await?;
                 d.launch_app(dev, &url, false).await?;
             }
-            Ok::<_, velocity_common::VelocityError>(())
+            Ok::<_, atalanta_common::AtalantaError>(())
         })
     });
     for l in launches {

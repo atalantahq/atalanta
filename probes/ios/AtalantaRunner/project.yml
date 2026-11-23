@@ -1,28 +1,28 @@
-# Velocity's own iOS runner (see VelocityRunnerUITests/VelocityRunner.swift).
+# Atalanta's own iOS runner (see AtalantaRunnerUITests/AtalantaRunner.swift).
 # Generate and build:  xcodegen generate && xcodebuild build-for-testing \
-#   -project VelocityRunner.xcodeproj -scheme VelocityRunner \
+#   -project AtalantaRunner.xcodeproj -scheme AtalantaRunner \
 #   -destination 'generic/platform=iOS Simulator'
-# Velocity does this itself on first use (VELOCITY_IOS_RUNNER=velocity).
-name: VelocityRunner
+# Atalanta does this itself on first use (ATALANTA_IOS_RUNNER=atalanta).
+name: AtalantaRunner
 options:
-  bundleIdPrefix: dev.velocity
+  bundleIdPrefix: dev.atalanta
   deploymentTarget:
     iOS: "15.0"
 targets:
-  VelocityRunnerUITests:
+  AtalantaRunnerUITests:
     type: bundle.ui-testing
     platform: iOS
-    sources: [VelocityRunnerUITests]
+    sources: [AtalantaRunnerUITests]
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        PRODUCT_BUNDLE_IDENTIFIER: dev.velocity.runner
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atalanta.runner
         SWIFT_VERSION: "5.0"
         CODE_SIGN_STYLE: Automatic
 schemes:
-  VelocityRunner:
+  AtalantaRunner:
     build:
       targets:
-        VelocityRunnerUITests: [test]
+        AtalantaRunnerUITests: [test]
     test:
-      targets: [VelocityRunnerUITests]
+      targets: [AtalantaRunnerUITests]

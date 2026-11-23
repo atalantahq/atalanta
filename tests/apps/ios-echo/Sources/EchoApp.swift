@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct VelocityEchoApp: App {
+struct AtalantaEchoApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -14,7 +14,7 @@ struct ContentView: View {
 
     var body: some View {
         List {
-            Text("Velocity Echo")
+            Text("Atalanta Echo")
             Text("args=\(pairs.count)")
                 .accessibilityIdentifier("args.count")
             if pairs.isEmpty {

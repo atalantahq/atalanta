@@ -3,10 +3,10 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use atalanta_common::*;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
-use velocity_common::*;
 
 use crate::adb::Adb;
 use crate::adb_backend::AdbBackend;
@@ -23,7 +23,7 @@ type CachedSize = ((i32, i32), Instant);
 
 /// Android platform driver supporting both subprocess and async TCP ADB backends.
 ///
-/// Set `VELOCITY_ADB_MODE=async` to use the native async TCP client (faster).
+/// Set `ATALANTA_ADB_MODE=async` to use the native async TCP client (faster).
 /// Default is `subprocess` for backwards compatibility.
 pub struct AndroidDriver {
     adb: Box<dyn AdbBackend>,
@@ -38,7 +38,7 @@ pub struct AndroidDriver {
     /// On-device tree server: ~ms dumps instead of ~2 s `uiautomator dump`.
     tree: TreeServer,
     /// `adb shell` processes running CPU busy loops (flaky hunting).
-    stress: Mutex<std::collections::HashMap<String, Vec<velocity_common::process::GroupChild>>>,
+    stress: Mutex<std::collections::HashMap<String, Vec<atalanta_common::process::GroupChild>>>,
     /// System animations off for the run (restored on the device).
     animations: crate::animations::AnimationGuard,
     /// Devices whose status bar is in demo mode (D-V4), exited on cleanup.
@@ -102,7 +102,7 @@ const SCREEN_READY_TTL: Duration = Duration::from_secs(2);
 const LAUNCH_MARK: &str = "date '+%s %N %Y-%m-%d %H:%M:%S'";
 
 /// Starts the line `wait_for_activity`'s focus check adds with `pidof`.
-const PID_MARK: &str = "velocity-pid:";
+const PID_MARK: &str = "atalanta-pid:";
 
 impl Default for AndroidDriver {
     fn default() -> Self {
@@ -190,7 +190,7 @@ impl AndroidDriver {
             .adb
             .run_device(device_id, &["shell", "input keyevent KEYCODE_BACK"])
             .await;
-        Err(VelocityError::DeviceLocked {
+        Err(AtalantaError::DeviceLocked {
             id: device_id.to_string(),
         })
     }
@@ -231,7 +231,7 @@ impl AndroidDriver {
     }
 
     pub fn new() -> Self {
-        let mode = velocity_common::env::var("VELOCITY_ADB_MODE")
+        let mode = atalanta_common::env::var("ATALANTA_ADB_MODE")
             .unwrap_or_else(|_| "subprocess".to_string());
         let adb: Box<dyn AdbBackend> = match mode.as_str() {
             "async" | "tcp" => {
@@ -507,7 +507,7 @@ impl AndroidDriver {
             .await;
         let component = match component {
             Ok(out) => parse_component(&out, package),
-            Err(VelocityError::CommandFailed { .. }) => None,
+            Err(AtalantaError::CommandFailed { .. }) => None,
             Err(e) => return Err(e),
         };
         // Only cache a hit: the app may not be installed yet.
@@ -642,7 +642,7 @@ impl AndroidDriver {
                 // A lost connection stays a device error (retried, another
                 // device); `am` itself refusing the launch is the test's.
                 Err(e)
-                    if !extras.is_empty() && !matches!(e, VelocityError::CommandFailed { .. }) =>
+                    if !extras.is_empty() && !matches!(e, AtalantaError::CommandFailed { .. }) =>
                 {
                     return Err(e)
                 }
@@ -651,7 +651,7 @@ impl AndroidDriver {
                         Ok(o) => o.trim().to_string(),
                         Err(e) => e.to_string(),
                     };
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "launching {package} with its launch arguments failed: {detail}"
                     )));
                 }
@@ -667,17 +667,17 @@ impl AndroidDriver {
             .await
         {
             Ok(out) => !out.contains("package:"),
-            Err(VelocityError::CommandFailed { .. }) => true,
+            Err(AtalantaError::CommandFailed { .. }) => true,
             Err(_) => false,
         };
         if missing {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "{package} is not installed on {device_id}"
             )));
         }
         // `monkey` can't carry intent extras: never drop them silently.
         if !extras.is_empty() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "launch arguments need am start, and the launcher activity of {package} \
                  could not be resolved"
             )));
@@ -689,7 +689,7 @@ impl AndroidDriver {
     async fn restore_snapshot(&self, device_id: &str, name: &str) -> Result<()> {
         check_snapshot_name(name)?;
         if !device_id.starts_with("emulator-") {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "snapshot reset needs an emulator, {device_id} is not one"
             )));
         }
@@ -698,7 +698,7 @@ impl AndroidDriver {
             .run_device(device_id, &["emu", "avd", "snapshot", "load", name])
             .await?;
         if !out.contains("OK") || out.contains("KO") {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "snapshot '{name}' could not be loaded: {} \
                  (create it on a clean device with: adb -s {device_id} emu avd snapshot save {name})",
                 out.trim()
@@ -720,7 +720,7 @@ impl AndroidDriver {
             }
             tokio::time::sleep(Duration::from_millis(500)).await;
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "{device_id} did not come back after loading snapshot '{name}'"
         )))
     }
@@ -740,7 +740,7 @@ impl AndroidDriver {
             // after a relaunch). `uiautomator dump` cannot help then: it needs
             // the UiAutomation connection the server holds, so it failed at
             // once and only added failures toward the circuit breaker.
-            Some(Err(detail)) => Err(VelocityError::CommandFailed {
+            Some(Err(detail)) => Err(AtalantaError::CommandFailed {
                 device_id: device_id.to_string(),
                 command: "tree server DUMP".into(),
                 detail,
@@ -801,14 +801,14 @@ impl AndroidDriver {
                 FocusCheck::Elsewhere(other) => other,
             };
             if std::time::Instant::now() >= deadline {
-                return Err(VelocityError::AssertionFailed {
+                return Err(AtalantaError::AssertionFailed {
                     expected: format!(
                         "{} at {:?} focused for typing",
                         element.element_type, element.bounds
                     ),
                     actual: format!(
                         "the focus stayed on {} {:?} at {:?}; the keys would go there \
-                         (select the text field itself, or VELOCITY_ANDROID_FOCUS_CHECK=off)",
+                         (select the text field itself, or ATALANTA_ANDROID_FOCUS_CHECK=off)",
                         other.element_type,
                         other
                             .text
@@ -930,7 +930,7 @@ impl AndroidDriver {
         r: Option<std::result::Result<(), String>>,
     ) -> Option<Result<()>> {
         r.map(|r| {
-            r.map_err(|detail| VelocityError::CommandFailed {
+            r.map_err(|detail| AtalantaError::CommandFailed {
                 device_id: device_id.to_string(),
                 command: format!("tree server {what}"),
                 detail,
@@ -1005,7 +1005,7 @@ impl AndroidDriver {
                 } else {
                     "wait until it is gone (assertNotVisible on it) or close it first"
                 };
-                Err(VelocityError::AssertionFailed {
+                Err(AtalantaError::AssertionFailed {
                     expected: format!("target at {bounds:?} reachable"),
                     actual: format!(
                         "covered by the {} ({}); {hint}",
@@ -1107,7 +1107,7 @@ const COVER_POLL: Duration = Duration::from_millis(150);
 /// window in front (a freeform or desktop-mode window, protocol 19 names
 /// the active one) does: the tap would go to that app (review 09 #12).
 /// The points tried are the shared tap guard's
-/// ([`velocity_common::tap_guard`]).
+/// ([`atalanta_common::tap_guard`]).
 fn uncovered_point(
     windows: &[crate::tree_server::Window],
     bounds: &Rect,
@@ -1143,7 +1143,7 @@ fn uncovered_point(
     let Some(blocker) = cover(center) else {
         return Ok(center);
     };
-    velocity_common::tap_guard::free_point(bounds, &[], |p| cover(p).is_some())
+    atalanta_common::tap_guard::free_point(bounds, &[], |p| cover(p).is_some())
         .ok_or_else(|| blocker.clone())
 }
 
@@ -1301,7 +1301,7 @@ impl PlatformDriver for AndroidDriver {
         self.invalidate_cache(device_id).await;
         let mut last_err = None;
         if reset.strategy == ResetStrategy::Snapshot {
-            let name = reset.snapshot.as_deref().unwrap_or("velocity-clean");
+            let name = reset.snapshot.as_deref().unwrap_or("atalanta-clean");
             match self.restore_snapshot(device_id, name).await {
                 Ok(()) => return Ok(ResetStrategy::Snapshot),
                 Err(e) => last_err = Some(e),
@@ -1320,7 +1320,7 @@ impl PlatformDriver for AndroidDriver {
             }
         }
         Err(last_err
-            .unwrap_or_else(|| VelocityError::Config("reinstall needs reset.appPath".to_string())))
+            .unwrap_or_else(|| AtalantaError::Config("reinstall needs reset.appPath".to_string())))
     }
 
     async fn set_stress(&self, device_id: &str, on: bool) -> bool {
@@ -1332,14 +1332,14 @@ impl PlatformDriver for AndroidDriver {
         all.remove(device_id);
         let _ = self
             .adb
-            .run_device(device_id, &["shell", "pkill -f velocity-stress"])
+            .run_device(device_id, &["shell", "pkill -f atalanta-stress"])
             .await;
         if !on {
             return true;
         }
         let procs = all.entry(device_id.to_string()).or_default();
         let adb =
-            velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".to_string());
+            atalanta_common::env::var("ATALANTA_ADB_PATH").unwrap_or_else(|_| "adb".to_string());
         // One busy loop per core keeps the device saturated without
         // starving adb itself (the loops run at the lowest priority).
         let cores = self
@@ -1352,13 +1352,13 @@ impl PlatformDriver for AndroidDriver {
         for _ in 0..cores {
             // Its own process group, registered for the second-signal kill:
             // `std::process::exit` skips `kill_on_drop` (review d4 m2).
-            match velocity_common::process::spawn_group(
+            match atalanta_common::process::spawn_group(
                 Command::new(&adb)
                     .args(crate::adb::target_args(device_id))
                     .args([
                         "shell",
                         // The trailing word becomes $0, so `pkill -f` can find it.
-                        "nice -n 19 sh -c 'while :; do :; done' velocity-stress",
+                        "nice -n 19 sh -c 'while :; do :; done' atalanta-stress",
                     ])
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
@@ -1381,7 +1381,7 @@ impl PlatformDriver for AndroidDriver {
     }
 
     async fn boot_device(&self, device_id: &str) -> Result<()> {
-        let emulator_path = velocity_common::env::var("VELOCITY_EMULATOR_PATH")
+        let emulator_path = atalanta_common::env::var("ATALANTA_EMULATOR_PATH")
             .unwrap_or_else(|_| "emulator".to_string());
 
         debug!(avd = device_id, "Launching Android emulator");
@@ -1392,10 +1392,10 @@ impl PlatformDriver for AndroidDriver {
             .arg(device_id)
             // Quick boot from the saved snapshot (seconds, not a minute+
             // cold boot), but never save over it: test runs must not change
-            // the state the next boot starts from. VELOCITY_EMULATOR_COLD_BOOT=1
+            // the state the next boot starts from. ATALANTA_EMULATOR_COLD_BOOT=1
             // restores the old cold-boot behaviour.
             .args(
-                if velocity_common::env::var("VELOCITY_EMULATOR_COLD_BOOT").as_deref() == Ok("1") {
+                if atalanta_common::env::var("ATALANTA_EMULATOR_COLD_BOOT").as_deref() == Ok("1") {
                     ["-no-snapshot-load", "-no-snapshot-save"]
                 } else {
                     ["-no-snapshot-save", "-no-boot-anim"]
@@ -1405,9 +1405,9 @@ impl PlatformDriver for AndroidDriver {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "Failed to launch emulator for AVD '{device_id}'. \
-                 Ensure the Android emulator is on PATH or set VELOCITY_EMULATOR_PATH. Error: {e}"
+                 Ensure the Android emulator is on PATH or set ATALANTA_EMULATOR_PATH. Error: {e}"
                 ))
             })?;
 
@@ -1415,7 +1415,7 @@ impl PlatformDriver for AndroidDriver {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
             if Instant::now() > deadline {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "Timed out waiting for AVD '{device_id}' to boot"
                 )));
             }
@@ -1457,7 +1457,7 @@ impl PlatformDriver for AndroidDriver {
         app_path: &str,
         app_id: &str,
         hash: &str,
-    ) -> Result<velocity_common::InstallOutcome> {
+    ) -> Result<atalanta_common::InstallOutcome> {
         shell::validate_app_id(app_id)?;
         crate::install::install_if_changed(&*self.adb, device_id, app_path, app_id, hash).await
     }
@@ -1485,7 +1485,7 @@ impl PlatformDriver for AndroidDriver {
         // A launch is a cold start, as on iOS (simctl relaunches) and in
         // Maestro: `am start` on a running app only brought its task to the
         // front, so each test inherited the screen the last one left
-        // (VelocityLab: after one test stopped on Login, 24 later tests
+        // (AtalantaLab: after one test stopped on Login, 24 later tests
         // never saw Home). `pm clear` stops the app too. Batch mode skips
         // the launch when it wants the app kept warm.
         //
@@ -1528,11 +1528,11 @@ impl PlatformDriver for AndroidDriver {
     async fn start_evidence(
         &self,
         device_id: &str,
-        req: &velocity_common::EvidenceRequest,
-    ) -> Option<Box<dyn velocity_common::EvidenceSession>> {
+        req: &atalanta_common::EvidenceRequest,
+    ) -> Option<Box<dyn atalanta_common::EvidenceSession>> {
         crate::evidence::AndroidEvidence::start(self.recorders.clone(), &adb_path(), device_id, req)
             .await
-            .map(|e| Box::new(e) as Box<dyn velocity_common::EvidenceSession>)
+            .map(|e| Box::new(e) as Box<dyn atalanta_common::EvidenceSession>)
     }
 
     async fn crash_report(&self, device_id: &str, app_id: &str) -> Option<String> {
@@ -1601,8 +1601,8 @@ impl PlatformDriver for AndroidDriver {
 
     /// The crash log, then the front app window from the tree server
     /// (`WINDOWS`, a few ms). Unknown when the server can't answer.
-    async fn app_liveness(&self, device_id: &str, app_id: &str) -> velocity_common::Liveness {
-        use velocity_common::Liveness;
+    async fn app_liveness(&self, device_id: &str, app_id: &str) -> atalanta_common::Liveness {
+        use atalanta_common::Liveness;
         if let Some(detail) = self.crash_report(device_id, app_id).await {
             return Liveness::Dead(detail);
         }
@@ -1623,12 +1623,12 @@ impl PlatformDriver for AndroidDriver {
         Some(system_bar_rects(&windows))
     }
 
-    /// The build's SHA-256 when Velocity installed it; otherwise
+    /// The build's SHA-256 when Atalanta installed it; otherwise
     /// versionCode, versionName and lastUpdateTime from `dumpsys package`:
     /// a reinstall of the same version still changes the install time.
     async fn app_fingerprint(&self, device_id: &str, app_id: &str) -> Option<String> {
         shell::validate_app_id(app_id).ok()?;
-        // The build's hash, when Velocity installed it and nothing has
+        // The build's hash, when Atalanta installed it and nothing has
         // replaced it since (see `install.rs`).
         if let Some(fp) = crate::install::fingerprint(&*self.adb, device_id, app_id).await {
             return Some(fp);
@@ -1661,7 +1661,7 @@ impl PlatformDriver for AndroidDriver {
         shell::validate_app_id(app_id)?;
         self.invalidate_cache(device_id).await;
         let _ = self.adb.stop_app(device_id, app_id).await;
-        let dest = velocity_common::state_dir(device_id, app_id, name);
+        let dest = atalanta_common::state_dir(device_id, app_id, name);
         create_private_dir(&dest)?;
         if self.debuggable(device_id, app_id).await {
             // Cache and native libs are rebuilt by the app; skip them.
@@ -1682,7 +1682,7 @@ impl PlatformDriver for AndroidDriver {
             )
             .await?;
             if tar.len() < 512 {
-                return Err(VelocityError::CommandFailed {
+                return Err(AtalantaError::CommandFailed {
                     device_id: device_id.into(),
                     command: format!("saveState {name}"),
                     detail: String::from_utf8_lossy(&tar).trim().to_string(),
@@ -1694,7 +1694,7 @@ impl PlatformDriver for AndroidDriver {
             let path = dest.join("data.tar");
             tokio::task::spawn_blocking(move || write_private(&path, &tar))
                 .await
-                .map_err(|e| VelocityError::Config(format!("saveState {name}: {e}")))??;
+                .map_err(|e| AtalantaError::Config(format!("saveState {name}: {e}")))??;
             info!(device_id, app_id, name, bytes, "app state saved");
             return Ok(());
         }
@@ -1705,7 +1705,7 @@ impl PlatformDriver for AndroidDriver {
             .await
             .unwrap_or_default();
         if !device_id.starts_with("emulator-") || out.contains("KO") || !out.contains("OK") {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "saveState for {app_id} needs a debuggable build (run-as) or an emulator that can save snapshots ({})",
                 out.trim()
             )));
@@ -1717,7 +1717,7 @@ impl PlatformDriver for AndroidDriver {
     async fn restore_app_state(&self, device_id: &str, app_id: &str, name: &str) -> Result<()> {
         shell::validate_app_id(app_id)?;
         self.invalidate_cache(device_id).await;
-        let saved = velocity_common::state_dir(device_id, app_id, name);
+        let saved = atalanta_common::state_dir(device_id, app_id, name);
         let _ = self.adb.stop_app(device_id, app_id).await;
         if let Ok(tar) = tokio::fs::read(saved.join("data.tar")).await {
             // Empty the data dir (what the app may write; `lib` is the
@@ -1737,7 +1737,7 @@ impl PlatformDriver for AndroidDriver {
         if let Ok(snap) = tokio::fs::read_to_string(saved.join("snapshot")).await {
             return self.restore_snapshot(device_id, snap.trim()).await;
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "no saved state '{name}' for {app_id} on {device_id}; run a saveState step first"
         )))
     }
@@ -1766,7 +1766,7 @@ impl PlatformDriver for AndroidDriver {
             )
             .await?;
         if am_reported_error(&out) {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: device_id.to_string(),
                 command: format!("openLink {url}"),
                 detail: out.trim().to_string(),
@@ -1789,7 +1789,7 @@ impl PlatformDriver for AndroidDriver {
 
         find_element(&tree, selector, &opts, &screen)
             .cloned()
-            .ok_or_else(|| VelocityError::ElementNotFound {
+            .ok_or_else(|| AtalantaError::ElementNotFound {
                 selector: selector.to_string(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -1895,7 +1895,7 @@ impl PlatformDriver for AndroidDriver {
                 Some(Ok(SetText::Applied)) => true,
                 Some(Ok(SetText::Differs(read_back))) => {
                     if !same_but_formatting(&read_back, text) {
-                        return Err(VelocityError::CommandFailed {
+                        return Err(AtalantaError::CommandFailed {
                             device_id: device_id.to_string(),
                             command: "tree server set text".into(),
                             detail: differs_detail(element, text, &read_back),
@@ -2020,7 +2020,7 @@ impl PlatformDriver for AndroidDriver {
         self.invalidate_cache(device_id).await;
         // Enter in a text field: the keyboard's own action (Search/Go/Send),
         // which a raw ENTER key misses in many Compose and WebView fields.
-        // ENTER when no field takes it (or VELOCITY_ANDROID_IME_ENTER=0).
+        // ENTER when no field takes it (or ATALANTA_ANDROID_IME_ENTER=0).
         if key == Key::Enter && ime_enter_enabled() {
             let r = self.tree.ime_enter(device_id).await;
             unknown_outcome(device_id, "ime action", &r)?;
@@ -2029,7 +2029,7 @@ impl PlatformDriver for AndroidDriver {
             }
         }
         let Some(code) = Self::key_to_keycode(key.clone()) else {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "pressKey: {} is not supported on Android",
                 key.name()
             )));
@@ -2039,14 +2039,14 @@ impl PlatformDriver for AndroidDriver {
 
     /// The soft keyboard's frame from the window list: an input-method window
     /// (type 2) whose bounds cover the bottom of the screen.
-    async fn keyboard_frame(&self, device_id: &str) -> Result<Option<velocity_common::Rect>> {
+    async fn keyboard_frame(&self, device_id: &str) -> Result<Option<atalanta_common::Rect>> {
         // No tree server (or one too old for WINDOWS): no keyboard is known.
         // A server that failed to answer is an error, not "no keyboard"
         // (second-pass review: hide_keyboard took it for "gone").
         let windows = match self.tree.windows(device_id).await {
             None => return Ok(None),
             Some(Err(e)) => {
-                return Err(VelocityError::CommandFailed {
+                return Err(AtalantaError::CommandFailed {
                     device_id: device_id.into(),
                     command: "WINDOWS".into(),
                     detail: e,
@@ -2072,7 +2072,7 @@ impl PlatformDriver for AndroidDriver {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(600);
         // ESCAPE first: it dismisses the IME on most devices.
         self.key_code(device_id, 111).await?;
-        let mut readings: Vec<Option<velocity_common::Rect>> = Vec::new();
+        let mut readings: Vec<Option<atalanta_common::Rect>> = Vec::new();
         // Poll every 100 ms for up to 600 ms.
         while std::time::Instant::now() < deadline {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -2094,7 +2094,7 @@ impl PlatformDriver for AndroidDriver {
                 }
             }
         }
-        Err(VelocityError::AssertionFailed {
+        Err(AtalantaError::AssertionFailed {
             expected: "the keyboard is gone".into(),
             actual: "the keyboard stayed up".into(),
             selector: String::new(),
@@ -2103,25 +2103,25 @@ impl PlatformDriver for AndroidDriver {
     }
 
     /// Media sessions and call state in one adb round-trip.
-    async fn system_state(&self, device_id: &str) -> Result<velocity_common::SystemState> {
+    async fn system_state(&self, device_id: &str) -> Result<atalanta_common::SystemState> {
         let out = self
             .adb
             .run_device(
                 device_id,
                 &[
                     "shell",
-                    "dumpsys media_session; echo VELOCITY-CALLS; dumpsys telephony.registry | grep mCallState=",
+                    "dumpsys media_session; echo ATALANTA-CALLS; dumpsys telephony.registry | grep mCallState=",
                 ],
             )
             .await?;
-        parse_system_state(&out).map_err(|detail| VelocityError::CommandFailed {
+        parse_system_state(&out).map_err(|detail| AtalantaError::CommandFailed {
             device_id: device_id.to_string(),
             command: "dumpsys media_session".into(),
             detail,
         })
     }
 
-    /// `VELOCITY_ANDROID_SCROLL=semantic`: scroll lists by their own scroll
+    /// `ATALANTA_ANDROID_SCROLL=semantic`: scroll lists by their own scroll
     /// action (no fling, stops at the end) instead of a touch drag.
     async fn scroll(&self, device_id: &str, finger: Direction) -> Result<()> {
         if semantic_scroll() {
@@ -2190,7 +2190,7 @@ impl PlatformDriver for AndroidDriver {
     }
 
     /// Settle from accessibility events on the device (A-4), with
-    /// `VELOCITY_ANDROID_EVENT_SETTLE=1`. Off by default: Android throttles
+    /// `ATALANTA_ANDROID_EVENT_SETTLE=1`. Off by default: Android throttles
     /// content-change events (~100 ms), so the event timeline trails the
     /// screen and this measured 30–50 ms slower per transition than polling
     /// lite dumps on an API 35 emulator. It saves device load, not time.
@@ -2202,7 +2202,7 @@ impl PlatformDriver for AndroidDriver {
         cap_ms: u64,
     ) -> Option<DeviceSettle> {
         if !matches!(
-            velocity_common::env::var("VELOCITY_ANDROID_EVENT_SETTLE").as_deref(),
+            atalanta_common::env::var("ATALANTA_ANDROID_EVENT_SETTLE").as_deref(),
             Ok("1") | Ok("true") | Ok("on")
         ) {
             return None;
@@ -2230,9 +2230,9 @@ impl PlatformDriver for AndroidDriver {
 
     async fn get_element_text(&self, device_id: &str, element: &Element) -> Result<String> {
         let tree = self.get_cached_hierarchy(device_id).await?;
-        velocity_common::selector_match::locate(&tree, element)
+        atalanta_common::selector_match::locate(&tree, element)
             .map(|e| e.text.clone().unwrap_or_default())
-            .ok_or_else(|| VelocityError::ElementNotFound {
+            .ok_or_else(|| AtalantaError::ElementNotFound {
                 selector: describe_identity(element),
                 timeout_ms: 0,
                 screenshot: None,
@@ -2245,8 +2245,8 @@ impl PlatformDriver for AndroidDriver {
         let screen = self.screen_bounds(device_id).await?;
         Ok(
             // The shared rule (D-1), `visibility.minArea` included.
-            velocity_common::selector_match::locate(&tree, element)
-                .is_some_and(|found| velocity_common::selector_match::shown_on(found, &screen)),
+            atalanta_common::selector_match::locate(&tree, element)
+                .is_some_and(|found| atalanta_common::selector_match::shown_on(found, &screen)),
         )
     }
 
@@ -2265,7 +2265,7 @@ impl PlatformDriver for AndroidDriver {
 /// BACK is sent iff the keyboard was still showing in every reading
 /// (ESCAPE did not clear it). An empty reading list means time ran out
 /// before any poll, so BACK is sent once.
-pub(crate) fn should_send_back(readings: &[Option<velocity_common::Rect>]) -> bool {
+pub(crate) fn should_send_back(readings: &[Option<atalanta_common::Rect>]) -> bool {
     readings.iter().all(Option::is_some)
 }
 
@@ -2273,7 +2273,7 @@ pub(crate) fn should_send_back(readings: &[Option<velocity_common::Rect>]) -> bo
 /// the app's private data (VEL-359).
 fn create_private_dir(dir: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    let err = |e: std::io::Error| VelocityError::Config(format!("{}: {e}", dir.display()));
+    let err = |e: std::io::Error| AtalantaError::Config(format!("{}: {e}", dir.display()));
     std::fs::create_dir_all(dir).map_err(err)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).map_err(err)
 }
@@ -2282,7 +2282,7 @@ fn create_private_dir(dir: &std::path::Path) -> Result<()> {
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let err = |e: std::io::Error| VelocityError::Config(format!("{}: {e}", path.display()));
+    let err = |e: std::io::Error| AtalantaError::Config(format!("{}: {e}", path.display()));
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create(true)
@@ -2324,7 +2324,7 @@ fn unknown_outcome<T>(
 ) -> Result<()> {
     match r {
         Some(Err(detail)) if crate::tree_server::is_outcome_unknown(detail) => {
-            Err(VelocityError::CommandFailed {
+            Err(AtalantaError::CommandFailed {
                 device_id: device_id.to_string(),
                 command: format!("tree server {what}"),
                 detail: detail.clone(),
@@ -2360,7 +2360,7 @@ fn snapshot_name(app_id: &str, name: &str) -> String {
             .collect()
     };
     let safe = clean(name);
-    let base = format!("velocity-{}-{safe}", clean(app_id));
+    let base = format!("atalanta-{}-{safe}", clean(app_id));
     if safe == name {
         base
     } else {
@@ -2386,7 +2386,7 @@ fn check_snapshot_name(name: &str) -> Result<()> {
     {
         Ok(())
     } else {
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "invalid emulator snapshot name {name:?}: use letters, digits, '-', '_' and '.'"
         )))
     }
@@ -2405,7 +2405,7 @@ fn clear_data_script(app_id: &str) -> String {
 }
 
 fn adb_path() -> String {
-    velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".to_string())
+    atalanta_common::env::var("ATALANTA_ADB_PATH").unwrap_or_else(|_| "adb".to_string())
 }
 
 /// Raw stdout of `adb -s <device> <args>` (binary safe).
@@ -2414,18 +2414,18 @@ async fn adb_capture(device_id: &str, args: &[&str]) -> Result<Vec<u8>> {
     cmd.args(crate::adb::target_args(device_id))
         .args(args)
         .stdin(Stdio::null());
-    let out = velocity_common::process::output_with_timeout(
+    let out = atalanta_common::process::output_with_timeout(
         &mut cmd,
-        velocity_common::process::LONG_TIMEOUT,
+        atalanta_common::process::LONG_TIMEOUT,
     )
     .await
-    .map_err(|e| VelocityError::CommandFailed {
+    .map_err(|e| AtalantaError::CommandFailed {
         device_id: device_id.into(),
         command: args.join(" "),
         detail: e.to_string(),
     })?;
     if !out.status.success() {
-        return Err(VelocityError::CommandFailed {
+        return Err(AtalantaError::CommandFailed {
             device_id: device_id.into(),
             command: args.join(" "),
             detail: String::from_utf8_lossy(&out.stderr).trim().to_string(),
@@ -2445,27 +2445,27 @@ async fn adb_feed(device_id: &str, args: &[&str], input: &[u8]) -> Result<()> {
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| VelocityError::Config(format!("adb: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("adb: {e}")))?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin
             .write_all(input)
             .await
-            .map_err(|e| VelocityError::Config(format!("adb stdin: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("adb stdin: {e}")))?;
     }
     let out = tokio::time::timeout(
-        velocity_common::process::LONG_TIMEOUT,
+        atalanta_common::process::LONG_TIMEOUT,
         child.wait_with_output(),
     )
     .await
     .map_err(|_| {
-        VelocityError::Config(format!(
+        AtalantaError::Config(format!(
             "adb exec-in timed out after {:?}",
-            velocity_common::process::LONG_TIMEOUT
+            atalanta_common::process::LONG_TIMEOUT
         ))
     })?
-    .map_err(|e| VelocityError::Config(format!("adb: {e}")))?;
+    .map_err(|e| AtalantaError::Config(format!("adb: {e}")))?;
     if !out.status.success() {
-        return Err(VelocityError::CommandFailed {
+        return Err(AtalantaError::CommandFailed {
             device_id: device_id.into(),
             command: args.join(" "),
             detail: String::from_utf8_lossy(&out.stderr).trim().to_string(),
@@ -2676,13 +2676,13 @@ fn describe_identity(el: &Element) -> String {
     }
 }
 
-/// `dumpsys media_session` (then `VELOCITY-CALLS` and telephony's
-/// `mCallState=` lines) as a [`velocity_common::SystemState`]. A session
+/// `dumpsys media_session` (then `ATALANTA-CALLS` and telephony's
+/// `mCallState=` lines) as a [`atalanta_common::SystemState`]. A session
 /// block starts at `<tag> <package>/<tag> (userId=N)`; it plays when
 /// `active=true` and `state=PlaybackState {state=PLAYING(3)` (`state=3` on
 /// older Android); `metadata: … description=<title>, …` gives the title.
-fn parse_system_state(dump: &str) -> std::result::Result<velocity_common::SystemState, String> {
-    let (media, calls) = dump.split_once("VELOCITY-CALLS").unwrap_or((dump, ""));
+fn parse_system_state(dump: &str) -> std::result::Result<atalanta_common::SystemState, String> {
+    let (media, calls) = dump.split_once("ATALANTA-CALLS").unwrap_or((dump, ""));
     // Output this parser doesn't know (another Android version or OEM, or
     // "Can't find service: media_session") read as "nothing playing", so
     // `mediaPlaying: false` passed whatever was playing (VEL-S44).
@@ -2698,10 +2698,10 @@ fn parse_system_state(dump: &str) -> std::result::Result<velocity_common::System
             first.unwrap_or("nothing")
         ));
     }
-    let mut state = velocity_common::SystemState::default();
+    let mut state = atalanta_common::SystemState::default();
     let mut session: Option<(bool, bool, Option<String>)> = None; // (active, playing, title)
     let flush = |s: &mut Option<(bool, bool, Option<String>)>,
-                 st: &mut velocity_common::SystemState| {
+                 st: &mut atalanta_common::SystemState| {
         if let Some((true, true, title)) = s.take() {
             st.media_playing = true;
             if let Some(t) = title {
@@ -2742,7 +2742,7 @@ fn parse_system_state(dump: &str) -> std::result::Result<velocity_common::System
     Ok(state)
 }
 
-/// How `inputText` / `clearText` put text in (`VELOCITY_ANDROID_TEXT`).
+/// How `inputText` / `clearText` put text in (`ATALANTA_ANDROID_TEXT`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum TextMode {
     /// A key event per character (what a person's keyboard sends).
@@ -2777,7 +2777,7 @@ impl TextMode {
 /// itself, which redaction (exact values) misses, so for a password field
 /// or a registered secret only the lengths are told (audit 2026-11 AND-4).
 fn differs_detail(element: &Element, text: &str, read_back: &str) -> String {
-    let secret = element.obscured || velocity_common::redact::redact(text) != text;
+    let secret = element.obscured || atalanta_common::redact::redact(text) != text;
     if secret {
         format!(
             "the field took the text ({} characters) but now reads {} characters; not typed \
@@ -2796,12 +2796,12 @@ fn differs_detail(element: &Element, text: &str, read_back: &str) -> String {
 /// and adb may log. A password field (`obscured`), a registered secret or
 /// a secret-shaped value is refused, naming the tree server.
 fn adb_text_allowed(device_id: &str, text: &str, obscured: bool) -> Result<()> {
-    let refuse = |why: &str| VelocityError::CommandFailed {
+    let refuse = |why: &str| AtalantaError::CommandFailed {
         device_id: device_id.to_string(),
         command: "input text".into(),
         detail: format!(
             "{why} is not typed with `adb shell input text` (it would be a device \
-             command line); typing it needs Velocity's tree server, which is not \
+             command line); typing it needs Atalanta's tree server, which is not \
              available on this device"
         ),
     };
@@ -2811,17 +2811,17 @@ fn adb_text_allowed(device_id: &str, text: &str, obscured: bool) -> Result<()> {
     if obscured {
         return Err(refuse("text for a password field"));
     }
-    if velocity_common::redact::redact(text) != text {
+    if atalanta_common::redact::redact(text) != text {
         return Err(refuse("a secret"));
     }
     Ok(())
 }
 
 /// D-5: whether `inputText` checks that its tap moved the focus to the
-/// target. On unless `VELOCITY_ANDROID_FOCUS_CHECK=off` (or `0`/`false`).
+/// target. On unless `ATALANTA_ANDROID_FOCUS_CHECK=off` (or `0`/`false`).
 fn focus_check_enabled() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_ANDROID_FOCUS_CHECK")
+        atalanta_common::env::var("ATALANTA_ANDROID_FOCUS_CHECK")
             .as_deref()
             .map(str::trim),
         Ok("0" | "off" | "false")
@@ -2829,7 +2829,7 @@ fn focus_check_enabled() -> bool {
 }
 
 fn text_mode() -> TextMode {
-    match velocity_common::env::var("VELOCITY_ANDROID_TEXT").as_deref() {
+    match atalanta_common::env::var("ATALANTA_ANDROID_TEXT").as_deref() {
         Ok("keys") => TextMode::Keys,
         Ok("fast") => TextMode::Fast,
         _ => TextMode::Auto,
@@ -2838,13 +2838,13 @@ fn text_mode() -> TextMode {
 
 fn ime_enter_enabled() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_ANDROID_IME_ENTER").as_deref(),
+        atalanta_common::env::var("ATALANTA_ANDROID_IME_ENTER").as_deref(),
         Ok("0") | Ok("false")
     )
 }
 
 fn semantic_scroll() -> bool {
-    velocity_common::env::var("VELOCITY_ANDROID_SCROLL").as_deref() == Ok("semantic")
+    atalanta_common::env::var("ATALANTA_ANDROID_SCROLL").as_deref() == Ok("semantic")
 }
 
 /// The focused window (a `dumpsys window` `mCurrentFocus=` line) shows a
@@ -2936,17 +2936,17 @@ mod launch_tests {
     #[test]
     fn the_focus_check_gives_the_pid_only_with_the_app_in_front() {
         use super::focused_pid;
-        let p = "com.velocity.lab";
-        let up = "  mCurrentFocus=Window{1 u0 com.velocity.lab/com.velocity.lab.MainActivity}\nvelocity-pid:4321 4400\n";
+        let p = "com.atalanta.lab";
+        let up = "  mCurrentFocus=Window{1 u0 com.atalanta.lab/com.atalanta.lab.MainActivity}\natalanta-pid:4321 4400\n";
         assert_eq!(focused_pid(up, p), Some(4321));
         let splash =
-            "  mCurrentFocus=Window{2 u0 Splash Screen com.velocity.lab}\nvelocity-pid:4321\n";
+            "  mCurrentFocus=Window{2 u0 Splash Screen com.atalanta.lab}\natalanta-pid:4321\n";
         assert_eq!(focused_pid(splash, p), None);
         let launcher =
-            "  mCurrentFocus=Window{3 u0 com.android.launcher3/.Launcher}\nvelocity-pid:\n";
+            "  mCurrentFocus=Window{3 u0 com.android.launcher3/.Launcher}\natalanta-pid:\n";
         assert_eq!(focused_pid(launcher, p), None);
-        assert_eq!(focused_pid("velocity-pid:4321\n", p), None);
-        let no_pidof = "  mCurrentFocus=Window{1 u0 com.velocity.lab/com.velocity.lab.MainActivity}\nvelocity-pid:\n";
+        assert_eq!(focused_pid("atalanta-pid:4321\n", p), None);
+        let no_pidof = "  mCurrentFocus=Window{1 u0 com.atalanta.lab/com.atalanta.lab.MainActivity}\natalanta-pid:\n";
         assert_eq!(focused_pid(no_pidof, p), None);
     }
 
@@ -2954,7 +2954,7 @@ mod launch_tests {
         crate::tree_server::Window {
             layer,
             kind,
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y,
                 width: 1080,
@@ -2979,7 +2979,7 @@ mod launch_tests {
         let mut app = win(1, 1, 0, 2400);
         app.package = "com.app".into();
         app.active = Some(true);
-        let under = velocity_common::Rect {
+        let under = atalanta_common::Rect {
             x: 100,
             y: 1100,
             width: 400,
@@ -3052,7 +3052,7 @@ mod launch_tests {
         let mut app = win(1, 1, 0, 2400);
         app.package = "com.app".into();
         app.active = Some(true);
-        let under = velocity_common::Rect {
+        let under = atalanta_common::Rect {
             x: 100,
             y: 1100,
             width: 400,
@@ -3062,7 +3062,7 @@ mod launch_tests {
         assert_eq!(cover.package, "com.other");
         assert_eq!(cover.kind_name(), "app window");
         // Partly under it: tapped on the free part.
-        let half = velocity_common::Rect {
+        let half = atalanta_common::Rect {
             x: 100,
             y: 900,
             width: 400,
@@ -3094,7 +3094,7 @@ mod launch_tests {
         let mut app = win(1, 1, 0, 2400);
         app.package = "com.android.settings".into();
         app.active = Some(false);
-        let close = velocity_common::Rect {
+        let close = atalanta_common::Rect {
             x: 70,
             y: 1332,
             width: 940,
@@ -3115,7 +3115,7 @@ mod launch_tests {
     fn taps_avoid_the_keyboard_and_name_it_when_fully_covered() {
         // Keyboard over the bottom 900 px, then the app.
         let windows = vec![win(10, 2, 1500, 900), win(1, 1, 0, 2400)];
-        let button = velocity_common::Rect {
+        let button = atalanta_common::Rect {
             x: 100,
             y: 1400,
             width: 400,
@@ -3123,7 +3123,7 @@ mod launch_tests {
         };
         let (_, y) = super::uncovered_point(&windows, &button).unwrap();
         assert!(y < 1500, "tapped the uncovered top part, got y={y}");
-        let hidden = velocity_common::Rect {
+        let hidden = atalanta_common::Rect {
             x: 100,
             y: 1700,
             width: 400,
@@ -3131,7 +3131,7 @@ mod launch_tests {
         };
         let cover = super::uncovered_point(&windows, &hidden).unwrap_err();
         assert_eq!(cover.kind_name(), "keyboard");
-        let free = velocity_common::Rect {
+        let free = atalanta_common::Rect {
             x: 100,
             y: 200,
             width: 400,
@@ -3144,7 +3144,7 @@ mod launch_tests {
         decor.title = "ScreenDecorOverlayBottom".into();
         let mut untouchable = win(41, 3, 2280, 120);
         untouchable.touchable = Some(false);
-        let bottom = velocity_common::Rect {
+        let bottom = atalanta_common::Rect {
             x: 100,
             y: 2290,
             width: 400,
@@ -3187,20 +3187,20 @@ mod launch_tests {
     fn crash_log_yields_the_exception() {
         let log = "--------- beginning of crash\n\
 E/AndroidRuntime( 4321): FATAL EXCEPTION: main\n\
-E/AndroidRuntime( 4321): Process: com.velocity.lab, PID: 4321\n\
-E/AndroidRuntime( 4321): java.lang.IllegalStateException: VelocityLab crash button\n\
-E/AndroidRuntime( 4321): \tat com.velocity.lab.MainActivity.crash(MainActivity.kt:1)\n";
+E/AndroidRuntime( 4321): Process: com.atalanta.lab, PID: 4321\n\
+E/AndroidRuntime( 4321): java.lang.IllegalStateException: AtalantaLab crash button\n\
+E/AndroidRuntime( 4321): \tat com.atalanta.lab.MainActivity.crash(MainActivity.kt:1)\n";
         assert_eq!(
-            super::crash_from_log(log, "com.velocity.lab").as_deref(),
-            Some("java.lang.IllegalStateException: VelocityLab crash button")
+            super::crash_from_log(log, "com.atalanta.lab").as_deref(),
+            Some("java.lang.IllegalStateException: AtalantaLab crash button")
         );
         assert_eq!(super::crash_from_log(log, "com.other"), None);
-        assert_eq!(super::crash_from_log("", "com.velocity.lab"), None);
+        assert_eq!(super::crash_from_log("", "com.atalanta.lab"), None);
     }
 
     #[test]
     fn swipes_stay_on_screen_in_both_axes() {
-        use velocity_common::Direction;
+        use atalanta_common::Direction;
         for d in [
             Direction::Up,
             Direction::Down,
@@ -3219,7 +3219,7 @@ E/AndroidRuntime( 4321): \tat com.velocity.lab.MainActivity.crash(MainActivity.k
 
     #[test]
     fn vertical_swipes_start_below_a_landscape_toolbar() {
-        use velocity_common::Direction;
+        use atalanta_common::Direction;
         // Landscape 2340x1080: Settings' list starts at y=284.
         let (_, y1, _, y2) = super::swipe_line(2340, 1080, Direction::Down);
         assert!(y1 > 284 && y2 < 1080, "{y1}->{y2}");
@@ -3265,15 +3265,15 @@ mod app_id_tests {
     use crate::test_support::FakeAdb;
 
     const EXIT_INFO: &str = "ACTIVITY MANAGER PROCESS EXIT INFO (dumpsys activity exit-info)
-  package: com.velocity.lab
+  package: com.atalanta.lab
     Historical Process Exit for uid=10123
         ApplicationExitInfo #0:
           timestamp=2026-10-15 01:02:03.456 pid=4321 realUid=10123 packageUid=10123 definingUid=10123 user=0
-          process=com.velocity.lab reason=4 (APP CRASH(EXCEPTION)) subreason=0 (UNKNOWN) status=0
+          process=com.atalanta.lab reason=4 (APP CRASH(EXCEPTION)) subreason=0 (UNKNOWN) status=0
           importance=100 pss=0.00 rss=0.00 description=crash state=empty trace=null
         ApplicationExitInfo #1:
           timestamp=2026-10-15 01:00:00.000 pid=1111 realUid=10123 packageUid=10123 definingUid=10123 user=0
-          process=com.velocity.lab reason=10 (USER REQUESTED) subreason=0 (UNKNOWN) status=0
+          process=com.atalanta.lab reason=10 (USER REQUESTED) subreason=0 (UNKNOWN) status=0
           importance=100 pss=0.00 rss=0.00 description=stop state=empty trace=null
 ";
 
@@ -3338,7 +3338,7 @@ mod app_id_tests {
             parse_launch_mark("1760490060"),
             (Some("1760490060.000".into()), None)
         );
-        let log = "10-15 01:00:59.000 E/AndroidRuntime( 1): Process: com.old, PID: 1\n10-15 01:01:02.000 E/AndroidRuntime( 2): Process: com.velocity.lab, PID: 2\n";
+        let log = "10-15 01:00:59.000 E/AndroidRuntime( 1): Process: com.old, PID: 1\n10-15 01:01:02.000 E/AndroidRuntime( 2): Process: com.atalanta.lab, PID: 2\n";
         let kept = time_log_since(log, LAUNCHED);
         assert!(
             !kept.contains("com.old") && kept.starts_with("E/AndroidRuntime( 2)"),
@@ -3358,7 +3358,7 @@ mod app_id_tests {
         let d = AndroidDriver::with_backend(Box::new(Adb::with_path(fake.path())));
         assert!(d.set_stress("emulator-5554", true).await);
         assert!(
-            fake.log().contains("DEVICE_SH:pkill -f velocity-stress"),
+            fake.log().contains("DEVICE_SH:pkill -f atalanta-stress"),
             "{}",
             fake.log()
         );
@@ -3381,7 +3381,7 @@ mod app_id_tests {
         (fake, d)
     }
 
-    const FATAL: &str = "E/AndroidRuntime( 5555): FATAL EXCEPTION: main\nE/AndroidRuntime( 5555): Process: com.velocity.lab, PID: 5555\nE/AndroidRuntime( 5555): java.lang.IllegalStateException: boom\n";
+    const FATAL: &str = "E/AndroidRuntime( 5555): FATAL EXCEPTION: main\nE/AndroidRuntime( 5555): Process: com.atalanta.lab, PID: 5555\nE/AndroidRuntime( 5555): java.lang.IllegalStateException: boom\n";
 
     /// M-6: the launch pid has only a user-stop record (the app restarted
     /// itself), so exit-info has no crash; the crash log must still decide.
@@ -3407,10 +3407,10 @@ mod app_id_tests {
         .unwrap();
         std::fs::write(fake.dir.join("device/crash.log"), FATAL).unwrap();
         fake.stub("adb-logcat", "cat \"$DEV/crash.log\"");
-        d.launch_app("emulator-5554", "com.velocity.lab", false)
+        d.launch_app("emulator-5554", "com.atalanta.lab", false)
             .await
             .unwrap();
-        let report = d.crash_report("emulator-5554", "com.velocity.lab").await;
+        let report = d.crash_report("emulator-5554", "com.atalanta.lab").await;
         assert_eq!(
             report.as_deref(),
             Some("java.lang.IllegalStateException: boom"),
@@ -3429,12 +3429,12 @@ mod app_id_tests {
         )
         .unwrap();
         fake.stub("adb-logcat", "exit 0");
-        d.launch_app("emulator-5554", "com.velocity.lab", false)
+        d.launch_app("emulator-5554", "com.atalanta.lab", false)
             .await
             .unwrap();
         for _ in 0..5 {
             assert_eq!(
-                d.crash_report("emulator-5554", "com.velocity.lab").await,
+                d.crash_report("emulator-5554", "com.atalanta.lab").await,
                 None
             );
         }
@@ -3460,18 +3460,18 @@ mod app_id_tests {
         std::fs::write(fake.dir.join("device/exit-info"), "").unwrap();
         std::fs::write(
             fake.dir.join("device/crash.log"),
-            "10-15 01:00:30.000 E/AndroidRuntime( 9): Process: com.velocity.lab, PID: 9\n10-15 01:00:30.000 E/AndroidRuntime( 9): java.lang.OldError: earlier run\n",
+            "10-15 01:00:30.000 E/AndroidRuntime( 9): Process: com.atalanta.lab, PID: 9\n10-15 01:00:30.000 E/AndroidRuntime( 9): java.lang.OldError: earlier run\n",
         )
         .unwrap();
         fake.stub(
             "adb-logcat",
             "case \"$*\" in *-T*) echo 'unknown option -T' >&2; exit 1;; esac; cat \"$DEV/crash.log\"",
         );
-        d.launch_app("emulator-5554", "com.velocity.lab", false)
+        d.launch_app("emulator-5554", "com.atalanta.lab", false)
             .await
             .unwrap();
         assert_eq!(
-            d.crash_report("emulator-5554", "com.velocity.lab").await,
+            d.crash_report("emulator-5554", "com.atalanta.lab").await,
             None,
             "a crash from before the launch"
         );
@@ -3481,7 +3481,7 @@ mod app_id_tests {
             .collect::<String>();
         std::fs::write(fake.dir.join("device/crash.log"), new).unwrap();
         assert_eq!(
-            d.crash_report("emulator-5554", "com.velocity.lab")
+            d.crash_report("emulator-5554", "com.atalanta.lab")
                 .await
                 .as_deref(),
             Some("java.lang.IllegalStateException: boom")
@@ -3497,7 +3497,7 @@ mod app_id_tests {
         std::fs::write(fake.dir.join("device/exit-info"), "").unwrap();
         std::fs::write(
             fake.dir.join("device/crash.log"),
-            "10-15 01:00:30.000 E/AndroidRuntime( 9): Process: com.velocity.lab, PID: 9\n10-15 01:00:30.000 E/AndroidRuntime( 9): java.lang.OldError: an hour ago\n",
+            "10-15 01:00:30.000 E/AndroidRuntime( 9): Process: com.atalanta.lab, PID: 9\n10-15 01:00:30.000 E/AndroidRuntime( 9): java.lang.OldError: an hour ago\n",
         )
         .unwrap();
         fake.stub(
@@ -3506,9 +3506,9 @@ mod app_id_tests {
         );
         for _ in 0..2 {
             assert_eq!(
-                d.crash_report("emulator-5554", "com.velocity.lab").await,
+                d.crash_report("emulator-5554", "com.atalanta.lab").await,
                 None,
-                "a crash from before Velocity looked"
+                "a crash from before Atalanta looked"
             );
         }
         let new = FATAL
@@ -3517,7 +3517,7 @@ mod app_id_tests {
             .collect::<String>();
         std::fs::write(fake.dir.join("device/crash.log"), new).unwrap();
         assert_eq!(
-            d.crash_report("emulator-5554", "com.velocity.lab")
+            d.crash_report("emulator-5554", "com.atalanta.lab")
                 .await
                 .as_deref(),
             Some("java.lang.IllegalStateException: boom"),
@@ -3534,7 +3534,7 @@ mod app_id_tests {
     async fn a_launch_marks_its_crashes_without_wiping_the_buffer() {
         let fake = FakeAdb::new("launch-crash");
         let dev = "emulator-5554";
-        let app = "com.velocity.lab";
+        let app = "com.atalanta.lab";
         fake.stub("pidof", "echo 4321");
         fake.stub("date", "echo 1760490060 000000000 2026-10-15 01:01:00");
         fake.stub(
@@ -3573,7 +3573,7 @@ mod app_id_tests {
                 .any(|l| l.contains("[logcat]") && l.contains("[-T]")),
             "{log}"
         );
-        assert!(log.contains("[exit-info][com.velocity.lab]"), "{log}");
+        assert!(log.contains("[exit-info][com.atalanta.lab]"), "{log}");
 
         // m-11: cleanup removes the forward the launch added.
         d.cleanup().await;
@@ -3594,10 +3594,10 @@ mod app_id_tests {
             "case \"$1 $2\" in\n\
              'power ') echo '  mWakefulness=Awake';;\n\
              'window policy') echo '    mIsShowing=false';;\n\
-             'window displays') echo '  mCurrentFocus=Window{1 u0 com.velocity.lab/com.velocity.lab.MainActivity}';;\n\
+             'window displays') echo '  mCurrentFocus=Window{1 u0 com.atalanta.lab/com.atalanta.lab.MainActivity}';;\n\
              esac",
         );
-        fake.stub("cmd", "echo com.velocity.lab/.MainActivity");
+        fake.stub("cmd", "echo com.atalanta.lab/.MainActivity");
         fake.stub("pidof", "echo 4321");
         fake.stub("date", "echo 1760490060 000000000 2026-10-15 01:01:00");
         fake.stub(
@@ -3633,7 +3633,7 @@ mod app_id_tests {
         d.launches
             .lock()
             .unwrap()
-            .get(&(dev.to_string(), "com.velocity.lab".to_string()))
+            .get(&(dev.to_string(), "com.atalanta.lab".to_string()))
             .cloned()
             .unwrap()
     }
@@ -3647,7 +3647,7 @@ mod app_id_tests {
     async fn a_launch_takes_few_adb_round_trips() {
         let (fake, mut d) = launchable("launch-trips");
         let dev = "emulator-5554";
-        let app = "com.velocity.lab";
+        let app = "com.atalanta.lab";
         d.launch_app(dev, app, false).await.unwrap();
         let first = trips(&fake);
         d.launch_app(dev, app, false).await.unwrap();
@@ -3671,7 +3671,7 @@ mod app_id_tests {
         assert_eq!(launch.wall.as_deref(), Some("2026-10-15 01:01:00.000"));
         assert_eq!(d.sync_probe_port(dev), Some(41234));
         assert!(
-            log.contains("DEVICE_SH:'am' 'force-stop' 'com.velocity.lab' && { date"),
+            log.contains("DEVICE_SH:'am' 'force-stop' 'com.atalanta.lab' && { date"),
             "{log}"
         );
         assert_eq!(fixed_forwards(&fake), ["emulator-5554"], "{log}");
@@ -3693,11 +3693,11 @@ mod app_id_tests {
     async fn a_launchs_stop_and_clock_share_one_shell() {
         let (fake, d) = launchable("launch-stop-mark");
         let dev = "emulator-5554";
-        let app = "com.velocity.lab";
+        let app = "com.atalanta.lab";
         fake.stub("pm", "echo Success");
         d.launch_app(dev, app, true).await.unwrap();
         assert_eq!(launch_of(&d, dev).since.as_deref(), Some("1760490060.000"));
-        assert_eq!(fake.calls("pm"), ["PM:[clear][com.velocity.lab]"]);
+        assert_eq!(fake.calls("pm"), ["PM:[clear][com.atalanta.lab]"]);
         assert!(fake.calls("am").iter().all(|c| !c.contains("force-stop")));
 
         fake.stub("date", "exit 1");
@@ -3707,7 +3707,7 @@ mod app_id_tests {
         fake.stub("am", "echo 'error: closed' >&2; exit 1");
         let err = d.launch_app(dev, app, false).await.unwrap_err();
         assert!(
-            matches!(err, VelocityError::AdbConnectionLost { .. }),
+            matches!(err, AtalantaError::AdbConnectionLost { .. }),
             "{err:?}"
         );
         assert_eq!(fake.calls("date").len(), 2, "date ran after a failed stop");
@@ -3718,7 +3718,7 @@ mod app_id_tests {
     #[tokio::test]
     async fn the_fixed_probe_forward_follows_the_last_device() {
         let (fake, d) = launchable("launch-fixed-forward");
-        let app = "com.velocity.lab";
+        let app = "com.atalanta.lab";
         for dev in [
             "emulator-5554",
             "emulator-5554",
@@ -3772,15 +3772,15 @@ mod app_id_tests {
     async fn every_shell_arg_is_quoted() {
         let fake = FakeAdb::new("driver-quoted");
         let d = AndroidDriver::with_backend(Box::new(Adb::with_path(fake.path())));
-        assert!(!d.debuggable("emulator-5554", "com.velocity.lab").await);
-        d.stop_app("emulator-5554", "com.velocity.lab")
+        assert!(!d.debuggable("emulator-5554", "com.atalanta.lab").await);
+        d.stop_app("emulator-5554", "com.atalanta.lab")
             .await
             .unwrap();
-        assert_eq!(fake.calls("run-as"), ["RUN_AS:[com.velocity.lab][id]"]);
+        assert_eq!(fake.calls("run-as"), ["RUN_AS:[com.atalanta.lab][id]"]);
         assert!(fake
             .log()
-            .contains("DEVICE_SH:'run-as' 'com.velocity.lab' 'id'"));
-        assert_eq!(fake.calls("am"), ["AM:[force-stop][com.velocity.lab]"]);
+            .contains("DEVICE_SH:'run-as' 'com.atalanta.lab' 'id'"));
+        assert_eq!(fake.calls("am"), ["AM:[force-stop][com.atalanta.lab]"]);
     }
 
     #[test]
@@ -3797,14 +3797,14 @@ mod app_id_tests {
                 "-s",
                 "emulator-5554",
                 "shell",
-                &clear_data_script("com.velocity.lab"),
+                &clear_data_script("com.atalanta.lab"),
             ])
             .output()
             .unwrap();
         assert!(out.status.success(), "{out:?}");
         assert!(dev.join("lib").exists());
         assert!(!dev.join("a").exists() && !dev.join(".hidden").exists());
-        assert_eq!(fake.calls("run-as")[0], "RUN_AS:[com.velocity.lab][sh][-c][for f in * .[!.]*; do [ \"$f\" = lib ] || rm -rf \"$f\"; done]");
+        assert_eq!(fake.calls("run-as")[0], "RUN_AS:[com.atalanta.lab][sh][-c][for f in * .[!.]*; do [ \"$f\" = lib ] || rm -rf \"$f\"; done]");
     }
 
     /// VEL-359: saved app data was world-readable (0644 in 0755 dirs).
@@ -3829,15 +3829,15 @@ mod app_id_tests {
     #[test]
     fn snapshot_names_cannot_inject_console_commands() {
         assert_eq!(
-            snapshot_name("com.velocity.lab", "logged-in"),
-            "velocity-com_velocity_lab-logged-in"
+            snapshot_name("com.atalanta.lab", "logged-in"),
+            "atalanta-com_atalanta_lab-logged-in"
         );
         let n = snapshot_name("com.x", "a b\nkill");
-        assert!(n.starts_with("velocity-com_x-a_b_kill-"), "{n}");
+        assert!(n.starts_with("atalanta-com_x-a_b_kill-"), "{n}");
         assert!(check_snapshot_name(&n).is_ok(), "{n}");
         assert_eq!(
             snapshot_name("com.x", "login_done"),
-            "velocity-com_x-login_done"
+            "atalanta-com_x-login_done"
         );
     }
 
@@ -3860,7 +3860,7 @@ mod app_id_tests {
         // Stable across runs and builds.
         assert_eq!(fnv1a(b"login.done"), fnv1a(b"login.done"));
         assert_eq!(fnv1a(b""), 0x811c_9dc5);
-        assert!(check_snapshot_name("velocity-clean").is_ok());
+        assert!(check_snapshot_name("atalanta-clean").is_ok());
         assert!(check_snapshot_name("x\nkill").is_err());
         assert!(check_snapshot_name("a b").is_err());
     }
@@ -3893,7 +3893,7 @@ mod open_link_tests {
             .navigate("emulator-5554", "app://ErrorPage")
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e}");
     }
 }
 
@@ -3907,29 +3907,29 @@ mod lock_tests {
     #[test]
     fn unknown_media_session_output_is_an_error() {
         for out in [
-            "Can't find service: media_session\nVELOCITY-CALLS\n",
+            "Can't find service: media_session\nATALANTA-CALLS\n",
             "",
-            "Some OEM format\n  playing: yes\nVELOCITY-CALLS\n    mCallState=0\n",
+            "Some OEM format\n  playing: yes\nATALANTA-CALLS\n    mCallState=0\n",
         ] {
             assert!(parse_system_state(out).is_err(), "{out:?}");
         }
-        let none = parse_system_state("  Sessions Stack - have 0 sessions:\nVELOCITY-CALLS\n");
+        let none = parse_system_state("  Sessions Stack - have 0 sessions:\nATALANTA-CALLS\n");
         assert!(!none.unwrap().media_playing);
     }
 
     #[test]
     fn media_and_call_state_are_read_from_dumpsys() {
-        let dump = "  Sessions Stack - have 2 sessions:\n    Other com.other/Other (userId=0)\n      active=false\n      state=PlaybackState {state=PLAYING(3), position=0}\n      metadata: size=1, description=Not me, null, null\n    VelocityLab com.velocity.lab/VelocityLab (userId=0)\n      active=true\n      state=PlaybackState {state=PLAYING(3), position=0, buffered position=0}\n      metadata: size=1, description=Velocity Lab Song, null, null\nVELOCITY-CALLS\n    mCallState=0\n";
+        let dump = "  Sessions Stack - have 2 sessions:\n    Other com.other/Other (userId=0)\n      active=false\n      state=PlaybackState {state=PLAYING(3), position=0}\n      metadata: size=1, description=Not me, null, null\n    AtalantaLab com.atalanta.lab/AtalantaLab (userId=0)\n      active=true\n      state=PlaybackState {state=PLAYING(3), position=0, buffered position=0}\n      metadata: size=1, description=Atalanta Lab Song, null, null\nATALANTA-CALLS\n    mCallState=0\n";
         let s = parse_system_state(dump).unwrap();
         assert!(s.media_playing);
         assert_eq!(
             s.media_titles,
-            vec!["Velocity Lab Song".to_string()],
+            vec!["Atalanta Lab Song".to_string()],
             "inactive sessions don't count"
         );
         assert!(!s.in_call);
         let ringing = parse_system_state(
-            "MEDIA SESSION SERVICE (dumpsys media_session)\nVELOCITY-CALLS\n  mCallState=1\n",
+            "MEDIA SESSION SERVICE (dumpsys media_session)\nATALANTA-CALLS\n  mCallState=1\n",
         )
         .unwrap();
         assert!(ringing.in_call && !ringing.media_playing);
@@ -3937,7 +3937,7 @@ mod lock_tests {
 
     #[test]
     fn auto_text_mode_types_short_text_and_sets_long_text() {
-        assert!(!TextMode::Auto.wants_fast("qa@velocity"));
+        assert!(!TextMode::Auto.wants_fast("qa@atalanta"));
         assert!(TextMode::Auto.wants_fast("a sentence long enough to set"));
         assert!(TextMode::Fast.wants_fast("x"));
         assert!(!TextMode::Keys.wants_fast("a sentence long enough to set"));
@@ -3945,19 +3945,19 @@ mod lock_tests {
 
     #[test]
     fn a_launch_stuck_at_the_splash_is_told_from_a_real_one() {
-        let p = "com.velocity.lab";
+        let p = "com.atalanta.lab";
         assert!(launched(
-            "  mCurrentFocus=Window{1 u0 com.velocity.lab/com.velocity.lab.MainActivity}",
+            "  mCurrentFocus=Window{1 u0 com.atalanta.lab/com.atalanta.lab.MainActivity}",
             p
         ));
         assert!(!launched(
-            "  mCurrentFocus=Window{2 u0 Splash Screen com.velocity.lab}",
+            "  mCurrentFocus=Window{2 u0 Splash Screen com.atalanta.lab}",
             p
         ));
         assert!(!launched("  mCurrentFocus=null", p));
         // A mirroring virtual display (the screen video) is listed first,
         // with no focus: display 0 decides.
-        let two = "  Display: mDisplayId=3\n  mCurrentFocus=null\n  Display: mDisplayId=0 (organized)\n  mCurrentFocus=Window{4 u0 com.velocity.lab/com.velocity.lab.MainActivity}\n";
+        let two = "  Display: mDisplayId=3\n  mCurrentFocus=null\n  Display: mDisplayId=0 (organized)\n  mCurrentFocus=Window{4 u0 com.atalanta.lab/com.atalanta.lab.MainActivity}\n";
         assert!(launched(two, p));
         assert_eq!(
             crate::driver::default_display_focus(
@@ -3995,7 +3995,7 @@ mod lock_tests {
         assert!(shade_open(shade) && !screen_ready(shade));
         let lock = "  mWakefulness=Awake\n        mIsShowing=true\n  mCurrentFocus=Window{e67afe u0 NotificationShade}\n";
         assert!(!shade_open(lock));
-        let app = "  mWakefulness=Awake\n        mIsShowing=false\n  mCurrentFocus=Window{113f u0 com.velocity.lab/com.velocity.lab.MainActivity}\n";
+        let app = "  mWakefulness=Awake\n        mIsShowing=false\n  mCurrentFocus=Window{113f u0 com.atalanta.lab/com.atalanta.lab.MainActivity}\n";
         assert!(screen_ready(app));
     }
 }
@@ -4014,7 +4014,7 @@ mod set_text_tests {
             label: None,
             text: None,
             element_type: "EditText".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: 0,
@@ -4213,7 +4213,7 @@ mod set_text_tests {
         };
         let target = Element {
             element_type: "EditText".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y: 400,
                 width: 1080,
@@ -4262,7 +4262,7 @@ mod set_text_tests {
             e.contains("password field") && e.contains("tree server"),
             "{e}"
         );
-        velocity_common::redact::register_secret("d51-registered-secret");
+        atalanta_common::redact::register_secret("d51-registered-secret");
         for text in ["d51-registered-secret", "héllo"] {
             let e = d
                 .input_text("emulator-5554", &field(), text)
@@ -4323,7 +4323,7 @@ mod set_text_tests {
 }
 
 /// The shell line for a held drag: DOWN, a hold, steps of MOVE, a rest at
-/// the end (a pointer still for 40 ms or more stops the list's velocity),
+/// the end (a pointer still for 40 ms or more stops the list's atalanta),
 /// UP.
 fn drag_script(from: (i32, i32), to: (i32, i32), hold_ms: u64, move_ms: u64) -> String {
     let steps = (move_ms / 120).clamp(3, 20) as i32;
@@ -4378,7 +4378,7 @@ mod drag_tests {
 #[cfg(test)]
 mod key_tests {
     use super::AndroidDriver;
-    use velocity_common::Key;
+    use atalanta_common::Key;
 
     /// D-9: the editing and arrow keys are Android keyevents, Backspace
     /// is KEYCODE_DEL (67) and Delete KEYCODE_FORWARD_DEL (112).
@@ -4404,7 +4404,7 @@ mod key_tests {
 
 #[cfg(test)]
 mod differs_tests {
-    use velocity_common::Element;
+    use atalanta_common::Element;
 
     /// Audit 2026-11 AND-4: a secret cut by maxLength reads back as its own
     /// prefix, which exact-value redaction misses: only lengths are told.
@@ -4430,7 +4430,7 @@ mod differs_tests {
 mod launch_args_tests {
     use super::*;
     use crate::test_support::FakeAdb;
-    use velocity_common::LaunchArgs;
+    use atalanta_common::LaunchArgs;
 
     fn args(map: &[(&str, LaunchArg)]) -> LaunchArgs {
         LaunchArgs {
@@ -4518,13 +4518,13 @@ mod launch_args_tests {
     #[tokio::test]
     async fn launch_app_with_sends_exact_am_start_command() {
         let fake = FakeAdb::new("launch-args");
-        fake.stub("cmd", "echo com.velocity.lab/.MainActivity");
+        fake.stub("cmd", "echo com.atalanta.lab/.MainActivity");
         fake.stub(
             "dumpsys",
             "case \"$1 $2\" in\n\
              'power ') echo '  mWakefulness=Awake';;\n\
              'window policy') echo '    mIsShowing=false';;\n\
-             'window displays') echo '  mCurrentFocus=Window{1 u0 com.velocity.lab/com.velocity.lab.MainActivity}';;\n\
+             'window displays') echo '  mCurrentFocus=Window{1 u0 com.atalanta.lab/com.atalanta.lab.MainActivity}';;\n\
              esac",
         );
         fake.stub("pidof", "echo 4321");
@@ -4544,7 +4544,7 @@ mod launch_args_tests {
             "server".into(),
             LaunchArg::Str("https://staging.example.com".into()),
         );
-        d.launch_app_with("emulator-5554", "com.velocity.lab", false, &map)
+        d.launch_app_with("emulator-5554", "com.atalanta.lab", false, &map)
             .await
             .unwrap();
         let log = fake.log();
@@ -4553,7 +4553,7 @@ mod launch_args_tests {
             log.contains(
                 "DEVICE_SH:'am' 'start' '-a' 'android.intent.action.MAIN' '-c' \
                          'android.intent.category.LAUNCHER' '-f' '0x10200000' \
-                         '-n' 'com.velocity.lab/.MainActivity' '--es' 'server' \
+                         '-n' 'com.atalanta.lab/.MainActivity' '--es' 'server' \
                          'https://staging.example.com'"
             ),
             "{log}"
@@ -4564,11 +4564,11 @@ mod launch_args_tests {
         fake2.stub("cmd", "exit 1");
         let d2 = AndroidDriver::with_backend(Box::new(Adb::with_path(fake2.path())));
         let err = d2
-            .launch_app_with("emulator-5554", "com.velocity.lab", false, &map)
+            .launch_app_with("emulator-5554", "com.atalanta.lab", false, &map)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("com.velocity.lab"), "{err}");
-        assert!(matches!(err, VelocityError::Config(_)), "{err:?}");
+        assert!(err.to_string().contains("com.atalanta.lab"), "{err}");
+        assert!(matches!(err, AtalantaError::Config(_)), "{err:?}");
 
         // An app that isn't installed says so (it read as monkey's argument
         // dump), with or without launch arguments.
@@ -4578,11 +4578,11 @@ mod launch_args_tests {
         let d4 = AndroidDriver::with_backend(Box::new(Adb::with_path(fake4.path())));
         for args in [map.clone(), LaunchArgs::default()] {
             let err = d4
-                .launch_app_with("emulator-5554", "com.velocity.lab", false, &args)
+                .launch_app_with("emulator-5554", "com.atalanta.lab", false, &args)
                 .await
                 .unwrap_err();
             assert!(
-                matches!(&err, VelocityError::Config(m) if m.contains("com.velocity.lab is not installed")),
+                matches!(&err, AtalantaError::Config(m) if m.contains("com.atalanta.lab is not installed")),
                 "{err:?}"
             );
         }
@@ -4590,28 +4590,28 @@ mod launch_args_tests {
         // adb losing the device mid-launch is a device error, retried or
         // moved to another device, never a config error (exit 2).
         let fake3 = FakeAdb::new("launch-args-adb-lost");
-        fake3.stub("cmd", "echo com.velocity.lab/.MainActivity");
+        fake3.stub("cmd", "echo com.atalanta.lab/.MainActivity");
         fake3.stub("am", "echo 'error: device offline' >&2; exit 1");
         let d3 = AndroidDriver::with_backend(Box::new(Adb::with_path(fake3.path())));
         let err = d3
-            .launch_app_with("emulator-5554", "com.velocity.lab", false, &map)
+            .launch_app_with("emulator-5554", "com.atalanta.lab", false, &map)
             .await
             .unwrap_err();
         assert!(
-            matches!(err, VelocityError::AdbConnectionLost { .. }),
+            matches!(err, AtalantaError::AdbConnectionLost { .. }),
             "{err:?}"
         );
     }
 
     #[test]
     fn should_send_back_decides_from_readings() {
-        let kb = Some(velocity_common::Rect {
+        let kb = Some(atalanta_common::Rect {
             x: 0,
             y: 1440,
             width: 1080,
             height: 480,
         });
-        let gone: Option<velocity_common::Rect> = None;
+        let gone: Option<atalanta_common::Rect> = None;
         assert!(should_send_back(&[kb, kb]));
         assert!(!should_send_back(&[kb, gone]));
         assert!(should_send_back(&[]));

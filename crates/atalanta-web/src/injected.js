@@ -1,4 +1,4 @@
-// Velocity's in-page library. Installed once per document, in Velocity's
+// Atalanta's in-page library. Installed once per document, in Atalanta's
 // own isolated world (not the page's), and called through
 // `Runtime.callFunctionOn` with its arguments as JSON values: nothing from a
 // selector is ever pasted into script text, and the page can neither see
@@ -6,7 +6,7 @@
 // script works the same way). See `cdp::Tab::call`.
 (function () {
   'use strict';
-  if (globalThis.__velocity) return;
+  if (globalThis.__atalanta) return;
 
   // ── Identity ──────────────────────────────────────────────────────────
   // Ids live in a WeakMap, outside the DOM. A `data-vel-id` attribute was
@@ -251,7 +251,7 @@
   // level down (an svg <title>, an <img alt>, a child's aria-label, an
   // svg `<use href="#icon-trash">`, an icon-font child's class), else its
   // class words that aren't utility classes, else its image's file name.
-  // Velocity's `hint` carries it (the placeholder role on devices: what an
+  // Atalanta's `hint` carries it (the placeholder role on devices: what an
   // unlabelled control is for). Tailwind and CSS-module class names read
   // as "p 2 rounded hover:bg gray 100" and "Button root x3F9a" (review 10 #8).
   var ICON_NOISE = /^(fa|fas|far|fab|fal|fad|bi|glyphicon|material-icons|material-symbols-outlined|material-symbols-rounded|icon|icons|ico|btn|button|svg|mdi|ion|la|lucide|feather|octicon|heroicon)$/;
@@ -1502,5 +1502,5 @@
     // `deref`: that keeps its target alive until the job ends.
     liveIds: function () { return nodes.size; }
   };
-  Object.defineProperty(globalThis, '__velocity', { value: api });
+  Object.defineProperty(globalThis, '__atalanta', { value: api });
 })();

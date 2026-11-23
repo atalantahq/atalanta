@@ -1,10 +1,10 @@
 /// `println!` for lines that carry ANSI colour escapes: they are stripped
 /// when colour is off (`--color never`, `NO_COLOR`, not a terminal; see
-/// `velocity_common::color`, C4).
+/// `atalanta_common::color`, C4).
 macro_rules! cprintln {
     () => { println!() };
     ($($arg:tt)*) => {
-        println!("{}", velocity_common::color::paint(&format!($($arg)*)))
+        println!("{}", atalanta_common::color::paint(&format!($($arg)*)))
     };
 }
 

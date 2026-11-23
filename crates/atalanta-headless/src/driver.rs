@@ -3,12 +3,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-use velocity_common::selector_match::{find_all_in_tree, find_in_tree};
-use velocity_common::{
-    DeviceInfo, Direction, Element, HealthStatus, Key, Platform, PlatformDriver, Rect, Selector,
-    VelocityError,
+use atalanta_common::selector_match::{find_all_in_tree, find_in_tree};
+use atalanta_common::{
+    AtalantaError, DeviceInfo, Direction, Element, HealthStatus, Key, Platform, PlatformDriver,
+    Rect, Selector,
 };
+use tokio::sync::RwLock;
 
 use crate::android::inflate::AndroidInflater;
 use crate::android::resources::ResourceTable;
@@ -34,14 +34,14 @@ pub fn headless_device_id() -> String {
 
 /// The error for a lookup before any `launchApp`: a config error that is not
 /// retried, instead of 30 s of device-failure retries (VEL-255).
-fn not_launched() -> VelocityError {
-    VelocityError::Config("No app launched on the headless device; add a launchApp step".into())
+fn not_launched() -> AtalantaError {
+    AtalantaError::Config("No app launched on the headless device; add a launchApp step".into())
 }
 
 /// A layout that can't be parsed or inflated is the user's input being wrong,
 /// a config error (exit 2), not an internal one (exit 5).
-fn android_inflate_error(e: crate::android::inflate::InflateError) -> VelocityError {
-    VelocityError::Config(format!("Layout inflate failed: {e}"))
+fn android_inflate_error(e: crate::android::inflate::InflateError) -> AtalantaError {
+    AtalantaError::Config(format!("Layout inflate failed: {e}"))
 }
 
 /// Log what the layout holds that headless renders empty (N7).
@@ -51,8 +51,8 @@ fn warn_all(inflater: &AndroidInflater) {
     }
 }
 
-fn ios_inflate_error(e: crate::ios::inflate::IosInflateError) -> VelocityError {
-    VelocityError::Config(format!("XIB inflate failed: {e}"))
+fn ios_inflate_error(e: crate::ios::inflate::IosInflateError) -> AtalantaError {
+    AtalantaError::Config(format!("XIB inflate failed: {e}"))
 }
 
 /// Headless rendering driver implementing PlatformDriver.
@@ -62,7 +62,7 @@ fn ios_inflate_error(e: crate::ios::inflate::IosInflateError) -> VelocityError {
 /// via tiny-skia and Taffy flexbox layout.
 pub struct HeadlessDriver {
     /// What each device's last successful lookup counted on screen (R5).
-    match_counts: velocity_common::selector_match::MatchCounts,
+    match_counts: atalanta_common::selector_match::MatchCounts,
     platform: Platform,
     config: HeadlessConfig,
     sessions: RwLock<HashMap<String, HeadlessSession>>,
@@ -89,7 +89,7 @@ impl HeadlessDriver {
         &self,
         session: &mut HeadlessSession,
         _app_id: &str,
-    ) -> Result<(), VelocityError> {
+    ) -> Result<(), AtalantaError> {
         let app_path: Option<String> = session
             .app_path
             .clone()
@@ -106,8 +106,8 @@ impl HeadlessDriver {
                 self.inflate_ios(session, app_path.as_deref(), initial_layout.as_deref())
                     .await
             }
-            Platform::Web => Err(VelocityError::Config(
-                "HeadlessDriver does not support web platform; use velocity-web instead".into(),
+            Platform::Web => Err(AtalantaError::Config(
+                "HeadlessDriver does not support web platform; use atalanta-web instead".into(),
             )),
         }
     }
@@ -117,17 +117,17 @@ impl HeadlessDriver {
         session: &mut HeadlessSession,
         app_path: Option<&str>,
         initial_layout: Option<&str>,
-    ) -> Result<(), VelocityError> {
+    ) -> Result<(), AtalantaError> {
         // If we have an APK, extract and inflate from it
         if let Some(apk_path) = app_path {
             let path = Path::new(apk_path);
             if lower_ext(path).as_deref() == Some("apk") {
                 let loader = crate::android::apk::ApkLoader::from_path(path)
-                    .map_err(|e| VelocityError::Config(format!("APK load failed: {e}")))?;
+                    .map_err(|e| AtalantaError::Config(format!("APK load failed: {e}")))?;
 
                 let layout_name = initial_layout.unwrap_or("activity_main");
                 let layout_data = loader.get_layout(layout_name).ok_or_else(|| {
-                    VelocityError::Config(format!("Layout '{}' not found in APK", layout_name))
+                    AtalantaError::Config(format!("Layout '{}' not found in APK", layout_name))
                 })?;
 
                 let inflater = AndroidInflater::new(
@@ -140,7 +140,7 @@ impl HeadlessDriver {
                 warn_all(&inflater);
 
                 session.load_tree(tree).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e))
                 })?;
 
                 return Ok(());
@@ -149,7 +149,7 @@ impl HeadlessDriver {
             // Plain XML file path
             if lower_ext(path).as_deref() == Some("xml") {
                 let xml = std::fs::read_to_string(path).map_err(|e| {
-                    VelocityError::Config(format!("Failed to read XML '{}': {}", path.display(), e))
+                    AtalantaError::Config(format!("Failed to read XML '{}': {}", path.display(), e))
                 })?;
 
                 let inflater =
@@ -159,7 +159,7 @@ impl HeadlessDriver {
                 warn_all(&inflater);
 
                 session.load_tree(tree).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e))
                 })?;
 
                 return Ok(());
@@ -167,7 +167,7 @@ impl HeadlessDriver {
 
             // Anything else would load a blank screen on which every negative
             // assertion passes (VEL-110).
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "Headless Android appPath '{}' is not an .apk or .xml layout",
                 path.display()
             )));
@@ -185,7 +185,7 @@ impl HeadlessDriver {
 
         session
             .load_tree(root)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e)))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e)))?;
 
         Ok(())
     }
@@ -195,13 +195,13 @@ impl HeadlessDriver {
         session: &mut HeadlessSession,
         app_path: Option<&str>,
         initial_layout: Option<&str>,
-    ) -> Result<(), VelocityError> {
+    ) -> Result<(), AtalantaError> {
         if let Some(path_str) = app_path {
             let path = Path::new(path_str);
 
             if let Some(layout_path) = self.resolve_ios_layout_path(path, initial_layout)? {
                 let xml = std::fs::read_to_string(&layout_path).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!(
+                    AtalantaError::Internal(anyhow::anyhow!(
                         "Failed to read iOS layout '{}': {}",
                         layout_path.display(),
                         e
@@ -211,14 +211,14 @@ impl HeadlessDriver {
                 match lower_ext(&layout_path).as_deref() {
                     Some("xib") => {
                         let doc = XibParser::parse(&xml)
-                            .map_err(|e| VelocityError::Config(format!("XIB parse failed: {e}")))?;
+                            .map_err(|e| AtalantaError::Config(format!("XIB parse failed: {e}")))?;
 
                         let inflater = IosInflater::new(IosResourceLoader::empty());
                         let tree = inflater.inflate(&doc).map_err(ios_inflate_error)?;
                         self.unrendered.note(inflater.take_unrendered());
 
                         session.load_tree(tree).map_err(|e| {
-                            VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e))
+                            AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e))
                         })?;
 
                         return Ok(());
@@ -226,7 +226,7 @@ impl HeadlessDriver {
                     Some("storyboard") => {
                         let doc =
                             crate::ios::storyboard::StoryboardParser::parse(&xml).map_err(|e| {
-                                VelocityError::Config(format!("Storyboard parse failed: {e}"))
+                                AtalantaError::Config(format!("Storyboard parse failed: {e}"))
                             })?;
 
                         let inflater = IosInflater::new(IosResourceLoader::empty());
@@ -234,13 +234,13 @@ impl HeadlessDriver {
                         self.unrendered.note(inflater.take_unrendered());
 
                         session.load_tree(tree).map_err(|e| {
-                            VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e))
+                            AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e))
                         })?;
 
                         return Ok(());
                     }
                     Some(other) => {
-                        return Err(VelocityError::Config(format!(
+                        return Err(AtalantaError::Config(format!(
                             "Unsupported iOS layout extension '{}'. Expected .xib or .storyboard.",
                             other
                         )));
@@ -251,18 +251,18 @@ impl HeadlessDriver {
 
             if lower_ext(path).as_deref() == Some("xib") {
                 let xml = std::fs::read_to_string(path).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Failed to read XIB: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Failed to read XIB: {}", e))
                 })?;
 
                 let doc = XibParser::parse(&xml)
-                    .map_err(|e| VelocityError::Config(format!("XIB parse failed: {e}")))?;
+                    .map_err(|e| AtalantaError::Config(format!("XIB parse failed: {e}")))?;
 
                 let inflater = IosInflater::new(IosResourceLoader::empty());
                 let tree = inflater.inflate(&doc).map_err(ios_inflate_error)?;
                 self.unrendered.note(inflater.take_unrendered());
 
                 session.load_tree(tree).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e))
                 })?;
 
                 return Ok(());
@@ -271,18 +271,18 @@ impl HeadlessDriver {
             // Storyboard file
             if lower_ext(path).as_deref() == Some("storyboard") {
                 let xml = std::fs::read_to_string(path).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Failed to read storyboard: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Failed to read storyboard: {}", e))
                 })?;
 
                 let doc = crate::ios::storyboard::StoryboardParser::parse(&xml)
-                    .map_err(|e| VelocityError::Config(format!("Storyboard parse failed: {e}")))?;
+                    .map_err(|e| AtalantaError::Config(format!("Storyboard parse failed: {e}")))?;
 
                 let inflater = IosInflater::new(IosResourceLoader::empty());
                 let tree = inflater.inflate(&doc).map_err(ios_inflate_error)?;
                 self.unrendered.note(inflater.take_unrendered());
 
                 session.load_tree(tree).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e))
                 })?;
 
                 return Ok(());
@@ -290,7 +290,7 @@ impl HeadlessDriver {
 
             // A missing path, a compiled .app or a directory without layouts would
             // otherwise load a blank screen (VEL-110).
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "Headless iOS appPath '{}' is not a .xib/.storyboard file or a directory containing one",
                 path.display()
             )));
@@ -308,7 +308,7 @@ impl HeadlessDriver {
 
         session
             .load_tree(root)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Render failed: {}", e)))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Render failed: {}", e)))?;
 
         Ok(())
     }
@@ -317,7 +317,7 @@ impl HeadlessDriver {
         &self,
         app_path: &Path,
         initial_layout: Option<&str>,
-    ) -> Result<Option<PathBuf>, VelocityError> {
+    ) -> Result<Option<PathBuf>, AtalantaError> {
         if app_path.is_file() {
             return Ok(Some(app_path.to_path_buf()));
         }
@@ -330,7 +330,7 @@ impl HeadlessDriver {
             return Self::find_ios_layout(app_path, layout_name)
                 .map(Some)
                 .ok_or_else(|| {
-                    VelocityError::Config(format!(
+                    AtalantaError::Config(format!(
                         "iOS layout '{}' not found under {}",
                         layout_name,
                         app_path.display()
@@ -400,7 +400,7 @@ impl HeadlessDriver {
 
 #[async_trait::async_trait]
 impl PlatformDriver for HeadlessDriver {
-    async fn prepare(&self, device_id: &str) -> velocity_common::Result<()> {
+    async fn prepare(&self, device_id: &str) -> atalanta_common::Result<()> {
         let sessions = self.sessions.read().await;
         if !sessions.contains_key(device_id) {
             drop(sessions);
@@ -415,11 +415,11 @@ impl PlatformDriver for HeadlessDriver {
         HealthStatus::Healthy
     }
 
-    async fn restart_session(&self) -> velocity_common::Result<()> {
+    async fn restart_session(&self) -> atalanta_common::Result<()> {
         Ok(())
     }
 
-    async fn list_devices(&self) -> velocity_common::Result<Vec<DeviceInfo>> {
+    async fn list_devices(&self) -> atalanta_common::Result<Vec<DeviceInfo>> {
         Ok(vec![DeviceInfo {
             id: headless_device_id(),
             name: format!(
@@ -427,15 +427,15 @@ impl PlatformDriver for HeadlessDriver {
                 self.config.width, self.config.height
             ),
             platform: self.platform,
-            state: velocity_common::DeviceState::Booted,
+            state: atalanta_common::DeviceState::Booted,
             os_version: Some("headless".to_string()),
-            device_type: velocity_common::DeviceType::Simulator,
+            device_type: atalanta_common::DeviceType::Simulator,
         }])
     }
 
-    async fn boot_device(&self, device_id: &str) -> velocity_common::Result<()> {
+    async fn boot_device(&self, device_id: &str) -> atalanta_common::Result<()> {
         let session = HeadlessSession::new(self.config.clone(), self.text_measurer.clone())
-            .map_err(|e| VelocityError::Config(format!("Session creation failed: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("Session creation failed: {e}")))?;
 
         self.sessions
             .write()
@@ -445,12 +445,12 @@ impl PlatformDriver for HeadlessDriver {
         Ok(())
     }
 
-    async fn shutdown_device(&self, device_id: &str) -> velocity_common::Result<()> {
+    async fn shutdown_device(&self, device_id: &str) -> atalanta_common::Result<()> {
         self.sessions.write().await.remove(device_id);
         Ok(())
     }
 
-    async fn install_app(&self, device_id: &str, app_path: &str) -> velocity_common::Result<()> {
+    async fn install_app(&self, device_id: &str, app_path: &str) -> atalanta_common::Result<()> {
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.get_mut(device_id) {
             session.app_path = Some(app_path.to_string());
@@ -463,7 +463,7 @@ impl PlatformDriver for HeadlessDriver {
         device_id: &str,
         app_id: &str,
         _clear_state: bool,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         // Ensure session exists
         {
             let sessions = self.sessions.read().await;
@@ -476,7 +476,7 @@ impl PlatformDriver for HeadlessDriver {
         let mut sessions = self.sessions.write().await;
         let session = sessions
             .get_mut(device_id)
-            .ok_or_else(|| VelocityError::DeviceNotFound {
+            .ok_or_else(|| AtalantaError::DeviceNotFound {
                 id: device_id.to_string(),
                 available: vec![headless_device_id()],
             })?;
@@ -488,7 +488,7 @@ impl PlatformDriver for HeadlessDriver {
     }
 
     /// The app is gone from the screen until the next launch (VEL-357).
-    async fn stop_app(&self, device_id: &str, _app_id: &str) -> velocity_common::Result<()> {
+    async fn stop_app(&self, device_id: &str, _app_id: &str) -> atalanta_common::Result<()> {
         if let Some(session) = self.sessions.write().await.get_mut(device_id) {
             session.stop();
         }
@@ -497,16 +497,16 @@ impl PlatformDriver for HeadlessDriver {
 
     /// A rendered layout is the app, in front; it can't crash or go to the
     /// background. Before a launch there is nothing to say.
-    async fn app_liveness(&self, device_id: &str, _app_id: &str) -> velocity_common::Liveness {
+    async fn app_liveness(&self, device_id: &str, _app_id: &str) -> atalanta_common::Liveness {
         let sessions = self.sessions.read().await;
         match sessions.get(device_id) {
-            Some(s) if s.element_tree.is_some() => velocity_common::Liveness::Foreground,
-            _ => velocity_common::Liveness::Unknown,
+            Some(s) if s.element_tree.is_some() => atalanta_common::Liveness::Foreground,
+            _ => atalanta_common::Liveness::Unknown,
         }
     }
 
     /// A render has no status or navigation bar over it.
-    async fn system_bars(&self, _device_id: &str) -> Option<Vec<velocity_common::Rect>> {
+    async fn system_bars(&self, _device_id: &str) -> Option<Vec<atalanta_common::Rect>> {
         Some(Vec::new())
     }
 
@@ -519,14 +519,14 @@ impl PlatformDriver for HeadlessDriver {
         _reaction_ms: u64,
         _quiet_ms: u64,
         _cap_ms: u64,
-    ) -> Option<velocity_common::DeviceSettle> {
+    ) -> Option<atalanta_common::DeviceSettle> {
         let reacted = self
             .sessions
             .write()
             .await
             .get_mut(device_id)
             .is_some_and(|s| s.take_reacted());
-        Some(velocity_common::DeviceSettle {
+        Some(atalanta_common::DeviceSettle {
             settled: true,
             reacted,
             elapsed_ms: 0,
@@ -537,7 +537,7 @@ impl PlatformDriver for HeadlessDriver {
         &self,
         device_id: &str,
         selector: &Selector,
-    ) -> velocity_common::Result<Element> {
+    ) -> atalanta_common::Result<Element> {
         let sessions = self.sessions.read().await;
         let session = sessions.get(device_id).ok_or_else(not_launched)?;
 
@@ -552,12 +552,12 @@ impl PlatformDriver for HeadlessDriver {
 
         let found = find_in_tree(hierarchy, selector, Some(&screen));
         if found.is_some() {
-            let n = velocity_common::selector_match::ambiguity(hierarchy, selector, Some(&screen));
+            let n = atalanta_common::selector_match::ambiguity(hierarchy, selector, Some(&screen));
             self.match_counts.record(device_id, selector, n);
         } else {
             self.match_counts.clear(device_id);
         }
-        found.ok_or_else(|| VelocityError::ElementNotFound {
+        found.ok_or_else(|| AtalantaError::ElementNotFound {
             selector: format!("{:?}", selector),
             timeout_ms: 0,
             screenshot: None,
@@ -573,7 +573,7 @@ impl PlatformDriver for HeadlessDriver {
         &self,
         device_id: &str,
         selector: &Selector,
-    ) -> velocity_common::Result<Vec<Element>> {
+    ) -> atalanta_common::Result<Vec<Element>> {
         let sessions = self.sessions.read().await;
         let session = sessions.get(device_id).ok_or_else(not_launched)?;
 
@@ -591,14 +591,14 @@ impl PlatformDriver for HeadlessDriver {
         Ok(results)
     }
 
-    async fn get_hierarchy(&self, device_id: &str) -> velocity_common::Result<Element> {
+    async fn get_hierarchy(&self, device_id: &str) -> atalanta_common::Result<Element> {
         let sessions = self.sessions.read().await;
         let session = sessions.get(device_id).ok_or_else(not_launched)?;
 
         session.get_hierarchy().cloned().ok_or_else(not_launched)
     }
 
-    async fn tap(&self, _device_id: &str, _element: &Element) -> velocity_common::Result<()> {
+    async fn tap(&self, _device_id: &str, _element: &Element) -> atalanta_common::Result<()> {
         // No-op for static layouts
         Ok(())
     }
@@ -607,7 +607,7 @@ impl PlatformDriver for HeadlessDriver {
         &self,
         _device_id: &str,
         _element: &Element,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         Ok(())
     }
 
@@ -616,7 +616,7 @@ impl PlatformDriver for HeadlessDriver {
         _device_id: &str,
         _element: &Element,
         _duration_ms: u64,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         Ok(())
     }
 
@@ -625,26 +625,26 @@ impl PlatformDriver for HeadlessDriver {
         device_id: &str,
         element: &Element,
         text: &str,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         let mut sessions = self.sessions.write().await;
         let session = sessions.get_mut(device_id).ok_or_else(not_launched)?;
         // Typing appends to what the field holds, as on the device drivers
         // (D-16, VEL-348); `clearText` empties it first.
         session
             .append_text(element, text)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to update text: {}", e)))
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to update text: {}", e)))
     }
 
-    async fn clear_text(&self, device_id: &str, element: &Element) -> velocity_common::Result<()> {
+    async fn clear_text(&self, device_id: &str, element: &Element) -> atalanta_common::Result<()> {
         let mut sessions = self.sessions.write().await;
         let session = sessions.get_mut(device_id).ok_or_else(not_launched)?;
         session
             .update_text(element, "")
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to clear text: {}", e)))
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to clear text: {}", e)))
     }
 
     /// `direction` is the finger's, as on the device drivers: `Up` shows what is below.
-    async fn swipe(&self, device_id: &str, direction: Direction) -> velocity_common::Result<()> {
+    async fn swipe(&self, device_id: &str, direction: Direction) -> atalanta_common::Result<()> {
         let (from, to) = swipe_line(
             self.config.width as i32,
             self.config.height as i32,
@@ -660,12 +660,12 @@ impl PlatformDriver for HeadlessDriver {
         device_id: &str,
         from: (i32, i32),
         to: (i32, i32),
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.get_mut(device_id) {
             if session.render_tree.is_some() {
                 session.scroll(from, to).map_err(|e| {
-                    VelocityError::Internal(anyhow::anyhow!("Scroll failed: {}", e))
+                    AtalantaError::Internal(anyhow::anyhow!("Scroll failed: {}", e))
                 })?;
             }
         }
@@ -674,26 +674,26 @@ impl PlatformDriver for HeadlessDriver {
 
     /// No keyboard: the older keys are no-ops, as before; the D-9 editing
     /// keys are refused rather than passing silently (review-d6 m7).
-    async fn press_key(&self, _device_id: &str, key: Key) -> velocity_common::Result<()> {
+    async fn press_key(&self, _device_id: &str, key: Key) -> atalanta_common::Result<()> {
         match key {
             Key::Back | Key::Home | Key::Enter | Key::VolumeUp | Key::VolumeDown => Ok(()),
-            other => Err(VelocityError::Config(format!(
+            other => Err(AtalantaError::Config(format!(
                 "pressKey `{}` can't be sent by the headless driver (it has no keyboard)",
                 other.name()
             ))),
         }
     }
 
-    async fn screenshot(&self, device_id: &str) -> velocity_common::Result<Vec<u8>> {
+    async fn screenshot(&self, device_id: &str) -> atalanta_common::Result<Vec<u8>> {
         let sessions = self.sessions.read().await;
         let session = sessions.get(device_id).ok_or_else(not_launched)?;
 
         session
             .screenshot()
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Screenshot failed: {}", e)))
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Screenshot failed: {}", e)))
     }
 
-    async fn screen_size(&self, device_id: &str) -> velocity_common::Result<(i32, i32)> {
+    async fn screen_size(&self, device_id: &str) -> atalanta_common::Result<(i32, i32)> {
         let sessions = self.sessions.read().await;
         if let Some(session) = sessions.get(device_id) {
             Ok(session.screen_size())
@@ -706,7 +706,7 @@ impl PlatformDriver for HeadlessDriver {
         &self,
         _device_id: &str,
         element: &Element,
-    ) -> velocity_common::Result<String> {
+    ) -> atalanta_common::Result<String> {
         Ok(element.text.clone().unwrap_or_default())
     }
 
@@ -717,7 +717,7 @@ impl PlatformDriver for HeadlessDriver {
         &self,
         device_id: &str,
         element: &Element,
-    ) -> velocity_common::Result<bool> {
+    ) -> atalanta_common::Result<bool> {
         let screen = Rect {
             x: 0,
             y: 0,
@@ -731,15 +731,15 @@ impl PlatformDriver for HeadlessDriver {
         Ok(sessions
             .get(device_id)
             .and_then(|s| s.get_hierarchy())
-            .and_then(|tree| velocity_common::selector_match::locate(tree, element))
-            .is_some_and(|now| velocity_common::selector_match::shown_on(now, &screen)))
+            .and_then(|tree| atalanta_common::selector_match::locate(tree, element))
+            .is_some_and(|now| atalanta_common::selector_match::shown_on(now, &screen)))
     }
 
     async fn collect_resource_metrics(
         &self,
         _device_id: &str,
         _package: &str,
-    ) -> velocity_common::Result<(u64, u64, u64, f32)> {
+    ) -> atalanta_common::Result<(u64, u64, u64, f32)> {
         Ok((0, 0, 0, 0.0))
     }
 }
@@ -760,7 +760,7 @@ fn swipe_line(w: i32, h: i32, direction: Direction) -> ((i32, i32), (i32, i32)) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Liveness;
+    use atalanta_common::Liveness;
 
     #[tokio::test]
     async fn editing_keys_are_refused_and_old_keys_stay_no_ops() {
@@ -769,7 +769,7 @@ mod tests {
             .press_key("headless-0", Key::Backspace)
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e}");
         driver.press_key("headless-0", Key::Back).await.unwrap();
     }
 
@@ -954,7 +954,7 @@ mod tests {
                 .await
                 .expect_err(&path);
             assert!(
-                matches!(&err, VelocityError::Config(m) if m.contains(&path)),
+                matches!(&err, AtalantaError::Config(m) if m.contains(&path)),
                 "{path}: {err:?}"
             );
         }
@@ -983,15 +983,15 @@ mod tests {
             .unwrap());
         let mut set = std::collections::HashMap::new();
         set.insert(
-            "VELOCITY_VISIBILITY_MIN_AREA".to_string(),
+            "ATALANTA_VISIBILITY_MIN_AREA".to_string(),
             "0.9".to_string(),
         );
-        velocity_common::env::set_settings(set);
+        atalanta_common::env::set_settings(set);
         let shown = driver
             .is_element_visible("headless-0", &tall)
             .await
             .unwrap();
-        velocity_common::env::set_settings(std::collections::HashMap::new());
+        atalanta_common::env::set_settings(std::collections::HashMap::new());
         assert!(!shown, "{:?}", tall.bounds);
     }
 
@@ -1049,7 +1049,7 @@ mod tests {
                 .launch_app("headless-0", "app", false)
                 .await
                 .expect_err(name);
-            assert!(matches!(err, VelocityError::Config(_)), "{name}: {err:?}");
+            assert!(matches!(err, AtalantaError::Config(_)), "{name}: {err:?}");
         }
         let zero = HeadlessDriver::new(
             Platform::Android,

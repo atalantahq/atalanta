@@ -1,4 +1,4 @@
-use velocity_common::{Result, SuiteResult, VelocityError};
+use atalanta_common::{AtalantaError, Result, SuiteResult};
 
 /// `"healed": n` and `"label": "PASSED (healed n)"` on each test whose
 /// selectors were healed (D-7 / R4).
@@ -139,7 +139,7 @@ fn to_format_2(doc: &mut serde_json::Value) {
 }
 
 /// The sharded run's partition, the top-level `shard_plan`: what
-/// `velocity results check` compares across shards.
+/// `atalanta results check` compares across shards.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ShardPlanRecord {
     /// [`crate::scheduler::ShardPlan::fingerprint`]: equal on every shard
@@ -205,18 +205,18 @@ pub fn write_json_report(result: &SuiteResult, path: &str, extras: &JsonExtras) 
     };
     if let Some(parent) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| VelocityError::io("failed to create report directory", e))?;
+            .map_err(|e| AtalantaError::io("failed to create report directory", e))?;
     }
 
     let mut doc = serde_json::to_value(wrapped)
-        .map_err(|e| VelocityError::io("failed to serialize suite result", e))?;
+        .map_err(|e| AtalantaError::io("failed to serialize suite result", e))?;
     mark_healed(result, &mut doc);
     to_format_2(&mut doc);
     let json = serde_json::to_string_pretty(&doc)
-        .map_err(|e| VelocityError::io("failed to serialize suite result", e))?;
+        .map_err(|e| AtalantaError::io("failed to serialize suite result", e))?;
 
-    velocity_common::fsutil::write_atomic(std::path::Path::new(path), json.as_bytes())
-        .map_err(|e| VelocityError::io(format!("failed to write JSON report at {path}"), e))?;
+    atalanta_common::fsutil::write_atomic(std::path::Path::new(path), json.as_bytes())
+        .map_err(|e| AtalantaError::io(format!("failed to write JSON report at {path}"), e))?;
 
     Ok(())
 }
@@ -224,7 +224,7 @@ pub fn write_json_report(result: &SuiteResult, path: &str, extras: &JsonExtras) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{TestResult, TestStatus};
+    use atalanta_common::{TestResult, TestStatus};
 
     #[test]
     fn healed_tests_carry_their_count_and_label() {
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn format_2_has_integer_ms_and_snake_case_and_both_versions_read() {
         let mut t = TestResult::failed("a", "x".into(), std::time::Duration::from_millis(1_250));
-        t.resource_peak = Some(velocity_common::ResourceSnapshot {
+        t.resource_peak = Some(atalanta_common::ResourceSnapshot {
             java_heap_kb: 1,
             native_heap_kb: 2,
             total_pss_kb: 3,
@@ -326,10 +326,10 @@ mod tests {
     #[test]
     fn ai_checks_are_in_the_json_report() {
         let mut t = TestResult::failed("a", "x".into(), std::time::Duration::ZERO);
-        t.verification = vec![velocity_common::VerifyCheck {
+        t.verification = vec![atalanta_common::VerifyCheck {
             at: "step 2".into(),
             claim: "the cart is open".into(),
-            outcome: velocity_common::VerifyOutcome::Fails,
+            outcome: atalanta_common::VerifyOutcome::Fails,
             reason: "empty cart".into(),
             evidence: vec!["[1] <text> text=\"Cart (0)\" @1,1".into()],
         }];

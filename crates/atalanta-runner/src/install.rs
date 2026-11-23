@@ -1,13 +1,13 @@
 //! Installing the suite's `app:` build before the first test on a device,
-//! by hash (see `velocity_common::install`): the sequential runner installs
+//! by hash (see `atalanta_common::install`): the sequential runner installs
 //! on its device, the parallel runner's actors each on the device they
 //! lease, so a parallel run installs on all its devices at once.
 
 use std::path::Path;
 use std::time::Instant;
 
-use velocity_common::install::{hash_app_cached, short};
-use velocity_common::{InstallOutcome, Platform, PlatformDriver, Result, TestSuite, VelocityError};
+use atalanta_common::install::{hash_app_cached, short};
+use atalanta_common::{AtalantaError, InstallOutcome, Platform, PlatformDriver, Result, TestSuite};
 
 /// The build to install for this run, if the suite (or `--app`) names one
 /// for `platform`.
@@ -26,8 +26,8 @@ pub async fn hash(path: &str) -> Result<String> {
     let p = path.to_string();
     tokio::task::spawn_blocking(move || hash_app_cached(Path::new(&p)))
         .await
-        .map_err(|e| VelocityError::Config(format!("hashing {path}: {e}")))?
-        .map_err(|e| VelocityError::Config(format!("app {path}: {e}")))
+        .map_err(|e| AtalantaError::Config(format!("hashing {path}: {e}")))?
+        .map_err(|e| AtalantaError::Config(format!("app {path}: {e}")))
 }
 
 /// Make sure `device_id` runs the build at `path` (as `app_id`): install it
@@ -79,7 +79,7 @@ pub fn secs(d: std::time::Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{AppPaths, AppSource, SuiteConfig};
+    use atalanta_common::{AppPaths, AppSource, SuiteConfig};
 
     fn suite(app: Option<AppSource>, platform: Option<Platform>) -> TestSuite {
         TestSuite {

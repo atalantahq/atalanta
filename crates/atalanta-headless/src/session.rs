@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use velocity_common::Element;
+use atalanta_common::Element;
 
 use crate::config::HeadlessConfig;
 use crate::element_map::{element_path, render_tree_to_element_on_screen};
@@ -148,7 +148,7 @@ impl HeadlessSession {
             label: None,
             text: None,
             element_type: "Screen".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width,

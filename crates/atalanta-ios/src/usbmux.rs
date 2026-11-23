@@ -18,20 +18,20 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UnixStream};
 use tokio::task::{JoinHandle, JoinSet};
 use tracing::{debug, warn};
-use velocity_common::{Result, VelocityError};
 
 const SOCKET: &str = "/var/run/usbmuxd";
 
 /// usbmuxd's `Connect` result when nothing listens on the device port.
 const CONNREFUSED: u64 = 3;
 
-/// usbmuxd's socket (`VELOCITY_USBMUXD_SOCKET` overrides, for tests).
+/// usbmuxd's socket (`ATALANTA_USBMUXD_SOCKET` overrides, for tests).
 fn socket_path() -> PathBuf {
-    velocity_common::env::var("VELOCITY_USBMUXD_SOCKET")
+    atalanta_common::env::var("ATALANTA_USBMUXD_SOCKET")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(SOCKET))
 }
@@ -45,7 +45,7 @@ fn deadline() -> Duration {
             return Duration::from_millis(ms);
         }
     }
-    velocity_common::settings::ms("VELOCITY_USBMUX_TIMEOUT_MS", 5000)
+    atalanta_common::settings::ms("ATALANTA_USBMUX_TIMEOUT_MS", 5000)
 }
 
 /// A running forward; dropping it stops listening and every relay.
@@ -150,7 +150,7 @@ async fn forward_via(
     let device_id = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(first_id));
     let listener = TcpListener::bind(("127.0.0.1", local_port))
         .await
-        .map_err(|e| VelocityError::Config(format!("port {local_port}: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("port {local_port}: {e}")))?;
     let local_port = listener
         .local_addr()
         .map(|a| a.port())
@@ -258,7 +258,7 @@ async fn device_id_for(socket: &Path, udid: &str) -> Result<u64> {
     .map_err(|e| unreachable(udid, e))?;
     find_device_id(&reply, udid)
         .map(|(id, _)| id)
-        .ok_or_else(|| VelocityError::DeviceNotFound {
+        .ok_or_else(|| AtalantaError::DeviceNotFound {
             id: udid.to_string(),
             available: vec![
                 "(no USB-connected device with that UDID; connect it with a cable)".into(),
@@ -266,8 +266,8 @@ async fn device_id_for(socket: &Path, udid: &str) -> Result<u64> {
         })
 }
 
-fn unreachable(udid: &str, detail: String) -> VelocityError {
-    VelocityError::WdaUnreachable {
+fn unreachable(udid: &str, detail: String) -> AtalantaError {
+    AtalantaError::WdaUnreachable {
         device_id: udid.to_string(),
         url: format!("usbmux://{udid}"),
         detail,
@@ -334,8 +334,8 @@ enum Field {
 fn request(kind: &str, fields: &[(&str, Field)]) -> String {
     let mut body = format!(
         "<key>MessageType</key><string>{kind}</string>\
-         <key>ClientVersionString</key><string>velocity</string>\
-         <key>ProgName</key><string>velocity</string>"
+         <key>ClientVersionString</key><string>atalanta</string>\
+         <key>ProgName</key><string>atalanta</string>"
     );
     for (k, v) in fields {
         match v {
@@ -642,7 +642,7 @@ mod tests {
             started.elapsed()
         );
         // A device-side failure, not a config error (VEL-291).
-        assert!(matches!(e, VelocityError::WdaUnreachable { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::WdaUnreachable { .. }), "{e:?}");
     }
 
     #[tokio::test]
@@ -658,7 +658,7 @@ mod tests {
         );
         c.set_session_id("s".into());
         let e = c.get_source().await.unwrap_err();
-        assert!(matches!(e, VelocityError::WdaUnreachable { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::WdaUnreachable { .. }), "{e:?}");
     }
 
     // Row 1.6: usbmuxd numbers a replugged phone anew; the forward looks

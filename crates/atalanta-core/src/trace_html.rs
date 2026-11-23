@@ -1,7 +1,7 @@
 //! `trace.html`: a self-contained viewer for one test's trace.
 //!
 //! Written next to `steps.json` (`traces/<test>/trace.html`) and opened
-//! with `velocity trace view`. One file, inline CSS and JS, no network, so
+//! with `atalanta trace view`. One file, inline CSS and JS, no network, so
 //! it works from `file://` and as a CI artifact: a timeline of steps with
 //! their timing, each step's screenshot with a marker where it acted, the
 //! selector and the element it matched (or the nearest ones), heals,
@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
+use atalanta_common::evidence::LogLine;
+use atalanta_common::Element;
 use serde_json::{json, Value};
-use velocity_common::evidence::LogLine;
-use velocity_common::Element;
 
 use crate::trace::{TestTrace, TracedElement};
 
@@ -260,7 +260,7 @@ pub fn write_for_steps(steps_file: &Path) -> std::io::Result<PathBuf> {
         .unwrap_or_default();
     let suffix = stem.strip_prefix("steps").unwrap_or("");
     let path = dir.join(format!("trace{suffix}.html"));
-    velocity_common::fsutil::write_atomic(&path, render(&trace, &trees, &lines, dir).as_bytes())?;
+    atalanta_common::fsutil::write_atomic(&path, render(&trace, &trees, &lines, dir).as_bytes())?;
     Ok(path)
 }
 
@@ -275,7 +275,7 @@ pub struct IndexEntry {
     pub attachments: Vec<(String, String)>,
 }
 
-/// A page listing traces (`velocity trace view <artifacts dir>`).
+/// A page listing traces (`atalanta trace view <artifacts dir>`).
 pub fn render_index(title: &str, entries: &[IndexEntry]) -> String {
     let rows: Vec<Value> = entries
         .iter()
@@ -571,7 +571,7 @@ mod tests {
     }
     use super::*;
     use crate::trace::{StepTrace, TraceEvidence, TRACE_VERSION};
-    use velocity_common::{Rect, StepStatus, TestStatus};
+    use atalanta_common::{Rect, StepStatus, TestStatus};
 
     fn trace_with(label: &str, error: &str) -> TestTrace {
         TestTrace {

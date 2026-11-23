@@ -5,9 +5,9 @@
 
 mod common;
 
+use atalanta_common::{MockRule, PlatformDriver};
+use atalanta_web::{WebDriver, WebDriverConfig};
 use common::chrome_path;
-use velocity_common::{MockRule, PlatformDriver};
-use velocity_web::{WebDriver, WebDriverConfig};
 
 fn block_rule() -> MockRule {
     MockRule {
@@ -17,7 +17,7 @@ fn block_rule() -> MockRule {
     }
 }
 
-/// `VELOCITY_WEB_TEST_FAIL_FETCH=1` makes `sync_fetch` refuse `Fetch.enable`.
+/// `ATALANTA_WEB_TEST_FAIL_FETCH=1` makes `sync_fetch` refuse `Fetch.enable`.
 /// With a block rule configured, `prepare` must fail with an error naming
 /// interception. With no rules it must still succeed. Both cases run in one
 /// test so the env var can't race other tests in this binary.
@@ -26,7 +26,7 @@ async fn interception_failure_refuses_block_rules() {
     require_chrome!();
 
     // With a block rule: the launch must fail.
-    std::env::set_var("VELOCITY_WEB_TEST_FAIL_FETCH", "1");
+    std::env::set_var("ATALANTA_WEB_TEST_FAIL_FETCH", "1");
     let d = WebDriver::new(WebDriverConfig {
         mocks: vec![block_rule()],
         chrome_path: chrome_path(),
@@ -40,7 +40,7 @@ async fn interception_failure_refuses_block_rules() {
         "{err}"
     );
     assert!(
-        matches!(err, velocity_common::VelocityError::DeviceBootFailed { .. }),
+        matches!(err, atalanta_common::AtalantaError::DeviceBootFailed { .. }),
         "{err}"
     );
     d.cleanup().await;
@@ -57,5 +57,5 @@ async fn interception_failure_refuses_block_rules() {
         .await
         .expect("Chrome starts without rules");
     d2.cleanup().await;
-    std::env::remove_var("VELOCITY_WEB_TEST_FAIL_FETCH");
+    std::env::remove_var("ATALANTA_WEB_TEST_FAIL_FETCH");
 }

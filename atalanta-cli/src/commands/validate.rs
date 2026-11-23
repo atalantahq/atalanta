@@ -1,6 +1,6 @@
+use atalanta_core::{parse_suite_with_positions, resolve_flows, validate_suite_at};
 use clap::Args;
 use colored::Colorize;
-use velocity_core::{parse_suite_with_positions, resolve_flows, validate_suite_at};
 
 #[derive(Args)]
 pub struct ValidateArgs {
@@ -46,7 +46,7 @@ pub fn execute(args: ValidateArgs) -> anyhow::Result<i32> {
 fn suite_files(dir: &std::path::Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
     let mut files: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.is_file() && velocity_core::is_suite_file(p))
+        .filter(|p| p.is_file() && atalanta_core::is_suite_file(p))
         .collect();
     files.sort();
     Ok(files)
@@ -85,7 +85,7 @@ fn validate_one(config: &str) -> anyhow::Result<i32> {
     print_unknown_config_keys(config);
     print_suite_warnings(&suite, config);
     println!();
-    let http_only = velocity_core::http_only(&suite);
+    let http_only = atalanta_core::http_only(&suite);
     if !http_only {
         println!("  App ID:    {}", suite.app_id.cyan());
     }
@@ -118,8 +118,8 @@ fn validate_one(config: &str) -> anyhow::Result<i32> {
 
 /// Warn about what validates but is almost certainly a mistake (a test
 /// with no steps, a swipe without a direction).
-pub fn print_suite_warnings(suite: &velocity_common::TestSuite, path: &str) {
-    for w in velocity_core::validator::suite_warnings(suite) {
+pub fn print_suite_warnings(suite: &atalanta_common::TestSuite, path: &str) {
+    for w in atalanta_core::validator::suite_warnings(suite) {
         println!("  {} {path}: {w}", "warning:".yellow().bold());
     }
 }
@@ -130,7 +130,7 @@ pub fn print_unknown_config_keys(path: &str) {
     let Ok(yaml) = std::fs::read_to_string(path) else {
         return;
     };
-    for w in velocity_core::config_keys::unknown_keys(&yaml) {
+    for w in atalanta_core::config_keys::unknown_keys(&yaml) {
         println!("  {} {path}: {w}", "warning:".yellow().bold());
     }
 }

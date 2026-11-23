@@ -3,14 +3,14 @@
 
 use std::sync::{Arc, Mutex};
 
+use atalanta_common::types::{DeviceInfo, Direction, Element, Key, Rect, Selector};
+use atalanta_common::{PlatformDriver, Result};
+use atalanta_inspector::routes::selector::{generate, GenerateRequest};
+use atalanta_inspector::state::AppState;
+use atalanta_inspector::ws::{poll, Sent};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
-use velocity_common::types::{DeviceInfo, Direction, Element, Key, Rect, Selector};
-use velocity_common::{PlatformDriver, Result};
-use velocity_inspector::routes::selector::{generate, GenerateRequest};
-use velocity_inspector::state::AppState;
-use velocity_inspector::ws::{poll, Sent};
 
 struct Live {
     fail: Mutex<bool>,
@@ -100,7 +100,7 @@ impl PlatformDriver for Live {
     async fn get_hierarchy(&self, _: &str) -> Result<Element> {
         *self.dumps.lock().unwrap() += 1;
         if *self.fail.lock().unwrap() {
-            return Err(velocity_common::VelocityError::Internal(anyhow::anyhow!(
+            return Err(atalanta_common::AtalantaError::Internal(anyhow::anyhow!(
                 "device went away"
             )));
         }
@@ -292,11 +292,11 @@ async fn an_error_is_sent_once_and_cleared_when_it_goes() {
 #[test]
 fn device_ids_are_encoded_in_urls() {
     assert_eq!(
-        velocity_inspector::ws::encode_path_segment("emulator-5554"),
+        atalanta_inspector::ws::encode_path_segment("emulator-5554"),
         "emulator-5554"
     );
     assert_eq!(
-        velocity_inspector::ws::encode_path_segment("a/b?c#d e"),
+        atalanta_inspector::ws::encode_path_segment("a/b?c#d e"),
         "a%2Fb%3Fc%23d%20e"
     );
 }

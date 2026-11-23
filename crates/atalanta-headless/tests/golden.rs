@@ -3,10 +3,10 @@
 //! CPU-only with bundled fonts, so any difference is a renderer change.
 //!
 //! After an intended rendering change, regenerate with
-//! `VELOCITY_UPDATE_GOLDEN=1 cargo test -p velocity-headless --test golden`.
+//! `ATALANTA_UPDATE_GOLDEN=1 cargo test -p atalanta-headless --test golden`.
 
-use velocity_common::{Platform, PlatformDriver};
-use velocity_headless::{HeadlessConfig, HeadlessDriver};
+use atalanta_common::{Platform, PlatformDriver};
+use atalanta_headless::{HeadlessConfig, HeadlessDriver};
 
 const LAYOUT: &str = r##"<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
@@ -44,13 +44,13 @@ async fn representative_layout_matches_its_golden_png() {
     let png = driver.screenshot("headless-0").await.unwrap();
 
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/sign_in.png");
-    if std::env::var_os("VELOCITY_UPDATE_GOLDEN").is_some() {
+    if std::env::var_os("ATALANTA_UPDATE_GOLDEN").is_some() {
         std::fs::write(&golden, &png).unwrap();
     }
-    let baseline = std::fs::read(&golden).expect("golden missing; set VELOCITY_UPDATE_GOLDEN=1");
-    let result = velocity_core::visual::compare_images_with(&baseline, &png, &[], 1.0, 1).unwrap();
+    let baseline = std::fs::read(&golden).expect("golden missing; set ATALANTA_UPDATE_GOLDEN=1");
+    let result = atalanta_core::visual::compare_images_with(&baseline, &png, &[], 1.0, 1).unwrap();
     if result.diff_pixel_count != 0 {
-        let actual = std::env::temp_dir().join("velocity-headless-golden-actual.png");
+        let actual = std::env::temp_dir().join("atalanta-headless-golden-actual.png");
         std::fs::write(&actual, &png).unwrap();
         panic!(
             "{} pixels differ from {} (actual written to {})",

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use atalanta_common::Platform;
+use atalanta_mcp::install::{self, Client, InstallEnv};
+use atalanta_mcp::tasks::{Notifier, TaskManager};
+use atalanta_mcp::McpServer;
 use clap::{Args, Subcommand};
 use colored::Colorize;
-use velocity_common::Platform;
-use velocity_mcp::install::{self, Client, InstallEnv};
-use velocity_mcp::tasks::{Notifier, TaskManager};
-use velocity_mcp::McpServer;
 
 use super::create_driver;
 
@@ -49,7 +49,7 @@ pub struct McpArgs {
     notify: Vec<String>,
 
     /// Where run_task keeps each task's log, reports and traces
-    /// [default: ./velocity-results/tasks, or ~/.velocity/mcp-tasks when
+    /// [default: ./atalanta-results/tasks, or ~/.atalanta/mcp-tasks when
     /// started in / or $HOME]
     #[arg(long, value_name = "DIR")]
     tasks_dir: Option<String>,
@@ -57,7 +57,7 @@ pub struct McpArgs {
 
 #[derive(Subcommand)]
 enum McpCommand {
-    /// Register the MCP server with agent clients and install the Velocity
+    /// Register the MCP server with agent clients and install the Atalanta
     /// agent rules (a skill or rules file) where each reads them
     Install {
         /// all (every client found on this machine), claude, cursor, codex,
@@ -76,7 +76,7 @@ enum McpCommand {
         /// claude, cursor, codex, windsurf, vscode, cline or gemini
         client: String,
     },
-    /// Print the agent rules (the Velocity workflow and YAML cheat sheet)
+    /// Print the agent rules (the Atalanta workflow and YAML cheat sheet)
     Rules,
 }
 
@@ -90,7 +90,7 @@ fn parse_client(name: &str) -> anyhow::Result<Client> {
     }
 }
 
-/// `velocity mcp install|config|rules`.
+/// `atalanta mcp install|config|rules`.
 fn manage(command: McpCommand) -> anyhow::Result<i32> {
     let env = || InstallEnv::current(vec!["mcp".to_string()]);
     match command {
@@ -116,7 +116,7 @@ fn manage(command: McpCommand) -> anyhow::Result<i32> {
                     .collect();
                 if found.is_empty() {
                     eprintln!(
-                        "No agent client found under {}. Name one: velocity mcp install <{}>",
+                        "No agent client found under {}. Name one: atalanta mcp install <{}>",
                         env.home.display(),
                         Client::ALL.map(|c| c.name()).join("|")
                     );
@@ -126,11 +126,11 @@ fn manage(command: McpCommand) -> anyhow::Result<i32> {
             } else {
                 vec![parse_client(&client)?]
             };
-            if env.velocity.components().any(|c| c.as_os_str() == "target") {
+            if env.atalanta.components().any(|c| c.as_os_str() == "target") {
                 eprintln!(
                     "{} registering a development build ({}); install a release build for daily use",
                     "warning:".yellow().bold(),
-                    env.velocity.display()
+                    env.atalanta.display()
                 );
             }
             let opts = install::Options { dry_run, uninstall };
@@ -149,7 +149,7 @@ fn manage(command: McpCommand) -> anyhow::Result<i32> {
                 }
             }
             if !dry_run && !uninstall && !failed {
-                println!("Restart the client (or reload its MCP servers) to pick Velocity up.");
+                println!("Restart the client (or reload its MCP servers) to pick Atalanta up.");
             }
             Ok(if failed { 1 } else { 0 })
         }
@@ -167,7 +167,7 @@ pub async fn execute(args: McpArgs) -> anyhow::Result<i32> {
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| usage_err!("{e}"))?;
     let platform = platform_of(args.platform.as_deref(), args.device.as_deref())?;
-    let profile: velocity_mcp::profile::Profile = args
+    let profile: atalanta_mcp::profile::Profile = args
         .profile
         .parse()
         .map_err(|e: String| usage_err!("{e}"))?;
@@ -186,7 +186,7 @@ pub async fn execute(args: McpArgs) -> anyhow::Result<i32> {
             let devices = driver.list_devices().await?;
             let booted = devices
                 .iter()
-                .find(|d| d.state == velocity_common::DeviceState::Booted);
+                .find(|d| d.state == atalanta_common::DeviceState::Booted);
             match booted {
                 Some(d) => {
                     eprintln!(
@@ -199,7 +199,7 @@ pub async fn execute(args: McpArgs) -> anyhow::Result<i32> {
                 }
                 None => {
                     return Err(super::no_device(
-                        "No booted device found. Boot a device first with: velocity device boot <name>",
+                        "No booted device found. Boot a device first with: atalanta device boot <name>",
                         devices.iter().map(|d| d.id.clone()).collect(),
                     ));
                 }
@@ -214,7 +214,7 @@ pub async fn execute(args: McpArgs) -> anyhow::Result<i32> {
         driver.prepare(&device_id).await?;
     }
     McpServer::init_logging();
-    let driver_arc: Arc<dyn velocity_common::PlatformDriver> = Arc::from(driver);
+    let driver_arc: Arc<dyn atalanta_common::PlatformDriver> = Arc::from(driver);
     let tasks_root = args
         .tasks_dir
         .map(std::path::PathBuf::from)
@@ -245,7 +245,7 @@ fn platform_of(platform: Option<&str>, device: Option<&str>) -> anyhow::Result<P
 mod tests {
     use super::*;
 
-    /// VEL-172: `velocity mcp -p web` is accepted.
+    /// VEL-172: `atalanta mcp -p web` is accepted.
     #[test]
     fn web_is_a_platform() {
         assert_eq!(platform_of(Some("web"), None).unwrap(), Platform::Web);

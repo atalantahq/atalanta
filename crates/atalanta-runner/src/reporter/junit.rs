@@ -1,17 +1,17 @@
 use std::io::Write;
 
+use atalanta_common::{AtalantaError, Result, StepStatus, SuiteResult, TestResult, TestStatus};
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::Writer;
-use velocity_common::{Result, StepStatus, SuiteResult, TestResult, TestStatus, VelocityError};
 
 /// What a JUnit report carries besides the results.
 #[derive(Debug, Clone, Default)]
 pub struct JunitOptions {
-    /// `<properties>` of the `<testsuite>`, in order (`velocity.termination`,
-    /// `velocity.shard`, `velocity.seed`). Jenkins keeps them with
+    /// `<properties>` of the `<testsuite>`, in order (`atalanta.termination`,
+    /// `atalanta.shard`, `atalanta.seed`). Jenkins keeps them with
     /// `keepProperties`.
     pub properties: Vec<(String, String)>,
-    /// `classname` of every testcase; `None` keeps `velocity` (A-10:
+    /// `classname` of every testcase; `None` keeps `atalanta` (A-10:
     /// `--junit-classname suite` passes the suite file's stem).
     pub classname: Option<String>,
 }
@@ -25,7 +25,7 @@ pub fn write_junit(result: &SuiteResult, path: &str) -> Result<()> {
 pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions) -> Result<()> {
     if let Some(parent) = std::path::Path::new(path).parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| VelocityError::io("failed to create report directory", e))?;
+            .map_err(|e| AtalantaError::io("failed to create report directory", e))?;
     }
 
     // Rendered in memory and then put in place whole: CI reading the
@@ -37,7 +37,7 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
         .map_err(xml_err)?;
 
     // `failures` (the test's own checks failed) and `errors` (the device,
-    // the driver or Velocity failed) are disjoint, as in the schema Jenkins
+    // the driver or Atalanta failed) are disjoint, as in the schema Jenkins
     // and GitLab read: an emulator dying mid-run is not 120 assertion
     // failures in the test trend.
     let errors = result
@@ -63,7 +63,7 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
 
     // <testsuite>
     let mut testsuite = BytesStart::new("testsuite");
-    testsuite.push_attribute(("name", "velocity"));
+    testsuite.push_attribute(("name", "atalanta"));
     testsuite.push_attribute(("tests", result.total.to_string().as_str()));
     testsuite.push_attribute(("failures", failures.as_str()));
     testsuite.push_attribute(("errors", errors.as_str()));
@@ -98,7 +98,7 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
             .map_err(xml_err)?;
     }
 
-    let classname = options.classname.as_deref().unwrap_or("velocity");
+    let classname = options.classname.as_deref().unwrap_or("atalanta");
     for test in &result.tests {
         write_testcase(&mut writer, test, classname)?;
     }
@@ -114,8 +114,8 @@ pub fn write_junit_with(result: &SuiteResult, path: &str, options: &JunitOptions
         .map_err(xml_err)?;
 
     let xml = xml_chars(&String::from_utf8_lossy(&writer.into_inner()));
-    velocity_common::fsutil::write_atomic(std::path::Path::new(path), xml.as_bytes())
-        .map_err(|e| VelocityError::io(format!("failed to write JUnit report at {path}"), e))
+    atalanta_common::fsutil::write_atomic(std::path::Path::new(path), xml.as_bytes())
+        .map_err(|e| AtalantaError::io(format!("failed to write JUnit report at {path}"), e))
 }
 
 /// The document with ANSI colour codes stripped and every character XML
@@ -149,7 +149,7 @@ fn xml_chars(xml: &str) -> String {
     out
 }
 
-/// The test's `<properties>`: `velocity.healed` when selectors were healed
+/// The test's `<properties>`: `atalanta.healed` when selectors were healed
 /// (see [`write_healed`]) and its AI checks (`verify:`), one `verify.<at>`
 /// property each, `outcome: claim (reason)`, which Jenkins and GitLab show
 /// beside the test. One block, as the schema allows.
@@ -163,7 +163,7 @@ fn write_verification<W: Write>(writer: &mut Writer<W>, test: &TestResult) -> Re
     let healed = test.healed_count();
     if healed > 0 {
         let mut prop = BytesStart::new("property");
-        prop.push_attribute(("name", "velocity.healed"));
+        prop.push_attribute(("name", "atalanta.healed"));
         prop.push_attribute(("value", healed.to_string().as_str()));
         writer.write_event(Event::Empty(prop)).map_err(xml_err)?;
     }
@@ -321,7 +321,7 @@ fn write_testcase<W: Write>(
 }
 
 /// The JUnit error type of a failed test that is not the test's own fault:
-/// `InternalError` (a bug in Velocity, exit 5) or `InfrastructureError`
+/// `InternalError` (a bug in Atalanta, exit 5) or `InfrastructureError`
 /// (the device or driver failed). `None` for an assertion failure.
 fn error_kind(test: &TestResult) -> Option<&'static str> {
     if test.status != TestStatus::Failed {
@@ -350,7 +350,7 @@ fn write_attempt<W: Write>(writer: &mut Writer<W>, tag: &str, message: &str) -> 
         .map_err(xml_err)
 }
 
-/// `<properties><property name="velocity.healed" value="n"/></properties>`
+/// `<properties><property name="atalanta.healed" value="n"/></properties>`
 /// for a passing test whose selectors were healed (D-7 / R4).
 fn write_healed<W: Write>(writer: &mut Writer<W>, test: &TestResult) -> Result<()> {
     let n = test.healed_count();
@@ -361,7 +361,7 @@ fn write_healed<W: Write>(writer: &mut Writer<W>, test: &TestResult) -> Result<(
         .write_event(Event::Start(BytesStart::new("properties")))
         .map_err(xml_err)?;
     let mut prop = BytesStart::new("property");
-    prop.push_attribute(("name", "velocity.healed"));
+    prop.push_attribute(("name", "atalanta.healed"));
     prop.push_attribute(("value", n.to_string().as_str()));
     writer.write_event(Event::Empty(prop)).map_err(xml_err)?;
     writer
@@ -418,8 +418,8 @@ fn build_failure_body(test: &TestResult) -> String {
     lines.join("\n")
 }
 
-fn xml_err(e: std::io::Error) -> VelocityError {
-    VelocityError::Config(format!("XML write error: {e}"))
+fn xml_err(e: std::io::Error) -> AtalantaError {
+    AtalantaError::Config(format!("XML write error: {e}"))
 }
 
 #[cfg(test)]
@@ -483,10 +483,10 @@ mod tests {
         let mut t = TestResult::failed("buy", "AI verification failed".into(), Duration::ZERO);
         t.status = TestStatus::Passed;
         t.error_message = None;
-        t.verification = vec![velocity_common::VerifyCheck {
+        t.verification = vec![atalanta_common::VerifyCheck {
             at: "final".into(),
             claim: "the order is placed".into(),
-            outcome: velocity_common::VerifyOutcome::Holds,
+            outcome: atalanta_common::VerifyOutcome::Holds,
             reason: "\"Order #12\" shown".into(),
             evidence: vec!["[3] <text> text=\"Order #12\" @1,1".into()],
         }];
@@ -504,7 +504,7 @@ mod tests {
         // A healed test with checks keeps one <properties> block.
         assert_eq!(xml.matches("<properties>").count(), 2, "{xml}");
         assert!(
-            xml.contains(r#"<property name="velocity.healed" value="1"/>"#),
+            xml.contains(r#"<property name="atalanta.healed" value="1"/>"#),
             "{xml}"
         );
         let _ = std::fs::remove_dir_all(dir);
@@ -523,7 +523,7 @@ mod tests {
     fn healed_passes_carry_a_property_and_say_so() {
         let xml = render(vec![healed()]);
         assert!(
-            xml.contains(r#"<property name="velocity.healed" value="1"/>"#),
+            xml.contains(r#"<property name="atalanta.healed" value="1"/>"#),
             "{xml}"
         );
         assert!(xml.contains("PASSED (healed 1)"), "{xml}");
@@ -532,13 +532,13 @@ mod tests {
     #[test]
     fn evidence_is_attached_in_system_out() {
         let mut t = TestResult::failed("t", "boom".into(), std::time::Duration::ZERO);
-        t.attachments = vec![velocity_common::Attachment::new(
-            velocity_common::AttachmentKind::Video,
-            "velocity-results/traces/t/video.mp4",
+        t.attachments = vec![atalanta_common::Attachment::new(
+            atalanta_common::AttachmentKind::Video,
+            "atalanta-results/traces/t/video.mp4",
         )];
         let xml = render(vec![t]);
         assert!(
-            xml.contains("[[ATTACHMENT|velocity-results/traces/t/video.mp4]]"),
+            xml.contains("[[ATTACHMENT|atalanta-results/traces/t/video.mp4]]"),
             "{xml}"
         );
     }
@@ -574,16 +574,16 @@ mod tests {
     #[test]
     fn testcases_carry_the_file_and_line_of_their_test() {
         let mut t = TestResult::failed("login", "boom".into(), Duration::ZERO);
-        t.source = Some(velocity_common::SourcePos::new("tests/app.yaml", 12, 5));
+        t.source = Some(atalanta_common::SourcePos::new("tests/app.yaml", 12, 5));
         let other = TestResult::failed("x", "y".into(), Duration::ZERO);
         let third = TestResult::failed("z", "y".into(), Duration::ZERO);
         let xml = render(vec![t, other, third]);
         assert!(
-            xml.contains(r#"name="login" classname="velocity" file="tests/app.yaml" line="12""#),
+            xml.contains(r#"name="login" classname="atalanta" file="tests/app.yaml" line="12""#),
             "{xml}"
         );
         assert!(
-            !xml.contains(r#"name="x" classname="velocity" file="#),
+            !xml.contains(r#"name="x" classname="atalanta" file="#),
             "{xml}"
         );
     }

@@ -11,7 +11,7 @@ Input: runs.jsonl, one JSON object per line:
 - phase "day0": the explore run. `trusted` is its JSON report's
   `gates.trusted`; `replays`/`passed` its replays; cost and turns from its
   report; `transcripts` every file holding what the model was sent or said.
-- phase "day7" and "release": `velocity run` of the day-0 test, 5 times:
+- phase "day7" and "release": `atalanta run` of the day-0 test, 5 times:
   `replays` and `passed` only.
 
 Secrets: SECRET_NAMES (comma-separated) names environment variables whose

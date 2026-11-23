@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use velocity_common::{Result, VelocityError};
+use atalanta_common::{AtalantaError, Result};
 
 /// Save a PNG screenshot to disk with a sanitized filename.
 ///
@@ -14,7 +14,7 @@ pub fn save_screenshot(
 ) -> Result<PathBuf> {
     let dir_path = PathBuf::from(dir);
     std::fs::create_dir_all(&dir_path).map_err(|e| {
-        VelocityError::io(
+        AtalantaError::io(
             format!(
                 "failed to create screenshot directory {}",
                 dir_path.display()
@@ -28,7 +28,7 @@ pub fn save_screenshot(
     let file_path = dir_path.join(&filename);
 
     std::fs::write(&file_path, png_bytes).map_err(|e| {
-        VelocityError::io(
+        AtalantaError::io(
             format!("failed to write screenshot {}", file_path.display()),
             e,
         )
@@ -39,21 +39,21 @@ pub fn save_screenshot(
 
 /// A warning when the disk holding `dir` (or its nearest existing parent)
 /// has less free space than `devices up` requires (3 GB,
-/// `VELOCITY_MIN_FREE_DISK_GB`): a long run with video fills it, and the
+/// `ATALANTA_MIN_FREE_DISK_GB`): a long run with video fills it, and the
 /// first thing to fail is the report write, after every test ran.
 pub fn low_disk_warning(dir: &std::path::Path) -> Option<String> {
     let mut at = dir;
     while !at.exists() {
         at = at.parent()?;
     }
-    let free = velocity_common::host::free_disk(at)?;
-    let (_, _, min_disk) = velocity_common::host::limits();
+    let free = atalanta_common::host::free_disk(at)?;
+    let (_, _, min_disk) = atalanta_common::host::limits();
     (free < min_disk).then(|| {
-        let gb = velocity_common::host::GB as f64;
+        let gb = atalanta_common::host::GB as f64;
         format!(
             "only {:.1} GB free where the artifacts go ({}), under the {:.1} GB bar: evidence \
              (video, traces) may fill it before the reports are written. Free some space, or cap \
-             old evidence with VELOCITY_ARTIFACTS_MAX_BYTES",
+             old evidence with ATALANTA_ARTIFACTS_MAX_BYTES",
             free as f64 / gb,
             at.display(),
             min_disk as f64 / gb
@@ -61,10 +61,10 @@ pub fn low_disk_warning(dir: &std::path::Path) -> Option<String> {
     })
 }
 
-/// `VELOCITY_ARTIFACTS_MAX_BYTES`: the most evidence the artifacts dir may
+/// `ATALANTA_ARTIFACTS_MAX_BYTES`: the most evidence the artifacts dir may
 /// keep (`500M`, `2G`, or bytes). `None`: no cap.
 pub fn max_evidence_bytes() -> Option<u64> {
-    velocity_common::env::var("VELOCITY_ARTIFACTS_MAX_BYTES")
+    atalanta_common::env::var("ATALANTA_ARTIFACTS_MAX_BYTES")
         .ok()
         .and_then(|v| parse_bytes(&v))
 }
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn test_save_screenshot_roundtrip() {
-        let dir = std::env::temp_dir().join("velocity_screenshot_test");
+        let dir = std::env::temp_dir().join("atalanta_screenshot_test");
         let _ = std::fs::remove_dir_all(&dir);
 
         let fake_png = b"\x89PNG\r\n\x1a\nfakedata";

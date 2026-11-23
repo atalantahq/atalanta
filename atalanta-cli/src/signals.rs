@@ -129,13 +129,13 @@ pub fn install() {
                     // `process::exit` runs no destructors: the commands'
                     // group guards never fire, so kill the groups here (and
                     // the registered pids, such as the web driver's Chrome).
-                    velocity_common::process::kill_all_groups();
+                    atalanta_common::process::kill_all_groups();
                     // `process::exit` skips the `::stop-commands::` guard's
                     // drop: without this the runner ignored every workflow
                     // command for the rest of the step (m-1). A cancelled
                     // GitHub job sends SIGINT then SIGTERM, so this path is
                     // the common one there.
-                    velocity_runner::reporter::github::resume_commands();
+                    atalanta_runner::reporter::github::resume_commands();
                     std::process::exit(signal.exit_code());
                 }
             }

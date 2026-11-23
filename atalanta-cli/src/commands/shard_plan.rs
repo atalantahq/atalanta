@@ -1,15 +1,15 @@
-//! `velocity shard-plan`: the partition `run --shard M/N` uses, for every
+//! `atalanta shard-plan`: the partition `run --shard M/N` uses, for every
 //! shard, without devices (D-49; Flank's `--dump-shards`, bktec's `plan`).
 //! Each CI shard computes its part independently; the `plan=` fingerprint
 //! printed here and by every shard shows whether they agree.
 
+use atalanta_common::{AtalantaError, RuntimeConfig};
 use clap::Args;
-use velocity_common::{RuntimeConfig, VelocityError};
 
 #[derive(Args)]
 pub struct ShardPlanArgs {
     /// Test suite YAML
-    #[arg(value_name = "PATH", default_value = "velocity.yaml")]
+    #[arg(value_name = "PATH", default_value = "atalanta.yaml")]
     path: String,
 
     /// Number of shards
@@ -17,7 +17,7 @@ pub struct ShardPlanArgs {
           value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..))]
     total: usize,
 
-    /// Balance by these durations (a velocity-history.json, a JUnit XML
+    /// Balance by these durations (a atalanta-history.json, a JUnit XML
     /// report, or a folder of either), as `run --shard-timings`
     #[arg(long, value_name = "FILE")]
     shard_timings: Option<String>,
@@ -54,11 +54,11 @@ pub fn execute(args: ShardPlanArgs) -> anyhow::Result<i32> {
     // two printed different fingerprints for the same flags (review d4 m8).
     let env = super::run::env_overrides(&args.env_files, &args.env_overrides)?;
     let (mut suite, _) = super::run::load_suite(&args.path, &args.set, &env)?;
-    suite.tests = velocity_core::resolve_flows(&suite)?;
+    suite.tests = atalanta_core::resolve_flows(&suite)?;
     let shard_timings_ms = match &args.shard_timings {
         Some(path) => Some(std::sync::Arc::new(
-            velocity_runner::history::load_timings(std::path::Path::new(path))
-                .map_err(|e| VelocityError::Config(format!("--shard-timings: {e}")))?
+            atalanta_runner::history::load_timings(std::path::Path::new(path))
+                .map_err(|e| AtalantaError::Config(format!("--shard-timings: {e}")))?
                 .durations,
         )),
         None => None,
@@ -71,7 +71,7 @@ pub fn execute(args: ShardPlanArgs) -> anyhow::Result<i32> {
         shard_timings_ms,
         ..Default::default()
     };
-    let plan = velocity_runner::scheduler::shard_plan(&suite.tests, &config);
+    let plan = atalanta_runner::scheduler::shard_plan(&suite.tests, &config);
     if args.json {
         println!("{}", serde_json::to_string_pretty(&plan)?);
         return Ok(0);

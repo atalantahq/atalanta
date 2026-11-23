@@ -4,17 +4,17 @@
 
 use std::sync::Arc;
 
-use serde_json::Value;
-use velocity_common::{
-    Action, Direction, LaunchArgs, PlatformDriver, Result, Step, StepStatus, VelocityError,
+use atalanta_common::{
+    Action, AtalantaError, Direction, LaunchArgs, PlatformDriver, Result, Step, StepStatus,
 };
-use velocity_core::TestExecutor;
+use atalanta_core::TestExecutor;
+use serde_json::Value;
 
 /// The loaded suite's config and app id, if a suite is loaded.
-fn suite(config_path: &Option<String>) -> Option<velocity_common::TestSuite> {
+fn suite(config_path: &Option<String>) -> Option<atalanta_common::TestSuite> {
     config_path
         .as_deref()
-        .and_then(|p| velocity_core::parse_suite(p).ok())
+        .and_then(|p| atalanta_core::parse_suite(p).ok())
 }
 
 /// `app_id`, else the loaded suite's.
@@ -25,7 +25,7 @@ fn app_id(config_path: &Option<String>, args: &Value) -> Result<String> {
         .map(String::from)
         .or_else(|| suite(config_path).map(|s| s.app_id))
         .ok_or_else(|| {
-            VelocityError::Config(
+            AtalantaError::Config(
                 "'app_id' is required (no suite is loaded: start the server with -c suite.yaml to default it)"
                     .into(),
             )
@@ -46,9 +46,9 @@ async fn run_step(
     // Without a suite, a failed step's screenshot goes to a scratch folder,
     // not the server's working directory.
     let config = suite(config_path).map(|s| s.config).unwrap_or_else(|| {
-        let mut c = velocity_common::SuiteConfig::default();
+        let mut c = atalanta_common::SuiteConfig::default();
         c.artifacts.output_dir = std::env::temp_dir()
-            .join("velocity-mcp")
+            .join("atalanta-mcp")
             .to_string_lossy()
             .into_owned();
         c
@@ -59,7 +59,7 @@ async fn run_step(
         timeout_ms,
         settle: None,
         source: None,
-        modifiers: velocity_common::StepModifiers {
+        modifiers: atalanta_common::StepModifiers {
             app_in_front,
             ..Default::default()
         },
@@ -67,8 +67,8 @@ async fn run_step(
     let r = executor.execute_step(&step, device_id, app_id, 0).await?;
     if r.status == StepStatus::Failed {
         let (kind, crashed) = executor.last_failure();
-        return Err(VelocityError::StepFailed {
-            kind: kind.unwrap_or(velocity_common::ErrorKind::Unknown),
+        return Err(AtalantaError::StepFailed {
+            kind: kind.unwrap_or(atalanta_common::ErrorKind::Unknown),
             crashed,
             message: r
                 .error_message
@@ -89,7 +89,7 @@ fn direction(args: &Value, key: &str, default: Direction) -> Result<Direction> {
         Some(d) => {
             serde_json::from_value(Value::String(super::interaction::normalize_direction(d)))
                 .map_err(|_| {
-                    VelocityError::Config(format!(
+                    AtalantaError::Config(format!(
                         "Invalid {key} '{d}'. Use: up, down, left, right"
                     ))
                 })
@@ -142,7 +142,7 @@ pub async fn scroll(
     let Some(target) = args.get("until_visible") else {
         let finger = super::interaction::finger_for(&format!("{content:?}").to_lowercase());
         let finger: Direction = serde_json::from_value(Value::String(finger.into()))
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("{e}")))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("{e}")))?;
         driver.swipe(device_id, finger).await?;
         return Ok(
             serde_json::json!({ "action": "scroll", "direction": format!("{content:?}").to_lowercase() }),

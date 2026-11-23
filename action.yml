@@ -1,18 +1,18 @@
-# Velocity GitHub Action: install a pinned Velocity, bring up the device
+# Atalanta GitHub Action: install a pinned Atalanta, bring up the device
 # (an Android emulator with a cached AVD, an iOS simulator, or headless
 # Chrome), run a suite or one shard of it, and upload the results.
 #
-#   - uses: omkar-dev/velocity@v0.2.0
+#   - uses: atalantahq/atalanta@v0.2.0
 #     with:
 #       version: 0.2.0
 #       platform: android
 #       suite: tests/
 #       shard: ${{ matrix.shard }}/4
 #
-# Exit codes are Velocity's (docs/CLI.md#exit-codes); a device that never
+# Exit codes are Atalanta's (docs/CLI.md#exit-codes); a device that never
 # came up is 3 (infrastructure), never a test failure. In check mode the
-# Action installs Velocity only, runs no tests, and (after the matrix)
-# downloads every shard's results artifact and runs `velocity results
+# Action installs Atalanta only, runs no tests, and (after the matrix)
+# downloads every shard's results artifact and runs `atalanta results
 # check --expect-shards N`:
 #
 #   results:                       # after the matrix: every shard reported?
@@ -20,10 +20,10 @@
 #     if: always()
 #     runs-on: ubuntu-latest
 #     steps:
-#       - uses: omkar-dev/velocity@v0.2.0
+#       - uses: atalantahq/atalanta@v0.2.0
 #         with: { version: 0.2.0, platform: android, check-shards: 4 }
-name: Velocity
-description: Run Velocity UI tests on an Android emulator, an iOS simulator or headless Chrome.
+name: Atalanta
+description: Run Atalanta UI tests on an Android emulator, an iOS simulator or headless Chrome.
 author: omkar-dev
 branding:
   icon: smartphone
@@ -31,7 +31,7 @@ branding:
 
 inputs:
   version:
-    description: Velocity release to install (X.Y.Z). Pin it.
+    description: Atalanta release to install (X.Y.Z). Pin it.
     required: true
   sha256:
     description: The release archive's sha256 for this runner, to pin the exact build on top of the release's SHA256SUMS (optional).
@@ -49,13 +49,13 @@ inputs:
     required: false
     default: ""
   args:
-    description: More `velocity run` flags, split on spaces.
+    description: More `atalanta run` flags, split on spaces.
     required: false
     default: ""
   results-dir:
     description: Where the reports go.
     required: false
-    default: velocity-results
+    default: atalanta-results
   upload:
     description: Upload the results folder as an artifact (true/false).
     required: false
@@ -77,7 +77,7 @@ inputs:
     required: false
     default: "2"
   check-shards:
-    description: "Check mode: the number of shards a matrix ran. Downloads every shard's results artifact for `platform` and fails unless all N reported (velocity results check). Runs no tests."
+    description: "Check mode: the number of shards a matrix ran. Downloads every shard's results artifact for `platform` and fails unless all N reported (atalanta results check). Runs no tests."
     required: false
     default: ""
 
@@ -89,13 +89,13 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Install Velocity ${{ inputs.version }}
+    - name: Install Atalanta ${{ inputs.version }}
       shell: bash
       env:
-        VELOCITY_VERSION: ${{ inputs.version }}
-        VELOCITY_SHA256: ${{ inputs.sha256 }}
-        VELOCITY_INSTALL_DIR: ${{ runner.temp }}/velocity-bin
-        VELOCITY_NO_MODIFY_PATH: "1"
+        ATALANTA_VERSION: ${{ inputs.version }}
+        ATALANTA_SHA256: ${{ inputs.sha256 }}
+        ATALANTA_INSTALL_DIR: ${{ runner.temp }}/atalanta-bin
+        ATALANTA_NO_MODIFY_PATH: "1"
         # Inputs reach the script as variables, never spliced into it.
         PLATFORM: ${{ inputs.platform }}
         SHARD: ${{ inputs.shard }}
@@ -104,26 +104,26 @@ runs:
       run: | # zizmor: ignore[github-env] -- writes only RUNNER_TEMP paths and the validated platform/shard
         set -euo pipefail
         case "$PLATFORM" in android|ios|web) ;; *)
-          echo "::error title=Velocity::platform must be android, ios or web, not '$PLATFORM'"; exit 2 ;;
+          echo "::error title=Atalanta::platform must be android, ios or web, not '$PLATFORM'"; exit 2 ;;
         esac
         if [ -z "$CHECK_SHARDS" ] && [ -z "$SUITE" ]; then
-          echo "::error title=Velocity::suite is required unless check-shards is set"; exit 2
+          echo "::error title=Atalanta::suite is required unless check-shards is set"; exit 2
         fi
         if [ -n "$CHECK_SHARDS" ]; then
           case "$CHECK_SHARDS" in ''|*[!0-9]*|0)
-            echo "::error title=Velocity::check-shards must be a positive integer, not '$CHECK_SHARDS'"; exit 2 ;;
+            echo "::error title=Atalanta::check-shards must be a positive integer, not '$CHECK_SHARDS'"; exit 2 ;;
           esac
         fi
         sh "$GITHUB_ACTION_PATH/install.sh"
-        echo "$VELOCITY_INSTALL_DIR" >> "$GITHUB_PATH"
-        echo "VELOCITY_ACTION_STATE=$RUNNER_TEMP/velocity-action" >> "$GITHUB_ENV"
+        echo "$ATALANTA_INSTALL_DIR" >> "$GITHUB_PATH"
+        echo "ATALANTA_ACTION_STATE=$RUNNER_TEMP/atalanta-action" >> "$GITHUB_ENV"
         # An artifact name per job: `/` is not allowed in one.
         if [ -n "$SHARD" ]; then
           # M/N only: the value goes into GITHUB_ENV and an artifact name.
-          case "$SHARD" in *[!0-9/]*|*/*/*|/*|*/|"") echo "::error title=Velocity::shard must be M/N, not '$SHARD'"; exit 2 ;; esac
+          case "$SHARD" in *[!0-9/]*|*/*/*|/*|*/|"") echo "::error title=Atalanta::shard must be M/N, not '$SHARD'"; exit 2 ;; esac
           part="shard-${SHARD//\//-of-}"
         else part=all; fi
-        echo "VELOCITY_ARTIFACT=velocity-results-$PLATFORM-$part" >> "$GITHUB_ENV"
+        echo "ATALANTA_ARTIFACT=atalanta-results-$PLATFORM-$part" >> "$GITHUB_ENV"
 
     # ---- Android: KVM, a cached AVD (keyed by everything that shapes it),
     # then the run inside the emulator, retried when the emulator never boots.
@@ -142,7 +142,7 @@ runs:
         path: |
           ~/.android/avd/*
           ~/.android/adb*
-        key: velocity-avd-${{ runner.os }}-${{ inputs.api-level }}-${{ inputs.target }}-${{ inputs.arch }}-v1
+        key: atalanta-avd-${{ runner.os }}-${{ inputs.api-level }}-${{ inputs.target }}-${{ inputs.arch }}-v1
     - name: Create the AVD snapshot
       if: inputs.platform == 'android' && steps.avd.outputs.cache-hit != 'true' && inputs.check-shards == ''
       uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -178,8 +178,8 @@ runs:
       id: booted
       shell: bash
       run: |
-        if [ -f "$VELOCITY_ACTION_STATE/booted" ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else
-          echo "::warning title=Velocity::the emulator did not boot; trying once more with a fresh AVD"; fi
+        if [ -f "$ATALANTA_ACTION_STATE/booted" ]; then echo "yes=true" >> "$GITHUB_OUTPUT"; else
+          echo "::warning title=Atalanta::the emulator did not boot; trying once more with a fresh AVD"; fi
     - name: Run on the emulator (retry after a failed boot)
       if: inputs.platform == 'android' && steps.booted.outputs.yes != 'true' && inputs.boot-attempts != '1' && inputs.check-shards == ''
       continue-on-error: true
@@ -212,11 +212,11 @@ runs:
       run: |
         set -u
         for i in $(seq 1 "$ATTEMPTS"); do
-          if velocity devices up --ios 1; then
+          if atalanta devices up --ios 1; then
             sh "$GITHUB_ACTION_PATH/scripts/action-run.sh"
             exit 0
           fi
-          echo "::warning title=Velocity::simulator boot attempt $i of $ATTEMPTS failed"
+          echo "::warning title=Atalanta::simulator boot attempt $i of $ATTEMPTS failed"
           xcrun simctl shutdown all || true
         done
 
@@ -235,7 +235,7 @@ runs:
       if: always() && inputs.upload == 'true' && inputs.check-shards == ''
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
-        name: ${{ env.VELOCITY_ARTIFACT }}
+        name: ${{ env.ATALANTA_ARTIFACT }}
         path: ${{ inputs.results-dir }}
         retention-days: 14
         if-no-files-found: warn
@@ -250,8 +250,8 @@ runs:
       if: inputs.check-shards != ''
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
       with:
-        pattern: velocity-results-${{ inputs.platform }}-shard-*
-        path: ${{ runner.temp }}/velocity-shards
+        pattern: atalanta-results-${{ inputs.platform }}-shard-*
+        path: ${{ runner.temp }}/atalanta-shards
     - name: Check every shard reported
       # Only after a good install: nothing else runs in check mode.
       if: inputs.check-shards != ''
@@ -260,5 +260,5 @@ runs:
         CHECK_SHARDS: ${{ inputs.check-shards }}
       run: |
         set -euo pipefail
-        mkdir -p "$RUNNER_TEMP/velocity-shards"
-        velocity results check --expect-shards "$CHECK_SHARDS" "$RUNNER_TEMP/velocity-shards"
+        mkdir -p "$RUNNER_TEMP/atalanta-shards"
+        atalanta results check --expect-shards "$CHECK_SHARDS" "$RUNNER_TEMP/atalanta-shards"

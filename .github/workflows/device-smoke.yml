@@ -5,7 +5,7 @@
 #   about 10x Linux). The bar is 19 green nights out of 20;
 # - from the Actions tab (workflow_dispatch), or with the `device-ci` label
 #   on a pull request.
-# They build Velocity from this commit: until a release is published there
+# They build Atalanta from this commit: until a release is published there
 # is no installed binary to test (switch to the Action then).
 #
 # With no app given, each job drives the platform's own Settings app with a
@@ -68,8 +68,8 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Build velocity
-        run: cargo build --release -p velocity-cli
+      - name: Build atalanta
+        run: cargo build --release -p atalanta-cli
       - name: Boot a simulator
         id: sim
         run: |
@@ -94,15 +94,15 @@ jobs:
           SUITE: ${{ inputs.app_url != '' && inputs.suite || 'tests/smoke/ios-settings.yaml' }}
           UDID: ${{ steps.sim.outputs.udid }}
         run: |
-          ./target/release/velocity run "$SUITE" \
+          ./target/release/atalanta run "$SUITE" \
             --device "$UDID" \
-            --report junit,json,github --artifacts-dir velocity-results
+            --report junit,json,github --artifacts-dir atalanta-results
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ios-smoke-results
-          path: velocity-results
+          path: atalanta-results
           retention-days: 7
 
   android-emulator:
@@ -131,8 +131,8 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Build velocity
-        run: cargo build --release -p velocity-cli
+      - name: Build atalanta
+        run: cargo build --release -p atalanta-cli
       - name: Run the suite on an emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -141,13 +141,13 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: ./target/release/velocity run tests/smoke/android-settings.yaml --report junit,json,github --artifacts-dir velocity-results
+          script: ./target/release/atalanta run tests/smoke/android-settings.yaml --report junit,json,github --artifacts-dir atalanta-results
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: android-smoke-results
-          path: velocity-results
+          path: atalanta-results
           retention-days: 7
 
   web-headless:
@@ -170,16 +170,16 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - name: Build velocity
-        run: cargo build --release -p velocity-cli
+      - name: Build atalanta
+        run: cargo build --release -p atalanta-cli
       - name: Run the suite
-        run: ./target/release/velocity run tests/smoke/web-smoke.yaml --report junit,json,github --artifacts-dir velocity-results
+        run: ./target/release/atalanta run tests/smoke/web-smoke.yaml --report junit,json,github --artifacts-dir atalanta-results
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: web-smoke-results
-          path: velocity-results
+          path: atalanta-results
           retention-days: 7
 
   # NEW-001: a job that died before uploading must not leave the night green.
@@ -200,10 +200,10 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo build --release -p velocity-cli
+      - run: cargo build --release -p atalanta-cli
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: smoke
           pattern: "*-smoke-results"
       # Two jobs, two results files: one missing fails the night.
-      - run: ./target/release/velocity results check --expect-shards 2 smoke/android-smoke-results smoke/web-smoke-results
+      - run: ./target/release/atalanta results check --expect-shards 2 smoke/android-smoke-results smoke/web-smoke-results

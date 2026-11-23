@@ -1,4 +1,4 @@
-package com.velocity.sync
+package com.atalanta.sync
 
 import android.content.Context
 import android.os.Handler
@@ -10,12 +10,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * VelocitySyncProbe: Embedded in debug app builds to provide native idle detection.
+ * AtalantaSyncProbe: Embedded in debug app builds to provide native idle detection.
  *
  * Usage:
  *   In your Application.onCreate():
  *     if (BuildConfig.DEBUG) {
- *         VelocitySyncProbe.start(this)
+ *         AtalantaSyncProbe.start(this)
  *     }
  *
  * The probe tracks the main looper, delayed main-looper messages due within
@@ -24,28 +24,28 @@ import java.util.concurrent.atomic.AtomicBoolean
  * `framework: react_native` in the suite it also tracks React Native's JS
  * timers, Fabric mounting, native-driven animations and `fetch`
  * ([ReactNativeIdling]); pass a Context to [start] for that. A server on the device's
- * loopback (port 19401, or `VELOCITY_SYNC_PORT`) exposes this state to the
- * Velocity test runner, which reaches it through a per-device `adb forward`
+ * loopback (port 19401, or `ATALANTA_SYNC_PORT`) exposes this state to the
+ * Atalanta test runner, which reaches it through a per-device `adb forward`
  * and checks the probe's `hello` (package and pid) before trusting it.
  *
  * Network: the probe can't see requests by itself. Report them with the
  * ready-made OkHttp interceptor:
  *
- *     OkHttpClient.Builder().addInterceptor(VelocityOkHttpInterceptor()).build()
+ *     OkHttpClient.Builder().addInterceptor(AtalantaOkHttpInterceptor()).build()
  *
  * or call [networkStarted] / [networkFinished] from your own HTTP layer.
  *
  * WebSocket and long-poll URLs never count (see [UrlBlocklist.DEFAULT_PATTERNS]);
  * add your own with [ignoreUrls].
  */
-object VelocitySyncProbe {
+object AtalantaSyncProbe {
     private val stateTracker = AppStateTracker
     private var server: SyncServer? = null
     private val resources = mutableListOf<IdlingResource>()
     private var started = AtomicBoolean(false)
 
     /**
-     * Start the probe on the given port (default `VELOCITY_SYNC_PORT`, else 19401).
+     * Start the probe on the given port (default `ATALANTA_SYNC_PORT`, else 19401).
      * Call from main thread in debug builds only.
      */
     @JvmStatic

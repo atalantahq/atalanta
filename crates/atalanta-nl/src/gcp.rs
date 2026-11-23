@@ -12,9 +12,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, Result};
 use base64::Engine as _;
 use serde_json::{json, Value};
-use velocity_common::{Result, VelocityError};
 
 /// The OAuth scope Vertex needs.
 pub const SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
@@ -70,7 +70,7 @@ impl GoogleToken {
             });
         if let Some(file) = file {
             let text = std::fs::read_to_string(&file).map_err(|e| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "can't read Google credentials {}: {e}",
                     file.display()
                 ))
@@ -80,7 +80,7 @@ impl GoogleToken {
         }
         match find_in_path("gcloud", &env("PATH").unwrap_or_default()) {
             Some(program) => Ok((Self::with_source(Source::Gcloud { program }), None)),
-            None => Err(VelocityError::Config(
+            None => Err(AtalantaError::Config(
                 "vertex needs Google credentials: set GOOGLE_APPLICATION_CREDENTIALS to a service \
                  account key file, run `gcloud auth application-default login`, or have gcloud on PATH"
                     .into(),
@@ -146,11 +146,11 @@ impl GoogleToken {
                     run_with_deadline(&program, &["auth", "print-access-token"], GCLOUD_TIMEOUT)
                 })
                 .await
-                .map_err(|e| VelocityError::Internal(anyhow::anyhow!("gcloud task: {e}")))?
-                .map_err(VelocityError::Config)?;
+                .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("gcloud task: {e}")))?
+                .map_err(AtalantaError::Config)?;
                 let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !out.status.success() || token.is_empty() {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "gcloud auth print-access-token failed: {}",
                         String::from_utf8_lossy(&out.stderr).trim()
                     )));
@@ -170,7 +170,7 @@ impl GoogleToken {
             .body(form)
             .send()
             .await
-            .map_err(|e| VelocityError::ServiceUnavailable {
+            .map_err(|e| AtalantaError::ServiceUnavailable {
                 service: "Google OAuth".into(),
                 detail: e.to_string(),
             })?;
@@ -179,20 +179,20 @@ impl GoogleToken {
         if !(200..300).contains(&status) {
             let msg = format!("Google token exchange failed ({status}): {text}");
             return Err(if status >= 500 || status == 429 {
-                VelocityError::ServiceUnavailable {
+                AtalantaError::ServiceUnavailable {
                     service: "Google OAuth".into(),
                     detail: msg,
                 }
             } else {
-                VelocityError::Config(msg)
+                AtalantaError::Config(msg)
             });
         }
         let v: Value = serde_json::from_str(&text)
-            .map_err(|e| VelocityError::Config(format!("bad Google token response: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("bad Google token response: {e}")))?;
         let token = v["access_token"]
             .as_str()
             .ok_or_else(|| {
-                VelocityError::Config("Google token response has no access_token".into())
+                AtalantaError::Config("Google token response has no access_token".into())
             })?
             .to_string();
         let ttl = v["expires_in"].as_u64().unwrap_or(3600);
@@ -215,7 +215,7 @@ impl TokenSource for GoogleToken {
             }
         }
         let (token, ttl) = self.fetch().await?;
-        velocity_common::redact::register_secret(&token);
+        atalanta_common::redact::register_secret(&token);
         let until = Instant::now() + ttl.saturating_sub(Duration::from_secs(60));
         *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some((token.clone(), until));
         Ok(token)
@@ -278,13 +278,13 @@ fn run_with_deadline(
 /// A credentials file: the token source and the project it names.
 fn parse_credentials(text: &str) -> Result<(Source, Option<String>)> {
     let v: Value = serde_json::from_str(text)
-        .map_err(|e| VelocityError::Config(format!("Google credentials file isn't JSON: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("Google credentials file isn't JSON: {e}")))?;
     let s = |k: &str| v[k].as_str().map(String::from);
     let token_uri = s("token_uri").unwrap_or_else(|| DEFAULT_TOKEN_URI.into());
     match v["type"].as_str() {
         Some("service_account") => {
             let pem = s("private_key")
-                .ok_or_else(|| VelocityError::Config("service account file has no private_key".into()))?;
+                .ok_or_else(|| AtalantaError::Config("service account file has no private_key".into()))?;
             let key = pem_to_der(&pem)?;
             Ok((
                 Source::ServiceAccount {
@@ -297,7 +297,7 @@ fn parse_credentials(text: &str) -> Result<(Source, Option<String>)> {
         }
         Some("authorized_user") => {
             let refresh_token = s("refresh_token").unwrap_or_default();
-            velocity_common::redact::register_secret(&refresh_token);
+            atalanta_common::redact::register_secret(&refresh_token);
             Ok((
                 Source::AuthorizedUser {
                     client_id: s("client_id").unwrap_or_default(),
@@ -308,7 +308,7 @@ fn parse_credentials(text: &str) -> Result<(Source, Option<String>)> {
                 s("quota_project_id"),
             ))
         }
-        other => Err(VelocityError::Config(format!(
+        other => Err(AtalantaError::Config(format!(
             "Google credentials of type {other:?} aren't supported (service_account or authorized_user)"
         ))),
     }
@@ -323,7 +323,7 @@ fn pem_to_der(pem: &str) -> Result<Vec<u8>> {
         .collect();
     base64::engine::general_purpose::STANDARD
         .decode(body)
-        .map_err(|e| VelocityError::Config(format!("service account private_key isn't PEM: {e}")))
+        .map_err(|e| AtalantaError::Config(format!("service account private_key isn't PEM: {e}")))
 }
 
 /// The signed JWT a service account exchanges for a token (RS256, an
@@ -349,7 +349,7 @@ pub fn service_account_jwt(
         b64(claims.to_string().as_bytes())
     );
     let pair = ring::signature::RsaKeyPair::from_pkcs8(key_der).map_err(|e| {
-        VelocityError::Config(format!("service account key isn't a PKCS#8 RSA key: {e}"))
+        AtalantaError::Config(format!("service account key isn't a PKCS#8 RSA key: {e}"))
     })?;
     let mut sig = vec![0u8; pair.public().modulus_len()];
     pair.sign(
@@ -358,7 +358,7 @@ pub fn service_account_jwt(
         signing_input.as_bytes(),
         &mut sig,
     )
-    .map_err(|_| VelocityError::Internal(anyhow::anyhow!("RSA signing failed")))?;
+    .map_err(|_| AtalantaError::Internal(anyhow::anyhow!("RSA signing failed")))?;
     Ok(format!("{signing_input}.{}", b64(&sig)))
 }
 
@@ -380,8 +380,8 @@ pub(crate) mod tests {
         let path = dir.join("sa.json");
         let doc = json!({
             "type": "service_account",
-            "project_id": "velocity-test",
-            "client_email": "tester@velocity-test.iam.gserviceaccount.com",
+            "project_id": "atalanta-test",
+            "client_email": "tester@atalantahq.iam.gserviceaccount.com",
             "private_key": TEST_KEY,
             "token_uri": token_uri,
         });
@@ -437,7 +437,7 @@ pub(crate) mod tests {
         let env =
             |k: &str| (k == "GOOGLE_APPLICATION_CREDENTIALS").then(|| file.display().to_string());
         let (source, project) = GoogleToken::discover(&env).unwrap();
-        assert_eq!(project.as_deref(), Some("velocity-test"));
+        assert_eq!(project.as_deref(), Some("atalanta-test"));
         assert_eq!(source.token().await.unwrap(), "ya29.from-sa");
         assert_eq!(source.token().await.unwrap(), "ya29.from-sa", "cached");
         let seen = seen.lock().unwrap();

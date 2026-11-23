@@ -1,6 +1,6 @@
-# Verifies Velocity's launchApp arguments reach an Android app as intent extras.
-# Build: ./build.sh   Install: adb install -r build/velocity-echo.apk
-appId: dev.velocity.echo
+# Verifies Atalanta's launchApp arguments reach an Android app as intent extras.
+# Build: ./build.sh   Install: adb install -r build/atalanta-echo.apk
+appId: dev.atalanta.echo
 
 config:
   platform: android
@@ -9,7 +9,7 @@ tests:
   - name: launch_arguments_reach_the_app
     steps:
       - launchApp:
-          appId: dev.velocity.echo
+          appId: dev.atalanta.echo
           clearState: true
           arguments:
             isE2E: true

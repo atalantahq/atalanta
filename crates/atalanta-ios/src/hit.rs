@@ -4,7 +4,7 @@
 //! says what is drawn on top, so the centre of the frame can be a keyboard
 //! key, the status bar or a point off the screen, and the tap "succeeds".
 //! WDA's element click uses XCTest's own hit point and Maestro checks the
-//! topmost node at the point; Velocity's Android driver has
+//! topmost node at the point; Atalanta's Android driver has
 //! `uncovered_point`. This is the frame-only version (EarlGrey's "quick"
 //! visibility check): clip to the screen, keep off the bars that are always
 //! in front (keyboard, navigation bar, tab bar, toolbar, in-app alert, status
@@ -14,7 +14,7 @@
 //! presented before it: a tap there lands on its dimming view and dismisses
 //! it, so the target is refused rather than tapped (review 09 #2).
 
-use velocity_common::{Element, Rect};
+use atalanta_common::{Element, Rect};
 
 /// Why no point of the target can be tapped.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,7 +77,7 @@ pub fn find_again<'a>(tree: &'a Element, target: &Element) -> Option<&'a Element
 
 /// What a node of this type covers when it isn't the target's own (types
 /// drawn above the content in every UIKit and SwiftUI app). The system
-/// alert Velocity adds to the tree (`XCUIElementTypeAlert`, a full-screen
+/// alert Atalanta adds to the tree (`XCUIElementTypeAlert`, a full-screen
 /// frame) is left out: it is handled by the dialog handler.
 fn occluder_kind(element_type: &str) -> Option<&'static str> {
     Some(match element_type {
@@ -99,7 +99,7 @@ const DISMISS_REGION: &str = "PopoverDismissRegion";
 /// `PopoverDismissRegion`, is a leaf before the content), so its own frame
 /// says nothing about what it blocks: everything listed before it is
 /// covered. `Alert` is an in-app `UIAlertController` (the system alert
-/// Velocity adds keeps its `XCUIElementTypeAlert` type and is the dialog
+/// Atalanta adds keeps its `XCUIElementTypeAlert` type and is the dialog
 /// handler's).
 fn modal_kind(node: &Element) -> Option<&'static str> {
     if node.platform_id == DISMISS_REGION {
@@ -144,7 +144,7 @@ pub fn has_modal_layer(tree: &Element) -> bool {
 
 /// Copy `src`'s `visible` flags onto `dst`, node by node, when the two
 /// trees have the same shape (type and frame of every node `src` holds;
-/// `dst` may hold more trailing children: the system alert Velocity adds).
+/// `dst` may hold more trailing children: the system alert Atalanta adds).
 /// False, with `dst` partly updated, when they differ: the caller drops it.
 pub fn copy_visibility(dst: &mut Element, src: &Element) -> bool {
     copy_flags(dst, src, true)
@@ -231,7 +231,7 @@ pub fn behind_modal(tree: &Element, target: &Element) -> Option<&'static str> {
 /// only free part of the target is under the status bar, the tap fails:
 /// on iOS a tap there scrolls to the top instead of reaching the target
 /// (VEL-341). An app that hides its bar while WDA still reports a height
-/// gets a loud failure naming `VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off` (which
+/// gets a loud failure naming `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off` (which
 /// passes 0 here), never a silent wrong tap.
 pub fn tap_point(tree: &Element, target: &Element, status_bar: i32) -> Result<(i32, i32), Blocker> {
     let screen = tree.bounds;
@@ -279,7 +279,7 @@ pub fn tap_point(tree: &Element, target: &Element, status_bar: i32) -> Result<(i
         grid.push((knob_x, visible.y + visible.height / 2));
     }
     // Then the centre and the grid every platform's tap guard tries.
-    grid.extend(velocity_common::tap_guard::candidate_points(&visible));
+    grid.extend(atalanta_common::tap_guard::candidate_points(&visible));
     let mut free = grid.iter().copied().filter(|&p| covered(p).is_none());
     let Some(first_free) = free.next() else {
         let (_, what) = covered(centre).copied().unwrap_or((screen, "screen edge"));
@@ -871,7 +871,7 @@ mod tests {
         let mut merged = cheap.clone();
         assert!(copy_visibility(&mut merged, &full));
         assert!(!merged.children[0].visible && merged.children[1].children[0].visible);
-        // The system alert Velocity appends is not in the full read.
+        // The system alert Atalanta appends is not in the full read.
         let mut with_alert = cheap.clone();
         with_alert
             .children
@@ -919,7 +919,7 @@ mod tests {
     /// read every node is `visible`, so the case that happens is UIKit's
     /// `hidesBottomBarWhenPushed`: the bar stays in the tree, moved below
     /// the screen. `visible="false"` with an on-screen frame comes only
-    /// from a read that asks for `visible` (`VELOCITY_IOS_FULL_SOURCE=1`,
+    /// from a read that asks for `visible` (`ATALANTA_IOS_FULL_SOURCE=1`,
     /// or the read under a sheet), for a bar whose view is hidden in place.
     #[test]
     fn a_hidden_tab_bar_covers_nothing() {
@@ -1038,7 +1038,7 @@ mod tests {
             Err(Blocker::Covered("alert"))
         );
         assert_eq!(tap_point(&tree, &ok, 62), Ok((130, 485)));
-        // Velocity's own system-alert node is the dialog handler's.
+        // Atalanta's own system-alert node is the dialog handler's.
         let mut system = el("XCUIElementTypeAlert", "Allow?", 0, 0, 402, 874);
         system.children = vec![];
         let tree = screen(vec![behind.clone(), system]);

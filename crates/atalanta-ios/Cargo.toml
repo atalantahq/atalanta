@@ -1,5 +1,5 @@
 [package]
-name = "velocity-ios"
+name = "atalanta-ios"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,10 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "ios", "xcuitest", "simulator", "automation"]
 categories = ["development-tools::testing"]
-description = "iOS driver for Velocity: WDA HTTP client + xcrun simctl wrapper"
+description = "iOS driver for Atalanta: WDA HTTP client + xcrun simctl wrapper"
 
 [dependencies]
-velocity-common = { workspace = true }
+atalanta-common = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }

@@ -5,9 +5,9 @@ mod common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, ErrorKind, PlatformDriver, Selector};
+use atalanta_ios::wda::WdaClient;
 use common::*;
-use velocity_common::{ErrorKind, PlatformDriver, Selector, VelocityError};
-use velocity_ios::wda::WdaClient;
 
 async fn client_for(
     handler: impl Fn(&Req) -> Resp + Send + Sync + 'static,
@@ -23,7 +23,7 @@ async fn garbled_source_is_an_error_not_an_empty_screen() {
     // VEL-145: a 200 whose body isn't JSON read as "" (an empty screen).
     let (_f, c) = client_for(|_| Resp::Raw(200, "{not json".into())).await;
     let e = c.get_source().await.unwrap_err();
-    assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
     assert!(
         e.to_string().contains("HTTP 200") && e.to_string().contains("{not json"),
         "{e}"
@@ -63,7 +63,7 @@ async fn only_no_such_element_is_element_not_found() {
         .await
         .unwrap_err();
     assert!(
-        matches!(gone, VelocityError::ElementNotFound { .. }),
+        matches!(gone, AtalantaError::ElementNotFound { .. }),
         "{gone:?}"
     );
     let lost = c
@@ -71,12 +71,12 @@ async fn only_no_such_element_is_element_not_found() {
         .await
         .unwrap_err();
     assert!(
-        matches!(lost, VelocityError::WdaSessionLost { .. }),
+        matches!(lost, AtalantaError::WdaSessionLost { .. }),
         "{lost:?}"
     );
     let broken = c.find_element("accessibility id", "x").await.unwrap_err();
     assert!(
-        !matches!(broken, VelocityError::ElementNotFound { .. }),
+        !matches!(broken, AtalantaError::ElementNotFound { .. }),
         "{broken:?}"
     );
 }
@@ -87,11 +87,11 @@ async fn a_read_timeout_is_a_lost_connection() {
     let (_f, c) = client_for(|_| Resp::Hang(Duration::from_secs(3))).await;
     let read = c.get_source().await.unwrap_err();
     assert!(
-        matches!(read, VelocityError::WdaUnreachable { .. }),
+        matches!(read, AtalantaError::WdaUnreachable { .. }),
         "{read:?}"
     );
     let tap = c.tap_at(1.0, 2.0).await.unwrap_err();
-    assert!(matches!(tap, VelocityError::WdaLost { .. }), "{tap:?}");
+    assert!(matches!(tap, AtalantaError::WdaLost { .. }), "{tap:?}");
     assert_eq!(tap.kind(), ErrorKind::ConnectionLost);
 }
 
@@ -101,11 +101,11 @@ async fn a_connection_closed_without_an_answer_is_lost() {
     let (_f, c) = client_for(|_| Resp::Close).await;
     let read = c.get_source().await.unwrap_err();
     assert!(
-        matches!(read, VelocityError::WdaUnreachable { .. }),
+        matches!(read, AtalantaError::WdaUnreachable { .. }),
         "{read:?}"
     );
     let tap = c.tap_at(1.0, 2.0).await.unwrap_err();
-    assert!(matches!(tap, VelocityError::WdaLost { .. }), "{tap:?}");
+    assert!(matches!(tap, AtalantaError::WdaLost { .. }), "{tap:?}");
 }
 
 /// A WDA that holds one session; `/status` names it, and a request under
@@ -140,7 +140,7 @@ fn session_wda(
                 return w3c(404, "invalid session id", "Session does not exist");
             }
         }
-        // No system alert. (Not `VELOCITY_IOS_SYSTEM_ALERTS=0`: setting the
+        // No system alert. (Not `ATALANTA_IOS_SYSTEM_ALERTS=0`: setting the
         // env while other test threads read it is a data race on macOS.)
         if r.path.ends_with("/alert/text") {
             return w3c(404, "no such alert", "none");
@@ -172,7 +172,7 @@ async fn a_lost_session_is_re_created_and_the_read_retried() {
         ok("null")
     }))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url);
     let tree = d
         .get_hierarchy(SIM)
         .await
@@ -199,13 +199,13 @@ async fn a_tap_whose_connection_broke_is_not_replayed() {
         ok("null")
     }))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url);
     let el = d
         .find_element(SIM, &Selector::Text("Pay".into()))
         .await
         .unwrap();
     let e = d.tap(SIM, &el).await.unwrap_err();
-    assert!(matches!(e, VelocityError::WdaLost { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::WdaLost { .. }), "{e:?}");
     assert_eq!(fake.count("POST", "/actions"), 1, "tap sent once");
 }
 
@@ -230,7 +230,7 @@ async fn a_displayed_error_does_not_drop_the_element() {
         ok("null")
     }))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url);
     let r = d.find_elements(SIM, &Selector::Id("deep".into())).await;
     assert!(r.is_err(), "{r:?}");
 }
@@ -261,7 +261,7 @@ async fn an_index_or_relation_missing_on_screen_is_not_found_without_asking_wda(
         ok(r#""Row""#)
     }))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url);
     let idx = Selector::Index {
         selector: Box::new(Selector::Text("Row".into())),
         index: 2,
@@ -270,7 +270,7 @@ async fn an_index_or_relation_missing_on_screen_is_not_found_without_asking_wda(
     assert_eq!(e.kind(), ErrorKind::ElementNotFound, "{e:?}");
     let rel = Selector::Relative {
         target: Box::new(Selector::Text("Edit".into())),
-        relation: velocity_common::Relation::Below,
+        relation: atalanta_common::Relation::Below,
         anchor: Box::new(Selector::Text("Row".into())),
     };
     let e = d.find_element(SIM, &rel).await.unwrap_err();
@@ -295,12 +295,12 @@ async fn a_slow_read_on_a_live_wda_is_busy_not_unreachable() {
     })
     .await;
     let e = c.get_source().await.unwrap_err();
-    assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
     assert!(e.to_string().contains("busy"), "{e}");
     assert_ne!(e.kind(), ErrorKind::ConnectionLost);
 }
 
-/// A runner whose `/status` answers (VelocityRunner serves it off the main
+/// A runner whose `/status` answers (AtalantaRunner serves it off the main
 /// thread) while every main-thread route hangs.
 fn wedged(r: &Req) -> Resp {
     if r.path == "/status" {
@@ -315,7 +315,7 @@ async fn a_wedged_runner_is_unreachable_not_busy() {
     // forever, so it was never restarted.
     let (_f, c) = client_for(wedged).await;
     let e = c.get_source().await.unwrap_err();
-    assert!(matches!(e, VelocityError::WdaUnreachable { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::WdaUnreachable { .. }), "{e:?}");
 }
 
 #[tokio::test]
@@ -331,10 +331,10 @@ async fn busy_is_capped_then_unreachable() {
     .await;
     for _ in 0..2 {
         let e = c.get_source().await.unwrap_err();
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
     }
     let e = c.get_source().await.unwrap_err();
-    assert!(matches!(e, VelocityError::WdaUnreachable { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::WdaUnreachable { .. }), "{e:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -373,7 +373,7 @@ async fn a_wedged_runner_whose_session_cannot_be_renewed_is_restarted() {
         Resp::Hang(Duration::from_secs(5))
     })
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url)
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url)
         .with_wda_timeout(Duration::from_millis(500));
     let tree = d
         .get_hierarchy(SIM)
@@ -427,7 +427,7 @@ async fn a_session_taken_by_another_client_is_not_adopted() {
         ok("null")
     }))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url);
     d.get_hierarchy(SIM).await.expect("read in a new session");
     assert_eq!(*s.made.lock().unwrap(), 1, "a fresh session, not OTHER");
 }
@@ -460,7 +460,7 @@ async fn input_text_retried_in_a_new_session_does_not_tap_again() {
         ok("null")
     }))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&fake.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&fake.url);
     let field = d
         .find_element(SIM, &Selector::Text("Email".into()))
         .await
@@ -480,7 +480,7 @@ async fn a_session_answer_without_an_id_is_not_a_config_error() {
 
 #[tokio::test]
 async fn an_xctest_focus_issue_from_the_runner_is_an_assertion_failure() {
-    // P1 / N1: VelocityRunner now answers 500 with the XCTest issues an
+    // P1 / N1: AtalantaRunner now answers 500 with the XCTest issues an
     // action recorded. Typing with nothing focused fails the step at once,
     // rather than being retried as a flaky command (or passing as a 200).
     let (_f, c) = client_for(|_| {
@@ -492,11 +492,11 @@ async fn an_xctest_focus_issue_from_the_runner_is_an_assertion_failure() {
     })
     .await;
     let e = c.type_text("abc").await.unwrap_err();
-    assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::AssertionFailed { .. }), "{e:?}");
     assert!(e.to_string().contains("keyboard focus"), "{e}");
     assert_eq!(e.kind(), ErrorKind::AssertionFailed);
     // Any other recorded issue stays a plain command failure.
     let (_f, c) = client_for(|_| w3c(500, "unknown error", "Failed to tap: boom")).await;
     let e = c.tap_at(1.0, 2.0).await.unwrap_err();
-    assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
 }

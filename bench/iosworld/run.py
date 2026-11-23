@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""iOSWorld tasks through Velocity's agent, written in iOSWorld's run format.
+"""iOSWorld tasks through Atalanta's agent, written in iOSWorld's run format.
 
 For each task in iOSWorld's `tasks.json`:
 - reset the task's apps as iOSWorld does between tasks: terminate them, wipe
   their data containers and the workspace suite's shared app-group
   container, so each app re-seeds the persona's data on launch (the same
   directories as iOSWorld's `reset_app_data`, reimplemented here);
-- run `velocity explore --benchmark -p ios` with the task's goal, a
+- run `atalanta explore --benchmark -p ios` with the task's goal, a
   screenshot every turn (`--screenshots always`), and each turn's
-  screenshot saved (`VELOCITY_EXPLORE_SHOTS_DIR`);
+  screenshot saved (`ATALANTA_EXPLORE_SHOTS_DIR`);
 - write `<run>/<task>/task.json` (goal, status, the agent's answer) and
   `trajectory.json` (one step per turn: the screenshot before it, the
   action, the next screenshot after) for iOSWorld's own judge,
@@ -32,7 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 IOSW = ROOT / "ext" / "iOSWorld"
-V = os.environ.get("VELOCITY_BIN", str(ROOT / "target" / "debug" / "velocity"))
+V = os.environ.get("ATALANTA_BIN", str(ROOT / "target" / "debug" / "atalanta"))
 MANIFEST = IOSW / "iphone" / "bootstrap" / ".app_manifest.json"
 ALIASES = {"letterboxd": "cinephile", "whatsapp": "quickchat", "linkedin": "lockedin"}
 DATA_DIRS = ["Library/Preferences", "Library/Application Support", "Library/Caches",
@@ -97,8 +97,8 @@ def run_task(task, udid, manifest, out, a):
     apps_file = d / "apps.json"
     apps_file.write_text(json.dumps({
         a_: bundle_of(a_, manifest) for a_ in manifest if bundle_of(a_, manifest)}))
-    env = dict(os.environ, VELOCITY_EVENTS_FILE=str(d / "events.jsonl"),
-               VELOCITY_EXPLORE_SHOTS_DIR=str(d / "steps"), VELOCITY_KEEP_WDA="1")
+    env = dict(os.environ, ATALANTA_EVENTS_FILE=str(d / "events.jsonl"),
+               ATALANTA_EXPLORE_SHOTS_DIR=str(d / "steps"), ATALANTA_KEEP_WDA="1")
     cmd = [V, "explore", task["goal"], "--app-id", first_app, "-p", "ios", "-d", udid, "--benchmark",
            "--values-from-goal", "--values-from-screen", "--values-from-screenshots",
            "--values-from-model",
@@ -144,7 +144,7 @@ def run_task(task, udid, manifest, out, a):
     (d / "task.json").write_text(json.dumps({
         "task": task["name"], "goal": task["goal"], "apps": task.get("apps"),
         "category": task.get("category"), "status": "ok" if rep else "error",
-        "agent_answer": answer, "velocity_outcome": rep.get("outcome"),
+        "agent_answer": answer, "atalanta_outcome": rep.get("outcome"),
         "steps": len(traj), "seconds": secs, "cost_usd": rep.get("costUsd"),
     }, indent=2))
     return {"task": task["name"], "outcome": rep.get("outcome"), "steps": len(traj), "seconds": secs,
@@ -173,7 +173,7 @@ def main():
     a.out.mkdir(parents=True, exist_ok=True)
     for t in tasks:
         row = run_task(t, a.udid, manifest, a.out, a)
-        with open(a.out / "velocity-results.jsonl", "a") as f:
+        with open(a.out / "atalanta-results.jsonl", "a") as f:
             f.write(json.dumps(row) + "\n")
         print(json.dumps(row), flush=True)
 

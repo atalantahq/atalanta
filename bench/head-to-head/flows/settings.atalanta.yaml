@@ -1,4 +1,4 @@
-# Head-to-head flow, Velocity side. Step for step the same as
+# Head-to-head flow, Atalanta side. Step for step the same as
 # settings.maestro.yaml; based on tests/smoke/android-settings.yaml.
 # No retries here: run.sh also passes --retries 0.
 appId: com.android.settings

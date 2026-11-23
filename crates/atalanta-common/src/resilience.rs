@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::error::{ErrorKind, Result, VelocityError};
+use crate::error::{AtalantaError, ErrorKind, Result};
 use crate::traits::{HealthStatus, PlatformDriver};
 use crate::types::{DeviceInfo, Direction, Element, Key, LaunchArgs, Selector};
 
@@ -308,7 +308,7 @@ impl ResilientDriver {
             inner,
             retry_policy: RetryPolicy::default(),
             breakers: std::sync::Mutex::new(std::collections::HashMap::new()),
-            breaker_reset: crate::settings::ms("VELOCITY_BREAKER_RESET_MS", 30_000),
+            breaker_reset: crate::settings::ms("ATALANTA_BREAKER_RESET_MS", 30_000),
         }
     }
 
@@ -338,7 +338,7 @@ impl ResilientDriver {
                     } else {
                         device_id
                     },
-                    crate::settings::num("VELOCITY_BREAKER_THRESHOLD", 5) as u32,
+                    crate::settings::num("ATALANTA_BREAKER_THRESHOLD", 5) as u32,
                     self.breaker_reset,
                     2,
                 ))
@@ -388,7 +388,7 @@ impl ResilientDriver {
                         // not per attempt, and once another call has opened
                         // it the retries stop instead of hitting the device.
                         if breaker.is_tripped() {
-                            return Err(VelocityError::CircuitOpen {
+                            return Err(AtalantaError::CircuitOpen {
                                 device_id: device_id.to_string(),
                             });
                         }
@@ -418,7 +418,7 @@ impl ResilientDriver {
     /// An open breaker waits out its cooldown, restarts the session and lets
     /// the half-open probe through, instead of failing the call at once. Failing
     /// at once turned one bad moment into a failed suite: every later test's
-    /// first call hit the open breaker within the same second (VelocityLab:
+    /// first call hit the open breaker within the same second (AtalantaLab:
     /// 29 of 31 tests failed in 0.0 s after one transient launch error). A
     /// device that is really gone still fails: the probe re-opens the breaker.
     ///
@@ -437,7 +437,7 @@ impl ResilientDriver {
             tokio::time::sleep(Duration::from_millis(50)).await;
             return breaker
                 .try_acquire()
-                .ok_or_else(|| VelocityError::CircuitOpen {
+                .ok_or_else(|| AtalantaError::CircuitOpen {
                     device_id: device_id.to_string(),
                 });
         }
@@ -451,7 +451,7 @@ impl ResilientDriver {
         let _ = self.inner.restart_session().await;
         breaker
             .try_acquire()
-            .ok_or_else(|| VelocityError::CircuitOpen {
+            .ok_or_else(|| AtalantaError::CircuitOpen {
                 device_id: device_id.to_string(),
             })
     }
@@ -1128,7 +1128,7 @@ mod tests {
     /// find_element, get_hierarchy and tap always fail with the error the
     /// function builds; every call is counted.
     struct FailingFind(
-        fn() -> VelocityError,
+        fn() -> AtalantaError,
         std::sync::atomic::AtomicUsize,
         Duration,
         /// restart_session calls.
@@ -1138,11 +1138,11 @@ mod tests {
     );
 
     impl FailingFind {
-        fn new(make: fn() -> VelocityError) -> Self {
+        fn new(make: fn() -> AtalantaError) -> Self {
             Self::slow(make, Duration::ZERO)
         }
         /// get_hierarchy takes `d` before failing.
-        fn slow(make: fn() -> VelocityError, d: Duration) -> Self {
+        fn slow(make: fn() -> AtalantaError, d: Duration) -> Self {
             Self(
                 make,
                 std::sync::atomic::AtomicUsize::new(0),
@@ -1252,8 +1252,8 @@ mod tests {
         }
     }
 
-    fn not_found() -> VelocityError {
-        VelocityError::ElementNotFound {
+    fn not_found() -> AtalantaError {
+        AtalantaError::ElementNotFound {
             selector: "x".into(),
             timeout_ms: 0,
             screenshot: None,
@@ -1261,8 +1261,8 @@ mod tests {
         }
     }
 
-    fn connection_lost() -> VelocityError {
-        VelocityError::AdbConnectionLost {
+    fn connection_lost() -> AtalantaError {
+        AtalantaError::AdbConnectionLost {
             device_id: "d".into(),
             reason: "gone".into(),
         }
@@ -1318,7 +1318,7 @@ mod tests {
         let d = fast(FailingFind::new(not_found));
         for _ in 0..50 {
             let e = d.find_element("d", &Selector::Text("x".into())).await;
-            assert!(matches!(e, Err(VelocityError::ElementNotFound { .. })));
+            assert!(matches!(e, Err(AtalantaError::ElementNotFound { .. })));
         }
         assert!(!d.breaker("d").is_open());
     }
@@ -1391,7 +1391,7 @@ mod tests {
             d.breaker("d").on_failure();
         }
         let e = call.await.unwrap().unwrap_err();
-        assert!(matches!(e, VelocityError::CircuitOpen { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::CircuitOpen { .. }), "{e}");
         assert_eq!(inner.calls(), 1, "no retry after the breaker opened");
     }
 
@@ -1485,7 +1485,7 @@ mod tests {
             .collect();
         tokio::time::sleep(Duration::from_millis(20)).await;
         let e = d.get_hierarchy("d").await.unwrap_err();
-        assert!(matches!(e, VelocityError::CircuitOpen { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::CircuitOpen { .. }), "{e}");
         assert_eq!(
             inner.3.load(std::sync::atomic::Ordering::SeqCst),
             0,
@@ -1501,7 +1501,7 @@ mod tests {
     /// driver's cover check refuses.
     #[tokio::test]
     async fn a_forced_touch_is_forwarded_not_turned_into_a_tap() {
-        let inner = Arc::new(FailingFind::new(|| VelocityError::AssertionFailed {
+        let inner = Arc::new(FailingFind::new(|| AtalantaError::AssertionFailed {
             expected: "reachable".into(),
             actual: "covered".into(),
             selector: String::new(),
@@ -1519,7 +1519,7 @@ mod tests {
     /// not silently replaced by the trait defaults.
     #[tokio::test]
     async fn keyboard_frame_and_hide_keyboard_are_forwarded() {
-        let inner = Arc::new(FailingFind::new(|| VelocityError::AssertionFailed {
+        let inner = Arc::new(FailingFind::new(|| AtalantaError::AssertionFailed {
             expected: "reachable".into(),
             actual: "covered".into(),
             selector: String::new(),

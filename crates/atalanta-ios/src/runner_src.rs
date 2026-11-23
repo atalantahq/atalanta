@@ -1,28 +1,28 @@
-//! Velocity's own iOS runner (`probes/ios/VelocityRunner`, reached through
+//! Atalanta's own iOS runner (`probes/ios/AtalantaRunner`, reached through
 //! the `runner` symlink so the files ship inside the published crate), embedded so it
 //! can be built on any Mac with Xcode, without the repository or xcodegen.
 
 /// (path inside the project directory, contents)
 pub const FILES: &[(&str, &str)] = &[
     (
-        "VelocityRunner.xcodeproj/project.pbxproj",
-        include_str!("../runner/VelocityRunner.xcodeproj/project.pbxproj"),
+        "AtalantaRunner.xcodeproj/project.pbxproj",
+        include_str!("../runner/AtalantaRunner.xcodeproj/project.pbxproj"),
     ),
     (
-        "VelocityRunner.xcodeproj/project.xcworkspace/contents.xcworkspacedata",
+        "AtalantaRunner.xcodeproj/project.xcworkspace/contents.xcworkspacedata",
         include_str!(
-            "../runner/VelocityRunner.xcodeproj/project.xcworkspace/contents.xcworkspacedata"
+            "../runner/AtalantaRunner.xcodeproj/project.xcworkspace/contents.xcworkspacedata"
         ),
     ),
     (
-        "VelocityRunner.xcodeproj/xcshareddata/xcschemes/VelocityRunner.xcscheme",
+        "AtalantaRunner.xcodeproj/xcshareddata/xcschemes/AtalantaRunner.xcscheme",
         include_str!(
-            "../runner/VelocityRunner.xcodeproj/xcshareddata/xcschemes/VelocityRunner.xcscheme"
+            "../runner/AtalantaRunner.xcodeproj/xcshareddata/xcschemes/AtalantaRunner.xcscheme"
         ),
     ),
     (
-        "VelocityRunnerUITests/VelocityRunner.swift",
-        include_str!("../runner/VelocityRunnerUITests/VelocityRunner.swift"),
+        "AtalantaRunnerUITests/AtalantaRunner.swift",
+        include_str!("../runner/AtalantaRunnerUITests/AtalantaRunner.swift"),
     ),
 ];
 
@@ -71,7 +71,7 @@ mod tests {
             "Self.number(s[\"snapshotMaxDepth\"])",
             "SnapshotDepth.fallback = Int(d)",
             // D-38: the private hit test, every selector guarded.
-            "case (\"POST\", \"velocity/hitTest\"):",
+            "case (\"POST\", \"atalanta/hitTest\"):",
             "NSSelectorFromString(\"_XCT_requestElementAtPoint:reply:\")",
             "guard proxy.responds(to: sel)",
             "guard cls.responds(to: shared)",
@@ -82,7 +82,7 @@ mod tests {
             // R-1: the bearer token is checked on every request, and the
             // runner doesn't start without one; Host, Origin and
             // Sec-Fetch-Site are checked before it.
-            "environment[\"VELOCITY_RUNNER_TOKEN\"]",
+            "environment[\"ATALANTA_RUNNER_TOKEN\"]",
             "if !Auth.allows(req.authorization)",
             "guard let token else { return false }",
             "guard Auth.token != nil else {",
@@ -93,7 +93,7 @@ mod tests {
         ] {
             assert!(
                 swift.contains(needle),
-                "VelocityRunner.swift lacks {needle}"
+                "AtalantaRunner.swift lacks {needle}"
             );
         }
     }

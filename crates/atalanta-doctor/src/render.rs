@@ -49,9 +49,9 @@ pub fn human(report: &Report, color: bool) -> String {
         .unwrap_or(0);
     let mut out = String::new();
     out.push_str(&format!(
-        "{} (velocity {}, {:.1} s)\n",
-        paint(color, "1", "Velocity doctor"),
-        report.velocity_version,
+        "{} (atalanta {}, {:.1} s)\n",
+        paint(color, "1", "Atalanta doctor"),
+        report.atalanta_version,
         report.elapsed_ms as f64 / 1000.0
     ));
     let mut area: Option<Area> = None;
@@ -131,7 +131,7 @@ pub fn human(report: &Report, color: bool) -> String {
         report.count(Status::Skip),
         if fixable > 0 {
             format!(
-                "; `velocity doctor --fix` can apply {fixable} safe fix{}",
+                "; `atalanta doctor --fix` can apply {fixable} safe fix{}",
                 if fixable == 1 { "" } else { "es" }
             )
         } else {
@@ -163,7 +163,7 @@ mod tests {
             "{plain:?}"
         );
         assert!(!plain.contains('\r'), "{plain:?}");
-        // With colour on, only Velocity's own sequences (`\x1b[…m`) appear.
+        // With colour on, only Atalanta's own sequences (`\x1b[…m`) appear.
         let coloured = r.render(true);
         assert!(
             !coloured.contains("\x1b[2J") && !coloured.contains("\x1b]"),
@@ -177,7 +177,7 @@ mod tests {
             vec![
                 Check::ok("host.os", Area::Host, "macOS (aarch64)"),
                 Check::warn("host.leases", Area::Host, "2 stale lease files").with_fix(Fix::safe(
-                    "velocity doctor --fix",
+                    "atalanta doctor --fix",
                     SafeAction::RemoveStaleLeases { paths: vec![] },
                 )),
                 Check::fail("ios.license", Area::Ios, "Xcode license not accepted")

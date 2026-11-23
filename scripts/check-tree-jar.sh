@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Reproducibility check for crates/velocity-android/assets/velocity-tree.jar.
+# Reproducibility check for crates/atalanta-android/assets/atalanta-tree.jar.
 #
-# The jar is a d8 dex jar built from probes/android/velocity-tree-server by
+# The jar is a d8 dex jar built from probes/android/atalanta-tree-server by
 # that directory's build.sh (javac --release 11 against the platform's
 # android.jar, then d8 --release --min-api 21). The Android driver embeds the
 # committed jar with include_bytes!, so a reviewer should be able to confirm
@@ -19,7 +19,7 @@
 # d8 stamps its version into classes.dex (the "~~D8{...}" marker), and its
 # output depends on the d8 version and on the class files javac produced.
 # The platform, build-tools and JDK are pinned in
-# probes/android/velocity-tree-server/toolchain.env (build.sh uses the same
+# probes/android/atalanta-tree-server/toolchain.env (build.sh uses the same
 # file): the script rebuilds with exactly those, and a committed jar whose
 # marker names a different d8 is a failure, not "not comparable" — it was
 # not built with the pinned toolchain, so nobody can reproduce it.
@@ -33,8 +33,8 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-SRC="$ROOT/probes/android/velocity-tree-server"
-JAR="$ROOT/crates/velocity-android/assets/velocity-tree.jar"
+SRC="$ROOT/probes/android/atalanta-tree-server"
+JAR="$ROOT/crates/atalanta-android/assets/atalanta-tree.jar"
 KEEP=0
 [ "${1:-}" = "--keep" ] && KEEP=1
 
@@ -51,7 +51,7 @@ SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 [ -d "$SDK/platforms" ] || die "Android SDK platforms not found under $SDK"
 
 # The pins build.sh uses.
-# shellcheck disable=SC1091  # probes/android/velocity-tree-server/toolchain.env
+# shellcheck disable=SC1091  # probes/android/atalanta-tree-server/toolchain.env
 . "$SRC/toolchain.env"
 PLATFORM="${PLATFORM:-$TREE_PLATFORM}"
 BUILD_TOOLS="${BUILD_TOOLS:-$TREE_BUILD_TOOLS}"
@@ -71,11 +71,11 @@ D8="$SDK/build-tools/$BUILD_TOOLS/d8"
 [ -x "$D8" ] || die "missing $D8 (sdkmanager \"build-tools;$BUILD_TOOLS\")"
 if [ -z "$WANT_SHA" ] || ! "$D8" --version 2>/dev/null | head -1 | grep -q "$WANT_SHA"; then
     echo "DIFFERS: the committed jar was built with d8 ${WANT_VER:-unknown} (${WANT_SHA:-no marker}), not the pinned build-tools $BUILD_TOOLS ($("$D8" --version 2>/dev/null | head -1))" >&2
-    echo "hint: rebuild with probes/android/velocity-tree-server/build.sh (it uses the pins in toolchain.env) and commit the jar" >&2
+    echo "hint: rebuild with probes/android/atalanta-tree-server/build.sh (it uses the pins in toolchain.env) and commit the jar" >&2
     exit 1
 fi
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/velocity-tree-jar.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/atalanta-tree-jar.XXXXXX")
 # shellcheck disable=SC2317,SC2329  # invoked by the EXIT trap
 cleanup() {
     if [ "$KEEP" = 1 ]; then
@@ -103,14 +103,14 @@ if [ -d "$SRC/test" ]; then
         < <(find "$SRC/test" -name '*.java' -print0 | sort -z)
     if [ "${#TESTS[@]}" -gt 0 ]; then
         javac --release 11 -cp "$WORK/classes:$ANDROID_JAR" -d "$WORK/test" "${TESTS[@]}"
-        java -cp "$WORK/test:$WORK/classes:$ANDROID_JAR" com.velocity.tree.HostChecks >/dev/null
+        java -cp "$WORK/test:$WORK/classes:$ANDROID_JAR" com.atalanta.tree.HostChecks >/dev/null
     fi
 fi
 CLASSES=()
 while IFS= read -r -d '' f; do CLASSES+=("$f"); done \
     < <(find "$WORK/classes" -name '*.class' -print0 | sort -z)
-"$D8" --release --min-api 21 --lib "$ANDROID_JAR" --output "$WORK/out/velocity-tree.jar" "${CLASSES[@]}"
-BUILT="$WORK/out/velocity-tree.jar"
+"$D8" --release --min-api 21 --lib "$ANDROID_JAR" --output "$WORK/out/atalanta-tree.jar" "${CLASSES[@]}"
+BUILT="$WORK/out/atalanta-tree.jar"
 
 sha() { shasum -a 256 "$1" | cut -d' ' -f1; }
 echo "committed:   $(sha "$JAR")  $(wc -c < "$JAR" | tr -d ' ') bytes"
@@ -138,5 +138,5 @@ fi
 
 echo "DIFFERS: entry content does not match"
 diff "$WORK/committed.txt" "$WORK/rebuilt.txt" || true
-echo "hint: a different javac (class files feed d8) or edited source since the jar was built are the usual causes; rebuild with probes/android/velocity-tree-server/build.sh and commit the jar" >&2
+echo "hint: a different javac (class files feed d8) or edited source since the jar was built are the usual causes; rebuild with probes/android/atalanta-tree-server/build.sh and commit the jar" >&2
 exit 1

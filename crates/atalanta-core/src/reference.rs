@@ -1,7 +1,7 @@
 //! The DSL reference (`docs/DSL-REFERENCE.md`), generated from the JSON
 //! Schema in [`crate::schema`], the parser's config structs and the
 //! settings table, so the doc lists every action, selector key, config key
-//! and setting the code knows. `velocity schema --markdown` prints it; the
+//! and setting the code knows. `atalanta schema --markdown` prints it; the
 //! `dsl_reference` test fails when the checked-in file is out of date.
 
 use std::fmt::Write;
@@ -31,7 +31,7 @@ pub fn action_doc(action: &str) -> &'static str {
         "scrollUntilVisible" => "Scroll (`direction`, default down; `within` a container) until the element is on screen, up to `maxScrolls`.",
         "swipe" => "Swipe in a `direction` (optionally `within` an element) or `from` one point `to` another.",
         "screenshot" => "Save a screenshot to the artifacts folder.",
-        "assertScreenshot" => "Compare the screen with the baseline `velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`; a missing baseline is written and the step fails.",
+        "assertScreenshot" => "Compare the screen with the baseline `atalanta-baselines/<platform>[-headless]/<W>x<H>/<name>.png`; a missing baseline is written and the step fails.",
         "saveState" => "Save the app's data under a name (iOS simulator: data container clone; Android: run-as tar on debuggable builds, else an emulator snapshot).",
         "restoreState" => "Put back app data saved with `saveState`; the app is left stopped.",
         "pressKey" => "Press a key (`back`, `home`, `enter`, …).",
@@ -44,7 +44,7 @@ pub fn action_doc(action: &str) -> &'static str {
         "openLink" => "Same as `goto` (Maestro's name).",
         "goBack" => "Web only: the browser's back button (on a device use `pressKey: back`).",
         "refresh" => "Web only: reload the page.",
-        "exec" => "Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `VELOCITY_DEVICE_ID` is set for it.",
+        "exec" => "Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `ATALANTA_DEVICE_ID` is set for it.",
         "http" => "Send an HTTP request; check `expect` (status, headers, JSONPath values, body, `maxMs`) and `capture` values as `${NAME}` for later steps. Needs no device.",
         "do" | "act" => "Natural-language action: a model picks one action and one element from the screen; the selector is built and checked in code.",
         "assert" | "expect" => "Natural-language assertion, checked against the element tree.",
@@ -58,13 +58,13 @@ pub fn dsl_reference() -> String {
     let defs = &schema["$defs"];
     let mut out = String::new();
     out.push_str(
-        "# Velocity DSL reference\n\n\
-         <!-- Generated from crates/velocity-core/src/schema.rs by `velocity schema --markdown`.\n     \
-         Do not edit by hand: `cargo test -p velocity-core --test dsl_reference` fails when this\n     \
-         file is out of date; `VELOCITY_BLESS=1` on that test rewrites it. -->\n\n\
+        "# Atalanta DSL reference\n\n\
+         <!-- Generated from crates/atalanta-core/src/schema.rs by `atalanta schema --markdown`.\n     \
+         Do not edit by hand: `cargo test -p atalanta-core --test dsl_reference` fails when this\n     \
+         file is out of date; `ATALANTA_BLESS=1` on that test rewrites it. -->\n\n\
          Every key a suite file can use. For how the pieces fit together, with examples, see\n\
          [DSL.md](DSL.md). Editors can validate suites with the JSON Schema from\n\
-         `velocity schema -o velocity.schema.json`.\n\n",
+         `atalanta schema -o atalanta.schema.json`.\n\n",
     );
 
     out.push_str("## Suite file\n\n");
@@ -161,12 +161,12 @@ pub fn dsl_reference() -> String {
     out.push_str(
         "\n## Settings\n\n\
          Named settings go under `config: settings:` (flat `android.scroll: semantic` or nested), \
-         per run as `velocity run --set key=value`, per test with `setConfig`, or as the \
-         environment variable. `velocity settings` prints this table with the current values.\n\n\
+         per run as `atalanta run --set key=value`, per test with `setConfig`, or as the \
+         environment variable. `atalanta settings` prints this table with the current values.\n\n\
          | Setting | Values | Default | Variable | What it does |\n\
          |---|---|---|---|---|\n",
     );
-    for s in velocity_common::settings::SETTINGS {
+    for s in atalanta_common::settings::SETTINGS {
         let _ = writeln!(
             out,
             "| `{}` | {} | {} | `{}` | {} |",
@@ -440,7 +440,7 @@ mod tests {
         ] {
             assert!(doc.contains(&format!("- `{k}` (")), "selector key {k}");
         }
-        for s in velocity_common::settings::SETTINGS {
+        for s in atalanta_common::settings::SETTINGS {
             assert!(doc.contains(&format!("| `{}` |", s.key)), "{}", s.key);
         }
         for section in [

@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 /**
  * Answers "idle" only once idle has held: on at least {@link #MIN_SAMPLES}

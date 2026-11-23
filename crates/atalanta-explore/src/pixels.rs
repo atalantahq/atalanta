@@ -119,7 +119,7 @@ pub fn decode(png_bytes: &[u8]) -> Option<Image> {
     // A header claiming a huge size would abort on allocation (audit
     // 2026-11 CORE-2).
     let (w, h) = (reader.info().width, reader.info().height);
-    if u64::from(w) * u64::from(h) > velocity_core::visual::MAX_PNG_PIXELS {
+    if u64::from(w) * u64::from(h) > atalanta_core::visual::MAX_PNG_PIXELS {
         return None;
     }
     let mut buf = vec![0; reader.output_buffer_size()?];

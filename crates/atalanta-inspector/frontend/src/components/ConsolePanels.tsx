@@ -39,7 +39,7 @@ interface DoctorCheck {
   fix?: { kind?: string; value?: string };
 }
 
-/** Diagnostics: `velocity doctor`'s report (verdict, then each check). */
+/** Diagnostics: `atalanta doctor`'s report (verdict, then each check). */
 function DiagnosticsView() {
   const [d, setD] = useState<api.Diagnostics | null>(null);
   const [loading, setLoading] = useState(false);
@@ -160,7 +160,7 @@ export function ConnectPanel() {
                   <button
                     disabled={d.state !== "booted" || selecting !== null}
                     onClick={() => void select(d.id)}
-                    title={d.state !== "booted" ? "Boot it first (velocity devices up)" : "Mirror and inspect it"}
+                    title={d.state !== "booted" ? "Boot it first (atalanta devices up)" : "Mirror and inspect it"}
                   >
                     {selecting === d.id ? "Connecting…" : "Connect"}
                   </button>
@@ -243,7 +243,7 @@ export function RunPanel({ onTask }: { onTask: (t: TaskInfo) => void }) {
 /** Remembered per browser: the explore form's app and plan. */
 function remembered(key: string): string {
   try {
-    return localStorage.getItem(`velocity.explore.${key}`) ?? "";
+    return localStorage.getItem(`atalanta.explore.${key}`) ?? "";
   } catch {
     return "";
   }
@@ -251,7 +251,7 @@ function remembered(key: string): string {
 
 function remember(key: string, value: string) {
   try {
-    localStorage.setItem(`velocity.explore.${key}`, value);
+    localStorage.setItem(`atalanta.explore.${key}`, value);
   } catch {
     // private mode: not remembered
   }

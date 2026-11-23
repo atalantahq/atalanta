@@ -1,7 +1,7 @@
-//! Velocity's web driver: a `PlatformDriver` for Chrome over the DevTools
+//! Atalanta's web driver: a `PlatformDriver` for Chrome over the DevTools
 //! Protocol (`chromiumoxide`), with cross-origin frames on their own
 //! connection, request mocking and network-idle sync, and evidence capture.
-//! Internal to the `velocity` CLI (`platform: web`); its API has no
+//! Internal to the `atalanta` CLI (`platform: web`); its API has no
 //! stability promise.
 #![forbid(unsafe_code)]
 

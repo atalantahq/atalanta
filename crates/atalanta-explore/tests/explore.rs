@@ -10,12 +10,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use velocity_common::{Platform, VerifyLevel};
-use velocity_explore::gates;
-use velocity_explore::scripted::{Script, ScriptedChecker, ScriptedPlanner};
-use velocity_explore::testkit::{FakeApp, Node};
-use velocity_explore::*;
-use velocity_nl::NaturalPlanner;
+use atalanta_common::{Platform, VerifyLevel};
+use atalanta_explore::gates;
+use atalanta_explore::scripted::{Script, ScriptedChecker, ScriptedPlanner};
+use atalanta_explore::testkit::{FakeApp, Node};
+use atalanta_explore::*;
+use atalanta_nl::NaturalPlanner;
 
 const TV: &str = "android.widget.TextView";
 
@@ -126,7 +126,7 @@ impl Rig {
             self.planner.clone(),
             self.checker
                 .clone()
-                .map(|c| c as Arc<dyn velocity_nl::ScreenChecker>),
+                .map(|c| c as Arc<dyn atalanta_nl::ScreenChecker>),
             o,
         )
         .with_events(Box::new(move |e| events.lock().unwrap().push(e.clone())))
@@ -139,7 +139,7 @@ impl Rig {
             self.planner.clone(),
             self.checker
                 .clone()
-                .map(|c| c as Arc<dyn velocity_nl::ScreenChecker>),
+                .map(|c| c as Arc<dyn atalanta_nl::ScreenChecker>),
             o,
         )
         .with_events(Box::new(move |e| events.lock().unwrap().push(e.clone())))
@@ -237,11 +237,11 @@ async fn generated_yaml_matches_the_golden_file() {
     job.replays = 0;
     let yaml = job.run().await.unwrap().yaml.unwrap();
     let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/network.yaml");
-    if std::env::var("VELOCITY_BLESS").is_ok() {
+    if std::env::var("ATALANTA_BLESS").is_ok() {
         std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
         std::fs::write(&golden, &yaml).unwrap();
     }
-    let want = std::fs::read_to_string(&golden).expect("golden file (VELOCITY_BLESS=1 writes it)");
+    let want = std::fs::read_to_string(&golden).expect("golden file (ATALANTA_BLESS=1 writes it)");
     assert_eq!(yaml, want);
 }
 
@@ -709,7 +709,7 @@ async fn an_answer_must_be_grounded_and_then_ends_the_run_as_success() {
     assert_eq!(report.answer.as_deref(), Some("Connected devices"));
     assert_eq!(
         report.prompt_version,
-        velocity_nl::goal::GOAL_PROMPT_VERSION
+        atalanta_nl::goal::GOAL_PROMPT_VERSION
     );
     let ev = r.event_json();
     assert!(ev.contains("\"answered\""), "{ev}");
@@ -1181,7 +1181,7 @@ async fn a_met_expectation_becomes_an_assertion_built_from_the_real_element() {
     let g = result.generated.as_ref().unwrap();
     assert!(g
         .origins
-        .contains(&velocity_explore::yaml::Origin::ExpectAssert(0)));
+        .contains(&atalanta_explore::yaml::Origin::ExpectAssert(0)));
     let replay = result.replay.unwrap();
     assert!(replay.all_passed(), "{replay:?}");
     assert_eq!(replay.model_calls, 0);
@@ -1352,10 +1352,10 @@ async fn gone_and_checked_expectations_become_not_visible_and_state_assertions()
 #[tokio::test(start_paused = true)]
 async fn after_a_stored_login_the_model_starts_logged_in_and_never_sees_the_secret() {
     const PASSWORD: &str = "vel15b-correct-horse";
-    let mut env = velocity_common::env::settings_snapshot();
+    let mut env = atalanta_common::env::settings_snapshot();
     env.insert("VEL15B_EMAIL".into(), "alice@example.com".into());
     env.insert("VEL15B_PASSWORD".into(), PASSWORD.into());
-    velocity_common::env::set_settings(env);
+    atalanta_common::env::set_settings(env);
     let login = r#"
 appId: com.android.settings
 tests:
@@ -1367,7 +1367,7 @@ tests:
       - assertVisible: { text: "Welcome back" }
 "#;
     let prefix =
-        velocity_explore::after::login_prefix(login, None, &std::collections::HashMap::new())
+        atalanta_explore::after::login_prefix(login, None, &std::collections::HashMap::new())
             .unwrap();
     let r = rig(
         login_app(),
@@ -1432,7 +1432,7 @@ async fn the_gates_trust_a_test_that_fails_on_the_wrong_path() {
     assert!(
         matches!(
             &g.wrong_path,
-            velocity_explore::gates::WrongPath::Rejected { .. }
+            atalanta_explore::gates::WrongPath::Rejected { .. }
         ),
         "{g:?}"
     );
@@ -1484,7 +1484,7 @@ async fn the_gates_refuse_a_test_that_passes_on_the_wrong_path() {
     assert!(
         matches!(
             &g.wrong_path,
-            velocity_explore::gates::WrongPath::Passed { .. }
+            atalanta_explore::gates::WrongPath::Passed { .. }
         ),
         "{g:?}"
     );
@@ -1492,7 +1492,7 @@ async fn the_gates_refuse_a_test_that_passes_on_the_wrong_path() {
     assert!(!result.ok());
 }
 
-// Row 1.3: `velocity gate` reuses the same gates as `velocity explore`, on a
+// Row 1.3: `atalanta gate` reuses the same gates as `atalanta explore`, on a
 // file that was never explored (or was exported from a session).
 #[tokio::test(start_paused = true)]
 async fn gate_trusts_a_one_test_file_that_fails_on_the_wrong_path() {
@@ -1751,7 +1751,7 @@ async fn a_screen_answer_still_on_the_final_screen_is_asserted() {
     assert!(
         report
             .final_assertions
-            .contains(&velocity_common::Selector::Text("Battery".into())),
+            .contains(&atalanta_common::Selector::Text("Battery".into())),
         "{:?}",
         report.final_assertions
     );
@@ -1846,27 +1846,27 @@ async fn the_repair_drops_the_final_assertion_that_failed() {
 /// A planner that plays a script and reports 100 prompt tokens a call.
 struct Metered {
     inner: ScriptedPlanner,
-    usage: velocity_nl::planner::UsageMeter,
+    usage: atalanta_nl::planner::UsageMeter,
 }
 
 #[async_trait::async_trait]
 impl NaturalPlanner for Metered {
     async fn plan(
         &self,
-        req: &velocity_nl::planner::PlanRequest<'_>,
-    ) -> velocity_common::Result<velocity_nl::planner::PlannedStep> {
+        req: &atalanta_nl::planner::PlanRequest<'_>,
+    ) -> atalanta_common::Result<atalanta_nl::planner::PlannedStep> {
         self.inner.plan(req).await
     }
 
     async fn plan_goal(
         &self,
-        req: &velocity_nl::GoalRequest<'_>,
-    ) -> velocity_common::Result<velocity_nl::GoalStep> {
+        req: &atalanta_nl::GoalRequest<'_>,
+    ) -> atalanta_common::Result<atalanta_nl::GoalStep> {
         self.usage.record(100, 0);
         self.inner.plan_goal(req).await
     }
 
-    fn usage(&self) -> velocity_nl::planner::Usage {
+    fn usage(&self) -> atalanta_nl::planner::Usage {
         self.usage.get()
     }
 }
@@ -1903,7 +1903,7 @@ fn repair_run(opts: ExploreOptions) -> (Arc<Metered>, ExploreJob) {
         inner: ScriptedPlanner::new(&script),
         usage: Default::default(),
     });
-    let checker: Arc<dyn velocity_nl::ScreenChecker> =
+    let checker: Arc<dyn atalanta_nl::ScreenChecker> =
         Arc::new(ScriptedChecker::new(script.check.clone().unwrap()));
     let mut job = ExploreJob::new(Arc::new(app), planner.clone(), Some(checker), opts);
     job.replays = 1;
@@ -1919,7 +1919,7 @@ async fn a_repair_spends_what_is_left_of_the_token_and_cost_budgets() {
         o.max_tokens = tokens;
         o.max_cost_usd = cost;
         // $10,000 per million tokens: 100 tokens cost $1.
-        o.price = Some(velocity_nl::Price::new(10_000.0, 10_000.0));
+        o.price = Some(atalanta_nl::Price::new(10_000.0, 10_000.0));
         let (planner, job) = repair_run(o);
         let result = job.run().await.unwrap();
         assert!(result.first_report.is_some(), "a repair ran");
@@ -2142,9 +2142,9 @@ async fn copied_text_equal_to_a_data_value_is_written_by_name() {
 #[tokio::test(start_paused = true)]
 async fn text_holding_a_value_the_login_typed_is_never_asserted() {
     const EMAIL: &str = "vel15c-alice@example.com";
-    let mut env = velocity_common::env::settings_snapshot();
+    let mut env = atalanta_common::env::settings_snapshot();
     env.insert("VEL15C_EMAIL".into(), EMAIL.into());
-    velocity_common::env::set_settings(env);
+    atalanta_common::env::set_settings(env);
     let login = r#"
 appId: com.android.settings
 tests:
@@ -2154,7 +2154,7 @@ tests:
       - tap: { id: submit }
 "#;
     let prefix =
-        velocity_explore::after::login_prefix(login, None, &std::collections::HashMap::new())
+        atalanta_explore::after::login_prefix(login, None, &std::collections::HashMap::new())
             .unwrap();
     let app = FakeApp::new()
         .screen(

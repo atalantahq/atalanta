@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
+use atalanta_common::{AtalantaError, PlatformDriver, Result};
 use serde::Serialize;
 use serde_json::Value;
 use tracing::debug;
-use velocity_common::{PlatformDriver, Result, VelocityError};
 
 use crate::agent_error;
 use crate::recording::{Recorder, RECORDED_TOOLS};
@@ -14,7 +14,7 @@ use crate::snapshot::Snapshots;
 use crate::tasks::TaskManager;
 use crate::tool_registry::ToolDefinition;
 use crate::tools::{device, failure, flow, inspector, interaction, query, steps};
-use velocity_core::selector_wire;
+use atalanta_core::selector_wire;
 
 #[derive(Debug)]
 struct JsonRpcRequest {
@@ -65,10 +65,10 @@ pub struct McpServer {
     tasks: Arc<TaskManager>,
     /// Take the device's cross-process lease for each device tool call.
     leases: bool,
-    /// The `velocity` binary `run_task` starts (default: this executable).
-    velocity_bin: Option<std::path::PathBuf>,
+    /// The `atalanta` binary `run_task` starts (default: this executable).
+    atalanta_bin: Option<std::path::PathBuf>,
     /// The device's platform, when the server was told it.
-    platform: Option<velocity_common::Platform>,
+    platform: Option<atalanta_common::Platform>,
 }
 
 /// Tools that only look: no taps, no typing, no runs.
@@ -190,20 +190,20 @@ const UNSUPPORTED_PROTOCOL_VERSION: i32 = -32022;
 const CACHE_TTL_MS: u64 = 60 * 60 * 1000;
 
 /// Usage guidance for agents, returned by `server/discover`.
-const INSTRUCTIONS: &str = "Velocity drives a mobile device (iOS simulator/device, Android \
+const INSTRUCTIONS: &str = "Atalanta drives a mobile device (iOS simulator/device, Android \
 emulator/device) or a browser. Read the screen with snapshot (one line per element, each with a \
 ref like @e12; mode \"delta\" after an action shows only what changed), not screenshots. tap, \
 type_text, assert_visible, assert_not_visible, get_element and wait_for_element take {\"ref\": \
 \"@e12\"}; a stale ref is an error that says so: snapshot again. Use screenshot only for what \
 the snapshot does not show. Type passwords with type_text {secret: \"ENV_VAR\"}. \
-export_session_flow turns the session into a Velocity YAML suite with assertions; run a suite \
+export_session_flow turns the session into a Atalanta YAML suite with assertions; run a suite \
 with run_task and poll task_status; run_task with a goal (and app_id) explores instead: an agent \
 writes a deterministic YAML test and replays it with no model (steer it with task_inject; review \
 summary.explore.yaml, then run it). Debug failures with describe_failure and inspect_trace. \
 diagnose checks the machine and devices first.";
 
-/// The instructions for the core profile (`velocity mcp`'s default).
-const CORE_INSTRUCTIONS: &str = "Velocity drives a mobile device (iOS simulator/device, Android \
+/// The instructions for the core profile (`atalanta mcp`'s default).
+const CORE_INSTRUCTIONS: &str = "Atalanta drives a mobile device (iOS simulator/device, Android \
 emulator/device) or a browser. observe reads the screen: one line per element, \
 each with a ref like @e12 (what: screenshot only for what the text does not show). act does one \
 thing (action: tap, type, swipe, scroll, press_key, launch, stop, wait, assert_visible, \
@@ -212,7 +212,7 @@ error that says so: observe again. Type passwords with act {action: type, secret
 run starts a suite (suite or yaml) or explores a goal (goal, app_id: an agent writes a \
 deterministic YAML test and replays it with no model) in the background; poll it with task_id. \
 artifacts explains the last failure (kind: failure), shows a trace (trace), or turns this \
-session into a Velocity YAML suite with assertions (flow). verify_change checks on the device \
+session into a Atalanta YAML suite with assertions (flow). verify_change checks on the device \
 that a change does what its description says and leaves evidence for the PR.";
 
 /// Every revision this server speaks, newest first (`server/discover`,
@@ -225,7 +225,7 @@ fn supported_versions() -> Vec<&'static str> {
 
 fn server_info() -> Value {
     serde_json::json!({
-        "name": "velocity-mcp",
+        "name": "atalanta-mcp",
         "version": env!("CARGO_PKG_VERSION")
     })
 }
@@ -522,7 +522,7 @@ impl McpServer {
             snapshots: Snapshots::default(),
             tasks: Arc::new(TaskManager::new(TaskManager::default_root(), Vec::new())),
             leases: false,
-            velocity_bin: None,
+            atalanta_bin: None,
             platform: None,
         }
     }
@@ -534,20 +534,20 @@ impl McpServer {
     }
 
     /// Take the device's cross-process lease for each tool call that drives
-    /// it (`velocity mcp` does; tests and embedders may not want it).
+    /// it (`atalanta mcp` does; tests and embedders may not want it).
     pub fn with_leases(mut self, on: bool) -> Self {
         self.leases = on;
         self
     }
 
-    /// The `velocity` binary `run_task` runs (default: this executable).
-    pub fn with_velocity_bin(mut self, bin: std::path::PathBuf) -> Self {
-        self.velocity_bin = Some(bin);
+    /// The `atalanta` binary `run_task` runs (default: this executable).
+    pub fn with_atalanta_bin(mut self, bin: std::path::PathBuf) -> Self {
+        self.atalanta_bin = Some(bin);
         self
     }
 
     /// The device's platform (else learned from the device list).
-    pub fn with_platform(mut self, platform: velocity_common::Platform) -> Self {
+    pub fn with_platform(mut self, platform: atalanta_common::Platform) -> Self {
         self.platform = Some(platform);
         self.refs.platform = platform;
         self.snapshots.platform = Some(platform);
@@ -570,7 +570,7 @@ impl McpServer {
     }
 
     /// The deadline of each device call (default 55 s, or
-    /// `VELOCITY_MCP_CALL_TIMEOUT_MS`).
+    /// `ATALANTA_MCP_CALL_TIMEOUT_MS`).
     pub fn with_call_limit(mut self, limit: std::time::Duration) -> Self {
         self.call_limit = Some(limit);
         self
@@ -582,8 +582,8 @@ impl McpServer {
         self
     }
 
-    // In-process use: the `velocity` agent commands (`velocity snapshot`,
-    // `velocity tap @e3`, …) run one tool per process through these, with
+    // In-process use: the `atalanta` agent commands (`atalanta snapshot`,
+    // `atalanta tap @e3`, …) run one tool per process through these, with
     // the same leases, refs, recording, masking and read-only rules as
     // `tools/call`, and save the session between processes.
 
@@ -920,7 +920,7 @@ impl McpServer {
             "ping" => Ok(serde_json::json!({})),
             m if m.starts_with("notifications/") => Ok(Value::Null),
             "tools/call" => self.handle_tools_call(&request.params).await,
-            other => Err(VelocityError::Internal(anyhow::anyhow!(
+            other => Err(AtalantaError::Internal(anyhow::anyhow!(
                 "Unknown method: {other}"
             ))),
         }
@@ -967,7 +967,7 @@ impl McpServer {
                 continue;
             }
             let mut v = serde_json::to_value(&def).map_err(|e| {
-                VelocityError::Internal(anyhow::anyhow!("Serialization error: {e}"))
+                AtalantaError::Internal(anyhow::anyhow!("Serialization error: {e}"))
             })?;
             v["annotations"] = annotations(&def.name);
             tools.push(v);
@@ -979,7 +979,7 @@ impl McpServer {
         let raw_name = params
             .get("name")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| VelocityError::Config("Missing tool name in params".to_string()))?;
+            .ok_or_else(|| AtalantaError::Config("Missing tool name in params".to_string()))?;
         let known: Vec<String> = self
             .tool_definitions()
             .into_iter()
@@ -1020,7 +1020,7 @@ impl McpServer {
             Ok(x) => x,
             Err(msg) => {
                 return Ok(tool_failure(&agent_error::classify(
-                    &VelocityError::Config(msg),
+                    &AtalantaError::Config(msg),
                 )))
             }
         };
@@ -1095,7 +1095,7 @@ impl McpServer {
         if self.profile != crate::profile::Profile::Full {
             if let Some(why) = crate::authored::call_refusal(name, &arguments) {
                 return Ok(tool_failure(&agent_error::classify(
-                    &VelocityError::Config(why),
+                    &AtalantaError::Config(why),
                 )));
             }
         }
@@ -1183,7 +1183,7 @@ impl McpServer {
                             self.session
                                 .config_path
                                 .as_deref()
-                                .and_then(|p| velocity_core::parse_suite(p).ok())
+                                .and_then(|p| atalanta_core::parse_suite(p).ok())
                                 .map(|s| s.app_id)
                         })
                         .or_else(|| self.recorder.launched_app().map(String::from))
@@ -1215,10 +1215,10 @@ impl McpServer {
                         .filter(|g| !g.is_empty());
                     let next = match goal {
                         Some(g) => format!(
-                            "not gated yet: run_task {{\"yaml\": <this yaml>, \"goal\": {}, \"gate\": true}} (or velocity gate FILE --goal ...) and commit it only if summary.gates.trusted",
+                            "not gated yet: run_task {{\"yaml\": <this yaml>, \"goal\": {}, \"gate\": true}} (or atalanta gate FILE --goal ...) and commit it only if summary.gates.trusted",
                             serde_json::Value::String(g.to_string())
                         ),
-                        None => "not gated yet: run_task {\"yaml\": <this yaml>, \"goal\": \"<what it shows>\", \"gate\": true} (or velocity gate FILE --goal ...) and commit it only if summary.gates.trusted".to_string(),
+                        None => "not gated yet: run_task {\"yaml\": <this yaml>, \"goal\": \"<what it shows>\", \"gate\": true} (or atalanta gate FILE --goal ...) and commit it only if summary.gates.trusted".to_string(),
                     };
                     Ok(serde_json::json!({
                         "steps": steps,
@@ -1234,7 +1234,7 @@ impl McpServer {
                 "task_inject" => self.task_inject(&arguments),
                 "diagnose" => self.diagnose(&device_id, &arguments).await,
                 "inspect_trace" => self.inspect_trace(&config_path, &arguments),
-                other => Err(VelocityError::Internal(anyhow::anyhow!(
+                other => Err(AtalantaError::Internal(anyhow::anyhow!(
                     "Unknown tool: {other}"
                 ))),
             } }).await;
@@ -1245,7 +1245,7 @@ impl McpServer {
                 let rebuilt = self.rebuild_session().await;
                 return Ok(tool_failure(
                     &agent_error::deadline(format!(
-                        "`{name}` didn't finish within {} s (VELOCITY_MCP_CALL_TIMEOUT_MS); {rebuilt}. \
+                        "`{name}` didn't finish within {} s (ATALANTA_MCP_CALL_TIMEOUT_MS); {rebuilt}. \
                          Its effect is unknown: observe the screen before doing it again",
                         limit.as_secs()
                     ))
@@ -1265,7 +1265,7 @@ impl McpServer {
                 self.refs.expire(name);
                 return Ok(tool_failure(&agent_error::session_rebuilt(format!(
                     "{}; {rebuilt}. It may or may not have reached the device: observe before repeating it",
-                    velocity_common::redact::redact(&e.to_string())
+                    atalanta_common::redact::redact(&e.to_string())
                 ))));
             }
         }
@@ -1293,7 +1293,7 @@ impl McpServer {
                     }
                     _ => None,
                 };
-                velocity_common::redact::redact_value(&mut value);
+                atalanta_common::redact::redact_value(&mut value);
                 // Text results (a text snapshot) go out as they are, not as a
                 // JSON string full of escapes.
                 let text = match &value {
@@ -1318,7 +1318,7 @@ impl McpServer {
 
     /// The device's platform: the one the server was given, else from the
     /// device list.
-    async fn device_platform(&mut self, device_id: &str) -> Option<velocity_common::Platform> {
+    async fn device_platform(&mut self, device_id: &str) -> Option<atalanta_common::Platform> {
         if self.platform.is_some() {
             return self.platform;
         }
@@ -1337,7 +1337,7 @@ impl McpServer {
     /// leases are off. `Err`: the device is busy, as a tool failure result.
     pub async fn hold_lease(
         &mut self,
-    ) -> std::result::Result<Option<velocity_runner::lease::DeviceLock>, Value> {
+    ) -> std::result::Result<Option<atalanta_runner::lease::DeviceLock>, Value> {
         if !self.leases {
             return Ok(None);
         }
@@ -1359,7 +1359,7 @@ impl McpServer {
     async fn take_lease(
         &self,
         device_id: &str,
-    ) -> std::result::Result<velocity_runner::lease::DeviceLock, String> {
+    ) -> std::result::Result<atalanta_runner::lease::DeviceLock, String> {
         if let Some(task) = self.tasks.running_on(device_id) {
             return Err(format!(
                 "{device_id} is busy running task {task}: wait for it (task_status) or stop it (task_stop)"
@@ -1367,17 +1367,17 @@ impl McpServer {
         }
         let deadline = std::time::Instant::now() + lease_wait();
         loop {
-            match velocity_runner::lease::try_lock(device_id) {
+            match atalanta_runner::lease::try_lock(device_id) {
                 Ok(l) => return Ok(l),
-                Err(velocity_runner::lease::LeaseError::Held(holder))
+                Err(atalanta_runner::lease::LeaseError::Held(holder))
                     if std::time::Instant::now() < deadline =>
                 {
                     debug!("{device_id} leased by {holder}; waiting");
                     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                 }
-                Err(velocity_runner::lease::LeaseError::Held(holder)) => {
+                Err(atalanta_runner::lease::LeaseError::Held(holder)) => {
                     return Err(format!(
-                        "{device_id} is in use by another Velocity process ({holder}); try again when it is done"
+                        "{device_id} is in use by another Atalanta process ({holder}); try again when it is done"
                     ))
                 }
                 Err(e) => return Err(format!("{device_id}: {e}")),
@@ -1392,7 +1392,7 @@ impl McpServer {
         // `{"selector": {"ref": …}}`.
         if let Some(r) = args.as_object_mut().and_then(|o| o.remove("ref")) {
             if args.get("selector").is_some() {
-                return Err(VelocityError::Config(
+                return Err(AtalantaError::Config(
                     "give 'ref' or 'selector', not both".into(),
                 ));
             }
@@ -1459,15 +1459,15 @@ impl McpServer {
         let platform = self
             .device_platform(device_id)
             .await
-            .unwrap_or(velocity_common::Platform::Android);
+            .unwrap_or(atalanta_common::Platform::Android);
         self.recorder.observe(&tree, screen.as_ref());
 
-        let findings: Vec<velocity_common::a11y::Finding> =
-            velocity_common::a11y::audit(&tree, platform, None);
+        let findings: Vec<atalanta_common::a11y::Finding> =
+            atalanta_common::a11y::audit(&tree, platform, None);
 
         const MAX: usize = 50;
         let truncated = findings.len() > MAX;
-        let shown: &[velocity_common::a11y::Finding] = &findings[..findings.len().min(MAX)];
+        let shown: &[atalanta_common::a11y::Finding] = &findings[..findings.len().min(MAX)];
 
         // A finding names its tree node; every finding of one element shares
         // that element's ref, and twin elements keep their own.
@@ -1486,8 +1486,8 @@ impl McpServer {
         }
 
         let counts = serde_json::json!({
-            "error": findings.iter().filter(|f| matches!(f.severity, velocity_common::a11y::Severity::Error)).count(),
-            "warning": findings.iter().filter(|f| matches!(f.severity, velocity_common::a11y::Severity::Warning)).count(),
+            "error": findings.iter().filter(|f| matches!(f.severity, atalanta_common::a11y::Severity::Error)).count(),
+            "warning": findings.iter().filter(|f| matches!(f.severity, atalanta_common::a11y::Severity::Warning)).count(),
         });
 
         let screen_summary = serde_json::json!({
@@ -1508,7 +1508,7 @@ impl McpServer {
     fn element_ref(
         &self,
         node: usize,
-        nodes: &[(crate::snapshot::Identity, bool, &velocity_common::Element)],
+        nodes: &[(crate::snapshot::Identity, bool, &atalanta_common::Element)],
     ) -> Option<String> {
         let (identity, _, _) = nodes
             .iter()
@@ -1519,7 +1519,7 @@ impl McpServer {
 
 /// The selector for `node` on `tree`, as a short text: id, text, label, or
 /// element type — what an agent can act on instead of a ref.
-fn selector_text(node: &velocity_common::Element) -> String {
+fn selector_text(node: &atalanta_common::Element) -> String {
     if !node.platform_id.is_empty() {
         return format!("id={}", node.platform_id);
     }
@@ -1533,12 +1533,12 @@ fn selector_text(node: &velocity_common::Element) -> String {
 }
 
 impl McpServer {
-    /// The `velocity` binary tasks run (default: this executable).
+    /// The `atalanta` binary tasks run (default: this executable).
     fn program(&self) -> Result<std::path::PathBuf> {
-        match &self.velocity_bin {
+        match &self.atalanta_bin {
             Some(p) => Ok(p.clone()),
             None => std::env::current_exe().map_err(|e| {
-                VelocityError::Internal(anyhow::anyhow!("finding the velocity binary: {e}"))
+                AtalantaError::Internal(anyhow::anyhow!("finding the atalanta binary: {e}"))
             }),
         }
     }
@@ -1556,7 +1556,7 @@ impl McpServer {
         dir: &std::path::Path,
     ) -> Result<(
         std::path::PathBuf,
-        velocity_common::TestSuite,
+        atalanta_common::TestSuite,
         Option<ChildEnv>,
     )> {
         // The child's environment: all of this process's, except for a
@@ -1567,31 +1567,31 @@ impl McpServer {
             args.get("suite").and_then(Value::as_str),
         ) {
             (Some(_), Some(_)) => {
-                return Err(VelocityError::Config(
+                return Err(AtalantaError::Config(
                     "give 'suite' (a path) or 'yaml' (the suite itself), not both".into(),
                 ))
             }
             (Some(yaml), None) => {
-                let suite = velocity_core::parser::parse_suite_from_str(yaml)?;
+                let suite = atalanta_core::parser::parse_suite_from_str(yaml)?;
                 // Row 3.2 / the Rule of Two: an agent that writes the suite
                 // writes its exec allow-list too, so a written suite may not
                 // run host programs outside --profile full.
                 if self.profile != crate::profile::Profile::Full {
                     if has_exec(&suite) {
-                        return Err(VelocityError::Config(
+                        return Err(AtalantaError::Config(
                             "this suite has exec steps (host programs); a suite passed as `yaml` may not run them outside --profile full. Save it as a file the user reviews and pass `suite`".into(),
                         ));
                     }
                     // Review 05 #1: nor read the environment or keychain,
                     // nor choose where model calls go.
                     if let Some(why) = crate::authored::refusal(&suite) {
-                        return Err(VelocityError::Config(why));
+                        return Err(AtalantaError::Config(why));
                     }
                     child_env = Some(crate::authored::child_env());
                 }
-                velocity_core::validate_suite(&suite)?;
+                atalanta_core::validate_suite(&suite)?;
                 let path = dir.join("suite.yaml");
-                std::fs::write(&path, yaml).map_err(|e| VelocityError::io(path.display(), e))?;
+                std::fs::write(&path, yaml).map_err(|e| AtalantaError::io(path.display(), e))?;
                 (path, suite)
             }
             (None, Some(asked)) => {
@@ -1607,8 +1607,8 @@ impl McpServer {
                     &[self.tasks.root()],
                     true,
                 )
-                .map_err(VelocityError::Config)?;
-                let suite = velocity_core::parse_suite(&path.to_string_lossy())?;
+                .map_err(AtalantaError::Config)?;
+                let suite = atalanta_core::parse_suite(&path.to_string_lossy())?;
                 // A file in the tasks folder was written by a task the agent
                 // started (an inline suite, an explore test, the lines
                 // task_inject appends), not saved by the user: it gets the
@@ -1616,12 +1616,12 @@ impl McpServer {
                 let in_tasks = self.tasks.agent_written(&path);
                 if in_tasks && self.profile != crate::profile::Profile::Full {
                     if has_exec(&suite) {
-                        return Err(VelocityError::Config(
+                        return Err(AtalantaError::Config(
                             "this suite was written by an agent task (in the tasks folder, or an explore `out`) and has exec steps (host programs); outside --profile full only a suite the user saved in the project may run them".into(),
                         ));
                     }
                     if let Some(why) = crate::authored::refusal(&suite) {
-                        return Err(VelocityError::Config(why));
+                        return Err(AtalantaError::Config(why));
                     }
                     child_env = Some(crate::authored::child_env());
                 }
@@ -1630,11 +1630,11 @@ impl McpServer {
             // The suite the user started the server with.
             (None, None) => {
                 let path = self.session.config_path.clone().ok_or_else(|| {
-                    VelocityError::Config(
+                    AtalantaError::Config(
                         "run_task needs 'suite' (a path) or 'yaml' (no suite is loaded)".into(),
                     )
                 })?;
-                let suite = velocity_core::parse_suite(&path)?;
+                let suite = atalanta_core::parse_suite(&path)?;
                 (std::path::PathBuf::from(path), suite)
             }
         };
@@ -1656,7 +1656,7 @@ impl McpServer {
             .map(String::from)
             .unwrap_or_else(|| device_id.to_string());
         if let Some(task) = self.tasks.running_on(&device) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "{device} is already running task {task}; wait for it or task_stop it"
             )));
         }
@@ -1727,11 +1727,11 @@ impl McpServer {
         }))
     }
 
-    /// `run_task` with a `goal`: a `velocity explore` child that writes a
+    /// `run_task` with a `goal`: a `atalanta explore` child that writes a
     /// test, replays it and reports where it is.
     async fn explore_task(&mut self, device_id: &str, args: &Value) -> Result<Value> {
         use crate::tasks::process::{Child, ExploreRequest, ExploreRun};
-        let bad = |m: String| VelocityError::Config(m);
+        let bad = |m: String| AtalantaError::Config(m);
         let goal = str_arg(args, "goal")?.trim().to_string();
         if goal.is_empty() {
             return Err(bad("'goal' is empty: say what to do on the app".into()));
@@ -1763,7 +1763,7 @@ impl McpServer {
                 .session
                 .config_path
                 .as_deref()
-                .and_then(|p| velocity_core::parse_suite(p).ok())
+                .and_then(|p| atalanta_core::parse_suite(p).ok())
                 .map(|s| s.app_id)
                 .filter(|a| !a.is_empty())
                 .ok_or_else(|| bad("explore needs 'app_id' (bundle id / package)".into()))?,
@@ -1806,9 +1806,9 @@ impl McpServer {
             Some(_) => return Err(bad("'verify' is off, final, checkpoints or strict".into())),
         };
         let platform = match args.get("platform").and_then(Value::as_str) {
-            Some("android") => Some(velocity_common::Platform::Android),
-            Some("ios") => Some(velocity_common::Platform::Ios),
-            Some("web") => Some(velocity_common::Platform::Web),
+            Some("android") => Some(atalanta_common::Platform::Android),
+            Some("ios") => Some(atalanta_common::Platform::Ios),
+            Some("web") => Some(atalanta_common::Platform::Web),
             Some(p) => return Err(bad(format!("unknown platform '{p}': android, ios or web"))),
             None => match self.platform {
                 Some(p) => Some(p),
@@ -1822,10 +1822,10 @@ impl McpServer {
         let secrets = names("secret");
         if let Some(n) = secrets
             .iter()
-            .find(|n| !velocity_common::redact::is_allowed_secret_name(n))
+            .find(|n| !atalanta_common::redact::is_allowed_secret_name(n))
         {
             return Err(bad(format!(
-                "secret {n} is not an allowed secret: list it in VELOCITY_SECRETS (the `secrets` \
+                "secret {n} is not an allowed secret: list it in ATALANTA_SECRETS (the `secrets` \
                  setting) for an explore task to type it"
             )));
         }
@@ -1833,11 +1833,11 @@ impl McpServer {
         // process masks it in what it returns (a later `snapshot` of the
         // field), as it does for `type_text {secret}`.
         for name in &secrets {
-            if let Some(value) = velocity_common::env::var(name)
+            if let Some(value) = atalanta_common::env::var(name)
                 .ok()
                 .filter(|v| !v.is_empty())
             {
-                velocity_common::redact::register_secret(&value);
+                atalanta_common::redact::register_secret(&value);
             }
         }
         let cwd = std::env::current_dir().ok();
@@ -1939,7 +1939,7 @@ impl McpServer {
         }))
     }
 
-    /// `run_task` with `gate: true`: `velocity gate` as a task. The trust
+    /// `run_task` with `gate: true`: `atalanta gate` as a task. The trust
     /// gates (burn-in replays, the wrong-path replay, an assertion naming
     /// the goal) on a one-test suite before it is committed: an exported
     /// session, or any test the agent wrote. In the background because the
@@ -1947,7 +1947,7 @@ impl McpServer {
     /// as a suite run's ([`Self::task_suite`]).
     async fn gate_task(&mut self, device_id: &str, args: &Value) -> Result<Value> {
         use crate::tasks::process::{Child, GateRun};
-        let bad = |m: String| VelocityError::Config(m);
+        let bad = |m: String| AtalantaError::Config(m);
         let goal = args
             .get("goal")
             .and_then(Value::as_str)
@@ -2050,19 +2050,19 @@ impl McpServer {
         match tokio::time::timeout(REBUILD_LIMIT, self.driver.restart_session()).await {
             Ok(Ok(())) => "the driver session was rebuilt".into(),
             Ok(Err(e)) => format!(
-                "rebuilding the driver session failed ({}); run velocity doctor",
-                velocity_common::redact::redact(&e.to_string())
+                "rebuilding the driver session failed ({}); run atalanta doctor",
+                atalanta_common::redact::redact(&e.to_string())
             ),
-            Err(_) => "rebuilding the driver session timed out too; run velocity doctor".into(),
+            Err(_) => "rebuilding the driver session timed out too; run atalanta doctor".into(),
         }
     }
 
-    /// `verify_change` (row 1.4): `velocity verify-change` as a task. Its
+    /// `verify_change` (row 1.4): `atalanta verify-change` as a task. Its
     /// bundle is in the task folder; saved flows in the project's
-    /// `.velocity/verify-cache`.
+    /// `.atalanta/verify-cache`.
     async fn verify_change(&mut self, device_id: &str, args: &Value) -> Result<Value> {
         use crate::tasks::process::{Child, VerifyRun};
-        let bad = |m: String| VelocityError::Config(m);
+        let bad = |m: String| AtalantaError::Config(m);
         let description = str_arg(args, "description")?.to_string();
         let app_id = str_arg(args, "app_id")?.to_string();
         let device = device_id.to_string();
@@ -2165,7 +2165,7 @@ impl McpServer {
         } else {
             before
         };
-        serde_json::to_value(&info).map_err(|e| VelocityError::Internal(anyhow::anyhow!("{e}")))
+        serde_json::to_value(&info).map_err(|e| AtalantaError::Internal(anyhow::anyhow!("{e}")))
     }
 
     async fn task_stop(&self, args: &Value) -> Result<Value> {
@@ -2179,7 +2179,7 @@ impl McpServer {
             .tasks
             .wait(id, std::time::Duration::from_millis(wait.min(60_000)))
             .await?;
-        serde_json::to_value(&info).map_err(|e| VelocityError::Internal(anyhow::anyhow!("{e}")))
+        serde_json::to_value(&info).map_err(|e| AtalantaError::Internal(anyhow::anyhow!("{e}")))
     }
 
     fn task_inject(&self, args: &Value) -> Result<Value> {
@@ -2194,13 +2194,13 @@ impl McpServer {
     }
 
     async fn diagnose(&mut self, device_id: &str, args: &Value) -> Result<Value> {
-        use velocity_doctor::{apply_safe_fixes, run_checks, FixKind, Options, Status};
+        use atalanta_doctor::{apply_safe_fixes, run_checks, FixKind, Options, Status};
         let attempt_fix = args
             .get("attempt_fix")
             .and_then(Value::as_bool)
             .unwrap_or(false);
         if attempt_fix && self.read_only {
-            return Err(VelocityError::Config(
+            return Err(AtalantaError::Config(
                 "attempt_fix changes the machine; this server was started with --read-only".into(),
             ));
         }
@@ -2209,17 +2209,17 @@ impl McpServer {
             .and_then(Value::as_bool)
             .unwrap_or(true);
         let platform = match args.get("platform").and_then(Value::as_str) {
-            Some("android") => Some(velocity_common::Platform::Android),
-            Some("ios") => Some(velocity_common::Platform::Ios),
-            Some("web") => Some(velocity_common::Platform::Web),
+            Some("android") => Some(atalanta_common::Platform::Android),
+            Some("ios") => Some(atalanta_common::Platform::Ios),
+            Some("web") => Some(atalanta_common::Platform::Web),
             Some(other) => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "unknown platform '{other}': android, ios or web"
                 )))
             }
             None => self.device_platform(device_id).await,
         };
-        // The same checks as `velocity doctor`; `probe_device` is its `--deep`
+        // The same checks as `atalanta doctor`; `probe_device` is its `--deep`
         // (tree-server handshake, which takes the device's lease only when free).
         let opts = Options {
             deep: diagnose_is_deep(probe_device, self.read_only),
@@ -2248,7 +2248,7 @@ impl McpServer {
             }
         }
         let mut value = serde_json::to_value(&report)
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("{e}")))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("{e}")))?;
         value["next_steps"] = next_steps.into();
         value["fixes_applied"] = fixes_applied.into();
         Ok(value)
@@ -2268,9 +2268,9 @@ impl McpServer {
                     None => std::path::PathBuf::from(
                         config_path
                             .as_deref()
-                            .and_then(|p| velocity_core::parse_suite(p).ok())
+                            .and_then(|p| atalanta_core::parse_suite(p).ok())
                             .map(|s| s.config.artifacts.output_dir)
-                            .unwrap_or_else(|| "./velocity-results".into()),
+                            .unwrap_or_else(|| "./atalanta-results".into()),
                     ),
                 }
             }
@@ -2361,7 +2361,7 @@ impl McpServer {
                         },
                         "secret": {
                             "type": "string",
-                            "description": "Instead of text: the name of an environment variable whose value is typed (e.g. \"LOGIN_PASSWORD\"); it must be listed in VELOCITY_SECRETS; the value is never shown"
+                            "description": "Instead of text: the name of an environment variable whose value is typed (e.g. \"LOGIN_PASSWORD\"); it must be listed in ATALANTA_SECRETS; the value is never shown"
                         }
                     },
                     "required": ["selector"]
@@ -2538,7 +2538,7 @@ impl McpServer {
                         },
                         "artifacts_dir": {
                             "type": "string",
-                            "description": "Artifacts directory holding traces/ (default: the suite's artifacts.outputDir, ./velocity-results)"
+                            "description": "Artifacts directory holding traces/ (default: the suite's artifacts.outputDir, ./atalanta-results)"
                         },
                         "limit": {
                             "type": "integer",
@@ -2549,7 +2549,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "generate_test_skeleton".to_string(),
-                description: "A Velocity test from this session: the recorded actions (with their assertions), else a launch plus an assertion on the current screen and its elements as comments. `description` names it and goes into a comment".to_string(),
+                description: "A Atalanta test from this session: the recorded actions (with their assertions), else a launch plus an assertion on the current screen and its elements as comments. `description` names it and goes into a comment".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -2567,7 +2567,7 @@ impl McpServer {
             },
             ToolDefinition {
                 name: "export_session_flow".to_string(),
-                description: "Turn this session's successful actions (tap, type_text, scroll, swipe, press_key, launch_app, stop_app, asserts) into a Velocity test (YAML) to save and rerun. After each action that changed the screen it adds an assertVisible on a stable element of the new screen; typed secrets are written as ${NAME}".to_string(),
+                description: "Turn this session's successful actions (tap, type_text, scroll, swipe, press_key, launch_app, stop_app, asserts) into a Atalanta test (YAML) to save and rerun. After each action that changed the screen it adds an assertVisible on a stable element of the new screen; typed secrets are written as ${NAME}".to_string(),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -2699,7 +2699,7 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
         ),
         def(
             "run_task",
-            "Run a suite, or explore a goal, in the background and return at once with a task_id, its folder and log. With suite/yaml: a velocity run. With goal (+ app_id): velocity explore, where an agent reaches the goal on the device, writes a deterministic YAML test and replays it with no model; steer it with task_inject. With gate: true, a one-test suite/yaml and goal: velocity gate, the trust gates a test must pass before it is committed. Poll task_status for progress (step i/n; explore: turn, op, target) and the machine-readable summary (explore: the YAML path, replays, model calls and tokens); stop it with task_stop. The device is busy for other tools until it ends",
+            "Run a suite, or explore a goal, in the background and return at once with a task_id, its folder and log. With suite/yaml: a atalanta run. With goal (+ app_id): atalanta explore, where an agent reaches the goal on the device, writes a deterministic YAML test and replays it with no model; steer it with task_inject. With gate: true, a one-test suite/yaml and goal: atalanta gate, the trust gates a test must pass before it is committed. Poll task_status for progress (step i/n; explore: turn, op, target) and the machine-readable summary (explore: the YAML path, replays, model calls and tokens); stop it with task_stop. The device is busy for other tools until it ends",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -2722,7 +2722,7 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
                     "replay": { "type": "integer", "description": "Explore: replays of the written test, with no model (default 5)" },
                     "out": { "type": "string", "description": "Explore: where to write the test (default: explore.yaml in the task folder)" },
                     "after": { "type": "string", "description": "Explore: a suite whose first test (a login) runs first with no model; its ${SECRET}s come from the server's environment or keychain and are never shown" },
-                    "gate": { "type": "boolean", "description": "With suite or yaml (one test) and goal: run the trust gates instead (velocity gate): replays with jitter, a wrong-path replay that must fail, an assertion naming the goal. summary.gates.trusted says whether to commit it; replay sets the replays (default 5)" }
+                    "gate": { "type": "boolean", "description": "With suite or yaml (one test) and goal: run the trust gates instead (atalanta gate): replays with jitter, a wrong-path replay that must fail, an assertion naming the goal. summary.gates.trusted says whether to commit it; replay sets the replays (default 5)" }
                 }
             }),
         ),
@@ -2763,7 +2763,7 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
         ),
         def(
             "diagnose",
-            "Check that this machine can run Velocity: adb and its server, Android devices (booted, authorized) and the on-device tree server, Xcode, booted simulators, the iOS runner build, device leases, AI keys (names only), disk and memory. Returns verdict ready|degraded|blocked and ordered next_steps (\"Run: …\" commands, \"Guidance: …\"). attempt_fix makes only safe fixes (restart the adb server, clear stale lease records, re-push the tree server) and lists them",
+            "Check that this machine can run Atalanta: adb and its server, Android devices (booted, authorized) and the on-device tree server, Xcode, booted simulators, the iOS runner build, device leases, AI keys (names only), disk and memory. Returns verdict ready|degraded|blocked and ordered next_steps (\"Run: …\" commands, \"Guidance: …\"). attempt_fix makes only safe fixes (restart the adb server, clear stale lease records, re-push the tree server) and lists them",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -2781,7 +2781,7 @@ fn extra_tool_definitions() -> Vec<ToolDefinition> {
                 "properties": {
                     "view": { "type": "string", "enum": ["summary", "search", "step_details", "step_screenshot"] },
                     "task_id": { "type": "string", "description": "A run_task task" },
-                    "artifacts_dir": { "type": "string", "description": "Instead of task_id: the artifacts folder (default: the suite's, ./velocity-results)" },
+                    "artifacts_dir": { "type": "string", "description": "Instead of task_id: the artifacts folder (default: the suite's, ./atalanta-results)" },
                     "test": { "type": "string", "description": "Test name (default: the newest trace)" },
                     "step": { "type": "integer", "description": "1-based step number, as in the summary" },
                     "query": { "type": "string", "description": "For search" }
@@ -2798,10 +2798,10 @@ const CALL_LIMIT_MS: u64 = 55_000;
 /// How long rebuilding a session may take.
 const REBUILD_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// The deadline for `tool`: `VELOCITY_MCP_CALL_TIMEOUT_MS`, else 55 s. A
+/// The deadline for `tool`: `ATALANTA_MCP_CALL_TIMEOUT_MS`, else 55 s. A
 /// tool that starts a background task returns at once anyway.
 fn call_limit(_tool: &str) -> std::time::Duration {
-    let ms = velocity_common::env::var("VELOCITY_MCP_CALL_TIMEOUT_MS")
+    let ms = atalanta_common::env::var("ATALANTA_MCP_CALL_TIMEOUT_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|&ms| ms > 0)
@@ -2810,21 +2810,21 @@ fn call_limit(_tool: &str) -> std::time::Duration {
 }
 
 /// Whether `e` means the driver's session or connection is gone.
-fn session_dead(e: &VelocityError) -> bool {
-    use velocity_common::error::ErrorKind;
+fn session_dead(e: &AtalantaError) -> bool {
+    use atalanta_common::error::ErrorKind;
     matches!(
         e.kind(),
         ErrorKind::ConnectionLost | ErrorKind::SessionExpired
     )
 }
 
-/// `VELOCITY_LEASE_WAIT_MS`, default 10 s: the same wait `velocity run`
+/// `ATALANTA_LEASE_WAIT_MS`, default 10 s: the same wait `atalanta run`
 /// gives a device another process holds. At 5 s an agent command gave up
-/// while a `velocity run` of a few steps held the device (soak test,
+/// while a `atalanta run` of a few steps held the device (soak test,
 /// 2026-11-07).
 fn lease_wait() -> std::time::Duration {
     std::time::Duration::from_millis(
-        velocity_common::env::var("VELOCITY_LEASE_WAIT_MS")
+        atalanta_common::env::var("ATALANTA_LEASE_WAIT_MS")
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
             .unwrap_or(10_000),
@@ -2834,10 +2834,10 @@ fn lease_wait() -> std::time::Duration {
 /// A tool result that is an error the model reads (masked).
 /// A failed tool result: the masked message for the model, and
 /// `structuredContent.error` (code, retry, next) for clients and
-/// `velocity agent` ([`agent_error`]).
+/// `atalanta agent` ([`agent_error`]).
 fn tool_failure(f: &agent_error::Failure) -> Value {
     serde_json::json!({
-        "content": [{ "type": "text", "text": velocity_common::redact::redact(&f.message) }],
+        "content": [{ "type": "text", "text": atalanta_common::redact::redact(&f.message) }],
         "isError": true,
         "structuredContent": { "error": f.to_json() },
     })
@@ -2864,46 +2864,46 @@ fn gate_task_file(
     if !tasks.agent_written(path) {
         return Ok(None);
     }
-    let suite = velocity_core::parse_suite(&path.to_string_lossy())?;
+    let suite = atalanta_core::parse_suite(&path.to_string_lossy())?;
     if has_exec(&suite) {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "the {what} suite was written by an agent task (in the tasks folder, or an explore `out`) and has exec steps (host programs); outside \
              --profile full only a suite the user saved in the project may run them"
         )));
     }
     if let Some(why) = crate::authored::refusal(&suite) {
-        return Err(VelocityError::Config(format!("{what}: {why}")));
+        return Err(AtalantaError::Config(format!("{what}: {why}")));
     }
     Ok(Some(crate::authored::child_env()))
 }
 
 /// A required string argument.
 /// Whether any test or flow of `suite` has an `exec` step.
-fn has_exec(suite: &velocity_common::TestSuite) -> bool {
+fn has_exec(suite: &atalanta_common::TestSuite) -> bool {
     suite
         .tests
         .iter()
         .flat_map(|t| &t.steps)
         .chain(suite.flows.iter().flat_map(|f| &f.steps))
-        .any(|s| matches!(s.action, velocity_common::Action::Exec(_)))
+        .any(|s| matches!(s.action, atalanta_common::Action::Exec(_)))
 }
 
 fn str_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
     args.get(key)
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| VelocityError::Config(format!("Missing '{key}' argument")))
+        .ok_or_else(|| AtalantaError::Config(format!("Missing '{key}' argument")))
 }
 
 fn write_response(stdout: &mut dyn Write, resp: &JsonRpcResponse) -> Result<()> {
     let json = serde_json::to_string(resp)
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Serialization error: {e}")))?;
+        .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Serialization error: {e}")))?;
     debug!("Sending: {json}");
     writeln!(stdout, "{json}")
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to write stdout: {e}")))?;
+        .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to write stdout: {e}")))?;
     stdout
         .flush()
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Failed to flush stdout: {e}")))?;
+        .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Failed to flush stdout: {e}")))?;
     Ok(())
 }
 
@@ -2927,8 +2927,8 @@ mod tests {
     use super::*;
 
     async fn server() -> McpServer {
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             Default::default(),
         ));
         McpServer::new(driver, "headless".into(), None)
@@ -3203,12 +3203,12 @@ mod tests {
             </LinearLayout>"#,
         )
         .unwrap();
-        let config = velocity_headless::HeadlessConfig {
+        let config = atalanta_headless::HeadlessConfig {
             app_path: Some(layout.to_string_lossy().into_owned()),
             ..Default::default()
         };
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             config,
         ));
         driver.launch_app("headless", "app", false).await.unwrap();
@@ -3243,12 +3243,12 @@ mod tests {
             !yaml.contains("node_"),
             "a positional id was exported: {yaml}"
         );
-        let recorded: velocity_common::Selector = velocity_core::parser::selector_from_value(
+        let recorded: atalanta_common::Selector = atalanta_core::parser::selector_from_value(
             s.recorder.steps[0].args["selector"].clone(),
         )
         .unwrap();
         let tree = s.driver.get_hierarchy("headless").await.unwrap();
-        let hit = velocity_common::selector_match::find_in_tree(&tree, &recorded, None).unwrap();
+        let hit = atalanta_common::selector_match::find_in_tree(&tree, &recorded, None).unwrap();
         assert_eq!(
             hit.platform_id, listed["elements"][1]["platform_id"],
             "{yaml}"
@@ -3293,12 +3293,12 @@ mod tests {
             ),
         )
         .unwrap();
-        let config = velocity_headless::HeadlessConfig {
+        let config = atalanta_headless::HeadlessConfig {
             app_path: Some(layout.to_string_lossy().into_owned()),
             ..Default::default()
         };
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             config,
         ));
         driver.launch_app("headless", "app", false).await.unwrap();
@@ -3398,12 +3398,12 @@ mod tests {
             </LinearLayout>"#,
         )
         .unwrap();
-        let config = velocity_headless::HeadlessConfig {
+        let config = atalanta_headless::HeadlessConfig {
             app_path: Some(layout.to_string_lossy().into_owned()),
             ..Default::default()
         };
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             config,
         ));
         driver.launch_app("headless", "app", false).await.unwrap();
@@ -3419,7 +3419,7 @@ mod tests {
         let png = s.driver.screenshot("headless").await.unwrap();
         let b64 = base64::engine::general_purpose::STANDARD.encode(&png);
         // A "secret" that occurs inside the image's base64.
-        velocity_common::redact::register_secret(&b64[40..56]);
+        atalanta_common::redact::register_secret(&b64[40..56]);
         // 1080x1920 fits under the inline limit, so it comes back as is.
         let r = s
             .handle_tools_call(
@@ -3538,7 +3538,7 @@ mod tests {
         assert_eq!(d["resultType"], "complete");
         // serverInfo where the spec surely has it (discover's own field),
         // not under a guessed `_meta` key (review-d7 m6).
-        assert_eq!(d["serverInfo"]["name"], "velocity-mcp");
+        assert_eq!(d["serverInfo"]["name"], "atalanta-mcp");
         assert!(
             !d["_meta"]
                 .as_object()
@@ -3641,7 +3641,7 @@ mod tests {
             .unwrap();
         // 2026-07-28 has no initialize: the newest handshake revision.
         assert_eq!(result(&r)["protocolVersion"], "2025-11-25");
-        assert_eq!(result(&r)["serverInfo"]["name"], "velocity-mcp");
+        assert_eq!(result(&r)["serverInfo"]["name"], "atalanta-mcp");
     }
 
     // P-9: the client's version is echoed when supported, else the newest.
@@ -3728,17 +3728,17 @@ mod t2_tests {
 
     async fn launched(xml_children: &str) -> (McpServer, tempfile::TempDir) {
         let (dir, path) = launched_layout(xml_children).await;
-        let config = velocity_headless::HeadlessConfig {
+        let config = atalanta_headless::HeadlessConfig {
             app_path: Some(path),
             ..Default::default()
         };
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             config,
         ));
         driver.launch_app("headless", "app", false).await.unwrap();
         let s = McpServer::new(driver, "headless".into(), None)
-            .with_platform(velocity_common::Platform::Android)
+            .with_platform(atalanta_common::Platform::Android)
             .with_tasks(TaskManager::new(dir.path().join("tasks"), vec![]));
         (s, dir)
     }
@@ -3754,12 +3754,12 @@ mod t2_tests {
             .filter_map(|e| e.ok().map(|e| e.path()))
             .find(|p| p.extension().is_some_and(|x| x == "xml"))
             .expect("launched wrote a layout");
-        let config = velocity_headless::HeadlessConfig {
+        let config = atalanta_headless::HeadlessConfig {
             app_path: Some(layout.to_string_lossy().into_owned()),
             ..Default::default()
         };
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Android,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Android,
             config,
         ));
         driver.launch_app(device_id, "app", false).await.unwrap();
@@ -3880,14 +3880,14 @@ mod t2_tests {
         let typed = call(
             &mut s,
             "act",
-            serde_json::json!({ "action": "type", "ref": email, "text": "qa@velocity.dev" }),
+            serde_json::json!({ "action": "type", "ref": email, "text": "qa@atalanta.sh" }),
         )
         .await;
         assert!(typed.get("isError").is_none(), "{typed}");
         let blocks = typed["content"].as_array().unwrap();
         let after = blocks.last().unwrap()["text"].as_str().unwrap();
         assert!(
-            after.starts_with("Screen now:") && after.contains("qa@velocity.dev"),
+            after.starts_with("Screen now:") && after.contains("qa@atalanta.sh"),
             "{typed}"
         );
         assert!(!after.contains("Continue"), "only the changes: {after}");
@@ -3906,7 +3906,7 @@ mod t2_tests {
             serde_json::json!({ "kind": "flow", "app_id": "com.app" }),
         )
         .await;
-        assert!(text(&flow).contains("qa@velocity.dev"), "{flow}");
+        assert!(text(&flow).contains("qa@atalanta.sh"), "{flow}");
     }
 
     // Row 2.3c: a call past its deadline is cut off, the session rebuilt,
@@ -3973,7 +3973,7 @@ mod t2_tests {
     }
 
     /// Row 0.5: what each profile's tool definitions cost an agent, every
-    /// turn. Printed for CI (`cargo test -p velocity-mcp-server
+    /// turn. Printed for CI (`cargo test -p atalanta-mcp-server
     /// schema_budget -- --nocapture`); the core profile must stay small.
     /// Tokens are estimated as bytes / 4 (no tokenizer is shipped); the
     /// byte count is exact.
@@ -4009,7 +4009,7 @@ mod t2_tests {
         );
     }
 
-    // `velocity` agent commands: each runs in its own process, so the
+    // `atalanta` agent commands: each runs in its own process, so the
     // session is saved and loaded; refs and the recording carry over.
     #[tokio::test]
     async fn saved_state_carries_refs_and_the_recording_to_the_next_process() {
@@ -4027,7 +4027,7 @@ mod t2_tests {
         // A new server on the same device, as the next command builds.
         let driver = launched_driver_on(&dir, "headless").await;
         let mut two = McpServer::new(driver, "headless".into(), None)
-            .with_platform(velocity_common::Platform::Android)
+            .with_platform(atalanta_common::Platform::Android)
             .with_tasks(TaskManager::new(dir.path().join("tasks2"), vec![]));
         two.load_state(
             &serde_json::from_str(&state.to_string()).unwrap(),
@@ -4036,7 +4036,7 @@ mod t2_tests {
         let typed = two
             .call(
                 "type_text",
-                serde_json::json!({ "ref": email, "text": "qa@velocity.dev" }),
+                serde_json::json!({ "ref": email, "text": "qa@atalanta.sh" }),
             )
             .await
             .unwrap();
@@ -4047,7 +4047,7 @@ mod t2_tests {
 
         let driver = launched_driver_on(&dir, "headless").await;
         let mut three = McpServer::new(driver, "headless".into(), None)
-            .with_platform(velocity_common::Platform::Android)
+            .with_platform(atalanta_common::Platform::Android)
             .with_tasks(TaskManager::new(dir.path().join("tasks3"), vec![]));
         three.load_state(&state, "headless");
         let out = three
@@ -4132,13 +4132,13 @@ mod t2_tests {
         let typed = call(
             &mut s,
             "type_text",
-            serde_json::json!({ "ref": email, "text": "qa@velocity.dev" }),
+            serde_json::json!({ "ref": email, "text": "qa@atalanta.sh" }),
         )
         .await;
         assert!(typed.get("isError").is_none(), "{typed}");
         let delta = text(&call(&mut s, "snapshot", serde_json::json!({ "mode": "delta" })).await);
         assert!(
-            delta.contains("~ ") && delta.contains("qa@velocity.dev"),
+            delta.contains("~ ") && delta.contains("qa@atalanta.sh"),
             "{delta}"
         );
         assert!(
@@ -4160,8 +4160,8 @@ mod t2_tests {
         let v: Value = serde_json::from_str(&text(&out)).unwrap();
         let yaml = v["yaml"].as_str().unwrap();
         assert!(!yaml.contains("@e"), "refs are never exported: {yaml}");
-        let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
-        velocity_core::validate_suite(&suite).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
+        atalanta_core::validate_suite(&suite).unwrap();
         assert_eq!(v["steps"], 2, "{yaml}");
     }
 
@@ -4219,7 +4219,7 @@ mod t2_tests {
             "iphone".into(),
             None,
         )
-        .with_platform(velocity_common::Platform::Ios);
+        .with_platform(atalanta_common::Platform::Ios);
         let full = text(&call(&mut a, "snapshot", serde_json::json!({})).await);
         let email = full
             .lines()
@@ -4230,7 +4230,7 @@ mod t2_tests {
         let typed = call(
             &mut a,
             "type_text",
-            serde_json::json!({ "ref": email, "text": "qa@velocity.dev" }),
+            serde_json::json!({ "ref": email, "text": "qa@atalanta.sh" }),
         )
         .await;
         assert!(typed.get("isError").is_none(), "{typed}");
@@ -4242,7 +4242,7 @@ mod t2_tests {
             "iphone".into(),
             None,
         )
-        .with_platform(velocity_common::Platform::Ios);
+        .with_platform(atalanta_common::Platform::Ios);
         same.load_state(&state, "iphone");
         let exp = serde_json::json!({ "app_id": "com.app" });
         let out = call(&mut same, "export_session_flow", exp.clone()).await;
@@ -4254,27 +4254,27 @@ mod t2_tests {
             "emulator-5554".into(),
             None,
         )
-        .with_platform(velocity_common::Platform::Android);
+        .with_platform(atalanta_common::Platform::Android);
         b.load_state(&state, "emulator-5554");
         let out = call(&mut b, "export_session_flow", exp.clone()).await;
         assert!(
-            !text(&out).contains("qa@velocity.dev"),
+            !text(&out).contains("qa@atalanta.sh"),
             "the iPhone's step is not exported from the Android session: {out}"
         );
 
-        // A session whose first call took no snapshot (`velocity type` by
+        // A session whose first call took no snapshot (`atalanta type` by
         // selector) still knows its device, so the switch is seen.
         let mut first = McpServer::new(
             launched_driver_on(&dir, "iphone").await,
             "iphone".into(),
             None,
         )
-        .with_platform(velocity_common::Platform::Ios);
+        .with_platform(atalanta_common::Platform::Ios);
         first.load_state(&Value::Null, "iphone");
         let typed = call(
             &mut first,
             "type_text",
-            serde_json::json!({ "selector": { "id": "email" }, "text": "qa@velocity.dev" }),
+            serde_json::json!({ "selector": { "id": "email" }, "text": "qa@atalanta.sh" }),
         )
         .await;
         assert!(typed.get("isError").is_none(), "{typed}");
@@ -4285,11 +4285,11 @@ mod t2_tests {
             "emulator-5554".into(),
             None,
         )
-        .with_platform(velocity_common::Platform::Android);
+        .with_platform(atalanta_common::Platform::Android);
         other.load_state(&state, "emulator-5554");
         let out = call(&mut other, "export_session_flow", exp).await;
         assert!(
-            !text(&out).contains("qa@velocity.dev"),
+            !text(&out).contains("qa@atalanta.sh"),
             "no snapshot on the iPhone, still not exported on Android: {out}"
         );
         drop(dir);
@@ -4304,7 +4304,7 @@ mod t2_tests {
         // Device A: a full snapshot, then a delta (no change) on the same device.
         let driver_a = launched_driver_on(&dir, "iphone").await;
         let mut a = McpServer::new(driver_a, "iphone".into(), None)
-            .with_platform(velocity_common::Platform::Ios);
+            .with_platform(atalanta_common::Platform::Ios);
         let full_a = text(&call(&mut a, "snapshot", serde_json::json!({})).await);
         assert!(full_a.starts_with("# "), "{full_a}");
         assert!(full_a.contains("@e2"), "{full_a}");
@@ -4317,14 +4317,14 @@ mod t2_tests {
         // Device B: a full screen again (no delta against A), refs from @e1.
         let driver_b = launched_driver_on(&dir, "emulator-5554").await;
         let mut b = McpServer::new(driver_b, "emulator-5554".into(), None)
-            .with_platform(velocity_common::Platform::Android);
+            .with_platform(atalanta_common::Platform::Android);
         // Load A's state onto B: device mismatch resets snapshots, so A's ref
         // is STALE_REF and B gets a full screen when it snapshots.
         let state_a = a.save_state();
         b.load_state(&state_a, "emulator-5554");
         assert_eq!(
             b.snapshots.platform,
-            Some(velocity_common::Platform::Android)
+            Some(atalanta_common::Platform::Android)
         );
         // The first delta on B is not a diff against A's screen.
         let first_b = text(&call(&mut b, "snapshot", serde_json::json!({ "mode": "delta" })).await);
@@ -4357,7 +4357,7 @@ mod t2_tests {
         let state_b = b.save_state();
         let driver_b2 = launched_driver_on(&dir, "emulator-5554").await;
         let mut b2 = McpServer::new(driver_b2, "emulator-5554".into(), None)
-            .with_platform(velocity_common::Platform::Android);
+            .with_platform(atalanta_common::Platform::Android);
         b2.load_state(&state_b, "emulator-5554");
         let again = text(&call(&mut b2, "snapshot", serde_json::json!({ "mode": "delta" })).await);
         assert!(
@@ -4373,7 +4373,7 @@ mod t2_tests {
         let (dir, _layout) = launched_layout(FORM).await;
         let driver = launched_driver_on(&dir, "iphone").await;
         let mut s = McpServer::new(driver, "iphone".into(), None)
-            .with_platform(velocity_common::Platform::Ios);
+            .with_platform(atalanta_common::Platform::Ios);
         let full = text(&call(&mut s, "snapshot", serde_json::json!({})).await);
         assert!(full.starts_with("# "), "{full}");
         let mut state = s.save_state();
@@ -4387,7 +4387,7 @@ mod t2_tests {
         // Loaded on device B: full screen, refs from @e1 (no forced reset).
         let driver_b = launched_driver_on(&dir, "emulator-5554").await;
         let mut b = McpServer::new(driver_b, "emulator-5554".into(), None)
-            .with_platform(velocity_common::Platform::Android);
+            .with_platform(atalanta_common::Platform::Android);
         b.load_state(&state, "emulator-5554");
         let full_b = text(&call(&mut b, "snapshot", serde_json::json!({})).await);
         assert!(
@@ -4410,8 +4410,8 @@ mod t2_tests {
         assert_eq!(v["source"], "screen", "{v}");
         let yaml = v["yaml"].as_str().unwrap();
         assert!(yaml.contains("#go"), "elements listed as comments: {yaml}");
-        let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
-        velocity_core::validate_suite(&suite).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
+        atalanta_core::validate_suite(&suite).unwrap();
         assert!(suite.tests[0].steps.len() >= 2, "{yaml}");
     }
 
@@ -4508,7 +4508,7 @@ mod t2_tests {
         let (s, _dir) = launched(FORM).await;
         let mut s = s
             .profile(crate::profile::Profile::Core)
-            .with_velocity_bin("/usr/bin/true".into());
+            .with_atalanta_bin("/usr/bin/true".into());
         let outside = tempfile::NamedTempFile::new().unwrap();
         let args = serde_json::json!({
             "goal": "attach the file", "app_id": "com.app",
@@ -4629,7 +4629,7 @@ mod t2_tests {
                 tasks.path().to_path_buf(),
                 vec![],
             ))
-            .with_velocity_bin("/usr/bin/true".into())
+            .with_atalanta_bin("/usr/bin/true".into())
             .profile(crate::profile::Profile::Core);
         let out = project.path().join("a.yaml");
         s.run_task(
@@ -4641,7 +4641,7 @@ mod t2_tests {
         // What explore wrote: a step typing a variable of the server's.
         std::fs::write(
             &out,
-            "appId: com.app\ntests:\n  - name: t\n    steps:\n      - inputText: { selector: { id: f }, text: \"${VELOCITY_V12_AUDIT_SECRET}\" }\n",
+            "appId: com.app\ntests:\n  - name: t\n    steps:\n      - inputText: { selector: { id: f }, text: \"${ATALANTA_V12_AUDIT_SECRET}\" }\n",
         )
         .unwrap();
         let restarted = crate::tasks::TaskManager::new(tasks.path().to_path_buf(), vec![]);
@@ -4654,7 +4654,7 @@ mod t2_tests {
             .await
             .unwrap_err()
             .to_string();
-        assert!(err.contains("VELOCITY_V12_AUDIT_SECRET"), "{err}");
+        assert!(err.contains("ATALANTA_V12_AUDIT_SECRET"), "{err}");
     }
 
     #[tokio::test]
@@ -4663,7 +4663,7 @@ mod t2_tests {
         let err = s
             .run_task(
                 "emulator-5554",
-                &serde_json::json!({ "goal": "log in", "app_id": "com.app", "secret": ["VELOCITY_MCP_TEST_NOT_ALLOWED_KEY"] }),
+                &serde_json::json!({ "goal": "log in", "app_id": "com.app", "secret": ["ATALANTA_MCP_TEST_NOT_ALLOWED_KEY"] }),
             )
             .await
             .unwrap_err()
@@ -4675,12 +4675,12 @@ mod t2_tests {
     async fn run_task_returns_at_once_and_status_tracks_it() {
         let (s, dir) = launched(FORM).await;
         let bin = crate::test_util::script(
-            "fake-velocity-pass",
-            "#!/bin/sh\nart=\"\"\nwhile [ $# -gt 0 ]; do [ \"$1\" = --artifacts-dir ] && art=\"$2\"; shift; done\nmkdir -p \"$art\"\necho '{\"event\":\"stepStarted\",\"test\":\"t\",\"index\":0,\"total\":2,\"step\":\"launchApp\"}' >> \"$VELOCITY_EVENTS_FILE\"\nsleep 1\nprintf '%s' '{\"total\":1,\"passed\":1,\"failed\":0,\"skipped\":0,\"retried\":0,\"duration\":{\"secs\":1,\"nanos\":0},\"tests\":[{\"test_name\":\"t\",\"status\":\"passed\",\"duration\":{\"secs\":1,\"nanos\":0},\"steps\":[],\"retries\":0,\"error_message\":null,\"screenshots\":[]}],\"shard_index\":null,\"shard_total\":null}' > \"$art/results.json\"\n",
+            "fake-atalanta-pass",
+            "#!/bin/sh\nart=\"\"\nwhile [ $# -gt 0 ]; do [ \"$1\" = --artifacts-dir ] && art=\"$2\"; shift; done\nmkdir -p \"$art\"\necho '{\"event\":\"stepStarted\",\"test\":\"t\",\"index\":0,\"total\":2,\"step\":\"launchApp\"}' >> \"$ATALANTA_EVENTS_FILE\"\nsleep 1\nprintf '%s' '{\"total\":1,\"passed\":1,\"failed\":0,\"skipped\":0,\"retried\":0,\"duration\":{\"secs\":1,\"nanos\":0},\"tests\":[{\"test_name\":\"t\",\"status\":\"passed\",\"duration\":{\"secs\":1,\"nanos\":0},\"steps\":[],\"retries\":0,\"error_message\":null,\"screenshots\":[]}],\"shard_index\":null,\"shard_total\":null}' > \"$art/results.json\"\n",
         );
         let _ = dir;
         // The script is the binary; it is reused across runs (see test_util).
-        let mut s = s.with_velocity_bin(bin);
+        let mut s = s.with_atalanta_bin(bin);
         let yaml = "appId: com.app\ntests:\n  - name: t\n    steps:\n      - launchApp: {}\n";
         let started = std::time::Instant::now();
         let out = call(&mut s, "run_task", serde_json::json!({ "yaml": yaml })).await;
@@ -4726,7 +4726,7 @@ mod t2_tests {
                     .stdout
             )
             .lines()
-            .filter(|l| l.contains("velocity") && (l.contains("sh") || l.contains("sleep")))
+            .filter(|l| l.contains("atalanta") && (l.contains("sh") || l.contains("sleep")))
             .collect::<Vec<_>>()
             .join("\n")
         );
@@ -4813,15 +4813,15 @@ mod t2_tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_gate_task_runs_velocity_gate_and_reports_the_verdict() {
+    async fn a_gate_task_runs_atalanta_gate_and_reports_the_verdict() {
         let (s, _dir) = launched(FORM).await;
         // Records its argv next to the suite, then prints a verdict; the
         // goal decides which one.
         let bin = crate::test_util::script(
-            "fake-velocity-gate-tool",
+            "fake-atalanta-gate-tool",
             "#!/bin/sh\nfile=\"$2\"; echo \"$*\" > \"$file.argv\"\ncase \"$*\" in\n  *--goal=weak*) printf '{\"file\":\"%s\",\"goal\":\"weak\",\"trusted\":false,\"gates\":{\"trusted\":false,\"reasons\":[\"wrong path: still passed\"]},\"replay\":{\"runs\":[{\"passed\":true,\"ms\":5},{\"passed\":true,\"ms\":6}]}}' \"$file\"; exit 1;;\n  *) printf '{\"file\":\"%s\",\"goal\":\"sign in\",\"trusted\":true,\"gates\":{\"trusted\":true,\"reasons\":[]},\"replay\":{\"runs\":[{\"passed\":true,\"ms\":5}]}}' \"$file\";;\nesac\n",
         );
-        let mut s = s.with_velocity_bin(bin);
+        let mut s = s.with_atalanta_bin(bin);
         let one =
             "appId: com.app\ntests:\n  - name: t\n    steps:\n      - tap: { text: Continue }\n";
         for (goal, state, trusted) in [("sign in", "passed", true), ("weak", "failed", false)] {
@@ -4872,12 +4872,12 @@ mod t2_tests {
         let (s, _dir) = launched(FORM).await;
         // Records its argv, waits for one injected line, then reports.
         let bin = crate::test_util::script(
-            "fake-velocity-explore-tool",
-            "#!/bin/sh\nout=\"\"; inject=\"\"; all=\"$*\"\nwhile [ $# -gt 0 ]; do case \"$1\" in --out) out=\"$2\"; shift;; --inject-file) inject=\"$2\"; shift;; esac; shift; done\necho \"$all\" > \"$out.argv\"\necho '{\"event\":\"planned\",\"turn\":1,\"op\":\"tap\",\"target\":\"Continue\"}' >> \"$VELOCITY_EVENTS_FILE\"\ni=0; while [ $i -lt 100 ] && ! grep -q . \"$inject\"; do sleep 0.1; i=$((i+1)); done\nprintf 'appId: com.app\\n' > \"$out\"\nprintf '{\"report\":{\"outcome\":\"success\",\"reason\":\"done\",\"turns\":1,\"steps\":[{}],\"modelCalls\":0},\"replay\":{\"runs\":[{\"passed\":true,\"ms\":5}],\"modelCalls\":0},\"files\":[\"%s\"]}' \"$out\"\n",
+            "fake-atalanta-explore-tool",
+            "#!/bin/sh\nout=\"\"; inject=\"\"; all=\"$*\"\nwhile [ $# -gt 0 ]; do case \"$1\" in --out) out=\"$2\"; shift;; --inject-file) inject=\"$2\"; shift;; esac; shift; done\necho \"$all\" > \"$out.argv\"\necho '{\"event\":\"planned\",\"turn\":1,\"op\":\"tap\",\"target\":\"Continue\"}' >> \"$ATALANTA_EVENTS_FILE\"\ni=0; while [ $i -lt 100 ] && ! grep -q . \"$inject\"; do sleep 0.1; i=$((i+1)); done\nprintf 'appId: com.app\\n' > \"$out\"\nprintf '{\"report\":{\"outcome\":\"success\",\"reason\":\"done\",\"turns\":1,\"steps\":[{}],\"modelCalls\":0},\"replay\":{\"runs\":[{\"passed\":true,\"ms\":5}],\"modelCalls\":0},\"files\":[\"%s\"]}' \"$out\"\n",
         );
-        let mut s = s.with_velocity_bin(bin);
+        let mut s = s.with_atalanta_bin(bin);
         // A secret it may type is one the user allowed (as type_text's).
-        velocity_common::redact::register_secret_name("PASSWORD");
+        atalanta_common::redact::register_secret_name("PASSWORD");
         let mixed = call(
             &mut s,
             "run_task",
@@ -4888,7 +4888,7 @@ mod t2_tests {
         // A model-chosen path out of the project is refused before anything
         // runs (the child would write the test there).
         for (k, v) in [
-            ("out", "/tmp/x/../../etc/velocity.yaml"),
+            ("out", "/tmp/x/../../etc/atalanta.yaml"),
             ("out", "../outside.yaml"),
             ("script", "/etc/hosts"),
         ] {
@@ -5076,7 +5076,7 @@ mod control_tests {
             ),
             (
                 "type_text".to_string(),
-                serde_json::json!({ "selector": { "id": "email" }, "text": "qa@velocity.dev" }),
+                serde_json::json!({ "selector": { "id": "email" }, "text": "qa@atalanta.sh" }),
             ),
             (
                 "press_key".to_string(),
@@ -5092,12 +5092,12 @@ mod control_tests {
         for (tool, args) in &calls {
             rec.record(tool, args);
         }
-        let (yaml, n) = session_flow_yaml("com.velocity.lab", "login by agent", &rec);
+        let (yaml, n) = session_flow_yaml("com.atalanta.lab", "login by agent", &rec);
         assert_eq!(n, 4, "the unusable call is skipped");
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
             .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
-        velocity_core::validate_suite(&suite).unwrap();
-        assert_eq!(suite.app_id, "com.velocity.lab");
+        atalanta_core::validate_suite(&suite).unwrap();
+        assert_eq!(suite.app_id, "com.atalanta.lab");
         assert_eq!(suite.tests[0].steps.len(), 5, "launchApp + 4");
     }
 
@@ -5105,8 +5105,8 @@ mod control_tests {
     /// config error after it. It presses back again, with a note.
     #[tokio::test]
     async fn escape_on_ios_presses_back_with_a_note() {
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
-            velocity_common::Platform::Ios,
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
+            atalanta_common::Platform::Ios,
             Default::default(),
         ));
         let mut s = McpServer::new(driver, "headless".into(), None);

@@ -1,23 +1,23 @@
-# @velocity-test/cli
+# @atalantahq/cli
 
-[Velocity](https://github.com/omkar-dev/velocity) is a fast, reliable mobile UI testing framework: YAML tests for Android, iOS and the web, an inspector, an MCP server for AI agents, and `velocity explore` to turn a goal into a test.
+[Atalanta](https://github.com/atalantahq/atalanta) is a fast, reliable mobile UI testing framework: YAML tests for Android, iOS and the web, an inspector, an MCP server for AI agents, and `atalanta explore` to turn a goal into a test.
 
 ```sh
-npx @velocity-test/cli --version
-npm install --save-dev @velocity-test/cli   # then: npx velocity run tests/
+npx @atalantahq/cli --version
+npm install --save-dev @atalantahq/cli   # then: npx atalanta run tests/
 ```
 
 This package is a small launcher. npm installs the prebuilt binary for your machine from one of its optional dependencies:
 
 | Platform | Package |
 |---|---|
-| macOS, Apple silicon | `@velocity-test/cli-darwin-arm64` |
-| macOS, Intel | `@velocity-test/cli-darwin-x64` |
-| Linux x64 (static) | `@velocity-test/cli-linux-x64` |
-| Linux arm64 (static) | `@velocity-test/cli-linux-arm64` |
+| macOS, Apple silicon | `@atalantahq/cli-darwin-arm64` |
+| macOS, Intel | `@atalantahq/cli-darwin-x64` |
+| Linux x64 (static) | `@atalantahq/cli-linux-x64` |
+| Linux arm64 (static) | `@atalantahq/cli-linux-arm64` |
 
-Windows is not supported. If your install skips optional dependencies (`--omit=optional`), the launcher says so; `VELOCITY_BINARY_PATH=/path/to/velocity` points it at any binary.
+Windows is not supported. If your install skips optional dependencies (`--omit=optional`), the launcher says so; `ATALANTA_BINARY_PATH=/path/to/atalanta` points it at any binary.
 
-Other ways to install: the [install script](https://github.com/omkar-dev/velocity#install), Homebrew (`brew install omkar-dev/velocity/velocity`) or `cargo install velocity-cli`.
+Other ways to install: the [install script](https://github.com/atalantahq/atalanta#install), Homebrew (`brew install atalantahq/tap/atalanta`) or `cargo install atalanta-cli`.
 
 Licensed under AGPL-3.0-only.

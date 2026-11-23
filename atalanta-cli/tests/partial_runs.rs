@@ -1,4 +1,4 @@
-//! `velocity run` end to end with the headless driver (no device): a run
+//! `atalanta run` end to end with the headless driver (no device): a run
 //! cut short still writes its reports (VEL-044/188), a report that can't
 //! be written doesn't stop the others (VEL-034), one artifacts folder
 //! (VEL-033), `${VAR}` tags (VEL-175) and `--changed-since` against a
@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -34,11 +34,11 @@ fn suite(dir: &Path, extra_config: &str, tests: &[(&str, &str, u64)]) {
 }
 
 fn run(dir: &Path, extra: &[&str]) -> Command {
-    let mut cmd = Command::new(velocity());
+    let mut cmd = Command::new(atalanta());
     cmd.args(["run", "suite.yaml", "--driver", "headless"])
         .args(extra)
         .current_dir(dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env_remove("GITHUB_ACTIONS")
@@ -93,7 +93,7 @@ fn a_timed_out_run_still_writes_its_reports() {
         "{:?}",
         started.elapsed()
     );
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(outcome(&r, "quick").0, "passed");
     let (status, msg) = outcome(&r, "slow");
     assert_eq!(status, "failed");
@@ -101,7 +101,7 @@ fn a_timed_out_run_still_writes_its_reports() {
     let (status, msg) = outcome(&r, "never");
     assert_eq!(status, "skipped");
     assert!(msg.contains("not run"), "{msg}");
-    assert!(dir.join("velocity-results/junit.xml").exists());
+    assert!(dir.join("atalanta-results/junit.xml").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -151,7 +151,7 @@ fn ctrl_c_writes_the_reports_of_what_ran() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(status.code(), Some(130));
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(outcome(&r, "quick").0, "passed");
     let (status, msg) = outcome(&r, "slow");
     assert_eq!(status, "skipped");
@@ -171,12 +171,12 @@ fn one_report_failing_does_not_skip_the_others() {
         .env("GITHUB_STEP_SUMMARY", &dir)
         .output()
         .unwrap();
-    // D-20: Velocity failing to write its output is an internal error (5),
+    // D-20: Atalanta failing to write its output is an internal error (5),
     // not a config error (2).
     assert_eq!(out.status.code(), Some(5), "{}", text(&out));
     assert!(text(&out).contains("github report"), "{}", text(&out));
     assert!(
-        dir.join("velocity-results/results.json").exists(),
+        dir.join("atalanta-results/results.json").exists(),
         "{}",
         text(&out)
     );
@@ -192,8 +192,8 @@ fn the_suites_output_dir_holds_the_reports() {
     let out = run(&dir, &["--report", "json"]).output().unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     assert!(dir.join("out/results.json").exists(), "{}", text(&out));
-    assert!(dir.join("out/velocity-history.json").exists());
-    assert!(!dir.join("velocity-results").exists());
+    assert!(dir.join("out/atalanta-history.json").exists());
+    assert!(!dir.join("atalanta-results").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -220,7 +220,7 @@ fn tags_written_with_variables_can_be_selected() {
     .output()
     .unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(r["tests"].as_array().unwrap().len(), 1, "{r}");
     assert_eq!(outcome(&r, "mine").0, "passed");
     let _ = std::fs::remove_dir_all(&dir);
@@ -258,14 +258,14 @@ fn changed_since_reads_git_safely() {
         &[("unicode", "x", 1), ("moved", "x", 1), ("other", "x", 1)],
     );
     std::fs::write(
-        dir.join("velocity-impact.yaml"),
+        dir.join("atalanta-impact.yaml"),
         "tests:\n  unicode: [\"src/héllo.ts\"]\n  moved: [\"src/old.ts\"]\n  other: [\"src/typo/**\"]\n",
     )
     .unwrap();
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(dir.join("src/héllo.ts"), "a").unwrap();
     std::fs::write(dir.join("src/old.ts"), "b").unwrap();
-    std::fs::write(dir.join(".gitignore"), "velocity-results/\nleases/\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), "atalanta-results/\nleases/\n").unwrap();
     git(&dir, &["init", "-q"]);
     git(&dir, &["add", "."]);
     git(&dir, &["commit", "-q", "-m", "base"]);
@@ -351,14 +351,14 @@ fn interrupt(name: &str, signals: &[i32], gap: Duration) -> (PathBuf, Option<i32
 fn sigterm_exits_143_and_the_reports_say_so() {
     let (dir, code) = interrupt("sigterm", &[libc::SIGTERM], Duration::ZERO);
     assert_eq!(code, Some(143));
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(r["termination"], "interrupted:SIGTERM", "{r}");
     let (status, msg) = outcome(&r, "slow");
     assert_eq!(status, "skipped");
     assert!(msg.contains("interrupted by SIGTERM"), "{msg}");
-    let junit = std::fs::read_to_string(dir.join("velocity-results/junit.xml")).unwrap();
+    let junit = std::fs::read_to_string(dir.join("atalanta-results/junit.xml")).unwrap();
     assert!(
-        junit.contains(r#"<property name="velocity.termination" value="interrupted:SIGTERM"/>"#),
+        junit.contains(r#"<property name="atalanta.termination" value="interrupted:SIGTERM"/>"#),
         "{junit}"
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -377,7 +377,7 @@ fn a_terminated_runs_step_summary_has_a_banner() {
         summary.contains("2 of 3 test(s) did not run or finish"),
         "{summary}"
     );
-    let junit = std::fs::read_to_string(dir.join("velocity-results/junit.xml")).unwrap();
+    let junit = std::fs::read_to_string(dir.join("atalanta-results/junit.xml")).unwrap();
     assert!(!junit.contains("<skipped/>"), "{junit}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -387,7 +387,7 @@ fn a_terminated_runs_step_summary_has_a_banner() {
 fn sighup_exits_129_after_writing_reports() {
     let (dir, code) = interrupt("sighup", &[libc::SIGHUP], Duration::ZERO);
     assert_eq!(code, Some(129));
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(r["termination"], "interrupted:SIGHUP", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -403,7 +403,7 @@ fn a_doubled_ctrl_c_still_writes_the_reports() {
         Duration::from_millis(100),
     );
     assert_eq!(code, Some(130));
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(r["termination"], "interrupted:SIGINT", "{r}");
     assert_eq!(outcome(&r, "quick").0, "passed");
     let _ = std::fs::remove_dir_all(&dir);
@@ -416,7 +416,7 @@ fn a_completed_run_reports_its_termination() {
     suite(&dir, "", &[("t", "x", 1)]);
     let out = run(&dir, &["--report", "json,junit"]).output().unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     assert_eq!(r["termination"], "completed", "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -435,9 +435,9 @@ fn clean_history(dir: &Path, names: &[&str]) {
         last.insert(n.to_string(), serde_json::json!(now));
     }
     let h = serde_json::json!({ "version": 2, "durations": {}, "outcomes": outcomes, "last_run": last });
-    std::fs::create_dir_all(dir.join("velocity-results")).unwrap();
+    std::fs::create_dir_all(dir.join("atalanta-results")).unwrap();
     std::fs::write(
-        dir.join("velocity-results/velocity-history.json"),
+        dir.join("atalanta-results/atalanta-history.json"),
         h.to_string(),
     )
     .unwrap();
@@ -461,7 +461,7 @@ fn changed_since_diffs_from_the_merge_base_and_runs_unmapped_tests() {
         ],
     );
     std::fs::write(
-        dir.join("velocity-impact.yaml"),
+        dir.join("atalanta-impact.yaml"),
         "tests:\n  feat: [src/feature.ts]\n  up: [src/upstream.ts]\n  wip: [src/wip.ts]\n",
     )
     .unwrap();
@@ -469,7 +469,7 @@ fn changed_since_diffs_from_the_merge_base_and_runs_unmapped_tests() {
     for f in ["feature.ts", "upstream.ts", "wip.ts"] {
         std::fs::write(dir.join("src").join(f), "a").unwrap();
     }
-    std::fs::write(dir.join(".gitignore"), "velocity-results/\nleases/\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), "atalanta-results/\nleases/\n").unwrap();
     git(&dir, &["init", "-q", "-b", "main"]);
     git(&dir, &["add", "."]);
     git(&dir, &["commit", "-q", "-m", "base"]);
@@ -497,7 +497,7 @@ fn changed_since_diffs_from_the_merge_base_and_runs_unmapped_tests() {
         !all.contains("up — "),
         "upstream-only change selected: {all}"
     );
-    let r = results(&dir.join("velocity-results/results.json"));
+    let r = results(&dir.join("atalanta-results/results.json"));
     let ran: Vec<&str> = r["tests"]
         .as_array()
         .unwrap()
@@ -508,7 +508,7 @@ fn changed_since_diffs_from_the_merge_base_and_runs_unmapped_tests() {
 
     // `impact: { unmapped: skip }` restores the old behaviour.
     std::fs::write(
-        dir.join("velocity-impact.yaml"),
+        dir.join("atalanta-impact.yaml"),
         "impact:\n  unmapped: skip\ntests:\n  feat: [src/feature.ts]\n  up: [src/upstream.ts]\n  wip: [src/wip.ts]\n",
     )
     .unwrap();
@@ -526,13 +526,13 @@ fn changed_since_ignores_diff_relative() {
     std::fs::create_dir_all(&e2e).unwrap();
     suite(&e2e, "", &[("login", "x", 1), ("other", "x", 1)]);
     std::fs::write(
-        e2e.join("velocity-impact.yaml"),
+        e2e.join("atalanta-impact.yaml"),
         "tests:\n  login: [app/src/]\n  other: [app/other/]\n",
     )
     .unwrap();
     std::fs::create_dir_all(dir.join("app/src")).unwrap();
     std::fs::write(dir.join("app/src/Login.kt"), "a").unwrap();
-    std::fs::write(dir.join(".gitignore"), "velocity-results/\nleases/\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), "atalanta-results/\nleases/\n").unwrap();
     git(&dir, &["init", "-q"]);
     git(&dir, &["config", "diff.relative", "true"]);
     git(&dir, &["add", "."]);
@@ -555,7 +555,7 @@ fn a_shallow_clone_names_fetch_depth_0() {
     let origin = dir.join("origin");
     std::fs::create_dir_all(&origin).unwrap();
     suite(&origin, "", &[("t", "x", 1)]);
-    std::fs::write(origin.join("velocity-impact.yaml"), "tests:\n  t: [src/]\n").unwrap();
+    std::fs::write(origin.join("atalanta-impact.yaml"), "tests:\n  t: [src/]\n").unwrap();
     git(&origin, &["init", "-q", "-b", "main"]);
     git(&origin, &["add", "."]);
     git(&origin, &["commit", "-q", "-m", "base"]);
@@ -597,12 +597,12 @@ fn fail_if_none_fails_an_empty_impact_selection() {
     let dir = scratch("ifnone");
     suite(&dir, "", &[("login", "x", 1)]);
     std::fs::write(
-        dir.join("velocity-impact.yaml"),
+        dir.join("atalanta-impact.yaml"),
         "tests:\n  login: [src/]\n",
     )
     .unwrap();
     std::fs::write(dir.join("README.md"), "a").unwrap();
-    std::fs::write(dir.join(".gitignore"), "velocity-results/\nleases/\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), "atalanta-results/\nleases/\n").unwrap();
     git(&dir, &["init", "-q"]);
     git(&dir, &["add", "."]);
     git(&dir, &["commit", "-q", "-m", "base"]);
@@ -628,18 +628,18 @@ fn fail_if_none_ignores_history_picks() {
     let dir = scratch("ifnonehist");
     suite(&dir, "", &[("login", "x", 1)]);
     std::fs::write(
-        dir.join("velocity-impact.yaml"),
+        dir.join("atalanta-impact.yaml"),
         "tests:\n  login: [src/]\n",
     )
     .unwrap();
     std::fs::write(dir.join("README.md"), "a").unwrap();
-    std::fs::write(dir.join(".gitignore"), "velocity-results/\nleases/\n").unwrap();
+    std::fs::write(dir.join(".gitignore"), "atalanta-results/\nleases/\n").unwrap();
     git(&dir, &["init", "-q"]);
     git(&dir, &["add", "."]);
     git(&dir, &["commit", "-q", "-m", "base"]);
     std::fs::write(dir.join("README.md"), "b").unwrap();
     clean_history(&dir, &["login"]);
-    let path = dir.join("velocity-results/velocity-history.json");
+    let path = dir.join("atalanta-results/atalanta-history.json");
     let mut h: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     h["outcomes"]["login"] = serde_json::json!(["fail"]);
@@ -662,12 +662,12 @@ fn junit_classname_suite_uses_the_suite_stem() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
-    let junit = std::fs::read_to_string(dir.join("velocity-results/junit.xml")).unwrap();
+    let junit = std::fs::read_to_string(dir.join("atalanta-results/junit.xml")).unwrap();
     assert!(junit.contains(r#"classname="suite""#), "{junit}");
     let out = run(&dir, &["--report", "junit"]).output().unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
-    let junit = std::fs::read_to_string(dir.join("velocity-results/junit.xml")).unwrap();
-    assert!(junit.contains(r#"classname="velocity""#), "{junit}");
+    let junit = std::fs::read_to_string(dir.join("atalanta-results/junit.xml")).unwrap();
+    assert!(junit.contains(r#"classname="atalanta""#), "{junit}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

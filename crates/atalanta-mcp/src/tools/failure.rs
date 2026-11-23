@@ -6,9 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
+use atalanta_common::{AtalantaError, Result};
+use atalanta_core::trace::{describe_failure as describe, load_trace, trace_dir};
 use serde_json::Value;
-use velocity_common::{Result, VelocityError};
-use velocity_core::trace::{describe_failure as describe, load_trace, trace_dir};
 
 /// Closest elements returned unless the caller asks for another number.
 const DEFAULT_LIMIT: usize = 5;
@@ -27,7 +27,7 @@ pub fn describe_failure(config_path: &Option<String>, args: &Value) -> Result<Va
     files.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
     for (file, _) in files {
         // The test passed since (VEL-205).
-        if velocity_core::trace::is_stale(&file) {
+        if atalanta_core::trace::is_stale(&file) {
             continue;
         }
         let Ok((trace, trees)) = load_trace(&file) else {
@@ -43,7 +43,7 @@ pub fn describe_failure(config_path: &Option<String>, args: &Value) -> Result<Va
         }
         return Ok(out);
     }
-    Err(VelocityError::Config(match test {
+    Err(AtalantaError::Config(match test {
         Some(t) => format!(
             "no failed trace for '{t}' under {}; run it first (traces are kept for failed tests)",
             trace_dir(&dir, t).display()
@@ -56,7 +56,7 @@ pub fn describe_failure(config_path: &Option<String>, args: &Value) -> Result<Va
 }
 
 /// In `--read-only` mode `artifacts_dir` may only point under the working
-/// directory, `./velocity-results` or the suite's `artifacts.outputDir`: the
+/// directory, `./atalanta-results` or the suite's `artifacts.outputDir`: the
 /// tool reads JSON from it, and read-only must not mean "read any directory"
 /// (VEL-S16). Returns the arguments with `artifacts_dir` replaced by the
 /// canonical path that was checked, so the read can't follow a symlink
@@ -67,7 +67,7 @@ pub fn check_read_only_artifacts_dir(config_path: &Option<String>, args: &Value)
     };
     let output_dir = config_path
         .as_deref()
-        .and_then(|p| velocity_core::parse_suite(p).ok())
+        .and_then(|p| atalanta_core::parse_suite(p).ok())
         .map(|s| PathBuf::from(s.config.artifacts.output_dir));
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let dir = read_only_dir(
@@ -100,7 +100,7 @@ fn read_only_dir(
     };
     let roots: Vec<PathBuf> = [
         cwd.map(Path::to_path_buf),
-        Some(resolve(Path::new("velocity-results"))),
+        Some(resolve(Path::new("atalanta-results"))),
         output_dir.map(resolve),
     ]
     .into_iter()
@@ -110,7 +110,7 @@ fn read_only_dir(
     .collect();
     match canon(&resolve(Path::new(asked))) {
         Some(dir) if roots.iter().any(|r| dir.starts_with(r)) => Ok(dir),
-        _ => Err(VelocityError::Config(format!(
+        _ => Err(AtalantaError::Config(format!(
             "artifacts_dir '{asked}' is outside the working directory and the suite's outputDir \
              (a working directory of / or $HOME doesn't count); a --read-only server only reads \
              artifacts there"
@@ -119,16 +119,16 @@ fn read_only_dir(
 }
 
 /// `artifacts_dir` argument, else the suite's `artifacts.outputDir`, else
-/// the default `./velocity-results`.
+/// the default `./atalanta-results`.
 fn artifacts_dir(config_path: &Option<String>, args: &Value) -> PathBuf {
     if let Some(d) = args.get("artifacts_dir").and_then(Value::as_str) {
         return PathBuf::from(d);
     }
     let from_suite = config_path
         .as_deref()
-        .and_then(|p| velocity_core::parse_suite(p).ok())
+        .and_then(|p| atalanta_core::parse_suite(p).ok())
         .map(|s| s.config.artifacts.output_dir);
-    PathBuf::from(from_suite.unwrap_or_else(|| "./velocity-results".into()))
+    PathBuf::from(from_suite.unwrap_or_else(|| "./atalanta-results".into()))
 }
 
 /// Every `steps*.json` under `<dir>/traces` (or just the test's folder),
@@ -161,7 +161,7 @@ pub(crate) fn trace_files(dir: &Path, test: Option<&str>) -> Vec<(PathBuf, std::
 }
 
 /// One line saying what to change.
-fn hint(d: &velocity_core::trace::FailureDescription) -> String {
+fn hint(d: &atalanta_core::trace::FailureDescription) -> String {
     let at = d
         .source
         .as_ref()
@@ -173,7 +173,7 @@ fn hint(d: &velocity_core::trace::FailureDescription) -> String {
             d.step, m.describe
         ),
         (Some(sel), Some(best), None)
-            if best.score.unwrap_or(0.0) >= velocity_core::trace::RESEMBLES =>
+            if best.score.unwrap_or(0.0) >= atalanta_core::trace::RESEMBLES =>
         {
             format!(
             "{at}{sel} is not on screen; the closest element is {} (score {:.2}). \
@@ -203,14 +203,14 @@ fn hint(d: &velocity_core::trace::FailureDescription) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
-    use velocity_common::{
+    use atalanta_common::{
         Element, Rect, Selector, SourcePos, StepResult, StepStatus, TestStatus, TraceMode,
     };
-    use velocity_core::trace::TraceRecorder;
+    use atalanta_core::trace::TraceRecorder;
+    use std::time::Duration;
 
     /// m10: a cwd of `/` or `$HOME` is not an allowance; the suite's
-    /// outputDir and `./velocity-results` still are.
+    /// outputDir and `./atalanta-results` still are.
     #[test]
     fn read_only_ignores_a_cwd_of_root_or_home() {
         let tmp = std::env::temp_dir().join(format!("vel-ro-{}", std::process::id()));

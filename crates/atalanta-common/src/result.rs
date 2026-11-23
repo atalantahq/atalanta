@@ -84,7 +84,7 @@ pub struct TestResult {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub failed_attempts: Vec<String>,
     /// The test's `- name:` line in the suite YAML. Filled in after the run
-    /// from the parsed suite (see `velocity_core::parser::stamp_sources`).
+    /// from the parsed suite (see `atalanta_core::parser::stamp_sources`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::SourcePos>,
     /// The kept trace of this test (`traces/<test>/steps*.json`): its
@@ -104,8 +104,8 @@ pub struct TestResult {
     /// The test's tags, for reports (Allure `tag` labels, JSON).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
-    /// Velocity itself failed (a panic in a test, or the worker running it
-    /// died): a bug in Velocity, not in the app or the device. The run
+    /// Atalanta itself failed (a panic in a test, or the worker running it
+    /// died): a bug in Atalanta, not in the app or the device. The run
     /// exits 5, outranking a test failure (D-19), and the quarantine list
     /// never forgives it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -292,7 +292,7 @@ pub struct SuiteResult {
 }
 
 impl SuiteResult {
-    /// 0 all passed; 5 when Velocity itself failed on some test (a panic,
+    /// 0 all passed; 5 when Atalanta itself failed on some test (a panic,
     /// D-19), whatever else failed; 3 when every failure was the device's
     /// (unreachable, locked, unresponsive), so CI can tell "fix the farm"
     /// from "fix the app"; else 1. A locked device used to exit 1, like a
@@ -383,7 +383,7 @@ mod exit_code_tests {
     fn an_internal_error_exits_5_and_outranks_a_test_failure() {
         let panicked = TestResult {
             internal_error: true,
-            ..TestResult::failed("p", "Velocity panicked".into(), Duration::ZERO)
+            ..TestResult::failed("p", "Atalanta panicked".into(), Duration::ZERO)
         };
         let bug = TestResult::failed("c", "not found".into(), Duration::ZERO);
         assert_eq!(suite(vec![panicked.clone()]).exit_code(), 5);

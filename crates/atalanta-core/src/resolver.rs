@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use velocity_common::{Action, Flow, Result, Step, TestCase, TestSuite, VelocityError};
+use atalanta_common::{Action, AtalantaError, Flow, Result, Step, TestCase, TestSuite};
 
 pub fn resolve_flows(suite: &TestSuite) -> Result<Vec<TestCase>> {
     let flow_map: HashMap<&str, &Flow> = suite.flows.iter().map(|f| (f.id.as_str(), f)).collect();
@@ -103,7 +103,7 @@ fn resolve_steps<'a>(
         } else {
             let flow = stack.last().copied().unwrap_or_default();
             bound = crate::env::bind_step(step, &params.values, &params.names).map_err(|_| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "flow '{flow}' in test '{test_name}' uses a runFlow parameter this call \
                      doesn't pass ({}); add it to the runFlow's env",
                     missing_params(step, params)
@@ -114,7 +114,7 @@ fn resolve_steps<'a>(
         match &step.action {
             Action::RunFlow { flow_id, env } => {
                 let flow = *flow_map.get(flow_id.as_str()).ok_or_else(|| {
-                    VelocityError::UnknownFlowRef {
+                    AtalantaError::UnknownFlowRef {
                         flow_id: flow_id.clone(),
                         test_name: test_name.to_string(),
                     }
@@ -122,13 +122,13 @@ fn resolve_steps<'a>(
                 if stack.contains(&flow.id.as_str()) {
                     let mut cycle: Vec<&str> = stack.clone();
                     cycle.push(&flow.id);
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "runFlow cycle in test '{test_name}': {}",
                         cycle.join(" -> ")
                     )));
                 }
                 if stack.len() >= MAX_FLOW_DEPTH {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "runFlow nesting in test '{test_name}' is deeper than {MAX_FLOW_DEPTH} \
                          ({} -> {})",
                         stack.join(" -> "),
@@ -142,8 +142,8 @@ fn resolve_steps<'a>(
                     names: params.names.clone(),
                 };
                 for (name, value) in env {
-                    if velocity_common::redact::is_secret_name(name) {
-                        velocity_common::redact::register_secret(value);
+                    if atalanta_common::redact::is_secret_name(name) {
+                        atalanta_common::redact::register_secret(value);
                     }
                     call.values.insert(name.clone(), value.clone());
                     call.names.insert(name.clone());
@@ -153,7 +153,7 @@ fn resolve_steps<'a>(
                 // below and multiplied into hours of work: count the calls.
                 *calls += 1;
                 if *calls > MAX_EXPANDED_STEPS {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "test '{test_name}' makes more than {MAX_EXPANDED_STEPS} runFlow \
                          calls (nested flows that each run the next several times multiply)"
                     )));
@@ -193,7 +193,7 @@ fn resolve_steps<'a>(
                     }
                 }
                 if resolved.len() + inner.len() > MAX_EXPANDED_STEPS {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "test '{test_name}' expands to more than {MAX_EXPANDED_STEPS} steps \
                          through runFlow (VEL-209: a few nested flows that each run the \
                          next several times multiply)"
@@ -213,7 +213,7 @@ fn resolve_steps<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{Selector, SuiteConfig};
+    use atalanta_common::{Selector, SuiteConfig};
 
     fn step(action: Action) -> Step {
         Step {
@@ -294,13 +294,13 @@ mod tests {
                     selector: Selector::Text("Go".to_string()),
                 })],
                 description: Some("the order is paid".to_string()),
-                verify: Some(velocity_common::VerifyLevel::Strict),
+                verify: Some(atalanta_common::VerifyLevel::Strict),
             }],
         };
         let resolved = resolve_flows(&suite).unwrap();
         assert_eq!(
             resolved[0].verify,
-            Some(velocity_common::VerifyLevel::Strict)
+            Some(atalanta_common::VerifyLevel::Strict)
         );
         assert_eq!(
             resolved[0].description.as_deref(),
@@ -460,7 +460,7 @@ mod tests {
         };
 
         let err = resolve_flows(&suite).unwrap_err();
-        assert!(matches!(err, VelocityError::UnknownFlowRef { .. }));
+        assert!(matches!(err, AtalantaError::UnknownFlowRef { .. }));
     }
 
     #[test]
@@ -537,7 +537,7 @@ mod tests {
             env: Default::default(),
         });
         run.timeout_ms = Some(5000);
-        run.settle = Some(velocity_common::StepSettle {
+        run.settle = Some(atalanta_common::StepSettle {
             skip: true,
             ..Default::default()
         });
@@ -835,7 +835,7 @@ tests:
         );
         resolved(&yaml, &[]).unwrap();
         assert!(
-            !velocity_common::redact::redact("x s3cr3t-param-value y").contains("s3cr3t"),
+            !atalanta_common::redact::redact("x s3cr3t-param-value y").contains("s3cr3t"),
             "registered for masking"
         );
     }

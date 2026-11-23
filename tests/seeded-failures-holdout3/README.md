@@ -14,6 +14,6 @@ Categories (2 per platform each): selector-typo, wrong-screen, wrong-expected-va
 Devices: Android emulator API 33 (`emulator-5556`), iPhone 17 simulator, iOS 26. Read-only navigation of the Settings apps;
 the wrong-app seeds only launch Clock, Contacts or Files and never act in them.
 
-Run one: `velocity run tests/seeded-failures-holdout3/android/01-services-row.yaml -p android -d <device>`.
-Validate all: `velocity validate tests/seeded-failures-holdout3/android` (and `ios`).
+Run one: `atalanta run tests/seeded-failures-holdout3/android/01-services-row.yaml -p android -d <device>`.
+Validate all: `atalanta validate tests/seeded-failures-holdout3/android` (and `ios`).
 Seeds were validated but not run when written.

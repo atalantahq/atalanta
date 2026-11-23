@@ -1,10 +1,10 @@
-//! Secret redaction for everything Velocity writes or prints: reports,
+//! Secret redaction for everything Atalanta writes or prints: reports,
 //! traces, the live console, MCP replies, natural-language traces.
 //!
 //! Two layers:
 //! - **Known values.** The values of `${VAR}`s whose names look secret
 //!   (`PASSWORD`, `TOKEN`, `SECRET`, `KEY`, `PIN`, `OTP`, …) or are listed in
-//!   `VELOCITY_SECRETS` are registered when the suite is interpolated, and
+//!   `ATALANTA_SECRETS` are registered when the suite is interpolated, and
 //!   every occurrence is replaced.
 //! - **Shapes.** Bearer tokens, auth/API-key headers, `?token=` style URL
 //!   parameters, JSON `"password": "…"` fields, JWTs and well-known key
@@ -111,7 +111,7 @@ static SHAPES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
 });
 
 /// Whether a variable named `name` holds a secret: its name looks like one,
-/// or `VELOCITY_SECRETS` (comma-separated) lists it.
+/// or `ATALANTA_SECRETS` (comma-separated) lists it.
 pub fn is_secret_name(name: &str) -> bool {
     // Whole words only (`_`, `-`, camelCase, acronym and digit runs split):
     // "PIN" must not catch SHIPPING_ADDRESS, nor "AUTH" AUTHOR. Acronyms and
@@ -189,10 +189,10 @@ pub fn is_secret_name(name: &str) -> bool {
     listed_secret(name)
 }
 
-/// Whether `VELOCITY_SECRETS` (the `secrets` setting, comma-separated)
+/// Whether `ATALANTA_SECRETS` (the `secrets` setting, comma-separated)
 /// lists `name`.
 pub fn listed_secret(name: &str) -> bool {
-    crate::env::var("VELOCITY_SECRETS")
+    crate::env::var("ATALANTA_SECRETS")
         .map(|list| list.split(',').any(|v| v.trim().eq_ignore_ascii_case(name)))
         .unwrap_or(false)
 }
@@ -211,7 +211,7 @@ pub fn register_secret_name(name: &str) {
 }
 
 /// Whether a variable may be read by name on request (MCP `type_text
-/// {secret}`): listed in `VELOCITY_SECRETS`, or used as a secret by a
+/// {secret}`): listed in `ATALANTA_SECRETS`, or used as a secret by a
 /// suite in this process. Anything else in the environment
 /// (`AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, …) stays out of reach.
 pub fn is_allowed_secret_name(name: &str) -> bool {
@@ -837,7 +837,7 @@ mod tests {
             "{text}"
         );
 
-        let e = crate::VelocityError::CommandFailed {
+        let e = crate::AtalantaError::CommandFailed {
             device_id: "emulator-5554".into(),
             command: "input text logline-S3cret-77".into(),
             detail: "echo logline-S3cret-77 failed".into(),

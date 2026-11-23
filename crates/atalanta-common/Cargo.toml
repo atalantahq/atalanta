@@ -1,5 +1,5 @@
 [package]
-name = "velocity-common"
+name = "atalanta-common"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "mobile", "android", "ios", "automation"]
 categories = ["development-tools::testing"]
-description = "Shared types, traits, and error types for the Velocity test framework"
+description = "Shared types, traits, and error types for the Atalanta test framework"
 
 [dependencies]
 serde = { workspace = true }

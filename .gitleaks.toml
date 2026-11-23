@@ -17,30 +17,30 @@ useDefault = true
 description = "Fake tokens, passwords and RFC test vectors in tests"
 # regexTarget defaults to the captured secret.
 regexes = [
-    # velocity-cli/tests/http_api.rs, crates/velocity-api/tests/session.rs:
+    # atalanta-cli/tests/http_api.rs, crates/atalanta-api/tests/session.rs:
     # bearer tokens a local fake HTTP server hands out.
     '''^tok-5ecret-0123456789$''',
     '''^tok-0123456789abcdef$''',
-    # velocity-cli/tests/settings.rs: a runner token `velocity settings`
+    # atalanta-cli/tests/settings.rs: a runner token `atalanta settings`
     # must mask (November review).
     '''^tok-0123456789abcdef-sekret$''',
-    # crates/velocity-common/src/redact.rs: an `Authorization: Token` value
+    # crates/atalanta-common/src/redact.rs: an `Authorization: Token` value
     # the masking tests expect hidden (November review).
     '''^abcdef0123456789$''',
     # The Sec-WebSocket-Key sample nonce from RFC 6455 section 1.3
-    # (crates/velocity-inspector/tests/{server,console}.rs).
+    # (crates/atalanta-inspector/tests/{server,console}.rs).
     '''^dGhlIHNhbXBsZSBub25jZQ==$''',
     # Typed-password fixtures in the secret-masking tests
-    # (crates/velocity-explore/tests/explore.rs, crates/velocity-core/src/healing.rs).
+    # (crates/atalanta-explore/tests/explore.rs, crates/atalanta-core/src/healing.rs).
     '''^S3cr3t-pw-T5-explore$''',
     '''^vel065-Pa55w0rd-QzX$''',
     # The ASCII-hex counting token used for handshake/HMAC tests
     # (tree_server.rs, video.rs, wda_bootstrap.rs, HostChecks.java).
     '''^0123456789abcdef(0123456789abcdef)?$''',
     # The RFC 6238 Appendix B TOTP seed ("12345678901234567890" in base32)
-    # (crates/velocity-common/src/secrets.rs, crates/velocity-core/src/env.rs).
+    # (crates/atalanta-common/src/secrets.rs, crates/atalanta-core/src/env.rs).
     '''^GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ$''',
-    # Redaction test cases (crates/velocity-common/src/redact.rs): an
+    # Redaction test cases (crates/atalanta-common/src/redact.rs): an
     # AWS-shaped key id and an api-key value that must be masked.
     '''^AKIAABCDEFGHIJKLMNOP$''',
     '''^abcdef123456$''',
@@ -49,13 +49,13 @@ regexes = [
 [[allowlists]]
 description = "Throwaway RSA key for the GCP service-account JWT tests"
 # Generated for the tests (see the TEST_KEY comment in
-# crates/velocity-nl/src/gcp.rs), paired only with the fake
-# tester@velocity-test.iam.gserviceaccount.com; it authenticates nothing.
-paths = ['''^crates/velocity-nl/fixtures/test-service-account-key\.pem$''']
+# crates/atalanta-nl/src/gcp.rs), paired only with the fake
+# tester@atalantahq.iam.gserviceaccount.com; it authenticates nothing.
+paths = ['''^crates/atalanta-nl/fixtures/test-service-account-key\.pem$''']
 
 [[allowlists]]
 description = "PEM template around a key generated at test time"
-# crates/velocity-ios/src/asc.rs test_key(): format!("-----BEGIN PRIVATE
+# crates/atalanta-ios/src/asc.rs test_key(): format!("-----BEGIN PRIVATE
 # KEY-----\n{}\n...") with a P-256 key ring generates on each run.
 regexTarget = "match"
 regexes = ['''BEGIN PRIVATE KEY-----\\n\{\}\\n-----END PRIVATE KEY''']

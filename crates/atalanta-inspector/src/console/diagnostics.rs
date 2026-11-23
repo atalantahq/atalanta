@@ -1,8 +1,8 @@
 //! The connection wizard's checks: `GET /api/diagnostics`.
 //!
-//! The CLI's `inspect` plugs in `velocity doctor`'s checks
-//! (`velocity_doctor::run_checks`, in process) and the report is passed
-//! through as `velocity doctor --json` prints it: `{verdict, checks: [{id,
+//! The CLI's `inspect` plugs in `atalanta doctor`'s checks
+//! (`atalanta_doctor::run_checks`, in process) and the report is passed
+//! through as `atalanta doctor --json` prints it: `{verdict, checks: [{id,
 //! area, status, summary, detail, fix: {kind, value}}]}`. Without a
 //! [`Diagnostics`] (the default), the route answers 501.
 

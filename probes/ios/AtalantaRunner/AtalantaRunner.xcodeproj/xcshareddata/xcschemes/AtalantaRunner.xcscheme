@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D23C915C28804E6940DD06FB"
-               BuildableName = "VelocityRunnerUITests.xctest"
-               BlueprintName = "VelocityRunnerUITests"
-               ReferencedContainer = "container:VelocityRunner.xcodeproj">
+               BuildableName = "AtalantaRunnerUITests.xctest"
+               BlueprintName = "AtalantaRunnerUITests"
+               ReferencedContainer = "container:AtalantaRunner.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D23C915C28804E6940DD06FB"
-            BuildableName = "VelocityRunnerUITests.xctest"
-            BlueprintName = "VelocityRunnerUITests"
-            ReferencedContainer = "container:VelocityRunner.xcodeproj">
+            BuildableName = "AtalantaRunnerUITests.xctest"
+            BlueprintName = "AtalantaRunnerUITests"
+            ReferencedContainer = "container:AtalantaRunner.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -45,9 +45,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "D23C915C28804E6940DD06FB"
-               BuildableName = "VelocityRunnerUITests.xctest"
-               BlueprintName = "VelocityRunnerUITests"
-               ReferencedContainer = "container:VelocityRunner.xcodeproj">
+               BuildableName = "AtalantaRunnerUITests.xctest"
+               BlueprintName = "AtalantaRunnerUITests"
+               ReferencedContainer = "container:AtalantaRunner.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -68,9 +68,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D23C915C28804E6940DD06FB"
-            BuildableName = "VelocityRunnerUITests.xctest"
-            BlueprintName = "VelocityRunnerUITests"
-            ReferencedContainer = "container:VelocityRunner.xcodeproj">
+            BuildableName = "AtalantaRunnerUITests.xctest"
+            BlueprintName = "AtalantaRunnerUITests"
+            ReferencedContainer = "container:AtalantaRunner.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
    </LaunchAction>
@@ -84,9 +84,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "D23C915C28804E6940DD06FB"
-            BuildableName = "VelocityRunnerUITests.xctest"
-            BlueprintName = "VelocityRunnerUITests"
-            ReferencedContainer = "container:VelocityRunner.xcodeproj">
+            BuildableName = "AtalantaRunnerUITests.xctest"
+            BlueprintName = "AtalantaRunnerUITests"
+            ReferencedContainer = "container:AtalantaRunner.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
    </ProfileAction>

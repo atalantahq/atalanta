@@ -1,8 +1,8 @@
-//! Host: OS, Velocity, memory and disk, state directories, leases.
+//! Host: OS, Atalanta, memory and disk, state directories, leases.
 
 use std::path::{Path, PathBuf};
 
-use velocity_common::host as room;
+use atalanta_common::host as room;
 
 use crate::{timed, Area, AreaResult, Check, Ctx, Fix};
 
@@ -11,7 +11,7 @@ const A: Area = Area::Host;
 pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
     let out = vec![
         timed(|| os(ctx)).await,
-        timed(|| async { velocity() }).await,
+        timed(|| async { atalanta() }).await,
         timed(|| async { resources() }).await,
         timed(|| async { state_dirs(ctx) }).await,
         timed(|| async { leases(ctx) }).await,
@@ -59,14 +59,14 @@ async fn os(ctx: &Ctx) -> Check {
     }
 }
 
-fn velocity() -> Check {
+fn atalanta() -> Check {
     let exe = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "?".into());
     Check::ok(
-        "host.velocity",
+        "host.atalanta",
         A,
-        format!("velocity {}", env!("CARGO_PKG_VERSION")),
+        format!("atalanta {}", env!("CARGO_PKG_VERSION")),
     )
     .with_detail(exe)
 }
@@ -87,25 +87,25 @@ fn resources() -> Check {
         Err(why) => Check::warn("host.resources", A, summary)
             .with_detail(format!("too little to boot another device: {why}"))
             .with_fix(Fix::guidance(
-                "close apps or stop devices you don't need (`velocity devices down`); \
+                "close apps or stop devices you don't need (`atalanta devices down`); \
                  a swapping host makes every device on it flaky",
             )),
     }
 }
 
-/// `~/.velocity` or `VELOCITY_LEASE_DIR`: the lease directory.
+/// `~/.atalanta` or `ATALANTA_LEASE_DIR`: the lease directory.
 pub(crate) fn lease_dir(ctx: &Ctx) -> PathBuf {
     ctx.env()
-        .var("VELOCITY_LEASE_DIR")
+        .var("ATALANTA_LEASE_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| ctx.env().home().join(".velocity").join("leases"))
+        .unwrap_or_else(|| ctx.env().home().join(".atalanta").join("leases"))
 }
 
 /// Devices a live process holds the lease of now (a run, the console, an MCP
 /// session), as "name (pid N cmd)". Whatever such a process is doing with an
 /// adb server, restarting it would interrupt.
 pub(crate) fn held_leases(ctx: &Ctx) -> Vec<String> {
-    velocity_runner::lease::scan(&lease_dir(ctx))
+    atalanta_runner::lease::scan(&lease_dir(ctx))
         .unwrap_or_default()
         .into_iter()
         .filter(|l| l.held)
@@ -122,9 +122,9 @@ pub(crate) fn held_leases(ctx: &Ctx) -> Vec<String> {
 
 fn state_dirs(ctx: &Ctx) -> Check {
     let env = ctx.env();
-    let home = env.home().join(".velocity");
+    let home = env.home().join(".atalanta");
     let state = env
-        .var("VELOCITY_STATE_DIR")
+        .var("ATALANTA_STATE_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join("state"));
     let mut dirs = vec![
@@ -133,7 +133,7 @@ fn state_dirs(ctx: &Ctx) -> Check {
         ("leases", lease_dir(ctx)),
         ("runner cache", home.join("wda")),
     ];
-    let results = ctx.opts.cwd.join("velocity-results");
+    let results = ctx.opts.cwd.join("atalanta-results");
     dirs.push(("artifacts", results));
     let mut bad = Vec::new();
     for (what, dir) in &dirs {
@@ -157,8 +157,8 @@ fn state_dirs(ctx: &Ctx) -> Check {
         Check::fail("host.state_dirs", A, format!("{} not writable", bad.len()))
             .with_detail(bad.join("\n"))
             .with_fix(Fix::guidance(
-                "make them writable, or point Velocity elsewhere: VELOCITY_STATE_DIR, \
-             VELOCITY_LEASE_DIR, --artifacts-dir",
+                "make them writable, or point Atalanta elsewhere: ATALANTA_STATE_DIR, \
+             ATALANTA_LEASE_DIR, --artifacts-dir",
             ))
     }
 }
@@ -173,14 +173,14 @@ fn writable(dir: &Path) -> Result<(), String> {
     if !existing.is_dir() {
         return Err(format!("{} is not a directory", existing.display()));
     }
-    let probe = existing.join(format!(".velocity-doctor-{}", std::process::id()));
+    let probe = existing.join(format!(".atalanta-doctor-{}", std::process::id()));
     std::fs::write(&probe, b"").map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&probe);
     Ok(())
 }
 
 fn leases(ctx: &Ctx) -> Check {
-    let off = ctx.env().var("VELOCITY_LEASES").is_some_and(|v| {
+    let off = ctx.env().var("ATALANTA_LEASES").is_some_and(|v| {
         matches!(
             v.trim().to_ascii_lowercase().as_str(),
             "off" | "0" | "false" | "no"
@@ -190,11 +190,11 @@ fn leases(ctx: &Ctx) -> Check {
         return Check::ok(
             "host.leases",
             A,
-            "cross-process device leases are off (VELOCITY_LEASES)",
+            "cross-process device leases are off (ATALANTA_LEASES)",
         );
     }
     let dir = lease_dir(ctx);
-    let files = match velocity_runner::lease::scan(&dir) {
+    let files = match atalanta_runner::lease::scan(&dir) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return Check::ok("host.leases", A, "no device leases yet")
@@ -207,7 +207,7 @@ fn leases(ctx: &Ctx) -> Check {
                 format!("can't read {}: {e}", dir.display()),
             )
             .with_fix(Fix::guidance(
-                "set VELOCITY_LEASE_DIR to a writable local directory",
+                "set ATALANTA_LEASE_DIR to a writable local directory",
             ))
         }
     };
@@ -297,11 +297,11 @@ mod tests {
     fn stale_leases_block_nobody_and_live_ones_are_named() {
         let mut t = Tools::new();
         let dir = t.path("leases");
-        t.set("VELOCITY_LEASE_DIR", &dir.to_string_lossy());
+        t.set("ATALANTA_LEASE_DIR", &dir.to_string_lossy());
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("emulator-5554.lock"),
-            "pid=999999998 cmd=velocity run\n",
+            "pid=999999998 cmd=atalanta run\n",
         )
         .unwrap();
         // Left by an exited process, held by nobody: blocks nothing, so
@@ -314,12 +314,12 @@ mod tests {
         // Our own pid: alive, not stale.
         std::fs::write(
             dir.join("emulator-5554.lock"),
-            format!("pid={} cmd=velocity run\n", std::process::id()),
+            format!("pid={} cmd=atalanta run\n", std::process::id()),
         )
         .unwrap();
         assert_eq!(leases(&ctx(&t)).status, Status::Ok);
 
-        t.set("VELOCITY_LEASES", "off");
+        t.set("ATALANTA_LEASES", "off");
         assert!(leases(&ctx(&t)).summary.contains("off"));
     }
 
@@ -327,7 +327,7 @@ mod tests {
     fn a_missing_lease_dir_is_fine_and_unwritable_state_fails() {
         let mut t = Tools::new();
         t.set(
-            "VELOCITY_LEASE_DIR",
+            "ATALANTA_LEASE_DIR",
             &t.path("nope/leases").to_string_lossy(),
         );
         assert_eq!(leases(&ctx(&t)).status, Status::Ok);
@@ -335,7 +335,7 @@ mod tests {
         // A file where the state dir should be.
         std::fs::write(t.path("state-file"), "x").unwrap();
         t.set(
-            "VELOCITY_STATE_DIR",
+            "ATALANTA_STATE_DIR",
             &t.path("state-file/sub").to_string_lossy(),
         );
         let c = state_dirs(&ctx(&t));
@@ -349,10 +349,10 @@ mod tests {
     fn a_lease_that_is_really_held_still_warns() {
         let mut t = Tools::new();
         let dir = t.path("leases");
-        t.set("VELOCITY_LEASE_DIR", &dir.to_string_lossy());
+        t.set("ATALANTA_LEASE_DIR", &dir.to_string_lossy());
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("emulator-5554.lock");
-        std::fs::write(&path, "pid=999999998 cmd=velocity run\n").unwrap();
+        std::fs::write(&path, "pid=999999998 cmd=atalanta run\n").unwrap();
         let f = std::fs::File::options()
             .read(true)
             .write(true)

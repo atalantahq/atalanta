@@ -52,9 +52,9 @@ def main(path):
             stats = "– | – | – | –"
         print(f"| {tool} | {len(ok)}/{r['total']} | {stats} |")
 
-    if "velocity" in medians and "maestro" in medians and medians["velocity"] > 0:
-        ratio = medians["maestro"] / medians["velocity"]
-        print(f"\nMedian wall clock, Maestro / Velocity: {ratio:.1f}x")
+    if "atalanta" in medians and "maestro" in medians and medians["atalanta"] > 0:
+        ratio = medians["maestro"] / medians["atalanta"]
+        print(f"\nMedian wall clock, Maestro / Atalanta: {ratio:.1f}x")
     if any(len(r["ok"]) < r["total"] for r in runs.values()):
         print("\nSome runs failed; see logs/ next to the CSV. Failed runs are not timed.")
 

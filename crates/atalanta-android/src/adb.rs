@@ -1,8 +1,8 @@
 use std::process::Stdio;
 
+use atalanta_common::{AtalantaError, DeviceInfo, DeviceState, DeviceType, Platform, Result};
 use tokio::process::Command;
 use tracing::debug;
-use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform, Result, VelocityError};
 
 /// Wrapper around ADB subprocess calls with optional command batching.
 pub struct Adb {
@@ -16,12 +16,12 @@ pub struct Adb {
     os_versions: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
-/// Remote adb servers from `VELOCITY_ADB_SERVERS` (`host:port,host:port`).
+/// Remote adb servers from `ATALANTA_ADB_SERVERS` (`host:port,host:port`).
 /// Their devices join the pool as `host:port/serial` (Marathon's
 /// `adb_servers`): a farm machine runs `adb -a nodaemon server` and every
-/// Velocity on the network can lease its devices.
+/// Atalanta on the network can lease its devices.
 pub fn remote_servers() -> Vec<(String, u16)> {
-    velocity_common::env::var("VELOCITY_ADB_SERVERS")
+    atalanta_common::env::var("ATALANTA_ADB_SERVERS")
         .unwrap_or_default()
         .split(',')
         .filter_map(|s| {
@@ -34,11 +34,11 @@ pub fn remote_servers() -> Vec<(String, u16)> {
 /// Whether `host:port` is this machine's own adb server, whose devices are
 /// already listed without a prefix.
 pub fn is_local_server(host: &str, port: u16) -> bool {
-    let local_port = velocity_common::env::var("VELOCITY_ADB_PORT")
+    let local_port = atalanta_common::env::var("ATALANTA_ADB_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(5037);
-    let local_host = velocity_common::env::var("VELOCITY_ADB_HOST").ok();
+    let local_host = atalanta_common::env::var("ATALANTA_ADB_HOST").ok();
     port == local_port
         && (matches!(host, "localhost" | "127.0.0.1" | "::1" | "[::1]")
             || local_host.as_deref() == Some(host))
@@ -58,7 +58,7 @@ pub fn split_remote(device_id: &str) -> Option<(&str, u16, &str)> {
 pub(crate) fn install_args(path: &str) -> Result<Vec<String>> {
     let lower = path.to_ascii_lowercase();
     if lower.ends_with(".aab") || lower.ends_with(".apks") {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "{path} is an app bundle, which adb can't install. Build the APKs for the device \
              with bundletool (`bundletool build-apks --bundle app.aab --output app.apks \
              --connected-device`), unzip the .apks, and point appPath at the folder of .apk \
@@ -70,14 +70,14 @@ pub(crate) fn install_args(path: &str) -> Result<Vec<String>> {
         return Ok(vec!["install".into(), "-r".into(), path.into()]);
     }
     let mut apks: Vec<String> = std::fs::read_dir(p)
-        .map_err(|e| VelocityError::Config(format!("{path}: {e}")))?
+        .map_err(|e| AtalantaError::Config(format!("{path}: {e}")))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|f| f.is_file() && f.extension().is_some_and(|x| x.eq_ignore_ascii_case("apk")))
         .map(|f| f.to_string_lossy().into_owned())
         .collect();
     apks.sort();
     match apks.len() {
-        0 => Err(VelocityError::Config(format!(
+        0 => Err(AtalantaError::Config(format!(
             "{path} is a directory with no .apk files in it"
         ))),
         1 => Ok(vec!["install".into(), "-r".into(), apks.remove(0)]),
@@ -121,7 +121,7 @@ impl Default for Adb {
 impl Adb {
     pub fn new() -> Self {
         Self::with_path(
-            velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".to_string()),
+            atalanta_common::env::var("ATALANTA_ADB_PATH").unwrap_or_else(|_| "adb".to_string()),
         )
     }
 
@@ -186,24 +186,24 @@ impl Adb {
         // token: neither goes to the log, as it doesn't to an error.
         debug!(
             device = device_id,
-            command = %velocity_common::redact::redact(&redact_typed_text(args)),
+            command = %atalanta_common::redact::redact(&redact_typed_text(args)),
             "adb command"
         );
 
         let timeout = match args.first() {
             Some(&"install") | Some(&"install-multiple") | Some(&"push") | Some(&"pull") => {
-                velocity_common::process::LONG_TIMEOUT
+                atalanta_common::process::LONG_TIMEOUT
             }
-            _ => velocity_common::process::default_timeout(),
+            _ => atalanta_common::process::default_timeout(),
         };
-        let output = velocity_common::process::output_with_timeout(&mut cmd, timeout)
+        let output = atalanta_common::process::output_with_timeout(&mut cmd, timeout)
             .await
             .map_err(|e| exec_failed(device_id, "Failed to execute adb", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(match classify_failure(device_id, args, &stderr) {
-                VelocityError::DeviceNotFound { id, .. } => VelocityError::DeviceNotFound {
+                AtalantaError::DeviceNotFound { id, .. } => AtalantaError::DeviceNotFound {
                     id,
                     available: self.serials().await,
                 },
@@ -238,12 +238,12 @@ impl Adb {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        let output = velocity_common::process::output_with_timeout(
+        let output = atalanta_common::process::output_with_timeout(
             &mut cmd,
-            velocity_common::process::default_timeout(),
+            atalanta_common::process::default_timeout(),
         )
         .await
-        .map_err(|e| VelocityError::Config(format!("Failed to execute adb: {e}")))?;
+        .map_err(|e| AtalantaError::Config(format!("Failed to execute adb: {e}")))?;
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
@@ -256,7 +256,7 @@ impl Adb {
         Ok(devices)
     }
 
-    /// The devices of the local server and every `VELOCITY_ADB_SERVERS`
+    /// The devices of the local server and every `ATALANTA_ADB_SERVERS`
     /// one, with no Android versions; an error when any listing failed
     /// (adb exits 1, or prints no `List of devices attached` header), where
     /// [`list_devices`](Self::list_devices) reads it as "no devices". For
@@ -266,7 +266,7 @@ impl Adb {
             if out.contains("List of devices attached") {
                 Ok(out)
             } else {
-                Err(VelocityError::Config(format!(
+                Err(AtalantaError::Config(format!(
                     "adb devices ({server}) printed no device list"
                 )))
             }
@@ -326,7 +326,7 @@ impl Adb {
         }
     }
 
-    /// Devices on the `VELOCITY_ADB_SERVERS`, ids prefixed `host:port/`.
+    /// Devices on the `ATALANTA_ADB_SERVERS`, ids prefixed `host:port/`.
     /// An unreachable server is skipped (logged), not an error.
     pub async fn list_remote_devices(&self) -> Vec<DeviceInfo> {
         let mut all = Vec::new();
@@ -565,9 +565,9 @@ impl Adb {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
 
-        let output = velocity_common::process::output_with_timeout(
+        let output = atalanta_common::process::output_with_timeout(
             &mut cmd,
-            velocity_common::process::default_timeout(),
+            atalanta_common::process::default_timeout(),
         )
         .await
         .map_err(|e| exec_failed(device_id, "Failed to take screenshot", e))?;
@@ -648,12 +648,12 @@ fn rotation(output: &str) -> Option<u8> {
 /// DumpCommand reports `ERROR: could not get idle state.` and `ERROR: null
 /// root node` and still exits 0, and writes nothing then: reading a fixed
 /// path after `&&` parsed an earlier step's screen as the live one
-/// (VEL-334). `VELOCITY_DUMP_DIR` is only set by tests.
+/// (VEL-334). `ATALANTA_DUMP_DIR` is only set by tests.
 /// `umask 077` keeps the screen's text from other apps while the file
 /// exists (the shell's umask is 0 on many builds; audit 2026-11 AND-5).
 pub(crate) const DUMP_SCRIPT: &str =
-    "umask 077; f=${VELOCITY_DUMP_DIR:-/data/local/tmp}/velocity-dump-$$.xml; \
-     rm -f $f; uiautomator dump $f 2>&1; echo VELOCITY-DUMP; cat $f 2>/dev/null; rm -f $f";
+    "umask 077; f=${ATALANTA_DUMP_DIR:-/data/local/tmp}/atalanta-dump-$$.xml; \
+     rm -f $f; uiautomator dump $f 2>&1; echo ATALANTA-DUMP; cat $f 2>/dev/null; rm -f $f";
 
 /// uiautomator's success line ("hierchary" is AOSP's spelling).
 fn dump_succeeded(status: &str) -> bool {
@@ -688,8 +688,8 @@ fn complete_xml(s: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
-fn dump_failed(device_id: &str, detail: String) -> VelocityError {
-    VelocityError::CommandFailed {
+fn dump_failed(device_id: &str, detail: String) -> AtalantaError {
+    AtalantaError::CommandFailed {
         device_id: device_id.to_string(),
         command: "uiautomator dump".into(),
         detail,
@@ -708,7 +708,7 @@ pub(crate) fn tty_dump_xml(device_id: &str, output: &str) -> Result<Option<Strin
 /// The output of [`DUMP_SCRIPT`]: the XML, or why there is none. Only a
 /// dump uiautomator reported as written, holding a whole document, counts.
 pub(crate) fn file_dump_xml(device_id: &str, output: &str) -> Result<String> {
-    let Some((status, file)) = output.split_once("VELOCITY-DUMP") else {
+    let Some((status, file)) = output.split_once("ATALANTA-DUMP") else {
         return Err(dump_failed(
             device_id,
             format!("unexpected output: {}", snippet(output)),
@@ -754,32 +754,32 @@ pub(crate) fn monkey_launch(package: &str) -> String {
 }
 
 /// `adb` could not be run for `device_id`. An adb that is missing or not
-/// executable (`VELOCITY_ADB_PATH` wrong, adb removed mid-run) is the
+/// executable (`ATALANTA_ADB_PATH` wrong, adb removed mid-run) is the
 /// user's setup, a config error (exit 2) that no retry fixes; it used to be
 /// reported as a lost connection (exit 3, transient), which the runner
 /// retried and counted against the device. A timeout or any other failure is
 /// still a lost connection.
-pub(crate) fn exec_failed(device_id: &str, what: &str, e: std::io::Error) -> VelocityError {
+pub(crate) fn exec_failed(device_id: &str, what: &str, e: std::io::Error) -> AtalantaError {
     use std::io::ErrorKind;
     if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::PermissionDenied) {
-        return VelocityError::Config(format!(
-            "{what}: {e} (is adb installed? see VELOCITY_ADB_PATH)"
+        return AtalantaError::Config(format!(
+            "{what}: {e} (is adb installed? see ATALANTA_ADB_PATH)"
         ));
     }
-    VelocityError::AdbConnectionLost {
+    AtalantaError::AdbConnectionLost {
         device_id: device_id.to_string(),
         reason: format!("{what}: {e}"),
     }
 }
 
 /// `e` with `device_id` filled in where it was built without one.
-pub(crate) fn on_device(e: VelocityError, device_id: &str) -> VelocityError {
+pub(crate) fn on_device(e: AtalantaError, device_id: &str) -> AtalantaError {
     match e {
-        VelocityError::CommandFailed {
+        AtalantaError::CommandFailed {
             device_id: d,
             command,
             detail,
-        } if d.is_empty() => VelocityError::CommandFailed {
+        } if d.is_empty() => AtalantaError::CommandFailed {
             device_id: device_id.to_string(),
             command,
             detail,
@@ -812,7 +812,7 @@ pub(crate) fn screencap_result(
         let stderr = String::from_utf8_lossy(stderr);
         return Err(
             match classify_failure(device_id, &["exec-out", "screencap", "-p"], &stderr) {
-                VelocityError::CommandFailed { detail, .. } => VelocityError::ScreenCaptureFailed {
+                AtalantaError::CommandFailed { detail, .. } => AtalantaError::ScreenCaptureFailed {
                     device_id: device_id.to_string(),
                     detail: if detail.is_empty() {
                         "screencap exited with an error".to_string()
@@ -826,7 +826,7 @@ pub(crate) fn screencap_result(
     }
     // Never rewrite the bytes: the PNG signature itself contains "\r\n".
     if !stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err(VelocityError::ScreenCaptureFailed {
+        return Err(AtalantaError::ScreenCaptureFailed {
             device_id: device_id.to_string(),
             detail: if stdout.is_empty() {
                 "screencap returned nothing (a secure window, or the display is off)".to_string()
@@ -838,7 +838,7 @@ pub(crate) fn screencap_result(
     Ok(stdout)
 }
 
-pub(crate) fn classify_failure(device_id: &str, args: &[&str], stderr: &str) -> VelocityError {
+pub(crate) fn classify_failure(device_id: &str, args: &[&str], stderr: &str) -> AtalantaError {
     const CONNECTION: [&str; 6] = [
         "device offline",
         "closed",
@@ -851,12 +851,12 @@ pub(crate) fn classify_failure(device_id: &str, args: &[&str], stderr: &str) -> 
     if let Some(e) = device_problem(device_id, &lower, stderr) {
         e
     } else if CONNECTION.iter().any(|m| lower.contains(m)) {
-        VelocityError::AdbConnectionLost {
+        AtalantaError::AdbConnectionLost {
             device_id: device_id.to_string(),
             reason: stderr.trim().to_string(),
         }
     } else {
-        VelocityError::CommandFailed {
+        AtalantaError::CommandFailed {
             device_id: device_id.to_string(),
             command: redact_typed_text(args),
             detail: stderr.trim().to_string(),
@@ -881,14 +881,14 @@ pub(crate) fn redact_typed_text(args: &[&str]) -> String {
 }
 
 /// adb's own "no such device" and "unauthorized" answers.
-fn device_problem(device_id: &str, lower: &str, raw: &str) -> Option<VelocityError> {
+fn device_problem(device_id: &str, lower: &str, raw: &str) -> Option<AtalantaError> {
     // adb phrases it "device 'emulator-5554' not found", or "device not
     // found" over the wire.
     let missing = (lower.contains("device '") && lower.contains("' not found"))
         || lower.contains("device not found")
         || lower.contains("no devices/emulators found");
     if missing {
-        return Some(VelocityError::DeviceNotFound {
+        return Some(AtalantaError::DeviceNotFound {
             id: device_id.to_string(),
             available: Vec::new(),
         });
@@ -898,7 +898,7 @@ fn device_problem(device_id: &str, lower: &str, raw: &str) -> Option<VelocityErr
     if lower.contains("device unauthorized")
         || (lower.contains("device '") && lower.contains("' unauthorized"))
     {
-        return Some(VelocityError::Config(format!(
+        return Some(AtalantaError::Config(format!(
             "device '{device_id}' is unauthorized: accept the \"Allow USB debugging\" (RSA key) \
              prompt on the device, or run `adb kill-server` and reconnect ({})",
             raw.trim()
@@ -908,9 +908,9 @@ fn device_problem(device_id: &str, lower: &str, raw: &str) -> Option<VelocityErr
 }
 
 /// Why the adb server refused to switch to `device_id`'s transport.
-pub(crate) fn classify_transport(device_id: &str, reason: &str) -> VelocityError {
+pub(crate) fn classify_transport(device_id: &str, reason: &str) -> AtalantaError {
     device_problem(device_id, &reason.to_ascii_lowercase(), reason).unwrap_or_else(|| {
-        VelocityError::AdbConnectionLost {
+        AtalantaError::AdbConnectionLost {
             device_id: device_id.to_string(),
             reason: format!("Transport switch failed: {reason}"),
         }
@@ -928,12 +928,12 @@ mod tests {
             &["shell", "pm", "clear", "x"],
             "Error: package not found\n",
         );
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e}");
         assert!(!e.kind().is_transient());
         for msg in ["error: device offline", "error: closed"] {
             let e = classify_failure("d", &["shell", "true"], msg);
             assert!(
-                matches!(e, VelocityError::AdbConnectionLost { .. }),
+                matches!(e, AtalantaError::AdbConnectionLost { .. }),
                 "{msg}"
             );
             assert!(e.kind().is_transient());
@@ -945,7 +945,7 @@ mod tests {
     #[test]
     fn adb_commands_are_logged_without_secrets() {
         use crate::test_support::{capture_logs, FakeAdb};
-        velocity_common::redact::register_secret("adb-log-secret-4f81c9");
+        atalanta_common::redact::register_secret("adb-log-secret-4f81c9");
         let fake = FakeAdb::new("adb-log-secret");
         let (_, logs) = capture_logs(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -975,26 +975,26 @@ mod tests {
     }
 
     /// A missing adb is the user's setup (exit 2), not a lost connection
-    /// (exit 3, retried): `VELOCITY_ADB_PATH` pointing nowhere.
+    /// (exit 3, retried): `ATALANTA_ADB_PATH` pointing nowhere.
     #[tokio::test]
     async fn a_missing_adb_binary_is_a_config_error() {
-        let adb = Adb::with_path("/nonexistent/velocity-test-adb");
+        let adb = Adb::with_path("/nonexistent/atalanta-test-adb");
         let e = adb
             .run_device("emulator-5554", &["shell", "true"])
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e}");
         assert_eq!(e.exit_code(), 2);
         assert!(!e.is_transient(), "{e}");
         let e = adb.screenshot("emulator-5554").await.unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e}");
         // A timeout stays a lost connection.
         let t = exec_failed(
             "d",
             "Failed to execute adb",
             std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out after 60.0s"),
         );
-        assert!(matches!(t, VelocityError::AdbConnectionLost { .. }), "{t}");
+        assert!(matches!(t, AtalantaError::AdbConnectionLost { .. }), "{t}");
     }
 
     /// VEL-055: a serial adb doesn't know was a lost connection, and an
@@ -1007,7 +1007,7 @@ mod tests {
         ] {
             let e = classify_failure("emulator-5590", &["shell", "true"], msg);
             assert!(
-                matches!(&e, VelocityError::DeviceNotFound { id, .. } if id == "emulator-5590"),
+                matches!(&e, AtalantaError::DeviceNotFound { id, .. } if id == "emulator-5590"),
                 "{msg}: {e}"
             );
         }
@@ -1027,14 +1027,14 @@ mod tests {
             &["shell", "pm", "clear", "x"],
             "Error: package not found",
         );
-        assert!(matches!(e, VelocityError::CommandFailed { .. }));
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }));
         assert!(matches!(
             classify_transport("d", "device 'd' not found"),
-            VelocityError::DeviceNotFound { .. }
+            AtalantaError::DeviceNotFound { .. }
         ));
         assert!(matches!(
             classify_transport("d", "device offline"),
-            VelocityError::AdbConnectionLost { .. }
+            AtalantaError::AdbConnectionLost { .. }
         ));
     }
 }
@@ -1051,9 +1051,9 @@ mod fake_adb_tests {
         let png = b"\x89PNG\r\n\x1a\nrest".to_vec();
         assert!(screencap_result("d", true, png.clone(), b"").is_ok());
         let kind = |r: Result<Vec<u8>>| match r.unwrap_err() {
-            VelocityError::ScreenCaptureFailed { .. } => "capture",
-            VelocityError::AdbConnectionLost { .. } => "lost",
-            VelocityError::DeviceNotFound { .. } => "missing",
+            AtalantaError::ScreenCaptureFailed { .. } => "capture",
+            AtalantaError::AdbConnectionLost { .. } => "lost",
+            AtalantaError::DeviceNotFound { .. } => "missing",
             other => panic!("{other:?}"),
         };
         assert_eq!(
@@ -1127,7 +1127,7 @@ mod fake_adb_tests {
         for bundle in ["/b/app.aab", "/b/app.APKS"] {
             let err = adb.install_app("emulator-5554", bundle).await.unwrap_err();
             assert!(
-                matches!(err, VelocityError::Config(ref m) if m.contains("bundletool")),
+                matches!(err, AtalantaError::Config(ref m) if m.contains("bundletool")),
                 "{err}"
             );
         }
@@ -1218,7 +1218,7 @@ mod fake_adb_tests {
             .input_text("emulator-5554", "hunter2 secret")
             .await
             .unwrap_err();
-        let VelocityError::CommandFailed { command, .. } = &e else {
+        let AtalantaError::CommandFailed { command, .. } = &e else {
             panic!("{e}");
         };
         assert_eq!(command, "shell input text <redacted>");
@@ -1231,7 +1231,7 @@ mod fake_adb_tests {
         let adb = Adb::with_path(fake.path());
         let e = adb.input_text("emulator-5554", "café").await.unwrap_err();
         assert!(
-            matches!(&e, VelocityError::CommandFailed { device_id, .. } if device_id == "emulator-5554"),
+            matches!(&e, AtalantaError::CommandFailed { device_id, .. } if device_id == "emulator-5554"),
             "{e}"
         );
         assert!(fake.calls("input").is_empty(), "typed a partial text");
@@ -1250,17 +1250,17 @@ mod fake_adb_tests {
         assert!(!marker.exists(), "appId ran as shell code");
         assert!(!fake.log().contains("DEVICE_SH"), "{}", fake.log());
 
-        adb.launch_app("emulator-5554", "com.velocity.lab", true)
+        adb.launch_app("emulator-5554", "com.atalanta.lab", true)
             .await
             .unwrap();
-        adb.stop_app("emulator-5554", "com.velocity.lab")
+        adb.stop_app("emulator-5554", "com.atalanta.lab")
             .await
             .unwrap();
-        assert_eq!(fake.calls("pm"), ["PM:[clear][com.velocity.lab]"]);
-        assert_eq!(fake.calls("am"), ["AM:[force-stop][com.velocity.lab]"]);
+        assert_eq!(fake.calls("pm"), ["PM:[clear][com.atalanta.lab]"]);
+        assert_eq!(fake.calls("am"), ["AM:[force-stop][com.atalanta.lab]"]);
         assert!(fake
             .log()
-            .contains("DEVICE_SH:'pm' 'clear' 'com.velocity.lab'"));
+            .contains("DEVICE_SH:'pm' 'clear' 'com.atalanta.lab'"));
     }
 }
 
@@ -1297,14 +1297,14 @@ mod dump_tests {
         let sdcard = fake.dir.join("device/sdcard");
         std::fs::create_dir_all(&sdcard).unwrap();
         std::fs::write(
-            sdcard.join("velocity_hierarchy.xml"),
+            sdcard.join("atalanta_hierarchy.xml"),
             XML.replace("Live screen", "Order confirmed"),
         )
         .unwrap();
         let adb = Adb::with_path(fake.path());
         let e = adb.dump_hierarchy("emulator-5554").await.unwrap_err();
         assert!(
-            matches!(&e, VelocityError::CommandFailed { detail, .. } if detail.contains("idle state")),
+            matches!(&e, AtalantaError::CommandFailed { detail, .. } if detail.contains("idle state")),
             "{e}"
         );
         // Not even once /dev/tty is off for the device.

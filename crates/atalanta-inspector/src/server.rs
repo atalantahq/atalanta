@@ -77,10 +77,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-/// The review server's routes (`velocity baselines review --serve`): the
+/// The review server's routes (`atalanta baselines review --serve`): the
 /// page and the baseline API, nothing else. Audit 2026-11 INSP-1: a shared
 /// review URL granted the whole console, including `POST /api/tasks/run`
-/// (a `velocity run` child, with the project's `exec` allow-list).
+/// (a `atalanta run` child, with the project's `exec` allow-list).
 fn review_router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/baselines", get(baselines::list))

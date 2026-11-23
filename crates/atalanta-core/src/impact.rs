@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 
+use atalanta_common::{AtalantaError, Result};
 use tracing::{debug, info, warn};
-use velocity_common::{Result, VelocityError};
 
 /// Configuration for test impact analysis.
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ pub struct ImpactMapping {
     pub impact: ImpactOptions,
 }
 
-/// The `impact:` section of `velocity-impact.yaml`.
+/// The `impact:` section of `atalanta-impact.yaml`.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ImpactOptions {
     /// Tests with no mapping (no `tests:` entry and no mapped flow among
@@ -65,14 +65,14 @@ impl ImpactMapping {
     /// Load impact mapping from a YAML file.
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path).map_err(|e| {
-            VelocityError::Config(format!(
+            AtalantaError::Config(format!(
                 "Failed to read impact mapping at {}: {e}",
                 path.display()
             ))
         })?;
 
         serde_yaml::from_str(&content)
-            .map_err(|e| VelocityError::Config(format!("Failed to parse impact mapping: {e}")))
+            .map_err(|e| AtalantaError::Config(format!("Failed to parse impact mapping: {e}")))
     }
 
     /// Create an empty mapping.
@@ -121,7 +121,7 @@ impl ImpactAnalyzer {
         // A ref starting with `-` would be read by git as an option
         // (`--output=<file>..HEAD` truncates a file).
         if self.config.base_ref.starts_with('-') {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "impact base ref {:?} must not start with `-`",
                 self.config.base_ref
             )));
@@ -138,11 +138,11 @@ impl ImpactAnalyzer {
                 &format!("{}..HEAD", self.config.base_ref),
             ])
             .output()
-            .map_err(|e| VelocityError::Config(format!("Failed to run git diff: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("Failed to run git diff: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(VelocityError::Config(format!("git diff failed: {stderr}")));
+            return Err(AtalantaError::Config(format!("git diff failed: {stderr}")));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -372,7 +372,7 @@ mod tests {
     /// file with a non-ASCII name. Returns the dir and the first commit.
     fn repo_with_unicode_change() -> (std::path::PathBuf, String) {
         let dir = std::env::temp_dir().join(format!(
-            "velocity-impact-{}-{:?}",
+            "atalanta-impact-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));
@@ -421,13 +421,13 @@ mod tests {
         let analyzer = ImpactAnalyzer::new(
             ImpactConfig {
                 enabled: true,
-                base_ref: "--output=velocity-impact-must-not-exist".to_string(),
+                base_ref: "--output=atalanta-impact-must-not-exist".to_string(),
             },
             ImpactMapping::empty(),
         );
         let e = analyzer.changed_files_in(Path::new(".")).unwrap_err();
         assert!(e.to_string().contains("must not start with"), "{e}");
-        assert!(!Path::new("velocity-impact-must-not-exist..HEAD").exists());
+        assert!(!Path::new("atalanta-impact-must-not-exist..HEAD").exists());
     }
 
     #[test]

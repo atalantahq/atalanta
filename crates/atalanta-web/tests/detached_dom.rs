@@ -1,10 +1,10 @@
-//! Review MINOR-8: elements Velocity has looked at don't outlive the page's
+//! Review MINOR-8: elements Atalanta has looked at don't outlive the page's
 //! own use of them. Its own binary: it runs Chrome with `--expose-gc`.
 
 mod common;
 
+use atalanta_common::{PlatformDriver, Selector};
 use common::{css, eventually_for, serve};
-use velocity_common::{PlatformDriver, Selector};
 
 /// The id registry holds elements through `WeakRef`s only, so rows the page
 /// removes are collected and their ids dropped. In round 1 they stayed
@@ -17,7 +17,7 @@ async fn walked_elements_can_be_collected() {
         .collect();
     let page = format!("<!doctype html><html><body><div id=\"list\">{rows}</div></body></html>");
     let base = serve(&[("/g.html", &page)]);
-    let d = velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+    let d = atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into(), "--js-flags=--expose-gc".into()],
         ..Default::default()

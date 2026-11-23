@@ -1,10 +1,10 @@
 # Writing suites
 
-A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. This page explains how the pieces fit. [DSL-REFERENCE.md](DSL-REFERENCE.md) lists every key, and is generated from the schema. `velocity validate` checks a suite without running it. For editor completion:
+A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. This page explains how the pieces fit. [DSL-REFERENCE.md](DSL-REFERENCE.md) lists every key, and is generated from the schema. `atalanta validate` checks a suite without running it. For editor completion:
 
 ```bash
-velocity schema -o velocity.schema.json
-# first line of a suite:  # yaml-language-server: $schema=./velocity.schema.json
+atalanta schema -o atalanta.schema.json
+# first line of a suite:  # yaml-language-server: $schema=./atalanta.schema.json
 ```
 
 ## A suite
@@ -84,14 +84,14 @@ A selector is a map. Every key in it must match.
 | Inside a container | `{ text: "Delete", childOf: { id: "item_3" } }` |
 | Web only | `{ css: "form > button.primary" }`, `{ xpath: "//nav//a[2]" }` |
 
-When a selector matches several elements, Velocity uses the first in tree order and warns. The warning suggests a `childOf:` or `index:` that would pick exactly one. `velocity lint` flags fragile selectors.
+When a selector matches several elements, Atalanta uses the first in tree order and warns. The warning suggests a `childOf:` or `index:` that would pick exactly one. `atalanta lint` flags fragile selectors.
 
 ## Variables and secrets
 
 - `${VAR}`, `${VAR:-default}` and `${VAR:?message}` are read from `--env K=V`, then from the environment. `$${` writes a literal `${`.
-- Values of variables with secret-looking names are masked in all output and reports. So are the variables listed in `VELOCITY_SECRETS`.
+- Values of variables with secret-looking names are masked in all output and reports. So are the variables listed in `ATALANTA_SECRETS`.
 - An `http` step's `capture:` sets variables while the test runs (see [HTTP and API tests](#http-and-api-tests)).
-- `${keychain:NAME}` reads the OS keychain: service `velocity` (`VELOCITY_KEYCHAIN_SERVICE`), account `NAME`, with `security find-generic-password` on macOS and `secret-tool lookup` on Linux. Store one with `security add-generic-password -s velocity -a NAME -w` or `secret-tool store --label velocity service velocity account NAME`. `VELOCITY_KEYCHAIN_CMD` names another program, called as `<cmd> <service> <account>` and printing the secret (a password-manager CLI, a CI secret store). A command that doesn't answer within `VELOCITY_COMMAND_TIMEOUT_MS` (60 s) is killed and the secret counts as missing. The value is always masked.
+- `${keychain:NAME}` reads the OS keychain: service `atalanta` (`ATALANTA_KEYCHAIN_SERVICE`), account `NAME`, with `security find-generic-password` on macOS and `secret-tool lookup` on Linux. Store one with `security add-generic-password -s atalanta -a NAME -w` or `secret-tool store --label atalanta service atalanta account NAME`. `ATALANTA_KEYCHAIN_CMD` names another program, called as `<cmd> <service> <account>` and printing the secret (a password-manager CLI, a CI secret store). A command that doesn't answer within `ATALANTA_COMMAND_TIMEOUT_MS` (60 s) is killed and the secret counts as missing. The value is always masked.
 - `${totp:NAME}` types the current 6-digit one-time code (RFC 6238: SHA-1, 30 s) for the base32 secret in `NAME`, the one an authenticator app is set up with. `NAME` may be a variable or `keychain:NAME`. The code is worked out when its step runs, so it is fresh; the secret and the code are masked.
 
 ### Logging in
@@ -111,8 +111,8 @@ tests:
       - assertVisible: { text: Home }
 ```
 
-- **`velocity login login.yaml`** runs it (the first test, or `--test NAME`) once, with no retry and no result cache, and leaves the app logged in. An agent can call it from a shell without ever seeing the password.
-- **`velocity explore "<goal>" --after login.yaml`** replays it with no model before the first planning turn. The test explore writes starts with the same steps, by name. Over MCP, `run {goal, app_id, after: "login.yaml"}` does the same.
+- **`atalanta login login.yaml`** runs it (the first test, or `--test NAME`) once, with no retry and no result cache, and leaves the app logged in. An agent can call it from a shell without ever seeing the password.
+- **`atalanta explore "<goal>" --after login.yaml`** replays it with no model before the first planning turn. The test explore writes starts with the same steps, by name. Over MCP, `run {goal, app_id, after: "login.yaml"}` does the same.
 
 ## Launch arguments
 
@@ -182,11 +182,11 @@ tests:
       - "open the cart"                       # a bare string is a `do:`
 ```
 
-These need a model key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any provider in [AI-PROVIDERS.md](AI-PROVIDERS.md) (`config.ai: { provider: gemini }`). The model only chooses an operation and an element from a numbered list; Velocity builds and checks the selector itself.
+These need a model key: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or any provider in [AI-PROVIDERS.md](AI-PROVIDERS.md) (`config.ai: { provider: gemini }`). The model only chooses an operation and an element from a numbered list; Atalanta builds and checks the selector itself.
 
 - **Typed values** come from `data:` or from quotes in the step. They are never invented.
 - **`waitUntil:`** names a condition to wait for after the action.
-- **Caching.** Plans are cached in `.velocity/nl-cache.json` once the run has verified them, so a stable screen replays without calling the model. Test data is never part of the key: the same step with another `data:` value (or `${VAR}`) replays and types the new value.
+- **Caching.** Plans are cached in `.atalanta/nl-cache.json` once the run has verified them, so a stable screen replays without calling the model. Test data is never part of the key: the same step with another `data:` value (or `${VAR}`) replays and types the new value.
 
 ### AI verification (`verify:`)
 
@@ -196,7 +196,7 @@ config:
 tests:
   - name: Checkout
     description: the order confirmation shows the order number
-    verify: final        # this test only; `velocity run --verify …` wins over both
+    verify: final        # this test only; `atalanta run --verify …` wins over both
     steps:
       - do: "place the order"
       - tap: { text: Receipt }
@@ -212,7 +212,7 @@ tests:
 
 `checkpoint: true` on a natural-language step checks its own `waitUntil` (else its intent). On any other step, give the claim as a string.
 
-The checker must cite elements from the screen list. A "holds" that cites none, or cites elements that aren't there, is `unknown`, not a pass. A check whose model call failed is `error`. Every check is in the JSON (`verification`), JUnit (`verify.*` properties) and HTML reports. `velocity explore` defaults to `final`.
+The checker must cite elements from the screen list. A "holds" that cites none, or cites elements that aren't there, is `unknown`, not a pass. A check whose model call failed is `error`. Every check is in the JSON (`verification`), JUnit (`verify.*` properties) and HTML reports. `atalanta explore` defaults to `final`.
 
 The details are in [ARCHITECTURE.md](ARCHITECTURE.md#natural-language-steps).
 
@@ -227,11 +227,11 @@ The details are in [ARCHITECTURE.md](ARCHITECTURE.md#natural-language-steps).
     crop: { id: "summary_card" }
 ```
 
-Baselines live next to the suite in `velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`.
+Baselines live next to the suite in `atalanta-baselines/<platform>[-headless]/<W>x<H>/<name>.png`.
 
 - **New baselines.** A first run writes the baseline and fails, so commit the file after you check it. `--update-baselines=missing` accepts new baselines without failing.
-- **Reviewing failures.** Use `velocity baselines review`, or `velocity baselines review --serve` for the images side by side with Accept/Reject buttons.
-- **Accepting.** `velocity baselines accept <name|all>` writes the actual screen over the baseline.
+- **Reviewing failures.** Use `atalanta baselines review`, or `atalanta baselines review --serve` for the images side by side with Accept/Reject buttons.
+- **Accepting.** `atalanta baselines accept <name|all>` writes the actual screen over the baseline.
 
 ## Web
 
@@ -269,7 +269,7 @@ appId: com.example.shop
 config:
   http:
     baseUrl: "${API_URL}"                  # a step url without http(s):// goes after it
-    headers: { X-Client: velocity }        # sent with every request
+    headers: { X-Client: atalanta }        # sent with every request
     timeoutMs: 10000                       # per request (default 30000); a step's timeoutMs wins
 flows:
   - id: login
@@ -334,7 +334,7 @@ A matcher is a plain value, which must be equal (numbers by value, `1` = `1.0`),
 
 `retry: { count: 5, intervalMs: 1000 }` sends the request again, up to `count` more times, while its checks fail or no response comes: a backend that catches up after a UI action. It is off by default, because a retried POST runs again.
 
-No response (connection refused, DNS, TLS, timeout) fails the test (exit 1), like a failed check. `optional: true` forgives both. `config.http.insecure: true` accepts any TLS certificate, for a dev server's self-signed one. `RUST_LOG=velocity_api=debug` logs every request and the start of each response.
+No response (connection refused, DNS, TLS, timeout) fails the test (exit 1), like a failed check. `optional: true` forgives both. `config.http.insecure: true` accepts any TLS certificate, for a dev server's self-signed one. `RUST_LOG=atalanta_api=debug` logs every request and the start of each response.
 
 Design notes and the tools compared: [research/landscape-api-testing.md](research/landscape-api-testing.md).
 
@@ -362,7 +362,7 @@ It presses the centre of `from` and holds it for `holdMs` (default 700, past the
 
 > Status: verified with headless Chrome on macOS. Not yet run with `adb` against a device ([STATUS.md](STATUS.md)).
 
-`exec` runs a program on the machine running Velocity, such as an `adb` command or a script that seeds test data. It checks how the program ended and keeps its output. It is off unless the suite lists the program:
+`exec` runs a program on the machine running Atalanta, such as an `adb` command or a script that seeds test data. It checks how the program ended and keeps its output. It is off unless the suite lists the program:
 
 ```yaml
 appId: com.example.app
@@ -374,15 +374,15 @@ tests:
     steps:
       - exec: { run: "./scripts/seed.sh cart 3", capture: CART_ID }
       - exec:
-          run: [adb, -s, "${VELOCITY_DEVICE_ID}", shell, pm, grant, com.example.app, android.permission.CAMERA]
+          run: [adb, -s, "${ATALANTA_DEVICE_ID}", shell, pm, grant, com.example.app, android.permission.CAMERA]
       - launchApp: {}
       - assertVisible: { text: "Cart ${CART_ID}" }
 ```
 
-- **No shell.** A string is split on spaces, and quotes keep a part whole, so `;`, `|` and `$(…)` are plain characters. The program, the first part, must be in `config.exec.allow` exactly as written; `velocity validate` refuses the suite otherwise (exit 2), and the executor checks again.
+- **No shell.** A string is split on spaces, and quotes keep a part whole, so `;`, `|` and `$(…)` are plain characters. The program, the first part, must be in `config.exec.allow` exactly as written; `atalanta validate` refuses the suite otherwise (exit 2), and the executor checks again.
 - **Checks.** `expect: { exitCode: 0 }` (the default) and `contains: "text"`, which the output must include. A failure shows the exit code and the end of the output, masked.
 - **Capture.** `capture: NAME` sets `${NAME}` to the trimmed standard output for the test's later steps (masked when the name looks secret).
-- **Environment.** `VELOCITY_DEVICE_ID` is the test's device. `timeoutMs` bounds the step (default 60 s), and `cwd` sets its folder.
+- **Environment.** `ATALANTA_DEVICE_ID` is the test's device. `timeoutMs` bounds the step (default 60 s), and `cwd` sets its folder.
 - **Agents.** An MCP agent can't add `exec` to a suite it writes (`run {yaml}`) outside `--profile full`; see the Rule of Two in [SECURITY.md](SECURITY.md#9-agents-the-rule-of-two).
 
 ## Accessibility audit
@@ -395,7 +395,7 @@ config:
     density: 2.625   # Android px per dp; unset: the screen's short side is 411 dp
 ```
 
-With `audit: true`, each test checks the screens it reads anyway with a set of fixed rules (`velocity_common::a11y`). The audit uses the trees the run already has: the cached tree after an element lookup on Android and iOS, plus the trees that natural steps, `verify:` checks and failed steps read. It never reads the screen itself, so it adds no device round trip. Each distinct screen is audited once per test. Each problem is reported once per test however many screens show it, as a test warning (`accessibility: error name-missing: …`), so every reporter shows it. A test lists at most 20 findings, and one closing note counts the rest. With `fail: true`, an error-severity finding fails a test whose steps passed, on its last step.
+With `audit: true`, each test checks the screens it reads anyway with a set of fixed rules (`atalanta_common::a11y`). The audit uses the trees the run already has: the cached tree after an element lookup on Android and iOS, plus the trees that natural steps, `verify:` checks and failed steps read. It never reads the screen itself, so it adds no device round trip. Each distinct screen is audited once per test. Each problem is reported once per test however many screens show it, as a test warning (`accessibility: error name-missing: …`), so every reporter shows it. A test lists at most 20 findings, and one closing note counts the rest. With `fail: true`, an error-severity finding fails a test whose steps passed, on its last step.
 
 | Rule | Severity | Flags | Source |
 |---|---|---|---|
@@ -428,7 +428,7 @@ Limits:
 - `sync`: timeouts and settle timings. `retry.count`. `actionability`.
 - `healing.mode`: `auto` locally, `report` in CI, or `off`.
 - `artifacts`: the output folder, failure screenshots, step screenshots.
-- `settings`: named driver settings (`velocity settings` lists them). `velocity run --set key=value` overrides one for a run, and the `setConfig` step for the rest of a test.
+- `settings`: named driver settings (`atalanta settings` lists them). `atalanta run --set key=value` overrides one for a run, and the `setConfig` step for the rest of a test.
 - `batch: true`: consecutive tests share one launch when the previous test passed and left the app in front.
 
 An unknown `config:` key is a warning that names the closest known key. An unknown step key is an error.

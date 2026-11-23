@@ -4,8 +4,8 @@
 
 mod common;
 
+use atalanta_common::{PlatformDriver, Selector};
 use common::{driver, serve};
-use velocity_common::{PlatformDriver, Selector};
 
 const CASES: &str = r#"<!doctype html><html><body>
 <button id="del">DELETE</button>
@@ -24,7 +24,7 @@ async fn text_falls_back_to_ignoring_case_like_the_devices() {
     d.launch_app("web", &format!("{base}/c.html"), false)
         .await
         .unwrap();
-    let id_of = |e: velocity_common::Element| e.dom_id.unwrap_or_default();
+    let id_of = |e: atalanta_common::Element| e.dom_id.unwrap_or_default();
     let del = d
         .find_element("web", &Selector::Text("Delete".into()))
         .await

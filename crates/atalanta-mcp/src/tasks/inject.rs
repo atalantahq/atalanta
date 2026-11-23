@@ -1,13 +1,13 @@
 //! Instructions an agent injects into a running task (`task_inject`).
 //!
-//! Only tasks that steer themselves read them: `velocity explore` takes an
+//! Only tasks that steer themselves read them: `atalanta explore` takes an
 //! [`InstructionReceiver`] through its [`super::TaskContext`] and folds what
 //! arrives into its next plan. A plain suite run has no use for them, and
 //! `task_inject` says so instead of queueing words nobody reads.
 //!
 //! The instruction is the agent's text, passed through as text: whoever
 //! consumes it must treat it as a goal to plan from, never as a selector or
-//! a value (the rule `velocity-nl` follows).
+//! a value (the rule `atalanta-nl` follows).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

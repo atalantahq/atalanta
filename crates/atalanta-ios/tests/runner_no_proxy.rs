@@ -61,7 +61,7 @@ async fn runner_requests_bypass_the_proxy_variables() {
     assert_eq!(body, "proxy");
     assert_eq!(proxy_hits.load(Ordering::SeqCst), 1);
 
-    let body = velocity_ios::wda::runner_client()
+    let body = atalanta_ios::wda::runner_client()
         .build()
         .unwrap()
         .get(format!("{runner}/status"))

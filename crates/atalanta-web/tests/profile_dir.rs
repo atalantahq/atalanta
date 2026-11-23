@@ -4,10 +4,10 @@
 
 mod common;
 
-use velocity_common::PlatformDriver;
+use atalanta_common::PlatformDriver;
 
 fn my_profiles() -> Vec<std::path::PathBuf> {
-    let mine = format!("velocity-chrome-{}-", std::process::id());
+    let mine = format!("atalanta-chrome-{}-", std::process::id());
     std::fs::read_dir(std::env::temp_dir())
         .unwrap()
         .flatten()
@@ -35,12 +35,12 @@ fn running(pid: u32) -> bool {
         })
 }
 
-fn parallel_driver() -> velocity_web::WebDriver {
-    velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+fn parallel_driver() -> atalanta_web::WebDriver {
+    atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         instances: 2,
-        parallel_mode: velocity_web::ParallelMode::Processes,
+        parallel_mode: atalanta_web::ParallelMode::Processes,
         ..Default::default()
     })
 }
@@ -69,7 +69,7 @@ async fn profile_dir_is_private_and_not_leaked() {
 
 /// review-d6 M2: the second signal (`kill_all_groups`, then
 /// `process::exit`, which runs no destructors) left every `--parallel`
-/// Chrome running with its profile dir: Chrome runs in Velocity's own
+/// Chrome running with its profile dir: Chrome runs in Atalanta's own
 /// process group and was registered nowhere.
 #[tokio::test]
 async fn the_second_signal_kills_every_chrome_and_removes_its_profile() {
@@ -81,7 +81,7 @@ async fn the_second_signal_kills_every_chrome_and_removes_its_profile() {
     let pids = d.debug_browser_pids().await;
     assert_eq!(pids.len(), 2);
     assert_eq!(my_profiles().len(), 2);
-    velocity_common::process::kill_all_groups();
+    atalanta_common::process::kill_all_groups();
     for pid in &pids {
         let pid = *pid;
         assert!(
@@ -115,8 +115,8 @@ async fn a_dropped_driver_leaves_no_profile_dirs() {
     );
 }
 
-fn context_driver() -> velocity_web::WebDriver {
-    velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+fn context_driver() -> atalanta_web::WebDriver {
+    atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         instances: 2,
@@ -136,7 +136,7 @@ async fn the_second_signal_kills_the_shared_chrome_and_removes_its_profile() {
     let pids = d.debug_browser_pids().await;
     assert_eq!(pids.len(), 1, "one Chrome for both devices: {pids:?}");
     assert_eq!(my_profiles().len(), 1);
-    velocity_common::process::kill_all_groups();
+    atalanta_common::process::kill_all_groups();
     let pid = pids[0];
     assert!(
         common::eventually_for(GONE, || async move { !running(pid) }).await,

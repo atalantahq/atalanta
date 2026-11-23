@@ -1824,7 +1824,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "velocity-android"
+name = "atalanta-android"
 version = "0.2.0"
 dependencies = [
  "async-trait",
@@ -1833,11 +1833,11 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "velocity-common",
+ "atalanta-common",
 ]
 
 [[package]]
-name = "velocity-api"
+name = "atalanta-api"
 version = "0.2.0"
 dependencies = [
  "async-trait",
@@ -1849,11 +1849,11 @@ dependencies = [
  "serde_yaml",
  "tokio",
  "tracing",
- "velocity-common",
+ "atalanta-common",
 ]
 
 [[package]]
-name = "velocity-common"
+name = "atalanta-common"
 version = "0.2.0"
 dependencies = [
  "anyhow",
@@ -1871,7 +1871,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "velocity-core"
+name = "atalanta-core"
 version = "0.2.0"
 dependencies = [
  "anyhow",
@@ -1884,28 +1884,28 @@ dependencies = [
  "tokio",
  "tracing",
  "unsafe-libyaml",
- "velocity-api",
- "velocity-common",
+ "atalanta-api",
+ "atalanta-common",
 ]
 
 [[package]]
-name = "velocity-fuzz"
+name = "atalanta-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "serde_json",
  "serde_yaml",
  "tempfile",
- "velocity-android",
- "velocity-api",
- "velocity-common",
- "velocity-core",
- "velocity-ios",
- "velocity-migrate",
+ "atalanta-android",
+ "atalanta-api",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-ios",
+ "atalanta-migrate",
 ]
 
 [[package]]
-name = "velocity-ios"
+name = "atalanta-ios"
 version = "0.2.0"
 dependencies = [
  "async-trait",
@@ -1918,19 +1918,19 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
- "velocity-common",
+ "atalanta-common",
 ]
 
 [[package]]
-name = "velocity-migrate"
+name = "atalanta-migrate"
 version = "0.2.0"
 dependencies = [
  "anyhow",
  "serde",
  "serde_json",
  "serde_yaml",
- "velocity-common",
- "velocity-core",
+ "atalanta-common",
+ "atalanta-core",
 ]
 
 [[package]]
