@@ -50,6 +50,116 @@ dependencies = [
 ]
 
 [[package]]
+name = "atalanta-android"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "quick-xml",
+ "sha2",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "atalanta-api"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_json_path",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-common"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "libc",
+ "regex",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "atalanta-core"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "atalanta-api",
+ "atalanta-common",
+ "chrono",
+ "png",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tokio",
+ "tracing",
+ "unsafe-libyaml",
+]
+
+[[package]]
+name = "atalanta-fuzz"
+version = "0.0.0"
+dependencies = [
+ "atalanta-android",
+ "atalanta-api",
+ "atalanta-common",
+ "atalanta-core",
+ "atalanta-ios",
+ "atalanta-migrate",
+ "libfuzzer-sys",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+]
+
+[[package]]
+name = "atalanta-ios"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "atalanta-common",
+ "base64",
+ "chrono",
+ "libc",
+ "quick-xml",
+ "reqwest",
+ "ring",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "atalanta-migrate"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "atalanta-common",
+ "atalanta-core",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -145,9 +255,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.18.2"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a373e3602691c3cdea496d2f0ee5935151e6168fe87739483c463db1b2f2f87"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "percent-encoding",
  "time",
@@ -1821,116 +1931,6 @@ dependencies = [
  "getrandom 0.4.2",
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "atalanta-android"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "quick-xml",
- "sha2",
- "tokio",
- "tracing",
- "uuid",
- "atalanta-common",
-]
-
-[[package]]
-name = "atalanta-api"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "serde_json_path",
- "serde_yaml",
- "tokio",
- "tracing",
- "atalanta-common",
-]
-
-[[package]]
-name = "atalanta-common"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "libc",
- "regex",
- "ring",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tracing",
- "url",
-]
-
-[[package]]
-name = "atalanta-core"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "chrono",
- "png",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tokio",
- "tracing",
- "unsafe-libyaml",
- "atalanta-api",
- "atalanta-common",
-]
-
-[[package]]
-name = "atalanta-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "atalanta-android",
- "atalanta-api",
- "atalanta-common",
- "atalanta-core",
- "atalanta-ios",
- "atalanta-migrate",
-]
-
-[[package]]
-name = "atalanta-ios"
-version = "0.2.0"
-dependencies = [
- "async-trait",
- "base64",
- "chrono",
- "libc",
- "quick-xml",
- "reqwest",
- "ring",
- "serde_json",
- "tokio",
- "tracing",
- "atalanta-common",
-]
-
-[[package]]
-name = "atalanta-migrate"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "serde",
- "serde_json",
- "serde_yaml",
- "atalanta-common",
- "atalanta-core",
 ]
 
 [[package]]
