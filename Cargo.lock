@@ -143,11 +143,13 @@ dependencies = [
  "atalanta-common",
  "regex",
  "reqwest 0.12.28",
+ "rustls",
  "serde",
  "serde_json",
  "serde_json_path",
  "serde_yaml",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 

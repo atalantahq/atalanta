@@ -6,14 +6,20 @@
 //! Mozilla's bundled roots were.
 //!
 //! Its own test binary: it sets `SSL_CERT_FILE` for the whole process. It
-//! needs the `openssl` command for the CA and the TLS server; without one
-//! it says so and passes, except on CI (`CI` or `ATALANTA_TEST_STRICT`
-//! set), where that fails.
+//! needs the `openssl` command for the CA; without one it says so and
+//! passes, except on CI (`CI` or `ATALANTA_TEST_STRICT` set), where that
+//! fails. The TLS server is rustls, in the test: `openssl s_server -www`
+//! behaved differently per build (LibreSSL never listened; the build on
+//! macos-15-intel closed without close_notify, which rustls refuses).
 
-use std::net::TcpListener;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
+use std::sync::Arc;
+use std::time::Duration;
+
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use atalanta_api::HttpSession;
 use atalanta_common::{HttpConfig, HttpRequest};
@@ -88,13 +94,55 @@ fn make_ca(dir: &Path) -> bool {
     )
 }
 
-struct Server(Child);
-
-impl Drop for Server {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
+/// Serve `200 ok` over TLS with `dir`'s leaf certificate, on a free port of
+/// 127.0.0.1, until the test ends. Returns the port.
+async fn serve_tls(dir: &Path) -> u16 {
+    let certs = CertificateDer::pem_file_iter(dir.join("leaf.pem"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let key = PrivateKeyDer::from_pem_file(dir.join("leaf.key")).unwrap();
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .unwrap();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((tcp, _)) = listener.accept().await else {
+                return;
+            };
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                // A client that refuses the certificate ends the handshake.
+                let Ok(mut tls) = acceptor.accept(tcp).await else {
+                    return;
+                };
+                let mut buf = [0u8; 4096];
+                let mut got = Vec::new();
+                while !got.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match tls.read(&mut buf).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => got.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let _ = tls
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
+                    )
+                    .await;
+                // Sends close_notify.
+                let _ = tls.shutdown().await;
+            });
+        }
+    });
+    port
 }
 
 #[tokio::test]
@@ -115,32 +163,7 @@ async fn a_ca_from_ssl_cert_file_is_trusted() {
         eprintln!("skipped: no working `openssl` command to make a test CA");
         return;
     }
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let _server = Server(
-        Command::new("openssl")
-            .args([
-                "s_server", "-quiet", "-www", "-cert", "leaf.pem", "-key", "leaf.key",
-            ])
-            .args(["-accept", &format!("127.0.0.1:{port}")])
-            .current_dir(&dir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    let start = Instant::now();
-    while std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
-        assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "s_server never listened"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let port = serve_tls(&dir).await;
 
     let config = HttpConfig {
         base_url: Some(format!("https://127.0.0.1:{port}")),

@@ -34,6 +34,9 @@ serde = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+# custom_ca.rs: the TLS server the test CA is checked against.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 
 [lints]
 workspace = true
