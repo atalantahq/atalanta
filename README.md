@@ -5,6 +5,15 @@
 [![iOS](https://img.shields.io/badge/ios-26-blue?logo=apple)](docs/DRIVERS.md)
 [![Chromium](https://img.shields.io/badge/chromium-headless-blue?logo=googlechrome)](docs/DRIVERS.md)
 
+[![CI](https://github.com/atalantahq/atalanta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/atalantahq/atalanta/actions/workflows/ci.yml)
+[![Security](https://github.com/atalantahq/atalanta/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/atalantahq/atalanta/actions/workflows/security.yml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/17034/badge)](https://www.bestpractices.dev/projects/17034)
+[![Licence](https://img.shields.io/badge/licence-AGPL--3.0--only-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.89%2B-blue?logo=rust)](Cargo.toml)
+[![crates.io](https://img.shields.io/crates/v/atalanta-cli?logo=rust&color=blue)](https://crates.io/crates/atalanta-cli)
+[![Dependencies](https://deps.rs/repo/github/atalantahq/atalanta/status.svg)](https://deps.rs/repo/github/atalantahq/atalanta)
+[![Fuzzing](https://img.shields.io/badge/fuzzing-cargo--fuzz-blue?logo=rust)](fuzz/)
+
 **Mobile, web and API tests in YAML.** Atalanta runs test suites on Android emulators, iOS simulators and Chrome from one static binary written in Rust. No JVM, no Node, no Appium server.
 
 An AI agent can write the tests. Each one is checked before it is saved, and it replays in CI without calling a model.
