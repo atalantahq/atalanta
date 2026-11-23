@@ -1,6 +1,6 @@
 # Verification status
 
-Atalanta 0.2.0 is the first release. What has been run, where, and what has not. Last updated 2026-11-23.
+Atalanta 0.2.0 is the first release. What has been run, where, and what has not. Last updated 2026-11-24.
 
 Each feature has one of four states:
 
@@ -18,7 +18,7 @@ Each feature has one of four states:
 | Web | Verified with headless Chrome on macOS, and on Linux in CI. Firefox and Safari are not supported yet. |
 | Android hardware | One tablet (Android 14): the Settings app and the trust gates. |
 | iPhone hardware | One iPhone 12 (iOS 26.5, wired): Settings, a test app and the trust gates. The Wi-Fi runner and AtalantaRunner have not been run on a phone. |
-| API tests | Verified against local HTTP servers on macOS. Not yet run over TLS against a real server. |
+| API tests | Verified against local HTTP servers and a public server over TLS (macOS); expired and wrong-host certificates are refused. |
 | Device clouds | Not run. |
 
 ## By feature
@@ -30,7 +30,7 @@ Each feature has one of four states:
 | Parser, validator, schema, selectors, settle, healing, visual comparison | Host tests | Covered on devices indirectly by the smoke and test-app suites |
 | `launchApp` arguments reaching the app | Hardware (iPhone 12), Verified (Android emulator) | — |
 | Parallel runs, sharding, retries on another device | Verified | Large device pools |
-| `http` steps and API-only suites | Verified (local servers, macOS) | TLS against a real server, Linux |
+| `http` steps and API-only suites | Verified (local servers and TLS to a public server, macOS) | Linux |
 | Proxies and custom certificates | Host tests | A real proxy |
 | Memory check (`config.performance`) | Host tests | The profiler on a device; Android only |
 | `exec` step, `drag`, login with keychain and TOTP secrets | Verified (headless Chrome) | Android and iOS |
@@ -41,11 +41,11 @@ Each feature has one of four states:
 
 | Feature | State | Not yet verified |
 |---|---|---|
-| Tree server (UI reads, input, screenshots) | Verified up to protocol 17; Hardware (tablet, Settings) | Protocols 18 and 19 (mutual handshake, active-window check) on a device |
-| Video and logs for failures | Verified | The video server's mutual handshake on a device |
+| Tree server (UI reads, input, screenshots) | Verified (protocol 19, API 34 emulator); Hardware up to protocol 17 (tablet, Settings) | Protocols 18 and 19 on hardware |
+| Video and logs for failures | Verified, including the video server's mutual handshake (API 34 emulator) | The handshake on hardware |
 | System dialogs and permission prompts | Verified | Localized permission prompts |
 | `hideKeyboard`, scrolling with the keyboard up | Verified | Hiding the keyboard before a covered tap; taps forced with `force: true`. iOS has no `hideKeyboard` |
-| Status bar freeze (`freezeStatusBar`) | Host tests | Any device |
+| Status bar freeze (`freezeStatusBar`) | Partly: on an API 34 emulator demo mode takes, but the read-back (`sysui_tuner_demo_on`, which this SystemUI leaves at 0) says it didn't, so Atalanta exits demo mode and masks the status bar | A read-back that works on Android 14 |
 | In-app sync probe | Host tests | A real app on a device |
 
 ### iOS
@@ -53,15 +53,15 @@ Each feature has one of four states:
 | Feature | State | Not yet verified |
 |---|---|---|
 | WebDriverAgent driver | Verified; Hardware (iPhone 12) | — |
-| AtalantaRunner (Atalanta's own runner) | Verified | A real iPhone |
+| AtalantaRunner (Atalanta's own runner) | Verified (iOS 26 simulator, 2026-11-24, after the fix for the rename that broke its build in 0.2.0) | A real iPhone |
 | Real iPhones over USB | Hardware (iPhone 12) | — |
 | Real iPhones over Wi-Fi | Host tests | Any phone |
 | Crash detection on real iPhones | Host tests | Any phone |
 | Tap checks (`ios.verifyTap`) | Verified | A real iPhone |
 | Content under sheets, popovers and alerts | Hardware (iPhone 12, SwiftUI page sheet) | Popovers and in-app alerts |
-| `pressKey: back`, picker wheels | Host tests | Simulator and device |
+| `pressKey: back`, picker wheels | `pressKey: back` verified (iOS 26 simulator, both runners); picker wheels host tests | Picker wheels; a real iPhone |
 | In-app sync probe | Host tests | A real app |
-| WebDriverAgent screen stream bound to loopback | Builds; not observed at run time | Run-time check |
+| WebDriverAgent screen stream bound to loopback | Verified: listens on 127.0.0.1 only (iOS 26 simulator) | — |
 
 ### Web
 
