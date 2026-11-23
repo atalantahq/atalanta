@@ -134,10 +134,14 @@ jobs:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             zig: true
+          # Both macOS targets build on the Intel runner: the Apple silicon
+          # pools (macos-latest, -14, -15, -26) stopped picking up this
+          # org's jobs on 2026-11-23, while macos-15-intel still does. The
+          # aarch64 binary is cross-compiled and not run here.
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: macos-15-intel
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: macos-15-intel
     env:
       VERSION: ${{ needs.preflight.outputs.version }}
       TARGET: ${{ matrix.target }}
@@ -218,9 +222,17 @@ jobs:
               file "$bin" | grep -Eq 'statically linked|static-pie linked' ||
                 { echo "::error::$bin is not statically linked"; exit 1; } ;;
           esac
-          # Run it where the runner can (Apple silicon runs x86_64 via Rosetta).
+          # Run it where the runner can: the musl x86_64 build on Linux, and
+          # on macOS the target matching the runner (Apple silicon would also
+          # run x86_64 through Rosetta; an Intel runner cannot run aarch64).
+          runnable=false
           case "$TARGET" in
-            x86_64-unknown-linux-musl|*-apple-darwin)
+            x86_64-unknown-linux-musl) runnable=true ;;
+            x86_64-apple-darwin) runnable=true ;;
+            aarch64-apple-darwin) [ "$(uname -m)" = arm64 ] && runnable=true ;;
+          esac
+          case "$runnable" in
+            true)
               "$bin" --version
               "$bin" --version | grep -q "$VERSION"
               "$bin" version | sed -n 2p | grep -q "^commit ${GITHUB_SHA:0:12}," ;;

@@ -167,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -203,7 +203,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
     env:
       VERSION: ${{ needs.version.outputs.version }}
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
@@ -259,7 +259,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -297,7 +297,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:

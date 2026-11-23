@@ -192,7 +192,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-15-intel: the Apple silicon pools stopped picking up this
+        # org's jobs on 2026-11-23 (see release.yml).
+        os: [ubuntu-latest, macos-15-intel]
     env:
       # Full debug info for ~60 test binaries filled the Ubuntu runner's disk
       # ("No space left on device", 2026-11-22). Line tables keep file:line
@@ -380,7 +382,9 @@ jobs:
     timeout-minutes: 60
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-15-intel: the Apple silicon pools stopped picking up this
+        # org's jobs on 2026-11-23 (see release.yml).
+        os: [ubuntu-latest, macos-15-intel]
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
