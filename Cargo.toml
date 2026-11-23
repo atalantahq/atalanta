@@ -60,7 +60,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 quick-xml = { version = "0.41", features = ["serialize"] }
 regex = "1"
 clap = { version = "4", features = ["derive"] }
-base64 = "0.22"
+base64 = "0.23"
 colored = "2"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
