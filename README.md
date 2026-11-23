@@ -126,7 +126,7 @@ One browser page for every booted device and the web browser. It has a live mirr
 atalanta mcp install
 ```
 
-This registers the MCP server with Claude Code, Cursor, Codex, Windsurf, VS Code, Cline and Gemini CLI. An agent reads the screen as one line per element, acts by reference, and exports what it did as a YAML test. See [docs/MCP.md](docs/MCP.md).
+This registers the MCP server with Claude Code, Cursor, Codex, Windsurf, VS Code, Cline and Gemini CLI. It serves five tools by default; `--profile full` serves all 33. An agent reads the screen as one line per element, acts by reference, and exports what it did as a YAML test. See [docs/MCP.md](docs/MCP.md).
 
 Agents with a shell can skip MCP: `atalanta snapshot`, `atalanta tap @e7`, `atalanta export --out flow.yaml`. See [docs/CLI.md](docs/CLI.md#agent-commands).
 
