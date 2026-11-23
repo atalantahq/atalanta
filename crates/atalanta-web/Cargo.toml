@@ -28,7 +28,7 @@ anyhow = { workspace = true }
 futures = { workspace = true }
 # The cross-origin frames' own DevTools connection (W4, `frames.rs`): the
 # same crate and features chromiumoxide uses, so nothing new is built.
-async-tungstenite = { version = "0.32", features = ["tokio-runtime"] }
+async-tungstenite = { version = "0.35", features = ["tokio-runtime"] }
 
 [lints]
 workspace = true
