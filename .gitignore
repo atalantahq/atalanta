@@ -26,5 +26,6 @@ ext/
 bench/.bin/
 
 # AndroidWorld model-call logs: too large for GitHub (160 MB); kept locally
-bench/androidworld/runs/aw-calls*.jsonl
+# Benchmark run output is archived outside the repository.
+bench/androidworld/runs/
 __pycache__/

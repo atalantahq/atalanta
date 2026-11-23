@@ -48,7 +48,7 @@ cargo run -p atalanta-cli -- run tests/smoke/android-settings.yaml   # needs a b
 
 - Before every commit: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings` (CI fails on any warning).
 - Add tests for new functionality. Device behaviour that was not run on a device goes in `docs/STATUS.md`.
-- A user-visible change gets one line in `CHANGELOG.md` under `## [Unreleased]`; the reasoning goes in the commit message or `docs/research/`.
+- A user-visible change gets one line in `CHANGELOG.md` under `## [Unreleased]`; the reasoning goes in the commit message.
 - Keep commits focused and atomic.
 
 ## Architecture

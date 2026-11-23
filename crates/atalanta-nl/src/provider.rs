@@ -32,7 +32,7 @@
 //!
 //! Every default model is provisional: chosen for cost (a small model for
 //! single-step picks), not yet by measured accuracy. `atalanta nl-eval
-//! --model … --recommend` measures them; see docs/research/README.md.
+//! --model … --recommend` measures them.
 
 use std::sync::Arc;
 

@@ -7,7 +7,7 @@ Cross-platform mobile UI testing framework in Rust. Maestro-style YAML DSL, sing
 - Build: `cargo build --workspace`
 - Test: `cargo test --workspace`
 - Lint before committing: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings`
-  (history is full of follow-up clippy-fix commits — run this before every commit, not after CI fails)
+  (run it before every commit, not after CI fails)
 - E2E smoke: `/verify-e2e` skill (builds the binary and runs a real suite on a simulator)
 
 ## Architecture (orient here first)
@@ -21,7 +21,7 @@ Cross-platform mobile UI testing framework in Rust. Maestro-style YAML DSL, sing
 - `atalanta-mcp`: JSON-RPC stdio MCP server for AI agents; background tasks in `src/tasks/` (`run_task` runs `atalanta run` or, with a `goal`, `atalanta explore --json` as a child; `task_inject` appends to its `--inject-file`)
 - `atalanta-doctor`: environment diagnostics (`run_checks(&Options) -> Report`, `apply_safe_fixes`) behind `atalanta doctor`; tests fake adb/xcrun/xcodebuild via `Env::from_vars` (a PATH of scripts), never the process env
 - `atalanta-migrate`: Maestro → Atalanta YAML converter
-- `atalanta-api`: the `http` step (API testing): `HttpSession` sends a request, runs every `expect` check (status, headers, RFC 9535 JSONPath via `serde_json_path`, body, `maxMs`) and its `capture:`; one cookie jar per test. The step types live in `atalanta-common/src/http.rs` (Action needs them). Captured `${NAME}`s are left alone at load time (`env::interpolate_suite` records them in `config.captured_vars`) and filled in by the executor as the test runs (`env::bind_step`). A run whose selected tests have only `http`/`wait`/`setConfig` steps gets `NoDeviceDriver` (stand-ins `http-0…`, never leased; `atalanta_core::http_only_tests`). Docs: `docs/DSL.md#http-and-api-tests`, rationale `docs/research/landscape-api-testing.md`
+- `atalanta-api`: the `http` step (API testing): `HttpSession` sends a request, runs every `expect` check (status, headers, RFC 9535 JSONPath via `serde_json_path`, body, `maxMs`) and its `capture:`; one cookie jar per test. The step types live in `atalanta-common/src/http.rs` (Action needs them). Captured `${NAME}`s are left alone at load time (`env::interpolate_suite` records them in `config.captured_vars`) and filled in by the executor as the test runs (`env::bind_step`). A run whose selected tests have only `http`/`wait`/`setConfig` steps gets `NoDeviceDriver` (stand-ins `http-0…`, never leased; `atalanta_core::http_only_tests`). Docs: `docs/DSL.md#http-and-api-tests`
 - `atalanta-nl`: natural-language steps. The planner returns `{op, element}` only; `grounding.rs` builds and checks the selector in code. Keep it that way: never let model output become a selector or a value directly
 - `atalanta-explore`: `atalanta explore "<goal>"`. The agent loop on top of the executor and `atalanta-nl` (goal turns: `atalanta-nl/src/goal.rs`), the deterministic YAML writer, and the replay with no planner attached. Same rule: the model returns an op and an element number, and values only by name. Docs: `docs/EXPLORE.md`
 - `probes/ios/AtalantaSyncProbe` (Swift) and `probes/android/atalanta-sync-probe`: in-app native sync probes — separate toolchains (xcodebuild / gradle), NOT built by cargo
@@ -33,6 +33,5 @@ Cross-platform mobile UI testing framework in Rust. Maestro-style YAML DSL, sing
 
 - Docs: `docs/README.md` indexes architecture, DSL guide, drivers, CLI/exit codes, CI, MCP, explore, AI providers and verification status. `CONTEXT.md` and that index were checked against the code on 2026-11-11; the pages themselves were last checked as a set on 2026-10-25 and have been updated piecemeal since. Trust the code over them; update them when behaviour changes. `docs/DSL-REFERENCE.md` is generated from `schema.rs` (`ATALANTA_BLESS=1 cargo test -p atalanta-core --test dsl_reference`) and `docs/MCP.md` must list every MCP tool: tests fail otherwise. Mark anything not run on a device in `docs/STATUS.md`.
 - Error handling: classify new errors as transient/permanent/ambiguous in `atalanta-common/src/error.rs` — retry behavior depends on it. Exit codes: 1=test failure, 2=config, 3=device, 4=suite timeout, 5=internal.
-- Design rationale and the literature behind sync, healing, NL steps and scheduling: `docs/research/README.md` (its "Still open" list; the ranked plan is `docs/research/v4/PLAN-v4.md`).
 - Device regression suites: `tests/smoke/*.yaml` (the platform Settings apps) and `examples/`; run them on a device after sync/selector/dialog changes.
 - iOS automation needs macOS + Xcode; Android needs `adb` in PATH (`ATALANTA_ADB_PATH` to override).

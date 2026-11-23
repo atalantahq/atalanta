@@ -1,7 +1,6 @@
 //! HTTP client for WebDriverAgent.
 //!
-//! Speed choices, each measured on Xcode 26.0.1 / iOS 26.0 (see
-//! `docs/research/speed-ios-driver.md`):
+//! Speed choices, each measured on Xcode 26.0.1 / iOS 26.0:
 //! - Tree reads use the session `/source` with
 //!   `excluded_attributes=visible,accessible`: WDA computes those two with an
 //!   extra accessibility IPC per node, ~89% of the read (556 → 58 ms). The

@@ -24,7 +24,7 @@ Terms these docs use, in the order a new user meets them.
 
 ## How it compares
 
-Checked against the project's own market research ([landscape-market.md](research/landscape-market.md), 2026-10-30; [landscape-orchestration.md](research/landscape-orchestration.md); [landscape-agents.md](research/landscape-agents.md)). Competitor facts come from their docs and issue trackers; nothing was run against a competitor. Atalanta's own figures are from [STATUS.md](STATUS.md).
+Checked on 2026-10-30. Competitor facts come from their docs and issue trackers; nothing was run against a competitor. Atalanta's own figures are from [STATUS.md](STATUS.md).
 
 | | Atalanta | Maestro (CLI 2.12) | Appium (3.x) |
 | --- | --- | --- | --- |
@@ -97,7 +97,6 @@ Atalanta is a single static binary with no runtime dependencies: no JVM warm-up,
 
 Every interaction waits for its element to appear, and every assertion waits for its condition (an element to go, text to settle). The default timeout is configurable, and `timeoutMs` overrides it per step. A test that passes only on retry is reported as **FLAKY**, not passed, and `atalanta-history.json` tracks each test's recent outcomes and flip rate. Self-healed selectors are always reported with the element they chose; a heal never passes silently, and an ambiguous heal is refused. The driver layer adds retry policies with exponential backoff, and circuit breakers that stop cascading failures when a device becomes unresponsive.
 
-The design choices behind this, with the papers that support them, are in [docs/research](research/README.md).
 
 ## Parallel-first execution
 

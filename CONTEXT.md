@@ -52,4 +52,4 @@ cargo test -p <crate>
 cargo fmt --all && cargo clippy -p <crate> --all-targets -- -D warnings
 ```
 
-Docs: [docs/README.md](docs/README.md). Design rationale: [docs/research/README.md](docs/research/README.md).
+Docs: [docs/README.md](docs/README.md).

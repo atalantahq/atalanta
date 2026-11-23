@@ -7,12 +7,11 @@
 # deny.toml's [advisories] ignore list.
 
 # serde_yaml / unsafe-libyaml: "unmaintained" notice, not a vulnerability.
-# Same as deny.toml; the move to a maintained YAML parser is in
-# docs/research/PLAN-v3.md.
+# Same as deny.toml; a move to a maintained YAML parser is planned.
 [[IgnoredVulns]]
 id = "RUSTSEC-2024-0449"
 ignoreUntil = 2027-05-11
-reason = "serde_yaml/unsafe-libyaml unmaintained (no CVE); migration tracked in docs/research/PLAN-v3.md, mirrored in deny.toml"
+reason = "serde_yaml/unsafe-libyaml unmaintained (no CVE); migration planned, mirrored in deny.toml"
 
 # ttf-parser through cosmic-text/fontdb (atalanta-headless): "unmaintained"
 # notice; its replacement needs cosmic-text to move first. Same as deny.toml.

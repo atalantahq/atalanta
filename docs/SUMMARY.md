@@ -16,3 +16,4 @@
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
 - [Verification status](STATUS.md)
+- [0.2.0 changes in full](CHANGELOG-0.2.0.md)

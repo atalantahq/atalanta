@@ -10,7 +10,6 @@ Related docs:
 - [CI.md](CI.md): CI usage.
 - [MCP.md](MCP.md): the MCP server.
 - [STATUS.md](STATUS.md): what has been verified where.
-- [research/](research/README.md): design rationale and literature.
 
 ## Crates
 
