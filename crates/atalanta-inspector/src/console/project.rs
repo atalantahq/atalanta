@@ -187,7 +187,7 @@ mod tests {
         std::fs::write(base.join("other.yaml"), "key: value\n").unwrap();
         let found = find_suites(&base);
         let paths: Vec<_> = found.iter().map(|s| s.path.as_str()).collect();
-        assert_eq!(paths, ["flows/sub/b.yml", "atalanta.yaml"]);
+        assert_eq!(paths, ["atalanta.yaml", "flows/sub/b.yml"]);
         assert_eq!(found[1].tests, ["login"]);
         let _ = std::fs::remove_dir_all(&base);
     }

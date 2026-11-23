@@ -8,6 +8,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 0.2.0 is a large release. Suites written for 0.1.0 keep their format (`appId`, `config`, `flows`, `tests`), but several checks are now stricter. Read [Behaviour changes that can fail existing suites](#behaviour-changes-that-can-fail-existing-suites) and [Migrating from 0.1.0](#migrating-from-010) before you upgrade a CI pipeline.
 
+### Renamed from Velocity
+
+The project was called Velocity until 2026-11-23, and 0.1.0 was tagged under that name; it was never published. Everything that carried the name changed with it: the binary is `atalanta`, the crates are `atalanta-*`, environment variables are `ATALANTA_*`, the `ios.runner` value is `atalanta`, and the folders are `atalanta-results/`, `.atalanta/` and `~/.atalanta/`. The entries below use the new names throughout, including for 0.1.0.
+
 ### Behaviour changes that can fail existing suites
 
 - **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts** (and their dimming view) instead of dismissing the sheet. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#ios-sheets)
@@ -471,7 +475,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - npm: `npx @atalantahq/cli --version`, or `npm install -D @atalantahq/cli`
   - `cargo install atalanta-cli --locked` (builds from source; the published crate carries the built console UI, so no npm is needed)
 - **Release assets:** `atalanta-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, a `SHA256SUMS` file, and GitHub build provenance attestations (`gh attestation verify <file> --repo atalantahq/atalanta`).
-- **Rust crates:** the MCP server crate is published as `atalanta-mcp-server` (the name `atalanta-mcp` was taken); its library is still `atalanta_mcp`. The minimum supported Rust version is 1.89.
+- **Rust crates:** the MCP server crate is published as `atalanta-mcp-server`; its library is `atalanta_mcp`. The minimum supported Rust version is 1.89.
 - **Devices:**
   - Android emulators and devices need `adb`; Java is not needed.
   - iOS simulators and devices need macOS with Xcode.

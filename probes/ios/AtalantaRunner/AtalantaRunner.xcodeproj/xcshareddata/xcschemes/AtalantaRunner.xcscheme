@@ -15,7 +15,7 @@
             buildForAnalyzing = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D23C915C28804E6940DD06FB"
+               BlueprintIdentifier = "D3691D7E872D76A672BA5AD6"
                BuildableName = "AtalantaRunnerUITests.xctest"
                BlueprintName = "AtalantaRunnerUITests"
                ReferencedContainer = "container:AtalantaRunner.xcodeproj">
@@ -32,7 +32,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D23C915C28804E6940DD06FB"
+            BlueprintIdentifier = "D3691D7E872D76A672BA5AD6"
             BuildableName = "AtalantaRunnerUITests.xctest"
             BlueprintName = "AtalantaRunnerUITests"
             ReferencedContainer = "container:AtalantaRunner.xcodeproj">
@@ -44,7 +44,7 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "D23C915C28804E6940DD06FB"
+               BlueprintIdentifier = "D3691D7E872D76A672BA5AD6"
                BuildableName = "AtalantaRunnerUITests.xctest"
                BlueprintName = "AtalantaRunnerUITests"
                ReferencedContainer = "container:AtalantaRunner.xcodeproj">
@@ -67,7 +67,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D23C915C28804E6940DD06FB"
+            BlueprintIdentifier = "D3691D7E872D76A672BA5AD6"
             BuildableName = "AtalantaRunnerUITests.xctest"
             BlueprintName = "AtalantaRunnerUITests"
             ReferencedContainer = "container:AtalantaRunner.xcodeproj">
@@ -83,7 +83,7 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "D23C915C28804E6940DD06FB"
+            BlueprintIdentifier = "D3691D7E872D76A672BA5AD6"
             BuildableName = "AtalantaRunnerUITests.xctest"
             BlueprintName = "AtalantaRunnerUITests"
             ReferencedContainer = "container:AtalantaRunner.xcodeproj">
