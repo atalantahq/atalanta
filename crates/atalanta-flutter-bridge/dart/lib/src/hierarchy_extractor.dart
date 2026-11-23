@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: the Atalanta authors
 // SPDX-License-Identifier: AGPL-3.0-only
 
+// package:material_ui needs Flutter 3.47; the floor is 3.19.
+// ignore: deprecated_member_use
 import 'package:flutter/material.dart' show ButtonStyleButton;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
