@@ -17,10 +17,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-use velocity_common::{
+use atalanta_common::{
     Element, Platform, Rect, Selector, SourcePos, StepResult, StepStatus, TestStatus, TraceMode,
 };
+use serde::{Deserialize, Serialize};
 
 /// Bumped when the files' shape changes incompatibly.
 pub const TRACE_VERSION: u32 = 1;
@@ -166,7 +166,7 @@ pub struct TraceRecorder {
     /// When the running test started.
     test_started: std::time::Instant,
     /// Evidence for the running test, set before [`Self::finish`].
-    evidence: Option<(TraceEvidence, Vec<velocity_common::evidence::LogLine>)>,
+    evidence: Option<(TraceEvidence, Vec<atalanta_common::evidence::LogLine>)>,
     /// The `trace*.html` the last [`Self::finish`] wrote.
     last_html: Option<PathBuf>,
 }
@@ -245,7 +245,7 @@ impl TraceRecorder {
     pub fn set_evidence(
         &mut self,
         evidence: TraceEvidence,
-        lines: Vec<velocity_common::evidence::LogLine>,
+        lines: Vec<atalanta_common::evidence::LogLine>,
     ) {
         self.evidence = Some((evidence, lines));
     }
@@ -599,10 +599,10 @@ fn write_trace(
     Ok(path)
 }
 
-/// `value` as JSON with secrets masked (`velocity_common::redact`).
+/// `value` as JSON with secrets masked (`atalanta_common::redact`).
 fn redacted_json<T: serde::Serialize>(value: &T, pretty: bool) -> std::io::Result<Vec<u8>> {
     let mut v = serde_json::to_value(value)?;
-    velocity_common::redact::redact_value(&mut v);
+    atalanta_common::redact::redact_value(&mut v);
     Ok(if pretty {
         serde_json::to_vec_pretty(&v)?
     } else {
@@ -610,7 +610,7 @@ fn redacted_json<T: serde::Serialize>(value: &T, pretty: bool) -> std::io::Resul
     })
 }
 
-use velocity_common::fsutil::write_atomic;
+use atalanta_common::fsutil::write_atomic;
 
 /// Read a trace back, with the trees it refers to.
 pub fn load_trace(steps_file: &Path) -> std::io::Result<(TestTrace, HashMap<String, Element>)> {

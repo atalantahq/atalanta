@@ -1,4 +1,4 @@
-//! Client for the on-device UI-tree server (`probes/android/velocity-tree-server`).
+//! Client for the on-device UI-tree server (`probes/android/atalanta-tree-server`).
 //!
 //! `uiautomator dump` starts a JVM, connects UiAutomation and waits for idle on
 //! every call — about 2 s each on an API 34 emulator. The tree server holds one
@@ -11,7 +11,7 @@
 //! session down and the caller falls back to `uiautomator dump`; after
 //! `MAX_FAILURES` in a row the server is left alone for a while (2 s,
 //! doubling to 60 s) and then tried again. Disable it with
-//! `VELOCITY_ANDROID_TREE_SERVER=0`.
+//! `ATALANTA_ANDROID_TREE_SERVER=0`.
 //!
 //! Only one UiAutomation connection can exist per device, so while the server
 //! runs `uiautomator dump` fails — tearing down always sends `QUIT` first.
@@ -47,8 +47,8 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-/// The dex jar built by `probes/android/velocity-tree-server/build.sh`.
-const SERVER_JAR: &[u8] = include_bytes!("../assets/velocity-tree.jar");
+/// The dex jar built by `probes/android/atalanta-tree-server/build.sh`.
+const SERVER_JAR: &[u8] = include_bytes!("../assets/atalanta-tree.jar");
 /// Must match `Server.VERSION` in the embedded jar.
 const SERVER_VERSION: &str = "19";
 /// The oldest protocol the host still speaks. Protocol 7 has no request
@@ -61,7 +61,7 @@ const SERVER_VERSION: &str = "19";
 /// Protocol 10 adds the Compose `test-tag` and 11 the `role-desc` (S1)
 /// to full dumps; older servers just don't send them. Protocol 12 adds
 /// `ENCODERS` (the device's H.264 encoders) and ships the video server
-/// (`com.velocity.tree.VideoServer`, see [`crate::video`]) in the same jar;
+/// (`com.atalanta.tree.VideoServer`, see [`crate::video`]) in the same jar;
 /// the tree commands are unchanged. Protocol 13 (R-2) closes the
 /// connection on any line that isn't a command and requires `AUTH <token>`
 /// first; the commands themselves are unchanged. Protocol 18 makes the
@@ -79,11 +79,11 @@ const OLDEST_VERSION: u32 = 7;
 const CHALLENGE_VERSION: u32 = 18;
 /// Where a protocol 13 server leaves its session token on the device:
 /// readable by its own uid (shell or root) only.
-const TOKEN_FILE: &str = "/data/local/tmp/velocity-tree.token";
+const TOKEN_FILE: &str = "/data/local/tmp/atalanta-tree.token";
 /// Text sent per `TEXT` command: long strings typed as one burst of key
 /// events overran the keyboard (Appium and Maestro chunk too).
 const TEXT_CHUNK: usize = 256;
-const SOCKET_NAME: &str = "velocity_tree";
+const SOCKET_NAME: &str = "atalanta_tree";
 /// Failures in a row before the server is left alone for a while.
 const MAX_FAILURES: u32 = 2;
 const BACKOFF_MIN: Duration = Duration::from_secs(2);
@@ -100,11 +100,11 @@ pub fn is_outcome_unknown(msg: &str) -> bool {
 /// What [`TreeServer::start`] says when another tool holds UiAutomation.
 const ANOTHER_CLIENT: &str = "another UI automation tool";
 
-/// `VELOCITY_ANDROID_KEEP_A11Y=1`: don't suppress other accessibility
+/// `ATALANTA_ANDROID_KEEP_A11Y=1`: don't suppress other accessibility
 /// services. A server already running keeps the mode it started with.
 fn keep_a11y() -> bool {
     matches!(
-        velocity_common::env::var("VELOCITY_ANDROID_KEEP_A11Y").as_deref(),
+        atalanta_common::env::var("ATALANTA_ANDROID_KEEP_A11Y").as_deref(),
         Ok("1") | Ok("true")
     )
 }
@@ -123,8 +123,8 @@ struct Session {
     /// new connection (reconnects, resends).
     token: Option<String>,
     /// The `adb shell app_process …` process; `None` when we attached to a
-    /// server left running by an earlier Velocity process.
-    _child: Option<velocity_common::process::GroupChild>,
+    /// server left running by an earlier Atalanta process.
+    _child: Option<atalanta_common::process::GroupChild>,
     /// Removes `port`'s `adb forward` if the session is dropped without
     /// [`TreeServer::release`] (a cancelled caller); `None` in tests.
     forward: Option<ForwardGuard>,
@@ -320,7 +320,7 @@ fn parse_pong(line: &str) -> Option<(String, Option<String>)> {
 }
 
 /// The full-dump command: `DUMP notag` skips the Compose testTag reads
-/// (D-53) when `VELOCITY_ANDROID_COMPOSE_TESTTAG=0`. A protocol 9 server
+/// (D-53) when `ATALANTA_ANDROID_COMPOSE_TESTTAG=0`. A protocol 9 server
 /// reads `notag` as a plain full dump, which has no `test-tag` anyway.
 fn dump_command() -> &'static str {
     if crate::parser::compose_test_tags() {
@@ -358,7 +358,7 @@ pub struct Probe {
     /// The protocol the server answered PING with; `None` when no server
     /// was running and none was started.
     pub version: Option<String>,
-    /// A server was already running (another Velocity's, or a kept one).
+    /// A server was already running (another Atalanta's, or a kept one).
     pub attached: bool,
 }
 
@@ -380,18 +380,18 @@ impl Default for TreeServer {
 impl TreeServer {
     pub fn new() -> Self {
         let enabled = !matches!(
-            velocity_common::env::var("VELOCITY_ANDROID_TREE_SERVER").as_deref(),
+            atalanta_common::env::var("ATALANTA_ANDROID_TREE_SERVER").as_deref(),
             Ok("0") | Ok("false") | Ok("off")
         );
         Self {
-            adb_path: velocity_common::env::var("VELOCITY_ADB_PATH")
+            adb_path: atalanta_common::env::var("ATALANTA_ADB_PATH")
                 .unwrap_or_else(|_| "adb".to_string()),
             enabled,
             devices: Default::default(),
         }
     }
 
-    /// Run this `adb` instead of `VELOCITY_ADB_PATH` / `adb`.
+    /// Run this `adb` instead of `ATALANTA_ADB_PATH` / `adb`.
     pub fn with_adb_path(mut self, adb_path: impl Into<String>) -> Self {
         self.adb_path = adb_path.into();
         self
@@ -907,7 +907,7 @@ impl TreeServer {
         }
     }
 
-    /// `velocity doctor --deep`: push the jar (unless this build is
+    /// `atalanta doctor --deep`: push the jar (unless this build is
     /// already on the device) and handshake. A server already listening is
     /// PINGed and left running (it may be another run's). Otherwise, only
     /// when `may_start` (the caller holds the device's lease), one is
@@ -948,12 +948,12 @@ impl TreeServer {
         })
     }
 
-    /// Remove every Velocity tree-server jar from the device and push this
-    /// build's again (`velocity doctor --fix` after a failed probe).
+    /// Remove every Atalanta tree-server jar from the device and push this
+    /// build's again (`atalanta doctor --fix` after a failed probe).
     pub async fn repush(&self, device_id: &str) -> Result<String, String> {
         self.adb(
             device_id,
-            &["shell", "rm -f /data/local/tmp/velocity-tree-*.jar"],
+            &["shell", "rm -f /data/local/tmp/atalanta-tree-*.jar"],
         )
         .await?;
         self.push_jar(device_id).await
@@ -1084,16 +1084,16 @@ impl TreeServer {
         let remote = self.push_jar(device_id).await?;
         // Its own process group, registered for the second-signal kill:
         // `std::process::exit` skips `kill_on_drop` (review d4 m2).
-        let mut child = velocity_common::process::spawn_group(
+        let mut child = atalanta_common::process::spawn_group(
             Command::new(&self.adb_path)
                 .args(crate::adb::target_args(device_id))
                 .args([
                     "shell",
                     &format!(
                         "CLASSPATH={remote}:/system/framework/uiautomator.jar \
-                     exec app_process /system/bin com.velocity.tree.Server{}",
+                     exec app_process /system/bin com.atalanta.tree.Server{}",
                         // Keep TalkBack and other accessibility services running
-                        // while Velocity drives the device (off: they're paused).
+                        // while Atalanta drives the device (off: they're paused).
                         if keep_a11y() { " --keep-a11y" } else { "" }
                     ),
                 ])
@@ -1146,7 +1146,7 @@ impl TreeServer {
             }
             if joined.contains("already bound") {
                 // Protocol 18 says so in words: something else holds
-                // @velocity_tree. If it isn't a Velocity server, it may be
+                // @atalanta_tree. If it isn't a Atalanta server, it may be
                 // an app waiting for typed text: worth a loud warning.
                 warn!(
                     device_id,
@@ -1308,7 +1308,7 @@ pub(crate) async fn run_adb(
     cmd.args(crate::adb::target_args(device_id))
         .args(args)
         .stdin(Stdio::null());
-    let out = velocity_common::process::output_with_timeout(&mut cmd, Duration::from_secs(30))
+    let out = atalanta_common::process::output_with_timeout(&mut cmd, Duration::from_secs(30))
         .await
         .map_err(|e| format!("adb: {e}"))?;
     if !out.status.success() {
@@ -1326,7 +1326,7 @@ pub(crate) async fn run_adb(
 /// remote name carries a content hash, so upgrades never reuse an old jar.
 pub(crate) async fn push_server_jar(adb_path: &str, device_id: &str) -> Result<String, String> {
     let remote = format!(
-        "/data/local/tmp/velocity-tree-{:016x}.jar",
+        "/data/local/tmp/atalanta-tree-{:016x}.jar",
         fnv1a(SERVER_JAR)
     );
     let present = run_adb(
@@ -1340,7 +1340,7 @@ pub(crate) async fn push_server_jar(adb_path: &str, device_id: &str) -> Result<S
     if present {
         return Ok(remote);
     }
-    let local = write_private_temp("velocity-tree", ".jar", SERVER_JAR)
+    let local = write_private_temp("atalanta-tree", ".jar", SERVER_JAR)
         .map_err(|e| format!("write jar: {e}"))?;
     let result = run_adb(
         adb_path,
@@ -1367,7 +1367,7 @@ async fn connect(host: &str, port: u16) -> Result<BufReader<TcpStream>, String> 
 async fn open_session(
     host: &str,
     port: u16,
-    child: Option<velocity_common::process::GroupChild>,
+    child: Option<atalanta_common::process::GroupChild>,
     token: Option<String>,
 ) -> Result<Session, String> {
     let (stream, proto, nonce) = handshake(host, port, token.as_deref()).await?;
@@ -1427,7 +1427,7 @@ async fn present_token(
         let got = proof.strip_prefix("PROOF ").unwrap_or("");
         if !constant_time_eq(got.as_bytes(), want.as_bytes()) {
             return Err(format!(
-                "the process on @{SOCKET_NAME} could not prove it is Velocity's tree server \
+                "the process on @{SOCKET_NAME} could not prove it is Atalanta's tree server \
                  (another app may have bound the socket name); nothing was sent to it"
             ));
         }
@@ -1472,7 +1472,7 @@ pub(crate) fn client_nonce() -> String {
 fn server_proof(token: &str, boot_nonce: &str, client_nonce: &str) -> String {
     hex(&hmac_sha256(
         token.as_bytes(),
-        format!("velocity-tree server {boot_nonce} {client_nonce}").as_bytes(),
+        format!("atalanta-tree server {boot_nonce} {client_nonce}").as_bytes(),
     ))
 }
 
@@ -1481,7 +1481,7 @@ fn server_proof(token: &str, boot_nonce: &str, client_nonce: &str) -> String {
 fn client_proof(token: &str, boot_nonce: &str, client_nonce: &str) -> String {
     hex(&hmac_sha256(
         token.as_bytes(),
-        format!("velocity-tree client {boot_nonce} {client_nonce}").as_bytes(),
+        format!("atalanta-tree client {boot_nonce} {client_nonce}").as_bytes(),
     ))
 }
 
@@ -1523,7 +1523,7 @@ async fn ping(stream: &mut BufReader<TcpStream>) -> Result<(String, Option<Strin
             .await
             .map_err(|e| e.to_string())?;
         // Capped like every other reply: whatever holds the socket (an app
-        // squatting `@velocity_tree`) could stream bytes with no newline
+        // squatting `@atalanta_tree`) could stream bytes with no newline
         // and grow this buffer for the whole timeout (audit 2026-11 AND-2).
         let mut raw = Vec::new();
         (&mut *stream)
@@ -1645,7 +1645,7 @@ pub struct Window {
     /// `AccessibilityWindowInfo` type: 1 application, 2 input method,
     /// 3 system, 4 accessibility overlay, 5 split-screen divider.
     pub kind: i32,
-    pub bounds: velocity_common::Rect,
+    pub bounds: atalanta_common::Rect,
     pub package: String,
     /// Whether the window takes touches (protocol 18, API 33+); `None`
     /// when the server can't tell.
@@ -1730,7 +1730,7 @@ fn parse_windows(text: &str, proto: u32) -> Vec<Window> {
             (b.len() == 4).then(|| Window {
                 layer,
                 kind,
-                bounds: velocity_common::Rect {
+                bounds: atalanta_common::Rect {
                     x: b[0],
                     y: b[1],
                     width: b[2].saturating_sub(b[0]),
@@ -1768,7 +1768,7 @@ pub mod fuzzing {
 /// Write `bytes` to a new file in the temp dir that only this user can
 /// read. The name is unpredictable and the file must not exist yet, so a
 /// file or symlink planted at a guessable path (the old
-/// `velocity-tree-<pid>.jar`) is never followed or overwritten (VEL-358).
+/// `atalanta-tree-<pid>.jar`) is never followed or overwritten (VEL-358).
 fn write_private_temp(
     prefix: &str,
     suffix: &str,
@@ -2422,7 +2422,7 @@ pub(crate) mod tests {
     }
 
     /// Security review #2: something on the socket that can't prove it
-    /// holds the token (an app that bound `@velocity_tree` first, or an old
+    /// holds the token (an app that bound `@atalanta_tree` first, or an old
     /// server that would take the token in the clear) is sent nothing
     /// after `HELLO`: no `AUTH`, no token, no command.
     #[tokio::test]
@@ -2681,11 +2681,11 @@ pub(crate) mod tests {
     fn the_temp_jar_is_private_and_never_follows_a_planted_file() {
         use std::os::unix::fs::PermissionsExt;
         let planted =
-            std::env::temp_dir().join(format!("velocity-tree-{}.jar", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-tree-{}.jar", std::process::id()));
         let _ = std::fs::remove_file(&planted);
         std::fs::write(&planted, b"planted").unwrap();
-        let a = write_private_temp("velocity-tree", ".jar", b"jar").unwrap();
-        let b = write_private_temp("velocity-tree", ".jar", b"jar").unwrap();
+        let a = write_private_temp("atalanta-tree", ".jar", b"jar").unwrap();
+        let b = write_private_temp("atalanta-tree", ".jar", b"jar").unwrap();
         assert_ne!(a, b);
         assert_ne!(a, planted);
         assert_eq!(std::fs::read(&planted).unwrap(), b"planted");
@@ -2729,7 +2729,7 @@ pub(crate) mod tests {
         assert_eq!(supported("19"), Some(19));
         assert_eq!(supported("20"), None);
         // The dex is stored deflated: inflate it with the system `unzip`.
-        let jar = write_private_temp("velocity-tree-test", ".jar", SERVER_JAR).unwrap();
+        let jar = write_private_temp("atalanta-tree-test", ".jar", SERVER_JAR).unwrap();
         let out = std::process::Command::new("unzip")
             .args(["-p", &jar.to_string_lossy(), "classes.dex"])
             .output();
@@ -2747,7 +2747,7 @@ pub(crate) mod tests {
         // `SERVER_VERSION` compared with itself, catches a stale jar.
         for marker in [
             format!("PONG {SERVER_VERSION} "),
-            format!("velocity-tree {SERVER_VERSION} listening on @"),
+            format!("atalanta-tree {SERVER_VERSION} listening on @"),
         ] {
             assert!(
                 out.stdout.windows(marker.len()).any(|w| w == marker.as_bytes()),
@@ -2766,14 +2766,14 @@ pub(crate) mod tests {
             b"role-desc",
             b"AccessibilityNodeInfo.roleDescription",
             b"ENCODERS",
-            b"Lcom/velocity/tree/VideoServer;",
+            b"Lcom/atalanta/tree/VideoServer;",
             b"max-fps-to-encoder",
             b"PointerProperties",
             b"popupsAbove",
             b"createVirtualDisplay",
             // 18: the mutual handshake, the gated cache clear (and its
             // pre-34 fallback), spinners, keyboard-sourced keys.
-            b"velocity-tree server ",
+            b"atalanta-tree server ",
             b"PROOF ",
             b"AccessibilityInteractionClient",
             b"indeterminate",
@@ -2783,8 +2783,8 @@ pub(crate) mod tests {
             // host's wait in the request tag, the video server's handshake.
             b"getWindowsOnAllDisplays",
             b"the host stopped waiting",
-            b"velocity-video server ",
-            b"velocity-video client ",
+            b"atalanta-video server ",
+            b"atalanta-video client ",
         ] {
             assert!(
                 out.stdout.windows(marker.len()).any(|w| w == marker),
@@ -2918,7 +2918,7 @@ pub(crate) mod tests {
         assert!(w[1].title.is_empty());
     }
 
-    /// Runs against a real device when one is named in VELOCITY_TEST_ANDROID.
+    /// Runs against a real device when one is named in ATALANTA_TEST_ANDROID.
     #[tokio::test]
     async fn dumps_from_a_real_device() {
         let Some(device) = crate::test_support::device_under_test() else {

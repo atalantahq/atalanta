@@ -9,8 +9,8 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use atalanta_common::types::Element;
 use serde_json::Value;
-use velocity_common::types::Element;
 
 /// One device's hierarchy as the page last received it.
 pub struct Snapshot {
@@ -80,7 +80,7 @@ fn add_node_keys(root: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::types::Rect;
+    use atalanta_common::types::Rect;
 
     fn node(text: &str, children: Vec<Element>) -> Element {
         Element {

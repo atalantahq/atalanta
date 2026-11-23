@@ -1,11 +1,11 @@
-// Velocity's own iOS runner: an XCUITest bundle that serves the subset of
-// WebDriverAgent's HTTP API Velocity's client uses, over Network.framework,
-// with public XCTest APIs only. Velocity's WDA client and iOS driver work
-// against it unchanged (`VELOCITY_IOS_RUNNER=velocity`).
+// Atalanta's own iOS runner: an XCUITest bundle that serves the subset of
+// WebDriverAgent's HTTP API Atalanta's client uses, over Network.framework,
+// with public XCTest APIs only. Atalanta's WDA client and iOS driver work
+// against it unchanged (`ATALANTA_IOS_RUNNER=atalanta`).
 //
 // Why: WDA is a large Objective-C project (a 31 s build, private-API
 // dependencies that break across Xcode releases). This builds in seconds and
-// does only what Velocity needs.
+// does only what Atalanta needs.
 //
 // Routes (JSON bodies, WDA's `{ "value": … }` envelope):
 //   GET  /status
@@ -24,14 +24,14 @@
 //   POST /session/:id/url                { url }
 //   POST /session/:id/element(s)         not supported: empty / no such element
 //   GET  /wda/screen                     statusBarSize (SpringBoard's status bar)
-//   POST /session/:id/velocity/hitTest   { x, y } → what is drawn there (D-38, private API)
+//   POST /session/:id/atalanta/hitTest   { x, y } → what is drawn there (D-38, private API)
 //
 // Any XCTest issue an action records (typeText with nothing focused, a tap
 // that can't be synthesised, a launch that fails) turns that request's
 // answer into a 500 `unknown error` naming the issues: it used to be a 200.
 //
 // Every request, `/status` included, must carry `Authorization: Bearer
-// <VELOCITY_RUNNER_TOKEN>` (a random token Velocity makes per launch), a
+// <ATALANTA_RUNNER_TOKEN>` (a random token Atalanta makes per launch), a
 // `Host` naming this runner on loopback (`127.0.0.1`, `localhost` or `[::1]`
 // with its own port), and no `Origin` or cross-site `Sec-Fetch-Site`: a web
 // page in a browser on the Mac (or, through the usbmux forward, a phone's)
@@ -42,7 +42,7 @@ import Network
 import UIKit
 import XCTest
 
-final class VelocityRunnerUITests: XCTestCase {
+final class AtalantaRunnerUITests: XCTestCase {
     /// XCTest failures land here instead of failing the test: the request
     /// that caused them answers 500 with their text (N1: a typeText with
     /// nothing focused answered 200). Not `super`, so the runner never
@@ -56,19 +56,19 @@ final class VelocityRunnerUITests: XCTestCase {
         // not end the test method, and with it the runner (IOS-N6).
         continueAfterFailure = true
         let env = ProcessInfo.processInfo.environment
-        let port = UInt16(env["USE_PORT"] ?? env["VELOCITY_RUNNER_PORT"] ?? "8100") ?? 8100
-        // R-1: no token, no runner. Velocity always passes one.
+        let port = UInt16(env["USE_PORT"] ?? env["ATALANTA_RUNNER_PORT"] ?? "8100") ?? 8100
+        // R-1: no token, no runner. Atalanta always passes one.
         guard Auth.token != nil else {
-            print("VelocityRunner: VELOCITY_RUNNER_TOKEN is not set; refusing to serve without a token")
+            print("AtalantaRunner: ATALANTA_RUNNER_TOKEN is not set; refusing to serve without a token")
             fflush(stdout)
             exit(1)
         }
         Guard.port = port
         Guard.boundHost = env["USE_IP"]
-        if env["VELOCITY_RUNNER_WAIT_FOR_IDLE"] != "1" {
-            print("VelocityRunner: XCTest idle waits \(Quiescence.disable() ? "off" : "on (hook not found)")")
+        if env["ATALANTA_RUNNER_WAIT_FOR_IDLE"] != "1" {
+            print("AtalantaRunner: XCTest idle waits \(Quiescence.disable() ? "off" : "on (hook not found)")")
         }
-        // `USE_IP` (WDA's variable) binds one address: Velocity passes
+        // `USE_IP` (WDA's variable) binds one address: Atalanta passes
         // 127.0.0.1 on simulators, which share the Mac's network (VEL-152).
         let server = try HTTPServer(port: port, host: env["USE_IP"], router: Router())
         // Prints the ready line once the port is bound, or exits (VEL-303).
@@ -115,7 +115,7 @@ enum Issues {
 // MARK: - Quiescence
 
 /// XCTest waits for the app to go idle before and after every launch, tap
-/// and query (≈1 s a tap on an animated screen). Velocity runs its own
+/// and query (≈1 s a tap on an animated screen). Atalanta runs its own
 /// settle, so turn that wait into a no-op — the one private symbol this
 /// runner touches (WebDriverAgent does the same, as its
 /// `waitForIdleTimeout = 0` setting). If the method isn't there, nothing
@@ -139,9 +139,9 @@ enum Quiescence {
 
 // MARK: - Routing
 
-/// The build Velocity launched (`velocity-runner-<source hash>`), so it can
+/// The build Atalanta launched (`atalanta-runner-<source hash>`), so it can
 /// tell this runner from a stale one still listening on the port.
-let runnerBuild = ProcessInfo.processInfo.environment["VELOCITY_RUNNER_BUILD"] ?? "velocity-runner-1"
+let runnerBuild = ProcessInfo.processInfo.environment["ATALANTA_RUNNER_BUILD"] ?? "atalanta-runner-1"
 
 final class Router {
     private var sessionId: String? {
@@ -155,7 +155,7 @@ final class Router {
     private let statusLock = NSLock()
     private var statusSession: String?
     private var activeBundle: String?
-    /// Installed apps, sent by Velocity for sessions without an app (the
+    /// Installed apps, sent by Atalanta for sessions without an app (the
     /// inspector, the REPL before `launchApp`): whichever is in front is
     /// the screen, as WDA's private frontmost-app lookup would say.
     private var candidates: [String] = []
@@ -194,7 +194,7 @@ final class Router {
         statusLock.lock()
         let sid = statusSession
         statusLock.unlock()
-        return .ok(["ready": true, "message": "VelocityRunner ready",
+        return .ok(["ready": true, "message": "AtalantaRunner ready",
                     "build": ["version": runnerBuild]], session: sid)
     }
 
@@ -227,7 +227,7 @@ final class Router {
                 activeBundle = bundle
                 let app = XCUIApplication(bundleIdentifier: bundle)
                 // WDA's `environment` capability: the host's per-simulator
-                // VELOCITY_SYNC_PORT for the in-app sync probe.
+                // ATALANTA_SYNC_PORT for the in-app sync probe.
                 if let env = caps?["environment"] as? [String: String] { app.launchEnvironment = env }
                 app.launch()
             }
@@ -257,7 +257,7 @@ final class Router {
                 SnapshotDepth.fallback = Int(d)
             }
             if let s = req.json["settings"] as? [String: Any],
-               let c = s["velocityCandidates"] as? [String] {
+               let c = s["atalantaCandidates"] as? [String] {
                 candidates = c
                 nextScan = .distantPast
             }
@@ -296,10 +296,10 @@ final class Router {
             return .ok(Data(text.utf8).base64EncodedString())
         case ("POST", "wda/element/0/keyboardInput"):
             // WDA's route, for the active app: keys with modifier flags
-            // (Velocity sends Cmd+V to paste).
+            // (Atalanta sends Cmd+V to paste).
             for item in (req.json["keys"] as? [Any]) ?? [] {
                 if let k = item as? String {
-                    // WDA's key names; Velocity uses F13 as a no-op.
+                    // WDA's key names; Atalanta uses F13 as a no-op.
                     let key = k == "XCUIKeyboardKeyF13" ? XCUIKeyboardKey.F13.rawValue : k
                     activeApp().typeKey(key, modifierFlags: [])
                 } else if let d = item as? [String: Any], let k = d["key"] as? String {
@@ -358,7 +358,7 @@ final class Router {
                 return .ok(NSNull())
             }
             return .error(500, "unsupported operation", "opening URLs needs iOS 16.4+")
-        case ("POST", "velocity/hitTest"):
+        case ("POST", "atalanta/hitTest"):
             // D-38 (ios.verifyTap): what is drawn at a point. Opt-in on the
             // host; private API, so "unavailable" is an answer, not an error.
             guard let x = Self.number(req.json["x"]), let y = Self.number(req.json["y"]) else {
@@ -368,7 +368,7 @@ final class Router {
         case ("POST", "elements"):
             return .ok([Any]())
         case ("POST", "element"):
-            return .error(404, "no such element", "VelocityRunner matches from /source")
+            return .error(404, "no such element", "AtalantaRunner matches from /source")
         default:
             return .error(404, "unknown command", "\(req.method) \(req.path)")
         }
@@ -386,7 +386,7 @@ final class Router {
         return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: dx, dy: dy))
     }
 
-    /// W3C pointer actions as Velocity sends them: move, then one or more
+    /// W3C pointer actions as Atalanta sends them: move, then one or more
     /// down/pause/up presses.
     private func pointerActions(_ body: [String: Any]) -> Response {
         guard let seq = (body["actions"] as? [[String: Any]])?.first,
@@ -438,13 +438,13 @@ final class Router {
         // A stroke (swipe or scroll): it used to keep only the last point and
         // tap there, so every swipe and scroll through /actions was a tap.
         if let start = downAt, downXY != nil, moved > 10 {
-            let velocity = moveSecs > 0 ? max(200, moved / moveSecs) : 1_500
-            // Ending slowly (Velocity's scroll stroke) = hold before lifting,
+            let atalanta = moveSecs > 0 ? max(200, moved / moveSecs) : 1_500
+            // Ending slowly (Atalanta's scroll stroke) = hold before lifting,
             // so the content stops where the finger does; a swipe flings.
             let hold = (firstSpeed > 0 && lastSpeed < firstSpeed / 3) ? 0.1 : 0
             start.press(forDuration: 0.05,
                         thenDragTo: target,
-                        withVelocity: XCUIGestureVelocity(velocity),
+                        withAtalanta: XCUIGestureAtalanta(atalanta),
                         thenHoldForDuration: hold)
             return .ok(NSNull())
         }
@@ -874,12 +874,12 @@ struct Request {
 }
 
 /// R-1: every request must carry `Authorization: Bearer <token>`, the
-/// token Velocity passes as `VELOCITY_RUNNER_TOKEN` (random per launch, or
+/// token Atalanta passes as `ATALANTA_RUNNER_TOKEN` (random per launch, or
 /// `ios.runnerToken`). The runner doesn't start without one. Compared in
 /// constant time.
 enum Auth {
     static let token: String? = {
-        let t = ProcessInfo.processInfo.environment["VELOCITY_RUNNER_TOKEN"] ?? ""
+        let t = ProcessInfo.processInfo.environment["ATALANTA_RUNNER_TOKEN"] ?? ""
         return t.isEmpty ? nil : t
     }()
 
@@ -895,9 +895,9 @@ enum Auth {
     }
 }
 
-/// R-1: what a browser sends and Velocity never does. A page's blind
+/// R-1: what a browser sends and Atalanta never does. A page's blind
 /// `fetch()` carries `Origin` (and `Sec-Fetch-Site: cross-site`); DNS
-/// rebinding names the attacker's host in `Host`. Velocity's client sends
+/// rebinding names the attacker's host in `Host`. Atalanta's client sends
 /// `Host: 127.0.0.1:<port>`, through a usbmux forward the runner's own port.
 enum Guard {
     /// The port this runner listens on.
@@ -953,13 +953,13 @@ struct Response {
 final class HTTPServer {
     private let listener: NWListener
     private let router: Router
-    private let queue = DispatchQueue(label: "velocity.runner.http")
+    private let queue = DispatchQueue(label: "atalanta.runner.http")
 
     private let port: UInt16
 
     /// Listens on `host` only when given (`127.0.0.1`), else on every
-    /// interface as before. Velocity passes it on simulators, and on a
-    /// cabled device only with `VELOCITY_IOS_DEVICE_LOOPBACK=1` until a wired
+    /// interface as before. Atalanta passes it on simulators, and on a
+    /// cabled device only with `ATALANTA_IOS_DEVICE_LOOPBACK=1` until a wired
     /// smoke run shows usbmuxd delivers to the device's loopback (P5).
     init(port: UInt16, host: String?, router: Router) throws {
         let params = NWParameters.tcp
@@ -982,7 +982,7 @@ final class HTTPServer {
             self.receive(conn, buffer: Data())
         }
         // The ready line means the port is bound: it used to be printed
-        // before, and a bind failure left Velocity talking to whatever else
+        // before, and a bind failure left Atalanta talking to whatever else
         // held the port (VEL-303).
         let port = self.port
         var announced = false
@@ -992,10 +992,10 @@ final class HTTPServer {
                 // `.ready` can come again after `.waiting`: one ready line.
                 guard !announced else { return }
                 announced = true
-                print("VelocityRunner ServerURLHere->http://127.0.0.1:\(port)<-ServerURLHere")
+                print("AtalantaRunner ServerURLHere->http://127.0.0.1:\(port)<-ServerURLHere")
                 fflush(stdout)
             case .failed(let error):
-                print("VelocityRunner: listening on port \(port) failed: \(error)")
+                print("AtalantaRunner: listening on port \(port) failed: \(error)")
                 exit(1)
             case .waiting(let error):
                 // Some OS versions report a port that can't be bound as
@@ -1004,10 +1004,10 @@ final class HTTPServer {
                 // timeout. Other waits (no network yet) may still resolve.
                 if case .posix(let code) = error,
                    [.EADDRINUSE, .EADDRNOTAVAIL, .EACCES].contains(code) {
-                    print("VelocityRunner: listening on port \(port) failed: \(error)")
+                    print("AtalantaRunner: listening on port \(port) failed: \(error)")
                     exit(1)
                 }
-                print("VelocityRunner: listener waiting on port \(port): \(error)")
+                print("AtalantaRunner: listener waiting on port \(port): \(error)")
                 fflush(stdout)
             default:
                 break

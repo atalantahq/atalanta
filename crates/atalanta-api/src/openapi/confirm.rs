@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use velocity_common::{HttpConfig, HttpExpect, VelocityError};
+use atalanta_common::{AtalantaError, HttpConfig, HttpExpect};
 
 use super::Scaffold;
 use crate::client::excerpt;
@@ -48,14 +48,14 @@ pub struct Finding {
 pub async fn confirm(
     s: &mut Scaffold,
     env: &dyn Fn(&str) -> Option<String>,
-) -> Result<ConfirmReport, VelocityError> {
+) -> Result<ConfirmReport, AtalantaError> {
     let mut report = ConfirmReport::default();
     let none = HashMap::new();
     let mut config = HttpConfig {
         base_url: match s.config.base_url.as_deref().map(|b| fill(b, &none, env)) {
             Some(Ok(b)) => Some(b),
             Some(Err(name)) => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "--confirm needs the server: set {name} or pass --base-url"
                 )))
             }
@@ -101,8 +101,8 @@ pub async fn confirm(
             req.expect = HttpExpect::default();
             req.capture.clear();
             let filled =
-                req.map_strings(&mut |t| fill(t, &captured, env).map_err(VelocityError::Config));
-            if let Err(VelocityError::Config(name)) = filled {
+                req.map_strings(&mut |t| fill(t, &captured, env).map_err(AtalantaError::Config));
+            if let Err(AtalantaError::Config(name)) = filled {
                 report.skipped.push(finding(
                     "",
                     format!("needs {name}: set it, or it comes from a request confirm mode doesn't send"),
@@ -113,7 +113,7 @@ pub async fn confirm(
                 Ok(x) => x,
                 Err(e) => {
                     let why = e.to_string();
-                    if matches!(e, VelocityError::HttpUnreachable { .. }) {
+                    if matches!(e, AtalantaError::HttpUnreachable { .. }) {
                         report.unreachable.get_or_insert_with(|| why.clone());
                     }
                     report.skipped.push(finding("", why));

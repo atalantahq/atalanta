@@ -1,4 +1,4 @@
-//! Goal-level planning for `velocity explore`: one turn of an agent that
+//! Goal-level planning for `atalanta explore`: one turn of an agent that
 //! works through a goal ("open Network & internet") on a live screen.
 //!
 //! The rule is the same as for single steps ("the model picks; code
@@ -22,9 +22,9 @@
 //! the model, nothing more; its answer is grounded against the current
 //! screen list exactly as without them.
 
+use atalanta_common::{AtalantaError, Platform, Result};
 use serde::{Deserialize, Deserializer};
 use serde_json::{json, Value};
-use velocity_common::{Platform, Result, VelocityError};
 
 use crate::planner::{de_element, de_or_default, json_spans, UNPARSEABLE_REPLY};
 
@@ -260,7 +260,7 @@ impl GoalStep {
                 Err(e) => last = Some(format!("{e} in {span:?}")),
             }
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "{UNPARSEABLE_REPLY}: {}",
             last.unwrap_or_else(|| format!("no JSON object in {reply:?}"))
         )))
@@ -335,7 +335,7 @@ Examples (screen lines shortened):
 const BENCHMARK_RULE: &str = "- This run is judged by an outside harness on the device's final state (and on your answer, if the goal asks a question); no test is written, so there is no assert or launch. Answer done once the goal is reached and saved.";
 
 /// The goal planner's instructions for a run with no test written
-/// (`velocity explore --benchmark`): [`GOAL_SYSTEM_PROMPT`] without the
+/// (`atalanta explore --benchmark`): [`GOAL_SYSTEM_PROMPT`] without the
 /// test-writing parts (the recorded-test framing, `assert`, `launch` and
 /// the assert example), with `BENCHMARK_RULE`. Byte-stable for a run, so
 /// it caches like the other; and the per-turn benchmark note it replaces

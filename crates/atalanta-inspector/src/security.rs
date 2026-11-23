@@ -8,7 +8,7 @@
 //!   loopback dev server such as Vite),
 //! - on `/api/*`, `Sec-Fetch-Site` (when sent) of `same-origin` or `none`,
 //! - on `/api/*` and the `/review` page, the per-session token, from the
-//!   `x-velocity-token` header, a `token` query parameter or the cookie set
+//!   `x-atalanta-token` header, a `token` query parameter or the cookie set
 //!   when the UI (or `/review`) is opened with `?token=…`.
 
 use std::net::IpAddr;
@@ -22,7 +22,7 @@ use axum::response::{IntoResponse, Response};
 use crate::state::AppState;
 
 /// Header carrying the session token on API calls.
-pub const TOKEN_HEADER: &str = "x-velocity-token";
+pub const TOKEN_HEADER: &str = "x-atalanta-token";
 
 /// Which `Host` values the server answers to.
 #[derive(Debug, Clone, Default)]
@@ -110,7 +110,7 @@ pub fn new_token() -> String {
 /// Name of the cookie holding `token`, unique per session so two inspectors
 /// on different ports of `localhost` don't overwrite each other's.
 pub fn cookie_name(token: &str) -> String {
-    format!("velocity_inspector_{}", &token[..token.len().min(8)])
+    format!("atalanta_inspector_{}", &token[..token.len().min(8)])
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -133,7 +133,7 @@ fn cookie_tokens(headers: &HeaderMap) -> impl Iterator<Item = &str> {
         .filter_map(|v| v.to_str().ok())
         .flat_map(|v| v.split(';'))
         .filter_map(|kv| kv.trim().split_once('='))
-        .filter(|(k, _)| k.starts_with("velocity_inspector_"))
+        .filter(|(k, _)| k.starts_with("atalanta_inspector_"))
         .map(|(_, v)| v)
 }
 
@@ -200,7 +200,7 @@ pub fn check(
         if !ok {
             return Some((
                 StatusCode::UNAUTHORIZED,
-                "missing or wrong inspector token (open the URL printed by `velocity inspect`)",
+                "missing or wrong inspector token (open the URL printed by `atalanta inspect`)",
             ));
         }
     }

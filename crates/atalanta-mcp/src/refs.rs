@@ -14,10 +14,10 @@
 
 use std::collections::HashMap;
 
+use atalanta_common::selector_build::robust_selector;
+use atalanta_common::selector_match::find_all_ref;
+use atalanta_common::{AtalantaError, Element, Platform, Rect, Result, Selector};
 use serde_json::Value;
-use velocity_common::selector_build::robust_selector;
-use velocity_common::selector_match::find_all_ref;
-use velocity_common::{Element, Platform, Rect, Result, Selector, VelocityError};
 
 /// What a ref's element looked like when it was listed.
 #[derive(Debug, Clone, PartialEq)]
@@ -148,18 +148,18 @@ impl Refs {
     fn resolve(&self, r: &str, tree: &Element, screen: Option<&Rect>) -> Result<Selector> {
         let Some((selector, seen)) = self.current.get(r) else {
             if let Some(tool) = &self.expired_by {
-                return Err(VelocityError::StaleRef(format!(
+                return Err(AtalantaError::StaleRef(format!(
                     "ref {r} is stale: `{tool}` changed the screen since list_elements; \
                      call list_elements again"
                 )));
             }
-            return Err(VelocityError::StaleRef(format!(
+            return Err(AtalantaError::StaleRef(format!(
                 "ref {r} is not in the latest list_elements; call list_elements again"
             )));
         };
         let now = pick(tree, selector, screen);
         if now.map(|e| Fingerprint::of(e, self.platform)).as_ref() != Some(seen) {
-            return Err(VelocityError::StaleRef(format!(
+            return Err(AtalantaError::StaleRef(format!(
                 "ref {r} is stale: the screen changed since list_elements; call it again"
             )));
         }
@@ -169,7 +169,7 @@ impl Refs {
 
 /// The rect drivers match selectors in, as the executor computes it.
 pub async fn screen_rect(
-    driver: &std::sync::Arc<dyn velocity_common::PlatformDriver>,
+    driver: &std::sync::Arc<dyn atalanta_common::PlatformDriver>,
     device_id: &str,
 ) -> Option<Rect> {
     let (width, height) = driver.screen_size(device_id).await.ok()?;
@@ -226,7 +226,7 @@ fn selector_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Rect;
+    use atalanta_common::Rect;
 
     fn el(id: &str, text: &str, y: i32) -> Element {
         Element {
@@ -274,7 +274,7 @@ mod tests {
         let mut args = serde_json::json!({ "selector": { "ref": second_buy } });
         refs.resolve_args(&mut args, &t, None).unwrap();
         let s: Selector =
-            velocity_core::parser::selector_from_value(args["selector"].clone()).unwrap();
+            atalanta_core::parser::selector_from_value(args["selector"].clone()).unwrap();
         assert_eq!(
             s,
             Selector::Index {
@@ -344,7 +344,7 @@ mod tests {
         let mut args = serde_json::json!({ "selector": { "ref": pay } });
         refs.resolve_args(&mut args, &t, None).unwrap();
         assert_eq!(args["selector"], serde_json::json!({ "text": "Pay" }));
-        use velocity_common::selector_build::synthetic_id;
+        use atalanta_common::selector_build::synthetic_id;
         assert!(synthetic_id("8F3A6C1E-0B2D-4C55-9E1F-1234567890AB"));
         assert!(!synthetic_id("headless:id/node_title"));
         assert!(!synthetic_id("com.app:id/pay"));
@@ -361,7 +361,7 @@ mod tests {
     fn resolved(refs: &Refs, r: &str, t: &Element) -> Selector {
         let mut args = serde_json::json!({ "selector": { "ref": r } });
         refs.resolve_args(&mut args, t, None).unwrap();
-        velocity_core::parser::selector_from_value(args["selector"].clone()).unwrap()
+        atalanta_core::parser::selector_from_value(args["selector"].clone()).unwrap()
     }
 
     // NB-2: a web node id is per page load; a ref must never record it.

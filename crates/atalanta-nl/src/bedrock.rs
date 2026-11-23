@@ -17,9 +17,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, NaturalKind, Result};
 use base64::Engine as _;
 use serde_json::{json, Value};
-use velocity_common::{NaturalKind, Result, VelocityError};
 
 use crate::anthropic::{
     attempt_budget, fnv1a, retry_after, retry_delay, step_schema, SYSTEM_PROMPT,
@@ -70,7 +70,7 @@ impl BedrockPlanner {
         images: bool,
     ) -> Result<Self> {
         if region.is_empty() {
-            return Err(VelocityError::Config(
+            return Err(AtalantaError::Config(
                 "bedrock needs a region: set AWS_REGION (or the profile's region)".into(),
             ));
         }
@@ -83,7 +83,7 @@ impl BedrockPlanner {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(LIMITS.0)
             .build()
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("HTTP client: {e}")))?;
         Ok(Self {
             client,
             origin: origin
@@ -229,12 +229,12 @@ impl BedrockPlanner {
                 Err(Err4xx { status, text }) => {
                     let lower = text.to_ascii_lowercase();
                     if body.to_string().contains("\"image\"") && lower.contains("image") {
-                        tracing::warn!(model = %self.model, "velocity-nl: the model rejected the screenshot; text only from now on");
+                        tracing::warn!(model = %self.model, "atalanta-nl: the model rejected the screenshot; text only from now on");
                         self.images.store(false, Ordering::Relaxed);
                         continue;
                     }
                     if tools && (lower.contains("tool") || lower.contains("toolconfig")) {
-                        tracing::warn!(model = %self.model, "velocity-nl: the model rejected tool use; answering in text from now on");
+                        tracing::warn!(model = %self.model, "atalanta-nl: the model rejected tool use; answering in text from now on");
                         self.tools.store(false, Ordering::Relaxed);
                         continue;
                     }
@@ -243,7 +243,7 @@ impl BedrockPlanner {
                         404 => " (check the model id and the region)",
                         _ => "",
                     };
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "Bedrock error {status}{hint}: {}",
                         text.chars().take(500).collect::<String>()
                     )));
@@ -251,7 +251,7 @@ impl BedrockPlanner {
                 Err(Final(e)) => return Err(e),
             }
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "Bedrock rejected every answer format for {}",
             self.model
         )))
@@ -264,12 +264,12 @@ impl BedrockPlanner {
         );
         match v["stopReason"].as_str() {
             Some("max_tokens") => {
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "{OUT_OF_TOKENS_REPLY} for step {what:?}"
                 )))
             }
             Some("guardrail_intervened") | Some("content_filtered") => {
-                return Err(VelocityError::Config(format!("{REFUSED_REPLY}: {what:?}")))
+                return Err(AtalantaError::Config(format!("{REFUSED_REPLY}: {what:?}")))
             }
             _ => {}
         }
@@ -286,7 +286,7 @@ impl BedrockPlanner {
         }
         let text: String = blocks.iter().filter_map(|b| b["text"].as_str()).collect();
         if text.trim().is_empty() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "planner returned empty content for step {what:?}"
             )));
         }
@@ -354,7 +354,7 @@ impl BedrockPlanner {
                         match body {
                             Ok(text) => {
                                 return serde_json::from_str(&text).map_err(|e| {
-                                    Final(VelocityError::Config(format!(
+                                    Final(AtalantaError::Config(format!(
                                         "Bedrock answered 200 with something that isn't a Converse response ({e})"
                                     )))
                                 })
@@ -388,11 +388,11 @@ impl BedrockPlanner {
                 if attempt_budget(started.elapsed() + delay, LIMITS).is_none() {
                     break;
                 }
-                tracing::warn!(attempt, ?delay, "velocity-nl: {last_err}; retrying");
+                tracing::warn!(attempt, ?delay, "atalanta-nl: {last_err}; retrying");
                 tokio::time::sleep(delay).await;
             }
         }
-        Err(Final(VelocityError::ServiceUnavailable {
+        Err(Final(AtalantaError::ServiceUnavailable {
             service: "Amazon Bedrock".into(),
             detail: format!("{last_err} (gave up after {:.0?})", started.elapsed()),
         }))
@@ -401,7 +401,7 @@ impl BedrockPlanner {
 
 enum SendError {
     Err4xx { status: u16, text: String },
-    Final(VelocityError),
+    Final(AtalantaError),
 }
 use SendError::{Err4xx, Final};
 
@@ -463,7 +463,7 @@ mod tests {
     use super::*;
     use crate::planner::Op;
     use crate::testutil::serve;
-    use velocity_common::Platform;
+    use atalanta_common::Platform;
 
     fn req() -> PlanRequest<'static> {
         PlanRequest {

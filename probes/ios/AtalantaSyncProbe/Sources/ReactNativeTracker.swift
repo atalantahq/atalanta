@@ -124,7 +124,7 @@ final class ReactNativeTracker {
 
     private func hookTiming() {
         guard let cls = NSClassFromString("RCTTiming") else {
-            ProbeWarnings.once("rn-timing", "[VelocitySyncProbe] framework react_native: no RCTTiming class; JS timers not waited for")
+            ProbeWarnings.once("rn-timing", "[AtalantaSyncProbe] framework react_native: no RCTTiming class; JS timers not waited for")
             return
         }
         for name in ["createTimerForNextFrame:duration:jsSchedulingTime:repeats:",
@@ -145,7 +145,7 @@ final class ReactNativeTracker {
             lock.unlock()
             return
         }
-        ProbeWarnings.once("rn-timing", "[VelocitySyncProbe] framework react_native: RCTTiming has no createTimer method this probe knows; JS timers not waited for")
+        ProbeWarnings.once("rn-timing", "[AtalantaSyncProbe] framework react_native: RCTTiming has no createTimer method this probe knows; JS timers not waited for")
     }
 
     private static func key(_ timing: AnyObject, _ id: Any?) -> String {
@@ -219,7 +219,7 @@ final class ReactNativeTracker {
                   let ivar = class_getInstanceVariable(cls, "_timers"),
                   let timers = object_getIvar(timing, ivar) as? NSDictionary
             else {
-                ProbeWarnings.once("rn-timing-ivar", "[VelocitySyncProbe] RCTTiming has no _timers dictionary; JS timers not waited for")
+                ProbeWarnings.once("rn-timing-ivar", "[AtalantaSyncProbe] RCTTiming has no _timers dictionary; JS timers not waited for")
                 continue
             }
             objc_sync_enter(timers)
@@ -246,7 +246,7 @@ final class ReactNativeTracker {
         jsPerpetualSeen = perpetualSeen
         lock.unlock()
         if perpetualSeen {
-            ProbeWarnings.once("rn-timers-perpetual", "[VelocitySyncProbe] a JS timer re-armed as it fires (polling, requestAnimationFrame): not waited for")
+            ProbeWarnings.once("rn-timers-perpetual", "[AtalantaSyncProbe] a JS timer re-armed as it fires (polling, requestAnimationFrame): not waited for")
         }
         return count
     }
@@ -262,7 +262,7 @@ final class ReactNativeTracker {
 
     private func hookMounting() {
         guard let cls = NSClassFromString("RCTMountingManager") else {
-            ProbeWarnings.once("rn-mounting", "[VelocitySyncProbe] framework react_native: no RCTMountingManager (old architecture?); Fabric mounting not waited for")
+            ProbeWarnings.once("rn-mounting", "[AtalantaSyncProbe] framework react_native: no RCTMountingManager (old architecture?); Fabric mounting not waited for")
             return
         }
         let schedule = NSSelectorFromString("scheduleTransaction:")
@@ -271,7 +271,7 @@ final class ReactNativeTracker {
               let initiateMethod = class_getInstanceMethod(cls, initiate),
               Self.takesCoordinator(scheduleMethod), Self.takesCoordinator(initiateMethod)
         else {
-            ProbeWarnings.once("rn-mounting", "[VelocitySyncProbe] framework react_native: RCTMountingManager's scheduleTransaction:/initiateTransaction: not as expected; Fabric mounting not waited for")
+            ProbeWarnings.once("rn-mounting", "[AtalantaSyncProbe] framework react_native: RCTMountingManager's scheduleTransaction:/initiateTransaction: not as expected; Fabric mounting not waited for")
             return
         }
         typealias Fn = @convention(c) (AnyObject, Selector, UnsafeRawPointer?) -> Void
@@ -324,7 +324,7 @@ final class ReactNativeTracker {
         let n = scheduled.count
         lock.unlock()
         if dropped > 0 {
-            ProbeWarnings.once("rn-mounting-stale", "[VelocitySyncProbe] a Fabric transaction was scheduled but never started; no longer waited for")
+            ProbeWarnings.once("rn-mounting-stale", "[AtalantaSyncProbe] a Fabric transaction was scheduled but never started; no longer waited for")
         }
         return n
     }

@@ -12,16 +12,16 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-use velocity_common::{
-    Element, Rect, Result, StepResult, StepStatus, SuiteResult, TestResult, TestStatus,
-    VelocityError,
+use atalanta_common::{
+    AtalantaError, Element, Rect, Result, StepResult, StepStatus, SuiteResult, TestResult,
+    TestStatus,
 };
-use velocity_core::trace::{StepTrace, TestTrace, TracedElement};
+use atalanta_core::trace::{StepTrace, TestTrace, TracedElement};
 
 pub fn write_html(result: &SuiteResult, path: &str) -> Result<()> {
     let base = Path::new(path).parent().unwrap_or(Path::new("."));
-    velocity_common::fsutil::write_atomic(Path::new(path), render(result, base).as_bytes())
-        .map_err(|e| VelocityError::Config(format!("write {path}: {e}")))
+    atalanta_common::fsutil::write_atomic(Path::new(path), render(result, base).as_bytes())
+        .map_err(|e| AtalantaError::Config(format!("write {path}: {e}")))
 }
 
 pub fn render(result: &SuiteResult, base: &Path) -> String {
@@ -29,7 +29,7 @@ pub fn render(result: &SuiteResult, base: &Path) -> String {
     h.push_str(HEAD);
     let _ = write!(
         h,
-        r#"<header><h1>Velocity report</h1><p class="totals">
+        r#"<header><h1>Atalanta report</h1><p class="totals">
 <span class="pill pass">{} passed</span><span class="pill fail">{} failed</span>
 <span class="pill flaky">{} flaky</span><span class="pill skip">{} skipped</span>
 <span class="muted">{:.1}s</span></p></header><main>"#,
@@ -48,20 +48,20 @@ pub fn render(result: &SuiteResult, base: &Path) -> String {
         _ => 3,
     });
     // An index of the failed tests' trace viewers.
-    let traced: Vec<(&TestResult, &velocity_common::Attachment)> = tests
+    let traced: Vec<(&TestResult, &atalanta_common::Attachment)> = tests
         .iter()
         .filter(|t| t.status == TestStatus::Failed)
         .filter_map(|t| {
             t.attachments
                 .iter()
-                .find(|a| a.kind == velocity_common::AttachmentKind::Trace)
+                .find(|a| a.kind == atalanta_common::AttachmentKind::Trace)
                 .map(|a| (*t, a))
         })
         .collect();
     if !traced.is_empty() {
         h.push_str(r#"<section class="traces"><h2>Traces of failed tests</h2><ul>"#);
         for (t, a) in traced {
-            let href = esc(&url_path(&velocity_core::trace_html::relative(
+            let href = esc(&url_path(&atalanta_core::trace_html::relative(
                 &a.path, base,
             )));
             let _ = write!(h, r#"<li><a href="{href}">{}</a></li>"#, esc(&t.test_name));
@@ -148,7 +148,7 @@ fn render_test(h: &mut String, t: &TestResult, base: &Path, n: usize) {
     let trace: Option<(TestTrace, std::collections::HashMap<String, Element>)> = t
         .trace
         .as_deref()
-        .and_then(|p| velocity_core::trace::load_trace(p).ok());
+        .and_then(|p| atalanta_core::trace::load_trace(p).ok());
     if !t.steps.is_empty() {
         h.push_str(
             "<table><thead><tr><th>#</th><th>Step</th><th>Result</th><th>Time</th><th>Settle</th><th>Detail</th></tr></thead><tbody>",
@@ -200,7 +200,7 @@ fn render_test(h: &mut String, t: &TestResult, base: &Path, n: usize) {
     if !t.attachments.is_empty() {
         h.push_str(r#"<p class="evidence">"#);
         for a in &t.attachments {
-            let href = esc(&url_path(&velocity_core::trace_html::relative(
+            let href = esc(&url_path(&atalanta_core::trace_html::relative(
                 &a.path, base,
             )));
             let _ = write!(h, r#"<a href="{href}">{}</a> "#, esc(a.title()));
@@ -209,9 +209,9 @@ fn render_test(h: &mut String, t: &TestResult, base: &Path, n: usize) {
         for a in t
             .attachments
             .iter()
-            .filter(|a| a.kind == velocity_common::AttachmentKind::Video)
+            .filter(|a| a.kind == atalanta_common::AttachmentKind::Video)
         {
-            let src = esc(&url_path(&velocity_core::trace_html::relative(
+            let src = esc(&url_path(&atalanta_core::trace_html::relative(
                 &a.path, base,
             )));
             let _ = write!(
@@ -472,7 +472,7 @@ fn esc(s: &str) -> String {
 
 const HEAD: &str = r#"<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Velocity report</title>
+<title>Atalanta report</title>
 <style>
 :root{--bg:#fff;--fg:#1b1f24;--muted:#656d76;--line:#d0d7de;--card:#f6f8fa;
 --pass:#1a7f37;--fail:#cf222e;--flaky:#9a6700;--skip:#6e7781}
@@ -514,8 +514,8 @@ mark{background:rgba(26,127,55,.25);color:inherit}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atalanta_common::StepResult;
     use std::time::Duration;
-    use velocity_common::StepResult;
 
     fn one_failed_with_shot(shot: &str) -> SuiteResult {
         let mut bad = TestResult::failed("t", "x".into(), Duration::ZERO);
@@ -561,10 +561,10 @@ mod tests {
     #[test]
     fn ai_checks_are_listed_with_their_evidence() {
         let mut t = healed();
-        t.verification = vec![velocity_common::VerifyCheck {
+        t.verification = vec![atalanta_common::VerifyCheck {
             at: "final".into(),
             claim: "the <cart> is open".into(),
-            outcome: velocity_common::VerifyOutcome::Unknown,
+            outcome: atalanta_common::VerifyOutcome::Unknown,
             reason: "cited no element".into(),
             evidence: vec![],
         }];
@@ -606,12 +606,12 @@ mod tests {
     fn evidence_is_linked_and_indexed() {
         let mut r = one_failed_with_shot("/r/shot.png");
         r.tests[0].attachments = vec![
-            velocity_common::Attachment::new(
-                velocity_common::AttachmentKind::Video,
+            atalanta_common::Attachment::new(
+                atalanta_common::AttachmentKind::Video,
                 "/r/traces/t/video.mp4",
             ),
-            velocity_common::Attachment::new(
-                velocity_common::AttachmentKind::Trace,
+            atalanta_common::Attachment::new(
+                atalanta_common::AttachmentKind::Trace,
                 "/r/traces/t/trace.html",
             ),
         ];
@@ -655,7 +655,7 @@ mod tests {
             source: None,
         });
         bad.screenshots
-            .push(std::path::PathBuf::from("./velocity-results/shot.png"));
+            .push(std::path::PathBuf::from("./atalanta-results/shot.png"));
         let result = SuiteResult {
             total: 2,
             passed: 1,
@@ -667,7 +667,7 @@ mod tests {
             shard_index: None,
             shard_total: None,
         };
-        let html = render(&result, Path::new("./velocity-results"));
+        let html = render(&result, Path::new("./atalanta-results"));
         assert!(!html.contains("<script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.find("&lt;script&gt;").unwrap() < html.find("fine").unwrap());
@@ -680,8 +680,8 @@ mod tests {
 
     #[test]
     fn a_traced_step_opens_its_screen_with_the_nearest_element_boxed() {
-        use velocity_common::{Selector, SourcePos, TraceMode};
-        use velocity_core::trace::TraceRecorder;
+        use atalanta_common::{Selector, SourcePos, TraceMode};
+        use atalanta_core::trace::TraceRecorder;
         let dir = tempfile::tempdir().unwrap();
         let button = |text: &str, y: i32| Element {
             hint: None,

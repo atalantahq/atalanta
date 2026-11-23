@@ -179,7 +179,7 @@ pub enum ExploreEvent {
 
 /// `text` with every registered secret (and secret-shaped text) masked.
 pub(crate) fn mask(text: &str) -> String {
-    velocity_common::redact::redact(text).into_owned()
+    atalanta_common::redact::redact(text).into_owned()
 }
 
 impl ExploreEvent {

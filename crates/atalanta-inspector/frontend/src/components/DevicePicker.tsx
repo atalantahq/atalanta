@@ -10,7 +10,7 @@ export function DevicePicker() {
     listDevices()
       .then(setDevices)
       .catch((e) => setError(e.message));
-    // Start on the device the server picked (`velocity inspect -d`, or the
+    // Start on the device the server picked (`atalanta inspect -d`, or the
     // booted one it found).
     currentDevice()
       .then((id) => {

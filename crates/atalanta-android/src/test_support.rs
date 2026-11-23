@@ -25,7 +25,7 @@ impl FakeAdb {
         let adb = dir.join("adb");
         let script = format!(
             r#"#!/bin/bash
-export LOG='{log}' BIN='{bin}' DEV='{dev}' VELOCITY_DUMP_DIR='{dev}'
+export LOG='{log}' BIN='{bin}' DEV='{dev}' ATALANTA_DUMP_DIR='{dev}'
 echo "ARGV:$(printf '[%s]' "$@")" >> "$LOG"
 while [ "$1" = "-s" ] || [ "$1" = "-H" ] || [ "$1" = "-P" ]; do shift 2; done
 case "$1" in
@@ -57,10 +57,10 @@ esac
         // expect the device directory to hold only what they put there).
         me.stub(
             "cat",
-            "case \"$1\" in /data/local/tmp/velocity-tree.token) exec /bin/cat \"$DEV/../velocity-tree.token\";; esac; exec /bin/cat \"$@\"",
+            "case \"$1\" in /data/local/tmp/atalanta-tree.token) exec /bin/cat \"$DEV/../atalanta-tree.token\";; esac; exec /bin/cat \"$@\"",
         );
         std::fs::write(
-            me.dir.join("velocity-tree.token"),
+            me.dir.join("atalanta-tree.token"),
             format!("{FAKE_TREE_TOKEN}\n"),
         )
         .unwrap();
@@ -109,17 +109,17 @@ fn write_exec(path: &std::path::Path, body: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// The device `VELOCITY_TEST_ANDROID` names for the device-backed tests;
-/// `None` skips them. With `VELOCITY_TEST_STRICT=1` (a device CI job) a
+/// The device `ATALANTA_TEST_ANDROID` names for the device-backed tests;
+/// `None` skips them. With `ATALANTA_TEST_STRICT=1` (a device CI job) a
 /// missing device fails the test instead: a skipped device test used to
 /// report PASS (review 07 M6).
 pub(crate) fn device_under_test() -> Option<String> {
-    match std::env::var("VELOCITY_TEST_ANDROID") {
+    match std::env::var("ATALANTA_TEST_ANDROID") {
         Ok(d) if !d.is_empty() => Some(d),
         _ => {
             assert!(
-                std::env::var("VELOCITY_TEST_STRICT").as_deref() != Ok("1"),
-                "VELOCITY_TEST_STRICT=1 but VELOCITY_TEST_ANDROID names no device"
+                std::env::var("ATALANTA_TEST_STRICT").as_deref() != Ok("1"),
+                "ATALANTA_TEST_STRICT=1 but ATALANTA_TEST_ANDROID names no device"
             );
             None
         }

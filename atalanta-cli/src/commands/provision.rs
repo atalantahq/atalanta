@@ -1,18 +1,18 @@
-//! `velocity devices up` / `down`, and `velocity run --provision`: boot the
-//! devices a run needs, and stop only what Velocity started.
+//! `atalanta devices up` / `down`, and `atalanta run --provision`: boot the
+//! devices a run needs, and stop only what Atalanta started.
 //!
 //! - Android: N headless, read-only instances of one AVD (one image, N
-//!   copy-on-write overlays; see `velocity_android::emulator`).
-//! - iOS: `velocity-<type>-<n>` clones, reused most recently used first;
+//!   copy-on-write overlays; see `atalanta_android::emulator`).
+//! - iOS: `atalanta-<type>-<n>` clones, reused most recently used first;
 //!   new ones cloned from a golden simulator that has booted once (see
-//!   `velocity_ios::provision`).
+//!   `atalanta_ios::provision`).
 //! - Before each boot the host must have room: at least ~35% and 3 GB of
 //!   memory free, counting ~2 GB for every device still booting, and 3 GB
 //!   of disk. A swapping host makes every device on it flaky; refusing with
 //!   a reason is better.
-//! - Everything booted is recorded in `~/.velocity/provisioned.json`, so
+//! - Everything booted is recorded in `~/.atalanta/provisioned.json`, so
 //!   `devices down` stops those devices and nothing else.
-//! - Each entry carries an owner: `--owner`, else `VELOCITY_OWNER`, else the
+//! - Each entry carries an owner: `--owner`, else `ATALANTA_OWNER`, else the
 //!   CI job (GitHub Actions, GitLab, Buildkite, Jenkins, CircleCI), else
 //!   none (a person at a terminal). `devices down` stops only the caller's
 //!   own devices (`--all` stops every owner's), and `up` counts only the
@@ -26,12 +26,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use atalanta_android::emulator;
+use atalanta_common::{AtalantaError, Platform, PlatformDriver};
+use atalanta_ios::provision as sims;
+use atalanta_ios::simctl::Simctl;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use velocity_android::emulator;
-use velocity_common::{Platform, PlatformDriver, VelocityError};
-use velocity_ios::provision as sims;
-use velocity_ios::simctl::Simctl;
 
 const GB: u64 = 1 << 30;
 /// Memory a booting device will take: a headless API-34 emulator settled
@@ -43,19 +43,19 @@ const ANDROID_BOOT_TIMEOUT: Duration = Duration::from_secs(300);
 
 // ── Host guard ──────────────────────────────────────────────────────────
 
-// The measurement and the thresholds live in `velocity_common::host`, so
-// `velocity doctor` reports against the same bar.
-use velocity_common::host::limits;
+// The measurement and the thresholds live in `atalanta_common::host`, so
+// `atalanta doctor` reports against the same bar.
+use atalanta_common::host::limits;
 #[cfg(test)]
-use velocity_common::host::Room;
-use velocity_common::host::{check_room, measure};
+use atalanta_common::host::Room;
+use atalanta_common::host::{check_room, measure};
 
 fn home() -> PathBuf {
-    velocity_common::host::home_dir()
+    atalanta_common::host::home_dir()
 }
 
 /// [`check_room`] against a fresh measurement.
-fn guard(what: &str, pending: u64) -> Result<(), VelocityError> {
+fn guard(what: &str, pending: u64) -> Result<(), AtalantaError> {
     let Some(room) = measure() else {
         println!(
             "  {} can't measure free memory/disk; booting {what} anyway",
@@ -63,7 +63,7 @@ fn guard(what: &str, pending: u64) -> Result<(), VelocityError> {
         );
         return Ok(());
     };
-    check_room(room, pending, limits()).map_err(|reason| VelocityError::DeviceBootFailed {
+    check_room(room, pending, limits()).map_err(|reason| AtalantaError::DeviceBootFailed {
         id: what.to_string(),
         reason: format!("not booting: {reason}"),
     })
@@ -84,10 +84,10 @@ pub struct Entry {
     pub avd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
-    /// Velocity booted it: `devices down` stops it.
+    /// Atalanta booted it: `devices down` stops it.
     #[serde(default)]
     pub started: bool,
-    /// Velocity created it (a clone or golden): `devices down --delete`
+    /// Atalanta created it (a clone or golden): `devices down --delete`
     /// deletes it.
     #[serde(default)]
     pub created: bool,
@@ -101,9 +101,9 @@ pub struct Entry {
 }
 
 /// The owner new entries get and `down` stops: `explicit` (`--owner`),
-/// else `VELOCITY_OWNER`, else the CI job this runs in, else `None`.
+/// else `ATALANTA_OWNER`, else the CI job this runs in, else `None`.
 pub fn owner(explicit: Option<&str>) -> Option<String> {
-    owner_from(explicit, |k| velocity_common::env::var(k).ok())
+    owner_from(explicit, |k| atalanta_common::env::var(k).ok())
 }
 
 fn owner_from(explicit: Option<&str>, var: impl Fn(&str) -> Option<String>) -> Option<String> {
@@ -114,7 +114,7 @@ fn owner_from(explicit: Option<&str>, var: impl Fn(&str) -> Option<String>) -> O
     {
         return Some(o);
     }
-    if let Some(o) = nonempty(var("VELOCITY_OWNER")) {
+    if let Some(o) = nonempty(var("ATALANTA_OWNER")) {
         return Some(o);
     }
     let join = |keys: &[&str]| -> Option<String> {
@@ -150,11 +150,11 @@ pub struct Registry {
     pub devices: Vec<Entry>,
 }
 
-/// `~/.velocity/provisioned.json` (`VELOCITY_PROVISIONED_FILE` overrides).
+/// `~/.atalanta/provisioned.json` (`ATALANTA_PROVISIONED_FILE` overrides).
 fn registry_path() -> PathBuf {
-    velocity_common::env::var("VELOCITY_PROVISIONED_FILE")
+    atalanta_common::env::var("ATALANTA_PROVISIONED_FILE")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| home().join(".velocity").join("provisioned.json"))
+        .unwrap_or_else(|_| home().join(".atalanta").join("provisioned.json"))
 }
 
 /// An exclusive `flock` on `<registry>.lock`, held while a process reads,
@@ -293,14 +293,14 @@ fn now() -> u64 {
 
 // ── Android ─────────────────────────────────────────────────────────────
 
-/// Have `n` Velocity-started emulators of `avd` running and booted; boot
+/// Have `n` Atalanta-started emulators of `avd` running and booted; boot
 /// the missing ones (ports from `port_base` up). Returns every ready serial.
 pub async fn android_up(
     n: usize,
     avd: Option<&str>,
     port_base: u16,
     owner: Option<&str>,
-) -> Result<Vec<String>, VelocityError> {
+) -> Result<Vec<String>, AtalantaError> {
     let avd = match avd {
         Some(a) => a.to_string(),
         None => emulator::list_avds()
@@ -308,7 +308,7 @@ pub async fn android_up(
             .into_iter()
             .next()
             .ok_or_else(|| {
-                VelocityError::Config(
+                AtalantaError::Config(
                     "no Android AVD found (`emulator -list-avds` is empty); create one or pass --avd"
                         .into(),
                 )
@@ -362,7 +362,7 @@ pub async fn android_up(
             }
         }
         let Some(port) = emulator::free_port(port_base, &taken) else {
-            refused = Some(VelocityError::DeviceBootFailed {
+            refused = Some(AtalantaError::DeviceBootFailed {
                 id: avd.clone(),
                 reason: "no free emulator port pair between 5554 and 5682".into(),
             });
@@ -375,7 +375,7 @@ pub async fn android_up(
         }
         taken.push(serial.clone());
         let log = home()
-            .join(".velocity")
+            .join(".atalanta")
             .join("logs")
             .join(format!("{serial}.log"));
         let mut child = emulator::launch_read_only(&avd, port, &log)?;
@@ -443,7 +443,7 @@ pub async fn android_up(
 async fn device_type(
     simctl: &Simctl,
     wanted: Option<&str>,
-) -> Result<(String, String), VelocityError> {
+) -> Result<(String, String), AtalantaError> {
     let types = simctl.list_json("devicetypes").await?;
     if let Some(w) = wanted {
         return sims::resolve_device_type(&types, w);
@@ -454,7 +454,7 @@ async fn device_type(
         .filter(|s| s.name.starts_with("iPhone") && s.last_booted_at.is_some())
         .max_by(|a, b| a.last_booted_at.cmp(&b.last_booted_at))
         .ok_or_else(|| {
-            VelocityError::Config(
+            AtalantaError::Config(
                 "no iPhone simulator has been used yet; pass --device-type (e.g. \"iPhone 17 Pro\")"
                     .into(),
             )
@@ -471,7 +471,7 @@ fn find_golden<'a>(
     all: &'a [sims::Sim],
     type_name: &str,
     wanted: Option<&str>,
-) -> Result<Option<&'a sims::Sim>, VelocityError> {
+) -> Result<Option<&'a sims::Sim>, AtalantaError> {
     let Some(w) = wanted else {
         let name = sims::golden_name(type_name);
         return Ok(all.iter().find(|s| s.name == name));
@@ -485,7 +485,7 @@ fn find_golden<'a>(
             .iter()
             .map(|s| format!("{} ({})", s.udid, s.runtime))
             .collect();
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "{} simulators are named '{w}'; pass one UDID to --golden: {}",
             named.len(),
             ids.join(", ")
@@ -494,7 +494,7 @@ fn find_golden<'a>(
     Ok(named.first().copied())
 }
 
-/// `velocity-<type>-golden`, created and booted once if missing. It must be
+/// `atalanta-<type>-golden`, created and booted once if missing. It must be
 /// shut down to be cloned.
 async fn golden(
     simctl: &Simctl,
@@ -502,10 +502,10 @@ async fn golden(
     type_name: &str,
     type_id: &str,
     wanted: Option<&str>,
-) -> Result<String, VelocityError> {
+) -> Result<String, AtalantaError> {
     if let Some(g) = find_golden(all, type_name, wanted)? {
         if !g.shutdown() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "golden simulator {} ({}) is {}; it must be shut down to be cloned",
                 g.name, g.udid, g.state
             )));
@@ -513,7 +513,7 @@ async fn golden(
         return Ok(g.udid.clone());
     }
     if let Some(w) = wanted {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "no simulator '{w}' to clone from"
         )));
     }
@@ -527,9 +527,9 @@ async fn golden(
         if g.shutdown() {
             return Ok(g.udid.clone());
         }
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "golden simulator {} ({}) is {}; it must be shut down to be cloned \
-             (another `velocity devices up` may be creating it: run again when it finishes)",
+             (another `atalanta devices up` may be creating it: run again when it finishes)",
             g.name, g.udid, g.state
         )));
     }
@@ -564,14 +564,14 @@ async fn golden(
     Ok(udid)
 }
 
-/// Have `n` booted `velocity-<type>-<n>` clones; boot or clone the missing
+/// Have `n` booted `atalanta-<type>-<n>` clones; boot or clone the missing
 /// ones. Returns every ready UDID.
 pub async fn ios_up(
     n: usize,
     wanted_type: Option<&str>,
     wanted_golden: Option<&str>,
     owner: Option<&str>,
-) -> Result<Vec<String>, VelocityError> {
+) -> Result<Vec<String>, AtalantaError> {
     let simctl = Arc::new(Simctl::new());
     let (type_name, type_id) = device_type(&simctl, wanted_type).await?;
     // Held from reading the simulators until every clone this `up` boots
@@ -646,7 +646,7 @@ pub async fn ios_up(
                 avd: None,
                 pid: None,
                 started: true,
-                created: name.starts_with("velocity-"),
+                created: name.starts_with("atalanta-"),
                 at: now(),
                 owner: owner.map(String::from),
             })
@@ -700,11 +700,11 @@ pub async fn ios_up(
 pub fn app_identity(path: &str, fallback: Option<&str>) -> Option<String> {
     let p = std::path::Path::new(path);
     let read = if path.ends_with(".apk") {
-        velocity_headless::android::ApkLoader::from_path(p)
+        atalanta_headless::android::ApkLoader::from_path(p)
             .ok()
             .and_then(|a| a.package_name)
     } else if p.is_dir() {
-        velocity_ios::install::bundle_id(p)
+        atalanta_ios::install::bundle_id(p)
     } else {
         None
     };
@@ -717,7 +717,7 @@ pub async fn install_all(
     devices: &[String],
     app: &str,
     app_id: &str,
-) -> Result<(), VelocityError> {
+) -> Result<(), AtalantaError> {
     let mut set = tokio::task::JoinSet::new();
     for d in devices {
         let (driver, d, app, id) = (
@@ -727,7 +727,7 @@ pub async fn install_all(
             app_id.to_string(),
         );
         set.spawn(async move {
-            velocity_runner::install::ensure_installed(&*driver, &d, &app, &id)
+            atalanta_runner::install::ensure_installed(&*driver, &d, &app, &id)
                 .await
                 .map_err(|e| (d, e))
         });
@@ -765,7 +765,7 @@ pub async fn up(args: UpArgs) -> anyhow::Result<i32> {
     let who = owner(args.owner.as_deref());
     if let Some(o) = &who {
         println!(
-            "{} Owner: {o} (`velocity devices down` from the same job stops these)",
+            "{} Owner: {o} (`atalanta devices down` from the same job stops these)",
             "=>".cyan().bold()
         );
     }
@@ -795,7 +795,7 @@ pub async fn up(args: UpArgs) -> anyhow::Result<i32> {
         install_up(Platform::Ios, &udids, &args).await?;
     }
     println!(
-        "{} Devices up in {:.1}s (`velocity devices down` stops them)",
+        "{} Devices up in {:.1}s (`atalanta devices down` stops them)",
         "=>".green().bold(),
         start.elapsed().as_secs_f64()
     );
@@ -824,7 +824,7 @@ async fn install_up(platform: Platform, devices: &[String], args: &UpArgs) -> an
 pub struct DownArgs {
     /// Only this platform.
     pub platform: Option<Platform>,
-    /// Also delete the simulators Velocity created.
+    /// Also delete the simulators Atalanta created.
     pub delete: bool,
     /// `--owner`; see [`owner`].
     pub owner: Option<String>,
@@ -839,7 +839,7 @@ fn owned_by(e: &Entry, owner: Option<&str>, all: bool) -> bool {
     all || e.owner.as_deref() == owner || (e.owner.is_none() && !e.started && e.created)
 }
 
-/// Whether `golden` (a shared `velocity-<type>-golden`) still backs a clone
+/// Whether `golden` (a shared `atalanta-<type>-golden`) still backs a clone
 /// that `down` for `owner` leaves alone. Such a golden is kept: deleting it
 /// made the other owner's next `up` create and boot it again (2026-11-11,
 /// Finding D). `--all` deletes it with the clones.
@@ -861,7 +861,7 @@ fn golden_in_use(golden: &Entry, entries: &[Entry], owner: Option<&str>, all: bo
     })
 }
 
-/// Stop what Velocity started for this owner (`platform` limits it to
+/// Stop what Atalanta started for this owner (`platform` limits it to
 /// one), and with `delete` also delete the simulators it created.
 pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
     let DownArgs {
@@ -907,11 +907,11 @@ pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
                 continue;
             }
             // The port may have been reused by an emulator someone else
-            // started since; only stop the AVD Velocity started there.
+            // started since; only stop the AVD Atalanta started there.
             let avd = emulator::avd_name(&e.id).await;
             if avd.is_some() && avd != e.avd {
                 println!(
-                    "  {} {} now runs {}, not Velocity's {}; leaving it",
+                    "  {} {} now runs {}, not Atalanta's {}; leaving it",
                     "!".yellow(),
                     e.id,
                     avd.unwrap_or_default(),
@@ -962,7 +962,7 @@ pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
         } else if e.created && delete {
             match simctl.delete(&e.id).await {
                 Ok(()) => {
-                    let _ = std::fs::remove_dir_all(velocity_common::install::device_markers_dir(
+                    let _ = std::fs::remove_dir_all(atalanta_common::install::device_markers_dir(
                         &e.id,
                     ));
                     println!("  {} deleted {} ({})", "-".green(), e.name, e.id)
@@ -986,7 +986,7 @@ pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
     if !others.is_empty() {
         println!(
             "  {} left {} device(s) another owner started: {}. \
-             `velocity devices down --all` stops them too",
+             `atalanta devices down --all` stops them too",
             "·".dimmed(),
             others.len(),
             others.join(", ")
@@ -1004,7 +1004,7 @@ pub async fn down(args: DownArgs) -> anyhow::Result<i32> {
     Ok(0)
 }
 
-/// Emulators Velocity started that are still running `avd`. Stale entries
+/// Emulators Atalanta started that are still running `avd`. Stale entries
 /// (gone, or another AVD) don't count: they inflated the number
 /// `run --provision` asked android_up for, which booted extra emulators
 /// (VEL-S01).
@@ -1022,7 +1022,7 @@ fn ours_running(
         .count()
 }
 
-/// Simulators another owner booted through Velocity: `ios_up` neither
+/// Simulators another owner booted through Atalanta: `ios_up` neither
 /// counts them as up nor boots them (see `sims::plan`).
 fn foreign_ios(reg: &Registry, owner: Option<&str>) -> Vec<String> {
     reg.devices
@@ -1063,20 +1063,20 @@ where
     .await;
 }
 
-// ── velocity run: app: / --app ─────────────────────────────────────────
+// ── atalanta run: app: / --app ─────────────────────────────────────────
 
 /// Settle which build the run installs: `--app` over `app:`, the entry for
 /// `platform`, as a checked path (relative `app:` paths are relative to the
 /// suite file, `--app` to the working directory). Leaves `suite.config.app`
 /// as that single path, or `None` when there's nothing to install.
 pub fn resolve_app(
-    suite: &mut velocity_common::TestSuite,
+    suite: &mut atalanta_common::TestSuite,
     cli_app: Option<&str>,
     config_path: &str,
     platform: Platform,
     on_devices: bool,
-) -> Result<(), VelocityError> {
-    use velocity_common::AppSource;
+) -> Result<(), AtalantaError> {
+    use atalanta_common::AppSource;
     if let Some(p) = cli_app {
         suite.config.app = Some(AppSource::Path(p.to_string()));
     }
@@ -1115,12 +1115,12 @@ pub fn resolve_app(
         _ => (path.is_dir() && ext("app")) || (path.is_file() && ext("ipa")),
     };
     if !path.exists() {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "app build {shown} not found"
         )));
     }
     if !ok {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "app build {shown} isn't a {platform} build ({})",
             if platform == Platform::Android {
                 "an .apk"
@@ -1158,13 +1158,13 @@ pub async fn before_run(
     want: usize,
     driver: &dyn PlatformDriver,
     app: Option<String>,
-) -> Result<(), VelocityError> {
+) -> Result<(), AtalantaError> {
     let hash = async {
         let Some(app) = &app else {
             return Ok(None);
         };
         let start = Instant::now();
-        velocity_runner::install::hash(app)
+        atalanta_runner::install::hash(app)
             .await
             .map(|h| Some((h, start.elapsed())))
     };
@@ -1180,8 +1180,8 @@ pub async fn before_run(
         println!(
             "{} App sha256 {} (hashed in {})",
             "=>".cyan().bold(),
-            velocity_common::install::short(&h),
-            velocity_runner::install::secs(took)
+            atalanta_common::install::short(&h),
+            atalanta_runner::install::secs(took)
         );
     }
     boot
@@ -1195,12 +1195,12 @@ pub async fn for_run(
     platform: Platform,
     want: usize,
     driver: &dyn PlatformDriver,
-) -> Result<(), VelocityError> {
+) -> Result<(), AtalantaError> {
     let booted = driver
         .list_devices()
         .await?
         .into_iter()
-        .filter(|d| d.state == velocity_common::DeviceState::Booted)
+        .filter(|d| d.state == atalanta_common::DeviceState::Booted)
         .count();
     if booted >= want {
         println!(
@@ -1218,7 +1218,7 @@ pub async fn for_run(
     match platform {
         Platform::Android => {
             // The AVD android_up would pick, so only its emulators count.
-            let avd = match velocity_common::env::var("VELOCITY_AVD") {
+            let avd = match atalanta_common::env::var("ATALANTA_AVD") {
                 Ok(a) => Some(a),
                 Err(_) => emulator::list_avds()
                     .await
@@ -1232,7 +1232,7 @@ pub async fn for_run(
                 avd.as_deref(),
                 who.as_deref(),
             );
-            let port = velocity_common::env::var("VELOCITY_EMULATOR_PORT")
+            let port = atalanta_common::env::var("ATALANTA_EMULATOR_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(emulator::FIRST_PORT);
@@ -1242,7 +1242,7 @@ pub async fn for_run(
             let simctl = Simctl::new();
             let (type_name, _) = device_type(
                 &simctl,
-                velocity_common::env::var("VELOCITY_DEVICE_TYPE")
+                atalanta_common::env::var("ATALANTA_DEVICE_TYPE")
                     .ok()
                     .as_deref(),
             )
@@ -1282,11 +1282,11 @@ mod tests {
         };
         assert_eq!(owner_from(None, env(&[])), None);
         assert_eq!(
-            owner_from(Some("job-7"), env(&[("VELOCITY_OWNER", "x")])).as_deref(),
+            owner_from(Some("job-7"), env(&[("ATALANTA_OWNER", "x")])).as_deref(),
             Some("job-7")
         );
         assert_eq!(
-            owner_from(None, env(&[("VELOCITY_OWNER", "x"), ("CI_JOB_ID", "9")])).as_deref(),
+            owner_from(None, env(&[("ATALANTA_OWNER", "x"), ("CI_JOB_ID", "9")])).as_deref(),
             Some("x")
         );
         assert_eq!(
@@ -1326,7 +1326,7 @@ mod tests {
         let golden = Entry {
             platform: "ios".into(),
             id: "G".into(),
-            name: "velocity-iPhone-golden".into(),
+            name: "atalanta-iPhone-golden".into(),
             avd: None,
             pid: None,
             started: false,
@@ -1352,10 +1352,10 @@ mod tests {
             at: 0,
             owner: owner.map(Into::into),
         };
-        let golden = ios("G", "velocity-iPhone-17-golden", None, false);
-        let a1 = ios("A1", "velocity-iPhone-17-1", Some("a"), true);
-        let b2 = ios("B2", "velocity-iPhone-17-2", Some("b"), true);
-        let other_type = ios("P1", "velocity-iPhone-17-Pro-1", Some("a"), true);
+        let golden = ios("G", "atalanta-iPhone-17-golden", None, false);
+        let a1 = ios("A1", "atalanta-iPhone-17-1", Some("a"), true);
+        let b2 = ios("B2", "atalanta-iPhone-17-2", Some("b"), true);
+        let other_type = ios("P1", "atalanta-iPhone-17-Pro-1", Some("a"), true);
         let all = vec![golden.clone(), a1.clone(), b2.clone()];
         // b's down leaves a's clone, so the golden stays.
         assert!(golden_in_use(&golden, &all, Some("b"), false));
@@ -1433,16 +1433,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("vprov-app-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("Foo.app")).unwrap();
-        let mut suite = velocity_core::parse_suite_from_str(
+        let mut suite = atalanta_core::parse_suite_from_str(
             "appId: com.x\ntests:\n  - name: t\n    steps:\n      - launchApp\n",
         )
         .unwrap();
         let app = format!("{}/", dir.join("Foo.app").display());
-        resolve_app(&mut suite, Some(&app), "velocity.yaml", Platform::Ios, true)
+        resolve_app(&mut suite, Some(&app), "atalanta.yaml", Platform::Ios, true)
             .unwrap_or_else(|e| panic!("{app}: {e}"));
         assert!(matches!(
             suite.config.app,
-            Some(velocity_common::AppSource::Path(ref p)) if p.ends_with("Foo.app")
+            Some(atalanta_common::AppSource::Path(ref p)) if p.ends_with("Foo.app")
         ));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1554,7 +1554,7 @@ mod tests {
 
     /// A registry that can't be read as text (bytes damaged) is kept aside
     /// like any file that isn't a registry. It read as empty and the next
-    /// `update` overwrote it with one entry: every device Velocity had
+    /// `update` overwrote it with one entry: every device Atalanta had
     /// started was forgotten.
     #[test]
     fn a_registry_that_is_not_utf8_is_kept_aside_not_overwritten() {
@@ -1620,7 +1620,7 @@ mod tests {
         let e = |started, created| Entry {
             platform: "ios".into(),
             id: "U".into(),
-            name: "velocity-iPhone-17-1".into(),
+            name: "atalanta-iPhone-17-1".into(),
             avd: None,
             pid: None,
             started,

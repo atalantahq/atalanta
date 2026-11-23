@@ -1,9 +1,9 @@
-//! The Velocity inspector and console: an axum server with a web UI and
+//! The Atalanta inspector and console: an axum server with a web UI and
 //! API for looking at a device's screen and element tree, building
-//! selectors, running and exploring tests as `velocity` child processes
+//! selectors, running and exploring tests as `atalanta` child processes
 //! (`console`), and reviewing failed `assertScreenshot` baselines
-//! (`/review`). Internal to the `velocity` CLI (`velocity inspect`,
-//! `velocity baselines review`); its API has no stability promise.
+//! (`/review`). Internal to the `atalanta` CLI (`atalanta inspect`,
+//! `atalanta baselines review`); its API has no stability promise.
 
 pub mod console;
 pub mod embedded;
@@ -21,8 +21,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use atalanta_common::PlatformDriver;
 use tokio::net::TcpListener;
-use velocity_common::PlatformDriver;
 
 use security::HostPolicy;
 use state::AppState;
@@ -59,7 +59,7 @@ impl InspectorServer {
     }
 
     /// An inspector with no device, serving only the screenshot review
-    /// page for `results_dir` (`velocity baselines review --serve`).
+    /// page for `results_dir` (`atalanta baselines review --serve`).
     pub fn review_only(results_dir: impl Into<PathBuf>) -> Self {
         let mut s =
             Self::new(Arc::new(no_device::NoDevice), None, None).with_results_dir(results_dir);
@@ -74,13 +74,13 @@ impl InspectorServer {
     }
 
     /// Where the screenshot review page finds failed `assertScreenshot`
-    /// comparisons (default `velocity-results`).
+    /// comparisons (default `atalanta-results`).
     pub fn with_results_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.state.results_dir = dir.into();
         self
     }
 
-    /// Make the review page's Accept write into this `velocity-baselines`
+    /// Make the review page's Accept write into this `atalanta-baselines`
     /// folder rather than the absolute path the run recorded (CI artifacts).
     pub fn with_baselines_dir(mut self, dir: Option<PathBuf>) -> Self {
         self.state.baselines_dir = dir;
@@ -122,7 +122,7 @@ impl InspectorServer {
             std::io::ErrorKind::AddrInUse
             | std::io::ErrorKind::AddrNotAvailable
             | std::io::ErrorKind::PermissionDenied => {
-                anyhow::Error::new(velocity_common::VelocityError::Config(format!(
+                anyhow::Error::new(atalanta_common::AtalantaError::Config(format!(
                     "Can't listen on {addr}: {e}; pick another --port or --host"
                 )))
             }
@@ -168,7 +168,7 @@ impl InspectorServer {
         }
         if !state.tasks.shutdown(SHUTDOWN_GRACE).await {
             tracing::warn!("console tasks still running after {SHUTDOWN_GRACE:?}; killing them");
-            velocity_common::process::kill_all_groups();
+            atalanta_common::process::kill_all_groups();
         }
         state.control.release_all().await;
         if let Some(r) = served {

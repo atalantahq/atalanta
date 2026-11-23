@@ -1,7 +1,7 @@
-//! Maestro flows to Velocity suites: converts each command to the Velocity
+//! Maestro flows to Atalanta suites: converts each command to the Atalanta
 //! DSL, turns `runFlow` files into the suite's `flows:`, and reports what
-//! it couldn't convert, with the line. Internal to the `velocity` CLI
-//! (`velocity migrate`); its API has no stability promise.
+//! it couldn't convert, with the line. Internal to the `atalanta` CLI
+//! (`atalanta migrate`); its API has no stability promise.
 #![forbid(unsafe_code)]
 
 mod compat;

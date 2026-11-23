@@ -1,4 +1,4 @@
-"""Run AndroidWorld with Velocity as the agent, resumably, and score it.
+"""Run AndroidWorld with Atalanta as the agent, resumably, and score it.
 
   python run.py dry-run   [--model anthropic:claude-sonnet-5-5]
   python run.py run       --out RUN_DIR --model provider:model [--tasks A,B] ...
@@ -12,7 +12,7 @@ harness commit recorded in each run):
   the task's own success check on the device passes
   (`agent_successful = task_successful if done else 0`);
 - step budget per task is AndroidWorld's `int(10 * complexity)`; here one
-  Velocity planning turn counts as one step;
+  Atalanta planning turn counts as one step;
 - task params come from `create_suite(seed=30, n_task_combinations=1)` by
   default, AndroidWorld's run.py defaults;
 - the headline rate is the mean over task templates of each template's mean
@@ -47,7 +47,7 @@ sys.path.insert(0, str(HERE))
 import aw_env  # pylint: disable=g-import-not-at-top
 
 # Provider prefix -> the variables that hold its key (names only; see
-# crates/velocity-nl/src/provider.rs).
+# crates/atalanta-nl/src/provider.rs).
 KEY_ENVS = {
     'anthropic': ['ANTHROPIC_API_KEY'], 'claude': ['ANTHROPIC_API_KEY'],
     'openai': ['OPENAI_API_KEY'], 'azure-openai': ['AZURE_OPENAI_API_KEY'],
@@ -59,12 +59,12 @@ KEY_ENVS = {
     'perplexity': ['PERPLEXITY_API_KEY'],
     'bedrock': ['AWS_BEARER_TOKEN_BEDROCK', 'AWS_ACCESS_KEY_ID'],
     'vertex': [], 'ollama': [], 'lmstudio': [], 'vllm': [],
-    'openai-compatible': ['VELOCITY_NL_API_KEY'],
+    'openai-compatible': ['ATALANTA_NL_API_KEY'],
 }
 
 # List prices, dollars per million input,output tokens, for the cost
 # estimate when --price is not given. Source: Anthropic's model table as
-# cached 2026-10-06 (claude-api reference). Velocity bills cache reads at a
+# cached 2026-10-06 (claude-api reference). Atalanta bills cache reads at a
 # tenth of the input price and cache writes at 1.25 times it from the token
 # counts it records; pass --price IN,OUT,CACHE_READ,CACHE_WRITE for other
 # rates. The other harnesses (iosworld, miniwob, pilot) default to the same
@@ -90,10 +90,10 @@ def _git_sha(path: pathlib.Path | None) -> str | None:
     return None
 
 
-def _velocity_version(velocity: str) -> str | None:
+def _atalanta_version(atalanta: str) -> str | None:
   try:
     return subprocess.run(
-        [velocity, '--version'], capture_output=True, text=True, timeout=20, check=True
+        [atalanta, '--version'], capture_output=True, text=True, timeout=20, check=True
     ).stdout.strip()
   except (OSError, subprocess.SubprocessError):
     return None
@@ -109,14 +109,14 @@ def _sha256(path: str) -> str | None:
     return None
 
 
-def _default_velocity() -> str:
+def _default_atalanta() -> str:
   for p in (
-      os.environ.get('VELOCITY_BIN'),
-      shutil.which('velocity'),
+      os.environ.get('ATALANTA_BIN'),
+      shutil.which('atalanta'),
   ):
     if p and os.path.exists(p):
       return p
-  return 'velocity'
+  return 'atalanta'
 
 
 def _harness_dir(arg: str | None) -> pathlib.Path | None:
@@ -162,10 +162,10 @@ def cmd_dry_run(a: argparse.Namespace) -> int:
     ok = ok and good
     print(f'  [{"ok" if good else "FAIL"}] {name}: {detail}')
 
-  print('AndroidWorld x Velocity dry run (nothing is run on the device)')
-  velocity = a.velocity
-  v = _velocity_version(velocity)
-  report('velocity', v is not None, v or f'{velocity} not runnable (set --velocity or VELOCITY_BIN)')
+  print('AndroidWorld x Atalanta dry run (nothing is run on the device)')
+  atalanta = a.atalanta
+  v = _atalanta_version(atalanta)
+  report('atalanta', v is not None, v or f'{atalanta} not runnable (set --atalanta or ATALANTA_BIN)')
   device = aw_env.Device(a.console_port, a.grpc_port)
   report('adb', os.path.exists(device.adb_path) or shutil.which(device.adb_path) is not None, device.adb_path)
   booted = device.adb('shell', 'getprop', 'sys.boot_completed') == '1'
@@ -244,7 +244,7 @@ def cmd_run(a: argparse.Namespace) -> int:
   from android_world import episode_runner
   from android_world import registry
   from android_world import suite_utils
-  from velocity_agent import VelocityAgent, VelocityConfig, app_list
+  from atalanta_agent import AtalantaAgent, AtalantaConfig, app_list
 
   if not a.model and not a.script_dir:
     print('pass --model provider:model, or --script-dir for a plumbing run', file=sys.stderr)
@@ -271,8 +271,8 @@ def cmd_run(a: argparse.Namespace) -> int:
       'model': a.model,
       'provider': a.model.split(':', 1)[0] if a.model else None,
       'price_per_mtok': _price_for(a.model, a.price),
-      'velocity': _velocity_version(a.velocity),
-      'velocity_sha256': _sha256(a.velocity),
+      'atalanta': _atalanta_version(a.atalanta),
+      'atalanta_sha256': _sha256(a.atalanta),
       'harness_sha': _git_sha(harness),
       'suite_family': a.family,
       'seed': a.seed,
@@ -281,21 +281,21 @@ def cmd_run(a: argparse.Namespace) -> int:
       'tasks': a.tasks,
       'verify': a.verify,
       'screenshots': a.screenshots or 'always (benchmark default)',
-      'effort': os.environ.get('VELOCITY_NL_EFFORT', 'low (default)'),
+      'effort': os.environ.get('ATALANTA_NL_EFFORT', 'low (default)'),
       'device': device.serial,
       'launcher': launcher,
   }
   if meta_path.exists():
     old = json.loads(meta_path.read_text())
-    for k in ('model', 'seed', 'n_task_combinations', 'mode', 'velocity_sha256'):
+    for k in ('model', 'seed', 'n_task_combinations', 'mode', 'atalanta_sha256'):
       if old.get(k) != meta.get(k):
         print(f'{meta_path}: {k} was {old.get(k)!r}, now {meta.get(k)!r}; use another --out', file=sys.stderr)
         env.close()
         return 2
     meta['resumed'] = meta['started']
     meta['started'] = old.get('started')
-  cfg = VelocityConfig(
-      velocity=a.velocity, device=device.serial, launcher=launcher,
+  cfg = AtalantaConfig(
+      atalanta=a.atalanta, device=device.serial, launcher=launcher,
       apps_file=str(apps_file), out_dir=out, model=a.model,
       script_dir=pathlib.Path(a.script_dir).resolve() if a.script_dir else None,
       price=_price_for(a.model, a.price), verify=a.verify,
@@ -307,7 +307,7 @@ def cmd_run(a: argparse.Namespace) -> int:
     # starts the next one, so actions after that spoiled the reward.
     from android_world.task_evals.miniwob import miniwob_base  # pylint: disable=g-import-not-at-top
     cfg = dataclasses.replace(cfg, stop_when=lambda: miniwob_base.is_episode_terminated(env))
-  agent = VelocityAgent(env, cfg)
+  agent = AtalantaAgent(env, cfg)
   agent.transition_pause = None
 
   if a.family.startswith('miniwob'):
@@ -436,7 +436,7 @@ def _run_instance(suite_utils, constants, run_episode, agent, env, task, key, a)
     # it for good. The watchdog turns such a hang into an exception, the
     # class AndroidWorld already uses for harness errors (left out of the
     # tally, run again on resume). The agent's own episode is bounded by
-    # Velocity's --timeout (scored as a failure, not an exception), so the
+    # Atalanta's --timeout (scored as a failure, not an exception), so the
     # watchdog allows that plus the kill margin plus --harness-timeout.
     budget = suite_utils._allocate_step_budget(task.complexity)  # pylint: disable=protected-access
     limit = (max(agent.cfg.min_timeout, budget * agent.cfg.seconds_per_step)
@@ -483,7 +483,7 @@ def _run_instance(suite_utils, constants, run_episode, agent, env, task, key, a)
       'actions': info.actions,
       'budget_steps': info.budget_steps,
       'wall_seconds': round(wall, 1),
-      'velocity_seconds': round(info.velocity_seconds, 1),
+      'atalanta_seconds': round(info.atalanta_seconds, 1),
       'model_calls': info.model_calls,
       'input_tokens': info.input_tokens,
       'output_tokens': info.output_tokens,
@@ -504,7 +504,7 @@ class _watchdog:  # pylint: disable=invalid-name
   """Raise HarnessTimeout in the main thread after `seconds` (SIGALRM).
 
   The handler runs between Python bytecodes, so it interrupts sleeps,
-  retry loops and subprocess waits (a running `velocity` child is killed by
+  retry loops and subprocess waits (a running `atalanta` child is killed by
   `subprocess.run` as the exception unwinds)."""
 
   def __init__(self, seconds: float):
@@ -577,7 +577,7 @@ def summarize(out: pathlib.Path) -> dict[str, Any]:
 
   ran = [r for r in rows if r['outcome'] not in ('notRun',)]
   steps = sum(r['steps'] for r in ran)
-  vel_s = sum(r['velocity_seconds'] for r in ran)
+  vel_s = sum(r['atalanta_seconds'] for r in ran)
   rate, n_templates = official(rows)
   s = {
       'meta': meta,
@@ -604,7 +604,7 @@ def summarize(out: pathlib.Path) -> dict[str, Any]:
   (out / 'summary.json').write_text(json.dumps(s, indent=1, default=str))
   pct = lambda x: '-' if x is None else f'{100 * x:.1f}%'
   lines = [
-      f'# AndroidWorld x Velocity: {meta.get("model") or "scripted"}',
+      f'# AndroidWorld x Atalanta: {meta.get("model") or "scripted"}',
       '', s['note'], '',
       f'- success (AndroidWorld convention, exceptions excluded): **{pct(rate)}** over {n_templates} templates',
       f'- success (strict, exceptions = failure): {pct(s["success_rate_strict"])} over {len(rows)} instances',
@@ -612,7 +612,7 @@ def summarize(out: pathlib.Path) -> dict[str, Any]:
       f'- mean steps {s["mean_steps"] and round(s["mean_steps"], 1)}, '
       f'mean s/step {s["mean_seconds_per_step"] and round(s["mean_seconds_per_step"], 1)}, '
       f'tokens {s["input_tokens"]}/{s["output_tokens"]}, est. cost ${s["total_cost_usd"]:.2f}',
-      f'- velocity {meta.get("velocity")}, harness {meta.get("harness_sha")}, seed {meta.get("seed")}, '
+      f'- atalanta {meta.get("atalanta")}, harness {meta.get("harness_sha")}, seed {meta.get("seed")}, '
       f'combinations {meta.get("n_task_combinations")}, verify {meta.get("verify")}',
       '', '| difficulty | official | strict | n |', '|---|---|---|---|',
   ]
@@ -645,7 +645,7 @@ def main() -> int:
     p.add_argument('--family', default='android_world',
                    help="AndroidWorld task family: android_world (116 tasks), miniwob (MobileMiniWoB++), miniwob_subset")
     p.add_argument('--grpc-port', type=int, default=8556)
-    p.add_argument('--velocity', default=_default_velocity(), help='velocity binary (or $VELOCITY_BIN)')
+    p.add_argument('--atalanta', default=_default_atalanta(), help='atalanta binary (or $ATALANTA_BIN)')
     p.add_argument('--model', help='provider:model, e.g. anthropic:claude-sonnet-5-5')
     p.add_argument('--script-dir', help='plumbing: scripted plans <Task>.json, no model')
     p.add_argument('--price', help='IN,OUT dollars per million tokens (default: list price if known)')
@@ -660,8 +660,8 @@ def main() -> int:
   r.add_argument('--n-task-combinations', type=int, default=1)
   r.add_argument('--seed', type=int, default=30, help="AndroidWorld's task_random_seed (its default: 30)")
   r.add_argument('--fixed-task-seed', action='store_true')
-  r.add_argument('--verify', default='final', help='velocity --verify (final: self-check before done)')
-  r.add_argument('--screenshots', help='velocity --screenshots (benchmark default: always)')
+  r.add_argument('--verify', default='final', help='atalanta --verify (final: self-check before done)')
+  r.add_argument('--screenshots', help='atalanta --screenshots (benchmark default: always)')
   r.add_argument('--max-cost', type=float, help='stop starting tasks once the estimate passes this')
   r.add_argument('--max-instances', type=int, help='run at most this many new instances, then stop (resume later)')
   r.add_argument('--max-exceptions-in-a-row', type=int, default=3)

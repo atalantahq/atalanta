@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use atalanta_android::video::VideoStream;
 use tokio::sync::{broadcast, mpsc};
-use velocity_android::video::VideoStream;
 
 use crate::state::AppState;
 

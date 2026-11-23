@@ -2,7 +2,7 @@
 # search. Built by .github/workflows/docs.yml; `mdbook build docs` locally.
 # The pages and their order are in SUMMARY.md; research/ is not published.
 [book]
-title = "Velocity"
+title = "Atalanta"
 description = "Mobile, web and API UI tests in one YAML suite, run by one binary; built for coding agents and CI."
 language = "en"
 src = "."
@@ -12,8 +12,8 @@ build-dir = "../target/docs-site"
 create-missing = false
 
 [output.html]
-git-repository-url = "https://github.com/omkar-dev/velocity"
-edit-url-template = "https://github.com/omkar-dev/velocity/edit/main/docs/{path}"
+git-repository-url = "https://github.com/atalantahq/atalanta"
+edit-url-template = "https://github.com/atalantahq/atalanta/edit/main/docs/{path}"
 no-section-label = true
 
 [output.html.search]

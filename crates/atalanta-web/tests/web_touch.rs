@@ -3,8 +3,8 @@
 
 mod common;
 
+use atalanta_common::{Direction, PlatformDriver};
 use common::serve;
-use velocity_common::{Direction, PlatformDriver};
 
 /// A tall page that logs its touch events, with a touch-driven carousel
 /// (`#track` follows the finger, as Swiper's does, and scrolls nothing).
@@ -28,19 +28,19 @@ car.addEventListener('touchmove', e => {
 </script>
 </body></html>"#;
 
-async fn touch_driver() -> velocity_web::WebDriver {
-    let mut config = velocity_web::WebDriverConfig {
+async fn touch_driver() -> atalanta_web::WebDriver {
+    let mut config = atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         ..Default::default()
     };
-    config.apply_device(velocity_common::web_devices::lookup("Pixel 7").unwrap());
-    let d = velocity_web::WebDriver::new(config);
+    config.apply_device(atalanta_common::web_devices::lookup("Pixel 7").unwrap());
+    let d = atalanta_web::WebDriver::new(config);
     d.prepare("web").await.unwrap();
     d
 }
 
-async fn num(d: &velocity_web::WebDriver, js: &str) -> f64 {
+async fn num(d: &atalanta_web::WebDriver, js: &str) -> f64 {
     d.debug_eval_main(js)
         .await
         .unwrap()

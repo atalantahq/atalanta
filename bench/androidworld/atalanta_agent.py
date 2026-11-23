@@ -1,17 +1,17 @@
-"""AndroidWorld agent that drives the device through `velocity explore`.
+"""AndroidWorld agent that drives the device through `atalanta explore`.
 
-Integration: one `velocity explore --benchmark --json` child process per
+Integration: one `atalanta explore --benchmark --json` child process per
 episode. AndroidWorld calls `step()` in a loop; the first call runs the
-whole episode inside Velocity (observe -> plan -> ground -> act, with
-Velocity's own step budget set to AndroidWorld's), then returns `done`.
+whole episode inside Atalanta (observe -> plan -> ground -> act, with
+Atalanta's own step budget set to AndroidWorld's), then returns `done`.
 A grounded answer (information-retrieval tasks) goes to AndroidWorld's
 answer mechanism (`env.execute_action(answer)` -> `env.interaction_cache`)
 before `done` is returned, exactly where the reference agents put it.
 
-Why a child process per episode rather than a long-lived `velocity mcp`
-session: the agent loop already lives in Velocity (`explore`), so MCP would
+Why a child process per episode rather than a long-lived `atalanta mcp`
+session: the agent loop already lives in Atalanta (`explore`), so MCP would
 only add a JSON-RPC layer around the same child (`run_task` spawns
-`velocity explore --json` anyway). A process per episode gives isolation
+`atalanta explore --json` anyway). A process per episode gives isolation
 (a crash or hung model call can't leak into the next task), a hard
 wall-clock kill, and a clean per-task events file.
 """
@@ -31,13 +31,13 @@ from android_world.agents import base_agent
 from android_world.env import interface
 from android_world.env import json_action
 
-# Velocity outcomes where the agent itself decided to stop (AndroidWorld's
+# Atalanta outcomes where the agent itself decided to stop (AndroidWorld's
 # "done"; scored by the task's own check). Budget, time, stuck and failures
 # are not "done": AndroidWorld scores those 0, as for any agent that runs out
 # of steps.
 DONE_OUTCOMES = ('success', 'unverified', 'gaveUp')
 # Outcomes that are infrastructure failures (the model API, the device, a
-# Velocity crash), raised as exceptions rather than scored.
+# Atalanta crash), raised as exceptions rather than scored.
 INFRA_OUTCOMES = ('failed', 'error')
 
 # The AndroidWorld apps the agent may open by name (`openApp`), as the names
@@ -68,8 +68,8 @@ def app_list(installed: set[str]) -> dict[str, str]:
 
 
 @dataclasses.dataclass
-class VelocityConfig:
-  velocity: str
+class AtalantaConfig:
+  atalanta: str
   device: str
   launcher: str
   apps_file: str
@@ -83,8 +83,8 @@ class VelocityConfig:
   min_timeout: float = 120.0
   adb_path: str | None = None
   extra_args: tuple[str, ...] = ()
-  # AndroidWorld's own episode end, checked while Velocity runs (MiniWoB:
-  # the task's episode terminated). When it turns true, Velocity is
+  # AndroidWorld's own episode end, checked while Atalanta runs (MiniWoB:
+  # the task's episode terminated). When it turns true, Atalanta is
   # stopped and the episode counts as done, as suite_utils.run's
   # termination_fn ends an agent's episode.
   stop_when: Any = None
@@ -102,7 +102,7 @@ class EpisodeInfo:
   input_tokens: int = 0
   output_tokens: int = 0
   cost_usd: float | None = None
-  velocity_seconds: float = 0.0
+  atalanta_seconds: float = 0.0
   answer: str | None = None
   # The run was stopped because AndroidWorld said the task's episode ended.
   terminated_by_task: bool = False
@@ -113,10 +113,10 @@ class EpisodeInfo:
   budget_steps: int = 0
 
 
-class VelocityAgent(base_agent.EnvironmentInteractingAgent):
-  """Runs each episode as one `velocity explore --benchmark` child."""
+class AtalantaAgent(base_agent.EnvironmentInteractingAgent):
+  """Runs each episode as one `atalanta explore --benchmark` child."""
 
-  def __init__(self, env: interface.AsyncEnv, cfg: VelocityConfig, name: str = 'velocity'):
+  def __init__(self, env: interface.AsyncEnv, cfg: AtalantaConfig, name: str = 'atalanta'):
     super().__init__(env, name=name, transition_pause=None)
     self.cfg = cfg
     self.task_key = 'task'
@@ -137,7 +137,7 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
   def _command(self, goal: str, budget: int, timeout: int) -> list[str]:
     c = self.cfg
     cmd = [
-        c.velocity, 'explore', goal,
+        c.atalanta, 'explore', goal,
         '--app-id', c.launcher,
         '--device', c.device,
         '--platform', 'android',
@@ -146,7 +146,7 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
         '--values-from-screen',
         # Text read from a screenshot (a receipt, a gallery image, a video
         # frame): tasks that transcribe an image need it. Code can't check
-        # pixels, so it is Velocity's separate opt-in (2026-11-07).
+        # pixels, so it is Atalanta's separate opt-in (2026-11-07).
         '--values-from-screenshots',
         '--apps-file', c.apps_file,
         '--max-steps', str(budget),
@@ -185,26 +185,26 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
     if events.exists():
       events.unlink()
     env = dict(os.environ)
-    env['VELOCITY_EVENTS_FILE'] = str(events)
+    env['ATALANTA_EVENTS_FILE'] = str(events)
     # Keep AndroidWorld's accessibility forwarder alive: many tasks check
     # success through it, and a suppressing UiAutomation connection kills
     # its tree for the rest of the run.
-    env['VELOCITY_ANDROID_KEEP_A11Y'] = '1'
+    env['ATALANTA_ANDROID_KEEP_A11Y'] = '1'
     if self.cfg.adb_path:
-      env['VELOCITY_ADB_PATH'] = self.cfg.adb_path
+      env['ATALANTA_ADB_PATH'] = self.cfg.adb_path
     info = self.info
     info.budget_steps = budget
     info.events_file = str(events)
     started = time.time()
     try:
-      proc = _run_velocity(self._command(goal, budget, timeout), env, task_dir,
+      proc = _run_atalanta(self._command(goal, budget, timeout), env, task_dir,
                            timeout + 180, self.cfg.stop_when, info)
       info.exit_code = proc.returncode
       (task_dir / 'stderr.log').write_text(proc.stderr)
       report = _parse_json(proc.stdout)
       if report is None:
         info.outcome = 'error'
-        info.error = f'velocity exit {proc.returncode}: ' + proc.stderr.strip()[-600:]
+        info.error = f'atalanta exit {proc.returncode}: ' + proc.stderr.strip()[-600:]
       else:
         (task_dir / 'result.json').write_text(json.dumps(report, indent=1))
         rep = report.get('report', {})
@@ -220,15 +220,15 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
         info.prompt_version = rep.get('promptVersion')
     except subprocess.TimeoutExpired:
       info.outcome = 'timedOut'
-      info.error = 'velocity did not finish within its timeout (killed)'
-    info.velocity_seconds = time.time() - started
+      info.error = 'atalanta did not finish within its timeout (killed)'
+    info.atalanta_seconds = time.time() - started
 
     if info.outcome in INFRA_OUTCOMES:
-      # The model service or Velocity itself failed, not the agent's
+      # The model service or Atalanta itself failed, not the agent's
       # judgement: raise, as AndroidWorld's own agents do when their model
       # calls fail. `_run_task` records an exception (left out of the
       # official tally, re-run on resume).
-      raise RuntimeError(f'velocity {info.outcome}: {info.reason or info.error}')
+      raise RuntimeError(f'atalanta {info.outcome}: {info.reason or info.error}')
 
     if info.answer:
       # AndroidWorld's answer channel (what its `answer` action does).
@@ -238,12 +238,12 @@ class VelocityAgent(base_agent.EnvironmentInteractingAgent):
     done = info.outcome in DONE_OUTCOMES or info.terminated_by_task
     self._done = done
     return base_agent.AgentInteractionResult(
-        done=done, data={'velocity': dataclasses.asdict(info)}
+        done=done, data={'atalanta': dataclasses.asdict(info)}
     )
 
 
-def _run_velocity(cmd, env, cwd, timeout, stop_when, info):
-  """Run Velocity; with `stop_when`, check it every second and stop Velocity
+def _run_atalanta(cmd, env, cwd, timeout, stop_when, info):
+  """Run Atalanta; with `stop_when`, check it every second and stop Atalanta
   with SIGINT (it ends at its next turn as `stopped`, with a report) once
   it is true. Returns a CompletedProcess-like object."""
   if stop_when is None:
@@ -276,7 +276,7 @@ def _run_velocity(cmd, env, cwd, timeout, stop_when, info):
   return subprocess.CompletedProcess(cmd, proc.returncode, out_f.read(), err_f.read())
 
 
-def _close_forwarder_crash_dialog(cfg: VelocityConfig) -> None:
+def _close_forwarder_crash_dialog(cfg: AtalantaConfig) -> None:
   """Close the "accessibilityforwarder keeps stopping" system dialog.
 
   android_env's accessibility forwarder (a harness helper, not part of any

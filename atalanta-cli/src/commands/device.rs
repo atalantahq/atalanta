@@ -1,6 +1,6 @@
+use atalanta_common::{DeviceState, Platform};
 use clap::Subcommand;
 use colored::Colorize;
-use velocity_common::{DeviceState, Platform};
 
 use super::create_driver;
 
@@ -10,13 +10,13 @@ pub enum DeviceCommand {
     /// and/or N simulator clones; optionally install the app on all of them.
     /// Refuses to boot below ~35%/3 GB free memory or 3 GB free disk.
     Up {
-        /// Velocity-started Android emulators to have running (read-only
+        /// Atalanta-started Android emulators to have running (read-only
         /// instances of one AVD). Emulators started some other way don't
         /// count, so `down` only ever stops what `up` booted
         #[arg(long, default_value_t = 0, value_name = "N")]
         android: usize,
 
-        /// Velocity's iOS simulators to have booted (`velocity-<type>-<n>`
+        /// Atalanta's iOS simulators to have booted (`atalanta-<type>-<n>`
         /// clones; other booted simulators don't count)
         #[arg(long, default_value_t = 0, value_name = "N")]
         ios: usize,
@@ -31,7 +31,7 @@ pub enum DeviceCommand {
         device_type: Option<String>,
 
         /// Shut-down simulator (UDID or name) to clone new simulators from
-        /// [default: velocity-<type>-golden, created and booted once]
+        /// [default: atalanta-<type>-golden, created and booted once]
         #[arg(long)]
         golden: Option<String>,
 
@@ -45,11 +45,11 @@ pub enum DeviceCommand {
         app_id: Option<String>,
 
         /// First emulator console port to try
-        #[arg(long, default_value_t = velocity_android::emulator::FIRST_PORT)]
+        #[arg(long, default_value_t = atalanta_android::emulator::FIRST_PORT)]
         port: u16,
 
         /// Who these devices belong to; `devices down` stops only its own
-        /// [default: $VELOCITY_OWNER, else the CI job id, else none]
+        /// [default: $ATALANTA_OWNER, else the CI job id, else none]
         #[arg(long, value_name = "ID")]
         owner: Option<String>,
     },
@@ -60,12 +60,12 @@ pub enum DeviceCommand {
         #[arg(short, long)]
         platform: Option<String>,
 
-        /// Also delete the simulator clones Velocity created
+        /// Also delete the simulator clones Atalanta created
         #[arg(long)]
         delete: bool,
 
         /// Stop only the devices `up` started for this owner
-        /// [default: $VELOCITY_OWNER, else the CI job id, else none]
+        /// [default: $ATALANTA_OWNER, else the CI job id, else none]
         #[arg(long, value_name = "ID", conflicts_with = "all")]
         owner: Option<String>,
 
@@ -290,7 +290,7 @@ pub async fn execute(command: DeviceCommand) -> anyhow::Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::platform_for;
-    use velocity_common::Platform;
+    use atalanta_common::Platform;
 
     #[test]
     fn device_commands_read_the_platform_from_ids_not_names() {

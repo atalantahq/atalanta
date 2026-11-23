@@ -6,14 +6,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use velocity_common::evidence::{EvidenceRequest, EvidenceSession};
-use velocity_common::test_types::{ResetConfig, ResetStrategy};
-use velocity_common::types::{
+use atalanta_common::evidence::{EvidenceRequest, EvidenceSession};
+use atalanta_common::test_types::{ResetConfig, ResetStrategy};
+use atalanta_common::types::{
     DeviceInfo, DeviceSettle, DeviceState, DeviceType, Direction, Element, Key, MockRule, Rect,
     Selector, SystemState,
 };
-use velocity_common::{
-    HealthStatus, InstallOutcome, Liveness, Platform, PlatformDriver, Result, VelocityError,
+use atalanta_common::{
+    AtalantaError, HealthStatus, InstallOutcome, Liveness, Platform, PlatformDriver, Result,
 };
 
 pub struct RoutingDriver {
@@ -62,7 +62,7 @@ impl RoutingDriver {
             .iter()
             .find(|(q, _)| *q == p)
             .map(|(_, d)| d)
-            .ok_or_else(|| VelocityError::DeviceNotFound {
+            .ok_or_else(|| AtalantaError::DeviceNotFound {
                 id: device_id.to_string(),
                 available: vec![],
             })
@@ -135,7 +135,7 @@ impl PlatformDriver for RoutingDriver {
         id: &str,
         app: &str,
         clear: bool,
-        args: &velocity_common::LaunchArgs,
+        args: &atalanta_common::LaunchArgs,
     ) -> Result<()> {
         self.of(id)?.launch_app_with(id, app, clear, args).await
     }
@@ -261,7 +261,7 @@ impl PlatformDriver for RoutingDriver {
         &self,
         id: &str,
         e: &Element,
-        touch: velocity_common::Touch,
+        touch: atalanta_common::Touch,
     ) -> Result<()> {
         self.of(id)?.touch_forced(id, e, touch).await
     }
@@ -393,7 +393,7 @@ mod tests {
         // No iOS driver: an iOS id is an unknown device, not a panic.
         assert!(matches!(
             r.of("BD7E26D9-B9DB-4A6D-86D1-33D0B83A7A20"),
-            Err(VelocityError::DeviceNotFound { .. })
+            Err(AtalantaError::DeviceNotFound { .. })
         ));
     }
 
@@ -405,7 +405,7 @@ mod tests {
         let read = |p: &Path| {
             std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
         };
-        let traits = read(&root.join("../velocity-common/src/traits.rs"));
+        let traits = read(&root.join("../atalanta-common/src/traits.rs"));
         let routing = read(&root.join("src/console/routing.rs"));
         let routing = &routing[..routing.find("#[cfg(test)]").unwrap()];
 

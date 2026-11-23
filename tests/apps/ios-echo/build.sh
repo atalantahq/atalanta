@@ -9,5 +9,5 @@ if ! command -v xcodegen >/dev/null 2>&1; then
 fi
 
 xcodegen generate
-xcodebuild -project VelocityEcho.xcodeproj -scheme VelocityEcho -sdk iphonesimulator -configuration Debug -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet build
-echo "build/Build/Products/Debug-iphonesimulator/VelocityEcho.app"
+xcodebuild -project AtalantaEcho.xcodeproj -scheme AtalantaEcho -sdk iphonesimulator -configuration Debug -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet build
+echo "build/Build/Products/Debug-iphonesimulator/AtalantaEcho.app"

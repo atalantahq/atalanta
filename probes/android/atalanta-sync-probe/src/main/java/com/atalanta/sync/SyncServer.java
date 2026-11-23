@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -18,7 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Exposes the app's idle state to the Velocity runner. Listens on the
+ * Exposes the app's idle state to the Atalanta runner. Listens on the
  * loopback interface only (the host reaches it through {@code adb forward
  * tcp:0 tcp:19401}, one host port per device); it used to listen on every
  * interface.
@@ -56,7 +56,7 @@ public final class SyncServer {
      *  main-looper timers. */
     public static final int PROTOCOL_VERSION = 4;
     public static final int DEFAULT_PORT = 19401;
-    private static final String TAG = "VelocitySyncProbe";
+    private static final String TAG = "AtalantaSyncProbe";
     /** The longest request line; a longer one closes the connection. */
     static final int MAX_LINE_CHARS = 64 * 1024;
 
@@ -101,9 +101,9 @@ public final class SyncServer {
         this.pid = pid;
     }
 
-    /** {@code VELOCITY_SYNC_PORT} when set and valid, else 19401. */
+    /** {@code ATALANTA_SYNC_PORT} when set and valid, else 19401. */
     public static int resolvePort(Map<String, String> env) {
-        String raw = env == null ? null : env.get("VELOCITY_SYNC_PORT");
+        String raw = env == null ? null : env.get("ATALANTA_SYNC_PORT");
         if (raw != null) {
             try {
                 int p = Integer.parseInt(raw.trim());
@@ -179,7 +179,7 @@ public final class SyncServer {
                     mine.countDown();
                 }
             }
-        }, "velocity-sync-server");
+        }, "atalanta-sync-server");
         t.setDaemon(true);
         t.start();
     }
@@ -212,7 +212,7 @@ public final class SyncServer {
             while (running && generation == gen) {
                 try {
                     final Socket client = s.accept();
-                    Thread t = new Thread(() -> handleClient(client), "velocity-sync-client");
+                    Thread t = new Thread(() -> handleClient(client), "atalanta-sync-client");
                     t.setDaemon(true);
                     t.start();
                 } catch (Exception e) {

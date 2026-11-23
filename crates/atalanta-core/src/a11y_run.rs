@@ -10,8 +10,8 @@
 
 use std::collections::HashSet;
 
-use velocity_common::a11y::{self, Severity};
-use velocity_common::{AccessibilityConfig, Element, Platform};
+use atalanta_common::a11y::{self, Severity};
+use atalanta_common::{AccessibilityConfig, Element, Platform};
 
 /// Findings reported per test; the rest are counted in one closing note.
 pub const MAX_PER_TEST: usize = 20;
@@ -130,7 +130,7 @@ impl AuditRun {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Rect;
+    use atalanta_common::Rect;
 
     fn screen(buttons: usize) -> Element {
         let children = (0..buttons)

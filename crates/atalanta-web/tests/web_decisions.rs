@@ -4,8 +4,8 @@
 
 mod common;
 
+use atalanta_common::{AtalantaError, PlatformDriver};
 use common::{driver, find, serve, text};
-use velocity_common::{PlatformDriver, VelocityError};
 
 const SELECT: &str = r#"<!doctype html><html><body>
 <label for="country">Country</label>
@@ -22,7 +22,7 @@ const SELECT: &str = r#"<!doctype html><html><body>
 <div id="log"></div>
 </body></html>"#;
 
-async fn value(d: &velocity_web::WebDriver, id: &str) -> String {
+async fn value(d: &atalanta_web::WebDriver, id: &str) -> String {
     d.debug_eval_main(&format!("document.getElementById('{id}').value"))
         .await
         .unwrap()
@@ -74,7 +74,7 @@ async fn a_disabled_or_unknown_option_is_refused() {
     for disabled in ["Mexico", "mx", "Soviet Union"] {
         let e = d.input_text("web", &select, disabled).await.unwrap_err();
         assert!(
-            matches!(e, VelocityError::NotActionable { .. }),
+            matches!(e, AtalantaError::NotActionable { .. }),
             "{disabled}: {e}"
         );
         assert!(e.to_string().contains("disabled"), "{e}");
@@ -125,11 +125,11 @@ async fn parallel_devices_are_independent_browsers() {
         ),
         ("/slow.html", "<html><body>slow</body></html>"),
     ]);
-    let d = velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+    let d = atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         instances: 2,
-        parallel_mode: velocity_web::ParallelMode::Processes,
+        parallel_mode: atalanta_web::ParallelMode::Processes,
         ..Default::default()
     });
     let ids: Vec<String> = d
@@ -193,7 +193,7 @@ async fn parallel_devices_are_independent_browsers() {
     }
 }
 
-async fn scroll(d: &velocity_web::WebDriver, axis: &str) -> f64 {
+async fn scroll(d: &atalanta_web::WebDriver, axis: &str) -> f64 {
     d.debug_eval_main(&format!("window.{axis}"))
         .await
         .unwrap()
@@ -204,7 +204,7 @@ async fn scroll(d: &velocity_web::WebDriver, axis: &str) -> f64 {
 /// The scroll position once `done` holds, or after 3 s. A swipe's wheel
 /// event is dispatched, not awaited, and a loaded runner's Chrome applies it
 /// a moment later (a run settles after a swipe; this test doesn't).
-async fn scroll_until(d: &velocity_web::WebDriver, axis: &str, done: impl Fn(f64) -> bool) -> f64 {
+async fn scroll_until(d: &atalanta_web::WebDriver, axis: &str, done: impl Fn(f64) -> bool) -> f64 {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
     loop {
         let v = scroll(d, axis).await;
@@ -229,7 +229,7 @@ async fn swipe_up_reveals_content_below() {
     d.launch_app("web", &format!("{base}/tall.html"), false)
         .await
         .unwrap();
-    d.swipe("web", velocity_common::Direction::Up)
+    d.swipe("web", atalanta_common::Direction::Up)
         .await
         .unwrap();
     let after_up = scroll_until(&d, "scrollY", |y| y > 0.0).await;
@@ -237,14 +237,14 @@ async fn swipe_up_reveals_content_below() {
         after_up > 0.0,
         "finger up scrolls the page down: {after_up}"
     );
-    d.swipe("web", velocity_common::Direction::Down)
+    d.swipe("web", atalanta_common::Direction::Down)
         .await
         .unwrap();
     assert!(
         scroll_until(&d, "scrollY", |y| y < after_up).await < after_up,
         "finger down scrolls back up"
     );
-    d.swipe("web", velocity_common::Direction::Left)
+    d.swipe("web", atalanta_common::Direction::Left)
         .await
         .unwrap();
     let x = scroll_until(&d, "scrollX", |x| x > 0.0).await;
@@ -267,13 +267,13 @@ const TOUCH: &str = r#"<!doctype html><html><head><meta name="viewport" content=
 async fn a_device_profile_is_mobile_and_taps_are_touches() {
     require_chrome!();
     let base = serve(&[("/t.html", TOUCH)]);
-    let mut config = velocity_web::WebDriverConfig {
+    let mut config = atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         ..Default::default()
     };
-    config.apply_device(velocity_common::web_devices::lookup("Pixel 7").unwrap());
-    let d = velocity_web::WebDriver::new(config);
+    config.apply_device(atalanta_common::web_devices::lookup("Pixel 7").unwrap());
+    let d = atalanta_web::WebDriver::new(config);
     d.prepare("web").await.unwrap();
     d.launch_app("web", &format!("{base}/t.html"), false)
         .await
@@ -332,11 +332,11 @@ async fn restart_session_restarts_only_the_hung_browser() {
             "<html><body>hang<script>setTimeout(function(){while(true){}},200)</script></body></html>",
         ),
     ]);
-    let d = velocity_web::WebDriver::new(velocity_web::WebDriverConfig {
+    let d = atalanta_web::WebDriver::new(atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         instances: 2,
-        parallel_mode: velocity_web::ParallelMode::Processes,
+        parallel_mode: atalanta_web::ParallelMode::Processes,
         ..Default::default()
     });
     d.launch_app("web-0", &format!("{base}/ok.html"), false)

@@ -8,9 +8,9 @@
 //! reports) are served from its own folder by
 //! `GET /api/tasks/{id}/files/{path}`, confined to that folder.
 //!
-//! **Explore.** An explore session is a `velocity explore … --json` child
+//! **Explore.** An explore session is a `atalanta explore … --json` child
 //! ([`ExploreChild`]), like a suite run: it takes the device's lease
-//! itself, writes its events (`velocity_common::live_events`: its turns,
+//! itself, writes its events (`atalanta_common::live_events`: its turns,
 //! and its replays' tests and steps) to the task's `events.jsonl`, reads
 //! the page's instructions from an `--inject-file`, and prints its result
 //! (the YAML, the replays, the model's calls and tokens), which the page
@@ -407,7 +407,7 @@ impl Tasks {
                 // child would find it held.
                 st.control.set_task(&device, Some(rec.id));
                 if st.control.release(&device).await {
-                    // A child `velocity run` takes the lease itself.
+                    // A child `atalanta run` takes the lease itself.
                     rec.push(
                         "log",
                         json!({"stream": "console", "line": "released the console's control of the device for the run"}),
@@ -466,20 +466,20 @@ pub trait SuiteLauncher: Send + Sync {
     ) -> tokio::process::Command;
 }
 
-/// `velocity run` with this binary.
-pub struct VelocityBinary {
+/// `atalanta run` with this binary.
+pub struct AtalantaBinary {
     pub exe: PathBuf,
 }
 
-impl VelocityBinary {
+impl AtalantaBinary {
     pub fn current() -> Self {
         Self {
-            exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("velocity")),
+            exe: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("atalanta")),
         }
     }
 }
 
-impl SuiteLauncher for VelocityBinary {
+impl SuiteLauncher for AtalantaBinary {
     fn command(
         &self,
         suite: &Path,
@@ -498,7 +498,7 @@ impl SuiteLauncher for VelocityBinary {
         if let Some(f) = req.filter.as_deref().filter(|f| !f.is_empty()) {
             c.args(["--filter", f]);
         }
-        c.env(velocity_common::live_events::EVENTS_FILE_ENV, events_file)
+        c.env(atalanta_common::live_events::EVENTS_FILE_ENV, events_file)
             .env("NO_COLOR", "1")
             .env("CLICOLOR", "0");
         c
@@ -581,7 +581,7 @@ impl ConsoleTask for SuiteRun {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
-        let mut child = match velocity_common::process::spawn_group(&mut cmd) {
+        let mut child = match atalanta_common::process::spawn_group(&mut cmd) {
             Ok(c) => c,
             Err(e) => {
                 return TaskOutcome::new(TaskStatus::Error, format!("can't start the run: {e}"))
@@ -730,7 +730,7 @@ pub trait ExploreLauncher: Send + Sync {
     fn command(&self, spec: &ExploreSpec, files: &ExploreFiles) -> tokio::process::Command;
 }
 
-impl ExploreLauncher for VelocityBinary {
+impl ExploreLauncher for AtalantaBinary {
     fn command(&self, spec: &ExploreSpec, files: &ExploreFiles) -> tokio::process::Command {
         let mut c = tokio::process::Command::new(&self.exe);
         c.arg("explore")
@@ -759,14 +759,14 @@ impl ExploreLauncher for VelocityBinary {
         // The goal last, after `--`: a goal that starts with `-` is text,
         // never a flag (security review 05 #8).
         c.arg("--").arg(&spec.goal);
-        c.env(velocity_common::live_events::EVENTS_FILE_ENV, &files.events)
+        c.env(atalanta_common::live_events::EVENTS_FILE_ENV, &files.events)
             .env("NO_COLOR", "1")
             .env("CLICOLOR", "0");
         c
     }
 }
 
-/// Explore sessions as `velocity explore` children.
+/// Explore sessions as `atalanta explore` children.
 pub struct ExploreChild {
     pub launcher: Arc<dyn ExploreLauncher>,
 }
@@ -781,7 +781,7 @@ impl ExploreProvider for ExploreChild {
 }
 
 /// The test's file name: the goal as a slug (`open-network-internet.yaml`),
-/// as `velocity explore` names it.
+/// as `atalanta explore` names it.
 pub fn explore_file_name(goal: &str) -> String {
     let mut slug = String::new();
     for c in goal.chars() {
@@ -817,7 +817,7 @@ fn interrupt(child: &tokio::process::Child) {
     let _ = child;
 }
 
-/// A `velocity explore --json` result, as the page shows it.
+/// A `atalanta explore --json` result, as the page shows it.
 pub fn explore_result(r: &Value, out_dir: &Path) -> Value {
     let rep = &r["report"];
     let runs = r["replay"]["runs"].as_array().cloned().unwrap_or_default();
@@ -882,7 +882,7 @@ impl ConsoleTask for ExploreTask {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(stdout))
             .stderr(std::process::Stdio::piped());
-        let mut child = match velocity_common::process::spawn_group(&mut cmd) {
+        let mut child = match atalanta_common::process::spawn_group(&mut cmd) {
             Ok(c) => c,
             Err(e) => {
                 return TaskOutcome::new(TaskStatus::Error, format!("can't start explore: {e}"))
@@ -903,7 +903,7 @@ impl ConsoleTask for ExploreTask {
                 let kind = v.get("event").and_then(Value::as_str).unwrap_or("");
                 // The replays' tests and steps fill the steps table; the
                 // session's own events are the explore stream.
-                if velocity_common::live_events::LiveEvent::TEST_EVENTS.contains(&kind) {
+                if atalanta_common::live_events::LiveEvent::TEST_EVENTS.contains(&kind) {
                     ctx.emit(kind, v.clone());
                 } else {
                     ctx.emit("explore", v);
@@ -960,7 +960,7 @@ impl ConsoleTask for ExploreTask {
         let Some(r) = shown else {
             return TaskOutcome::new(
                 TaskStatus::Error,
-                format!("velocity explore exited with {code:?} and no result (see the output)"),
+                format!("atalanta explore exited with {code:?} and no result (see the output)"),
             );
         };
         let runs = r["replay"].as_array().map_or(0, Vec::len);

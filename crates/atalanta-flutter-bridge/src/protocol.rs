@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
+use atalanta_common::{Element, Rect};
 use serde::{Deserialize, Serialize};
-use velocity_common::{Element, Rect};
 
 /// Replies from the Flutter test process (`ok` with data, or `error` with a
 /// message and a code such as `not_hittable`).
-pub use velocity_common::jsonline::Reply as FlutterResponse;
+pub use atalanta_common::jsonline::Reply as FlutterResponse;
 
 /// What an element action acts on: the semantics/widget node from the last
 /// hierarchy, the element's id (`ValueKey` or semantics identifier), and its
@@ -399,8 +399,8 @@ mod tests {
         assert_eq!(cur.children.len(), 2000 - MAX_DEPTH);
         assert_eq!(cur.children[0].text.as_deref(), Some("n512"));
         assert_eq!(cur.children.last().unwrap().text.as_deref(), Some("n1999"));
-        let sel = velocity_common::Selector::Text("n1999".into());
-        assert!(velocity_common::selector_match::find_in_tree(&h.root, &sel, None).is_some());
+        let sel = atalanta_common::Selector::Text("n1999".into());
+        assert!(atalanta_common::selector_match::find_in_tree(&h.root, &sel, None).is_some());
     }
 
     /// M6: what the driver does with a hierarchy (cache clone, match,
@@ -420,9 +420,9 @@ mod tests {
                     height: 100_000,
                 };
                 let mut out = Vec::new();
-                velocity_common::selector_match::find_all_in_tree(
+                atalanta_common::selector_match::find_all_in_tree(
                     &copy,
-                    &velocity_common::Selector::Text("n4999".into()),
+                    &atalanta_common::Selector::Text("n4999".into()),
                     Some(&screen),
                     &mut out,
                 );
@@ -496,7 +496,7 @@ mod tests {
         .unwrap();
         let k = &h.root.children;
         assert_eq!((k[0].selected, k[1].selected), (Some(true), Some(false)));
-        use velocity_common::role::role_of;
+        use atalanta_common::role::role_of;
         assert_eq!(role_of(&k[0]), Some("button"));
         assert_eq!(role_of(&k[1]), Some("switch"));
         assert_eq!(role_of(&k[2]), Some("heading"));
@@ -524,7 +524,7 @@ mod tests {
         let mut v = json!({"text": "leaf", "type": "Text",
             "bounds": {"x": 0, "y": 0, "width": 1, "height": 1}});
         // Each level is two JSON levels (`{` and `children: [`).
-        let levels = velocity_common::jsonline::MAX_DEPTH / 2 - 2;
+        let levels = atalanta_common::jsonline::MAX_DEPTH / 2 - 2;
         for _ in 0..levels {
             v = json!({"type": "View", "bounds": {"x": 0, "y": 0, "width": 1, "height": 1},
                        "children": [v]});
@@ -534,12 +534,12 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(2 * 1024 * 1024)
             .spawn(move || {
-                let value = velocity_common::jsonline::parse_line(line.as_bytes()).unwrap();
+                let value = atalanta_common::jsonline::parse_line(line.as_bytes()).unwrap();
                 let h = Hierarchy::from_value(value).unwrap();
                 let copy = h.root.clone();
-                assert!(velocity_common::selector_match::find_in_tree(
+                assert!(atalanta_common::selector_match::find_in_tree(
                     &copy,
-                    &velocity_common::Selector::Text("leaf".into()),
+                    &atalanta_common::Selector::Text("leaf".into()),
                     None
                 )
                 .is_some());

@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
+use atalanta_common::selector_match::{find_all_in_tree, find_in_tree};
+use atalanta_common::{
+    AtalantaError, DeviceInfo, DeviceState, DeviceType, Direction, Element, HealthStatus, Key,
+    Platform, PlatformDriver, Rect, Selector,
+};
 use base64::Engine;
 use tokio::sync::RwLock;
-use velocity_common::selector_match::{find_all_in_tree, find_in_tree};
-use velocity_common::{
-    DeviceInfo, DeviceState, DeviceType, Direction, Element, HealthStatus, Key, Platform,
-    PlatformDriver, Rect, Selector, VelocityError,
-};
 
 use crate::config::{FlutterBridgeConfig, HierarchyMode};
 use crate::process::FlutterProcess;
@@ -18,7 +18,7 @@ const DEVICE: &str = "flutter-0";
 /// running `flutter test --machine` + WidgetTester.
 pub struct FlutterDriver {
     /// What each device's last successful lookup counted on screen (R5).
-    match_counts: velocity_common::selector_match::MatchCounts,
+    match_counts: atalanta_common::selector_match::MatchCounts,
     platform: Platform,
     config: FlutterBridgeConfig,
     process: RwLock<FlutterProcess>,
@@ -72,16 +72,16 @@ impl FlutterDriver {
     }
 
     /// Send a command to the Flutter test process.
-    async fn send_cmd(&self, cmd: &FlutterCommand) -> velocity_common::Result<FlutterResponse> {
+    async fn send_cmd(&self, cmd: &FlutterCommand) -> atalanta_common::Result<FlutterResponse> {
         let mut process = self.process.write().await;
         // A timed-out command drops the connection; open a fresh one.
         if !process.is_running() {
             process.start().await.map_err(|e| {
-                VelocityError::Internal(anyhow::anyhow!("Flutter bridge reconnect failed: {e}"))
+                AtalantaError::Internal(anyhow::anyhow!("Flutter bridge reconnect failed: {e}"))
             })?;
         }
         process.send(cmd).await.map_err(|e| {
-            VelocityError::Internal(anyhow::anyhow!("Flutter bridge command failed: {}", e))
+            AtalantaError::Internal(anyhow::anyhow!("Flutter bridge command failed: {}", e))
         })
     }
 
@@ -94,20 +94,20 @@ impl FlutterDriver {
         &self,
         cmd: &FlutterCommand,
         op: &str,
-    ) -> velocity_common::Result<Option<serde_json::Value>> {
+    ) -> atalanta_common::Result<Option<serde_json::Value>> {
         match self.send_cmd(cmd).await? {
             FlutterResponse::Error {
                 message,
                 code: Some(code),
-            } if code == "unsupported" => Err(VelocityError::Unsupported(format!(
+            } if code == "unsupported" => Err(AtalantaError::Unsupported(format!(
                 "{op}: {} (Flutter headless)",
-                velocity_common::redact::redact(&message)
+                atalanta_common::redact::redact(&message)
             ))),
             FlutterResponse::Error {
                 code: Some(code), ..
-            } if code == "unknown_command" => Err(VelocityError::Config(format!(
-                "the Flutter bridge doesn't know `{op}`: update the velocity_flutter_helper \
-                 Dart package (crates/velocity-flutter-bridge/dart) to this Velocity's version"
+            } if code == "unknown_command" => Err(AtalantaError::Config(format!(
+                "the Flutter bridge doesn't know `{op}`: update the atalanta_flutter_helper \
+                 Dart package (crates/atalanta-flutter-bridge/dart) to this Atalanta's version"
             ))),
             reply => reply.into_result(op, DEVICE),
         }
@@ -116,7 +116,7 @@ impl FlutterDriver {
     /// Run an action. The Dart side settles (bounded) before it answers, so
     /// no extra pump follows (VEL-280). The UI may have changed even when
     /// the action failed, so the caches go either way.
-    async fn act(&self, cmd: &FlutterCommand, op: &str) -> velocity_common::Result<()> {
+    async fn act(&self, cmd: &FlutterCommand, op: &str) -> atalanta_common::Result<()> {
         let result = self.call(cmd, op).await;
         self.invalidate_cache().await;
         result.map(|_| ())
@@ -143,7 +143,7 @@ impl FlutterDriver {
     }
 
     /// Mount the app afresh (`clear` also runs the app's reset hook).
-    async fn init(&self, clear: bool) -> velocity_common::Result<()> {
+    async fn init(&self, clear: bool) -> atalanta_common::Result<()> {
         let data = self
             .call(
                 &FlutterCommand::Init {
@@ -172,7 +172,7 @@ impl FlutterDriver {
     }
 
     /// Fetch and cache the hierarchy from the Flutter process.
-    async fn fetch_hierarchy(&self) -> velocity_common::Result<Element> {
+    async fn fetch_hierarchy(&self) -> atalanta_common::Result<Element> {
         {
             let cache = self.hierarchy_cache.read().await;
             if let Some(ref cached) = *cache {
@@ -188,7 +188,7 @@ impl FlutterDriver {
             .call(&FlutterCommand::GetHierarchy { mode }, "get_hierarchy")
             .await?
             .ok_or_else(|| {
-                VelocityError::Internal(anyhow::anyhow!("GetHierarchy returned no data"))
+                AtalantaError::Internal(anyhow::anyhow!("GetHierarchy returned no data"))
             })?;
         let hierarchy = match Hierarchy::from_value(value) {
             Ok(h) => h,
@@ -196,7 +196,7 @@ impl FlutterDriver {
                 // The Dart side has already replaced its snapshot: node ids
                 // from the previous one could name other elements now.
                 *self.node_ids.write().await = (HashMap::new(), None);
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "Failed to parse hierarchy: {}",
                     e
                 )));
@@ -208,7 +208,7 @@ impl FlutterDriver {
     }
 
     /// Fetch and cache a screenshot from the Flutter process.
-    async fn fetch_screenshot(&self) -> velocity_common::Result<Vec<u8>> {
+    async fn fetch_screenshot(&self) -> atalanta_common::Result<Vec<u8>> {
         {
             let cache = self.screenshot_cache.read().await;
             if let Some(ref cached) = *cache {
@@ -220,15 +220,15 @@ impl FlutterDriver {
             .call(&FlutterCommand::Screenshot, "screenshot")
             .await?
             .ok_or_else(|| {
-                VelocityError::Internal(anyhow::anyhow!("Screenshot returned no data"))
+                AtalantaError::Internal(anyhow::anyhow!("Screenshot returned no data"))
             })?;
         let b64 = value.as_str().ok_or_else(|| {
-            VelocityError::Internal(anyhow::anyhow!("Screenshot data is not a string"))
+            AtalantaError::Internal(anyhow::anyhow!("Screenshot data is not a string"))
         })?;
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(b64)
             .map_err(|e| {
-                VelocityError::Internal(anyhow::anyhow!(
+                AtalantaError::Internal(anyhow::anyhow!(
                     "Failed to decode screenshot base64: {}",
                     e
                 ))
@@ -257,7 +257,7 @@ impl PlatformDriver for FlutterDriver {
         _reaction_ms: u64,
         _quiet_ms: u64,
         _cap_ms: u64,
-    ) -> Option<velocity_common::DeviceSettle> {
+    ) -> Option<atalanta_common::DeviceSettle> {
         use std::hash::{Hash, Hasher};
         let tree = self.fetch_hierarchy().await.ok()?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -268,17 +268,17 @@ impl PlatformDriver for FlutterDriver {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .replace(hash);
-        Some(velocity_common::DeviceSettle {
+        Some(atalanta_common::DeviceSettle {
             settled: true,
             reacted: before != Some(hash),
             elapsed_ms: 0,
         })
     }
 
-    async fn prepare(&self, _device_id: &str) -> velocity_common::Result<()> {
+    async fn prepare(&self, _device_id: &str) -> atalanta_common::Result<()> {
         let mut process = self.process.write().await;
         process.start().await.map_err(|e| {
-            VelocityError::Internal(anyhow::anyhow!("Flutter process start failed: {}", e))
+            AtalantaError::Internal(anyhow::anyhow!("Flutter process start failed: {}", e))
         })?;
 
         drop(process);
@@ -303,13 +303,13 @@ impl PlatformDriver for FlutterDriver {
         }
     }
 
-    async fn restart_session(&self) -> velocity_common::Result<()> {
+    async fn restart_session(&self) -> atalanta_common::Result<()> {
         self.cleanup().await;
         self.invalidate_cache().await;
         self.prepare(DEVICE).await
     }
 
-    async fn list_devices(&self) -> velocity_common::Result<Vec<DeviceInfo>> {
+    async fn list_devices(&self) -> atalanta_common::Result<Vec<DeviceInfo>> {
         Ok(vec![DeviceInfo {
             id: DEVICE.to_string(),
             name: format!(
@@ -323,16 +323,16 @@ impl PlatformDriver for FlutterDriver {
         }])
     }
 
-    async fn boot_device(&self, device_id: &str) -> velocity_common::Result<()> {
+    async fn boot_device(&self, device_id: &str) -> atalanta_common::Result<()> {
         self.prepare(device_id).await
     }
 
-    async fn shutdown_device(&self, _device_id: &str) -> velocity_common::Result<()> {
+    async fn shutdown_device(&self, _device_id: &str) -> atalanta_common::Result<()> {
         self.cleanup().await;
         Ok(())
     }
 
-    async fn install_app(&self, _device_id: &str, _app_path: &str) -> velocity_common::Result<()> {
+    async fn install_app(&self, _device_id: &str, _app_path: &str) -> atalanta_common::Result<()> {
         // Flutter apps are loaded via the test harness target, no separate install step.
         Ok(())
     }
@@ -342,7 +342,7 @@ impl PlatformDriver for FlutterDriver {
         device_id: &str,
         _app_id: &str,
         clear_state: bool,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         let process = self.process.read().await;
         if !process.is_running() {
             drop(process);
@@ -358,7 +358,7 @@ impl PlatformDriver for FlutterDriver {
         self.init(clear_state).await
     }
 
-    async fn stop_app(&self, _device_id: &str, _app_id: &str) -> velocity_common::Result<()> {
+    async fn stop_app(&self, _device_id: &str, _app_id: &str) -> atalanta_common::Result<()> {
         // Unmount the app but keep the bridge serving, so the next launch
         // works (VEL-140).
         self.act(&FlutterCommand::Reset, "stop_app").await
@@ -368,18 +368,18 @@ impl PlatformDriver for FlutterDriver {
         &self,
         device_id: &str,
         selector: &Selector,
-    ) -> velocity_common::Result<Element> {
+    ) -> atalanta_common::Result<Element> {
         let hierarchy = self.fetch_hierarchy().await?;
         let screen = self.screen_rect().await;
 
         let found = find_in_tree(&hierarchy, selector, Some(&screen));
         if found.is_some() {
-            let n = velocity_common::selector_match::ambiguity(&hierarchy, selector, Some(&screen));
+            let n = atalanta_common::selector_match::ambiguity(&hierarchy, selector, Some(&screen));
             self.match_counts.record(device_id, selector, n);
         } else {
             self.match_counts.clear(device_id);
         }
-        found.ok_or_else(|| VelocityError::ElementNotFound {
+        found.ok_or_else(|| AtalantaError::ElementNotFound {
             selector: format!("{:?}", selector),
             timeout_ms: 0,
             screenshot: None,
@@ -395,7 +395,7 @@ impl PlatformDriver for FlutterDriver {
         &self,
         _device_id: &str,
         selector: &Selector,
-    ) -> velocity_common::Result<Vec<Element>> {
+    ) -> atalanta_common::Result<Vec<Element>> {
         let hierarchy = self.fetch_hierarchy().await?;
         let screen = self.screen_rect().await;
 
@@ -404,11 +404,11 @@ impl PlatformDriver for FlutterDriver {
         Ok(results)
     }
 
-    async fn get_hierarchy(&self, _device_id: &str) -> velocity_common::Result<Element> {
+    async fn get_hierarchy(&self, _device_id: &str) -> atalanta_common::Result<Element> {
         self.fetch_hierarchy().await
     }
 
-    async fn tap(&self, _device_id: &str, element: &Element) -> velocity_common::Result<()> {
+    async fn tap(&self, _device_id: &str, element: &Element) -> atalanta_common::Result<()> {
         let target = self.target(element).await;
         let cmd = FlutterCommand::Tap {
             x: target.x,
@@ -418,7 +418,7 @@ impl PlatformDriver for FlutterDriver {
         self.act(&cmd, "tap").await
     }
 
-    async fn double_tap(&self, _device_id: &str, element: &Element) -> velocity_common::Result<()> {
+    async fn double_tap(&self, _device_id: &str, element: &Element) -> atalanta_common::Result<()> {
         let target = self.target(element).await;
         let cmd = FlutterCommand::DoubleTap {
             x: target.x,
@@ -433,7 +433,7 @@ impl PlatformDriver for FlutterDriver {
         _device_id: &str,
         element: &Element,
         duration_ms: u64,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         let target = self.target(element).await;
         let cmd = FlutterCommand::LongPress {
             x: target.x,
@@ -449,7 +449,7 @@ impl PlatformDriver for FlutterDriver {
         _device_id: &str,
         element: &Element,
         text: &str,
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         // The Dart side types into the text field under the target, never
         // the first one on screen (VEL-024).
         let cmd = FlutterCommand::InputText {
@@ -459,14 +459,14 @@ impl PlatformDriver for FlutterDriver {
         self.act(&cmd, "input_text").await
     }
 
-    async fn clear_text(&self, _device_id: &str, element: &Element) -> velocity_common::Result<()> {
+    async fn clear_text(&self, _device_id: &str, element: &Element) -> atalanta_common::Result<()> {
         let cmd = FlutterCommand::ClearText {
             target: Some(self.target(element).await),
         };
         self.act(&cmd, "clear_text").await
     }
 
-    async fn swipe(&self, _device_id: &str, direction: Direction) -> velocity_common::Result<()> {
+    async fn swipe(&self, _device_id: &str, direction: Direction) -> atalanta_common::Result<()> {
         let (width, height) = self.surface().await;
         let mid_x = width / 2;
         let mid_y = height / 2;
@@ -493,7 +493,7 @@ impl PlatformDriver for FlutterDriver {
         _device_id: &str,
         from: (i32, i32),
         to: (i32, i32),
-    ) -> velocity_common::Result<()> {
+    ) -> atalanta_common::Result<()> {
         let cmd = FlutterCommand::Swipe {
             from_x: from.0,
             from_y: from.1,
@@ -503,7 +503,7 @@ impl PlatformDriver for FlutterDriver {
         self.act(&cmd, "swipe").await
     }
 
-    async fn press_key(&self, _device_id: &str, key: Key) -> velocity_common::Result<()> {
+    async fn press_key(&self, _device_id: &str, key: Key) -> atalanta_common::Result<()> {
         // The sidecar answers `unsupported` for a key it can't send.
         let cmd = FlutterCommand::PressKey {
             key: key.name().to_string(),
@@ -511,11 +511,11 @@ impl PlatformDriver for FlutterDriver {
         self.act(&cmd, "press_key").await
     }
 
-    async fn screenshot(&self, _device_id: &str) -> velocity_common::Result<Vec<u8>> {
+    async fn screenshot(&self, _device_id: &str) -> atalanta_common::Result<Vec<u8>> {
         self.fetch_screenshot().await
     }
 
-    async fn screen_size(&self, _device_id: &str) -> velocity_common::Result<(i32, i32)> {
+    async fn screen_size(&self, _device_id: &str) -> atalanta_common::Result<(i32, i32)> {
         Ok(self.surface().await)
     }
 
@@ -523,7 +523,7 @@ impl PlatformDriver for FlutterDriver {
         &self,
         _device_id: &str,
         element: &Element,
-    ) -> velocity_common::Result<String> {
+    ) -> atalanta_common::Result<String> {
         Ok(element.text.clone().unwrap_or_default())
     }
 
@@ -531,9 +531,9 @@ impl PlatformDriver for FlutterDriver {
         &self,
         _device_id: &str,
         element: &Element,
-    ) -> velocity_common::Result<bool> {
+    ) -> atalanta_common::Result<bool> {
         // The shared rule (D-1): rendered, a box, on the surface.
-        let shown = velocity_common::selector_match::shown_on(element, &self.screen_rect().await);
+        let shown = atalanta_common::selector_match::shown_on(element, &self.screen_rect().await);
         if !shown || !self.config.hit_test_visibility() {
             return Ok(shown);
         }
@@ -551,8 +551,8 @@ impl PlatformDriver for FlutterDriver {
         &self,
         _device_id: &str,
         _package: &str,
-    ) -> velocity_common::Result<(u64, u64, u64, f32)> {
-        Err(VelocityError::Config(
+    ) -> atalanta_common::Result<(u64, u64, u64, f32)> {
+        Err(AtalantaError::Config(
             "Resource profiling not available on Flutter headless bridge".into(),
         ))
     }

@@ -1,4 +1,4 @@
-//! C4 (VEL-174): one colour switch for everything `velocity` prints. The
+//! C4 (VEL-174): one colour switch for everything `atalanta` prints. The
 //! runner wrote raw ANSI escapes whatever `NO_COLOR` or the terminal said.
 #![cfg(unix)]
 
@@ -20,11 +20,11 @@ fn scratch(name: &str) -> PathBuf {
 /// stdout of a headless run with `extra` flags and `env`.
 fn run(name: &str, extra: &[&str], env: &[(&str, &str)]) -> String {
     let dir = scratch(name);
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_velocity"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_atalanta"));
     cmd.args(["run", "suite.yaml", "--driver", "headless"])
         .args(extra)
         .current_dir(&dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env_remove("GITHUB_ACTIONS")
         .env_remove("NO_COLOR")
         .env_remove("CLICOLOR")

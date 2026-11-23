@@ -6,7 +6,7 @@ impl<'a> TestExecutor<'a> {
     /// `assertScreenshot`: mask the status bar (or freeze it, D-V4) and
     /// any `mask` elements, cut to `crop` if set, and compare with the
     /// baseline in
-    /// `<suite dir>/velocity-baselines/<platform>[-headless]/<W>x<H>/<name>.png`
+    /// `<suite dir>/atalanta-baselines/<platform>[-headless]/<W>x<H>/<name>.png`
     /// (`W`x`H`: the device's full capture, D-V3).
     ///
     /// Playwright's capture: a first frame that matches the baseline passes
@@ -24,7 +24,7 @@ impl<'a> TestExecutor<'a> {
         step: ScreenshotStep<'_>,
     ) -> Result<()> {
         use crate::visual::{compare_images_rule, VisualConfig, VisualEngine};
-        use velocity_common::BaselineUpdate;
+        use atalanta_common::BaselineUpdate;
         let threshold = step.threshold.unwrap_or(0.98);
         let cluster = step.cluster_px.unwrap_or(crate::visual::DEFAULT_CLUSTER_PX);
         let rule = step.rule;
@@ -60,14 +60,14 @@ impl<'a> TestExecutor<'a> {
             .values()
             .find(|o| *o != name && o.to_lowercase() == name.to_lowercase())
         {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "assertScreenshot names {other:?} and {name:?} differ only in case: both map \
                  to one baseline file on macOS and Windows; rename one"
             )));
         }
         match self.baseline_names.get(&key) {
             Some(other) if other != name => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "assertScreenshot names {other:?} and {name:?} both map to baseline \
                      file {key}; rename one"
                 )));
@@ -98,7 +98,7 @@ impl<'a> TestExecutor<'a> {
         if let (None, Some((bw, bh)), BaselineUpdate::Off) =
             (&place.read, place.other_size, self.update_baselines)
         {
-            return Err(VelocityError::AssertionFailed {
+            return Err(AtalantaError::AssertionFailed {
                 expected: format!("screen matches baseline {name}"),
                 actual: format!(
                     "size mismatch: baseline is {bw}x{bh}, capture is {full_w}x{full_h}: no \
@@ -118,7 +118,7 @@ impl<'a> TestExecutor<'a> {
             size,
             self.update_baselines != BaselineUpdate::Changed,
         ) {
-            return Err(VelocityError::AssertionFailed {
+            return Err(AtalantaError::AssertionFailed {
                 expected: format!("screen matches baseline {name}"),
                 actual: format!(
                     "size mismatch: baseline {} is {bw}x{bh}, capture is {cw}x{ch}; \
@@ -166,7 +166,7 @@ impl<'a> TestExecutor<'a> {
         // (review-s8 m-f). Update mode just replaces it.
         if let (true, Some(read), Some(b)) = (checking, &place.read, &baseline) {
             if crate::visual::png_size(b).is_none() {
-                return Err(VelocityError::AssertionFailed {
+                return Err(AtalantaError::AssertionFailed {
                     expected: format!("baseline {} to be a PNG image", read.display()),
                     actual: "a file that doesn't decode as one; re-record it with \
                              --update-baselines"
@@ -182,12 +182,12 @@ impl<'a> TestExecutor<'a> {
         // masking more (review-s8 m-f): report the coverage itself, at once.
         if let Err(e) = compare_images_rule(&first, &first, &masks, threshold, cluster, rule) {
             return Err(match e {
-                VelocityError::AssertionFailed {
+                AtalantaError::AssertionFailed {
                     expected,
                     actual,
                     screenshot,
                     ..
-                } => VelocityError::AssertionFailed {
+                } => AtalantaError::AssertionFailed {
                     expected,
                     actual,
                     selector: name.to_string(),
@@ -248,7 +248,7 @@ impl<'a> TestExecutor<'a> {
             } else {
                 "; not saved as the baseline"
             };
-            return Err(VelocityError::AssertionFailed {
+            return Err(AtalantaError::AssertionFailed {
                 expected: format!("a still screen to compare with baseline {name}"),
                 actual: format!(
                     "the screen never held still for {waited}{kept} (mask what moves, \
@@ -328,7 +328,7 @@ impl<'a> TestExecutor<'a> {
             r.similarity * 100.0,
             r.largest_cluster
         );
-        // U1: what `velocity baselines` and the inspector's review page
+        // U1: what `atalanta baselines` and the inspector's review page
         // need to accept this frame. The images are named after the file
         // read (a legacy one keeps its old name); accepting writes the
         // current layout's path at this capture size.
@@ -341,7 +341,7 @@ impl<'a> TestExecutor<'a> {
         if let Err(e) = crate::baselines::record_failure(&diffs_dir, &read_file, &record) {
             tracing::warn!("assertScreenshot({name}): couldn't record the failure for review: {e}");
         }
-        Err(VelocityError::AssertionFailed {
+        Err(AtalantaError::AssertionFailed {
             expected: format!("screen matches baseline {name}"),
             actual,
             selector: name.to_string(),
@@ -377,22 +377,22 @@ impl<'a> TestExecutor<'a> {
         &mut self,
         device_id: &str,
         png: &[u8],
-        crop: &velocity_common::ScreenshotCrop,
+        crop: &atalanta_common::ScreenshotCrop,
     ) -> Result<crate::visual::MaskRegion> {
         let bounds = match crop {
-            velocity_common::ScreenshotCrop::Rect(r) => *r,
-            velocity_common::ScreenshotCrop::Element(sel) => {
+            atalanta_common::ScreenshotCrop::Rect(r) => *r,
+            atalanta_common::ScreenshotCrop::Element(sel) => {
                 // Resolved as an action's target is, so the driver records
                 // its match count for the ambiguity check below.
                 let mut found = self.driver.find_element(device_id, sel).await.ok();
                 if found.is_none() {
                     let tree = self.driver.get_hierarchy(device_id).await?;
-                    found = velocity_common::selector_match::find_all_ref(&tree, sel, None)
+                    found = atalanta_common::selector_match::find_all_ref(&tree, sel, None)
                         .into_iter()
                         .next()
                         .cloned();
                 }
-                let found = found.ok_or_else(|| VelocityError::AssertionFailed {
+                let found = found.ok_or_else(|| AtalantaError::AssertionFailed {
                     expected: format!("crop target {sel} on screen"),
                     actual: "not found".into(),
                     selector: sel.to_string(),
@@ -408,7 +408,7 @@ impl<'a> TestExecutor<'a> {
         let (sw, sh) = self.driver.screen_size(device_id).await?;
         let (pw, ph) = crate::visual::png_size(png).unwrap_or((sw as u32, sh as u32));
         let (fx, fy) = (pw as f64 / sw.max(1) as f64, ph as f64 / sh.max(1) as f64);
-        let screen = velocity_common::Rect {
+        let screen = atalanta_common::Rect {
             x: 0,
             y: 0,
             width: sw,
@@ -416,7 +416,7 @@ impl<'a> TestExecutor<'a> {
         };
         mask_region(&bounds, &screen, (fx, fy))
             .and_then(|r| crate::visual::clip_region(&r, pw, ph))
-            .ok_or_else(|| VelocityError::AssertionFailed {
+            .ok_or_else(|| AtalantaError::AssertionFailed {
                 expected: format!(
                     "crop ({}, {}) {}x{} on the {sw}x{sh} screen",
                     bounds.x, bounds.y, bounds.width, bounds.height
@@ -440,7 +440,7 @@ impl<'a> TestExecutor<'a> {
             }
             last = png.len();
         }
-        Err(VelocityError::ScreenCaptureFailed {
+        Err(AtalantaError::ScreenCaptureFailed {
             device_id: device_id.to_string(),
             detail: format!("3 captures in a row were not PNG images (last: {last} bytes)"),
         })
@@ -480,7 +480,7 @@ impl<'a> TestExecutor<'a> {
     }
 
     /// Where `assertScreenshot(name)` keeps its baseline: written to
-    /// `<suite dir>/velocity-baselines/<platform>[-headless]/<W>x<H>/<file>`
+    /// `<suite dir>/atalanta-baselines/<platform>[-headless]/<W>x<H>/<file>`
     /// (`-headless` so headless renders never meet device baselines, B1;
     /// `W`x`H` the full capture, so devices and orientations get their own,
     /// D-V3). Read from there, else (with a warning) from where older
@@ -500,7 +500,7 @@ impl<'a> TestExecutor<'a> {
             .map(|p| p.to_string())
             .unwrap_or_else(|| "device".into());
         let headless =
-            self.config.driver.unwrap_or_default() == velocity_common::DriverMode::Headless;
+            self.config.driver.unwrap_or_default() == atalanta_common::DriverMode::Headless;
         let space = crate::baselines::baseline_space(&platform, headless);
         let suite_dir = self.config.suite_dir.clone().unwrap_or_default();
         let root = suite_dir.join(crate::baselines::BASELINES_DIR);
@@ -534,7 +534,7 @@ impl<'a> TestExecutor<'a> {
         if headless {
             dirs.push(root.join(&platform));
         }
-        let cwd = PathBuf::from("velocity-baselines");
+        let cwd = PathBuf::from("atalanta-baselines");
         if cwd != root {
             dirs.push(cwd.join(&space));
             if headless {
@@ -616,7 +616,7 @@ impl<'a> TestExecutor<'a> {
         if guess {
             masks.push(MaskPreset::StatusBar);
         }
-        let ios = guess && self.config.platform == Some(velocity_common::Platform::Ios);
+        let ios = guess && self.config.platform == Some(atalanta_common::Platform::Ios);
         let mut regions = bars.unwrap_or_default();
         // Each mask resolves through the driver, as actions do (web
         // `css:`/`xpath:` included, VEL-223), and every match is masked: a
@@ -624,7 +624,7 @@ impl<'a> TestExecutor<'a> {
         // the tree covers drivers whose own lookup finds nothing.
         let mut tree = None;
         for sel in mask {
-            let mut found: Vec<velocity_common::Rect> = self
+            let mut found: Vec<atalanta_common::Rect> = self
                 .driver
                 .find_elements(device_id, sel)
                 .await
@@ -637,14 +637,14 @@ impl<'a> TestExecutor<'a> {
                     tree = Some(self.driver.get_hierarchy(device_id).await?);
                 }
                 if let Some(t) = &tree {
-                    found = velocity_common::selector_match::find_all_ref(t, sel, None)
+                    found = atalanta_common::selector_match::find_all_ref(t, sel, None)
                         .into_iter()
                         .map(|e| e.bounds)
                         .collect();
                 }
             }
             if found.is_empty() {
-                return Err(VelocityError::AssertionFailed {
+                return Err(AtalantaError::AssertionFailed {
                     expected: format!("mask target {sel} on screen"),
                     actual: "not found".into(),
                     selector: sel.to_string(),
@@ -668,7 +668,7 @@ impl<'a> TestExecutor<'a> {
                     height: (IOS_STATUS_BAR_PT * fy).ceil() as u32,
                 }));
             }
-            let screen = velocity_common::Rect {
+            let screen = atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: sw,
@@ -706,7 +706,7 @@ pub(super) struct ScreenshotStep<'a> {
     pub(super) cluster_px: Option<usize>,
     pub(super) mask: &'a [Selector],
     pub(super) rule: crate::visual::PixelRule,
-    pub(super) crop: Option<&'a velocity_common::ScreenshotCrop>,
+    pub(super) crop: Option<&'a atalanta_common::ScreenshotCrop>,
 }
 
 /// `png` cut to `crop` (the whole frame without one).
@@ -714,7 +714,7 @@ pub(super) fn cut(png: &[u8], crop: Option<&crate::visual::MaskRegion>) -> Resul
     let Some(c) = crop else {
         return Ok(png.to_vec());
     };
-    crate::visual::crop_png(png, c).ok_or_else(|| VelocityError::AssertionFailed {
+    crate::visual::crop_png(png, c).ok_or_else(|| AtalantaError::AssertionFailed {
         expected: format!(
             "the crop {}x{} at ({}, {}) on screen",
             c.width, c.height, c.x, c.y
@@ -726,8 +726,8 @@ pub(super) fn cut(png: &[u8], crop: Option<&crate::visual::MaskRegion>) -> Resul
 }
 
 /// The failure for a baseline that was missing and has just been written.
-pub(super) fn baseline_created(name: &str, path: &str) -> VelocityError {
-    VelocityError::AssertionFailed {
+pub(super) fn baseline_created(name: &str, path: &str) -> AtalantaError {
+    AtalantaError::AssertionFailed {
         expected: format!("baseline {path} for {name}"),
         actual: "missing; created it from this screen. Review and commit it, then re-run \
                  (or run with --update-baselines=missing to accept new baselines)"
@@ -740,7 +740,7 @@ pub(super) fn baseline_created(name: &str, path: &str) -> VelocityError {
 /// How long `assertScreenshot` waits for the screen to hold still when the
 /// step sets no `timeoutMs`.
 pub(super) fn screenshot_stable_wait() -> Duration {
-    velocity_common::settings::ms("VELOCITY_SCREENSHOT_STABLE_MS", 5000)
+    atalanta_common::settings::ms("ATALANTA_SCREENSHOT_STABLE_MS", 5000)
 }
 
 /// The file name older versions gave `name` (lossy: `a b` and `a/b` were
@@ -762,15 +762,15 @@ pub(super) fn legacy_baseline_file(name: &str) -> String {
 /// viewport or a headless render starts with the app's own header; masking
 /// its top 4% let a wrong price or a broken nav bar pass assertScreenshot.
 pub(super) fn has_status_bar(config: &SuiteConfig) -> bool {
-    config.driver.unwrap_or_default() == velocity_common::DriverMode::Device
-        && config.platform != Some(velocity_common::Platform::Web)
+    config.driver.unwrap_or_default() == atalanta_common::DriverMode::Device
+        && config.platform != Some(atalanta_common::Platform::Web)
 }
 
 /// Whether this run is on a CI server: the shared detector, reading the
 /// daemon client's environment when there is one (review MINOR 9; it read
 /// the daemon's own process environment).
 pub(super) fn in_ci_env() -> bool {
-    velocity_common::env::in_ci()
+    atalanta_common::env::in_ci()
 }
 
 /// Whether a CI variable's value says "CI": set, and not empty, `0` or
@@ -778,15 +778,15 @@ pub(super) fn in_ci_env() -> bool {
 /// turned on report-mode healing and refused missing baselines).
 #[cfg(test)]
 pub(super) fn ci_flag(value: &std::ffi::OsStr) -> bool {
-    velocity_common::env::ci_flag(&value.to_string_lossy())
+    atalanta_common::env::ci_flag(&value.to_string_lossy())
 }
 
 /// The part of `b` (tree coordinates) on `screen`, scaled to screenshot
 /// pixels by `(fx, fy)`. A partly off-screen element used to keep its full
 /// size from a clamped origin and so masked what lay past it (VEL-063).
 pub(super) fn mask_region(
-    b: &velocity_common::Rect,
-    screen: &velocity_common::Rect,
+    b: &atalanta_common::Rect,
+    screen: &atalanta_common::Rect,
     (fx, fy): (f64, f64),
 ) -> Option<crate::visual::MaskRegion> {
     let (x0, y0) = (b.x.max(screen.x), b.y.max(screen.y));

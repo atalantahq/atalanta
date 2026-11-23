@@ -1,4 +1,4 @@
-//! `velocity gate <file> --goal "<text>"`: trust-gates any one-test suite
+//! `atalanta gate <file> --goal "<text>"`: trust-gates any one-test suite
 //! YAML — hand-written or exported from an agent session — without exploring.
 //! It replays the test N times (the later ones with timing jitter), replays it
 //! once on the wrong path (a neighbouring tap instead of the last navigational
@@ -10,10 +10,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use atalanta_common::{Platform, PlatformDriver, ResilientDriver};
+use atalanta_core::parse_suite_from_str;
+use atalanta_explore::gates::{check, CheckOptions};
 use clap::Args;
-use velocity_common::{Platform, PlatformDriver, ResilientDriver};
-use velocity_core::parse_suite_from_str;
-use velocity_explore::gates::{check, CheckOptions};
 
 #[derive(Args, Debug)]
 pub struct GateArgs {
@@ -33,7 +33,7 @@ pub struct GateArgs {
     #[arg(short, long)]
     device: Option<String>,
 
-    /// How long to wait for a device another Velocity process holds. Takes a
+    /// How long to wait for a device another Atalanta process holds. Takes a
     /// unit (30s, 10m); a bare number is seconds
     #[arg(long, default_value = "600", value_name = "DURATION", value_parser = super::duration_arg::bare_secs)]
     lease_wait: std::time::Duration,
@@ -45,7 +45,7 @@ pub struct GateArgs {
 
     /// Upper bound of the random pause before each step, on replays after the
     /// first (ms). The same default explore burns in with.
-    #[arg(long, default_value_t = velocity_explore::gates::DEFAULT_JITTER_MS)]
+    #[arg(long, default_value_t = atalanta_explore::gates::DEFAULT_JITTER_MS)]
     jitter_ms: u64,
 
     /// A value for a `${NAME}` (repeatable), NAME=VALUE
@@ -71,7 +71,7 @@ pub async fn execute(args: GateArgs) -> anyhow::Result<i32> {
         parse_suite_from_str(&yaml).map_err(|e| usage_err!("{}: {e}", args.file.display()))?;
     if suite.tests.len() != 1 {
         usage_bail!(
-            "{}: velocity gate checks a file with one test; this one has {}",
+            "{}: atalanta gate checks a file with one test; this one has {}",
             args.file.display(),
             suite.tests.len()
         );
@@ -128,7 +128,7 @@ pub async fn execute(args: GateArgs) -> anyhow::Result<i32> {
     } else {
         super::explore::print_gates(&result.gates);
         if result.gates.trusted {
-            println!("\n   next: velocity run {}", args.file.display());
+            println!("\n   next: atalanta run {}", args.file.display());
         } else {
             println!(
                 "\n   not trusted: do not commit {} as a regression test until it passes the gates",

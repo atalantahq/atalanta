@@ -1,5 +1,5 @@
 [package]
-name = "velocity-web"
+name = "atalanta-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,10 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "browser", "cdp", "chrome", "automation"]
 categories = ["development-tools::testing"]
-description = "Web browser driver for Velocity using Chrome DevTools Protocol"
+description = "Web browser driver for Atalanta using Chrome DevTools Protocol"
 
 [dependencies]
-velocity-common = { workspace = true }
+atalanta-common = { workspace = true }
 chromiumoxide = { version = "0.9", default-features = false, features = ["bytes"] }
 tokio = { workspace = true }
 serde = { workspace = true }

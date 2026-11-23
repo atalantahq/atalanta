@@ -2,7 +2,7 @@
 //!
 //! LearnAct (Liu et al. 2025, arXiv 2504.13805) showed one demonstration
 //! of a similar task taking Gemini-1.5-Pro from 19.3% to 51.7% success on
-//! mobile tasks. A Velocity project already holds the best demonstrations
+//! mobile tasks. A Atalanta project already holds the best demonstrations
 //! there are: tests that pass against this very app. Before a goal run, the
 //! one or two tests most like the goal are shown to the model, compactly,
 //! as "how similar goals were done in this app".
@@ -20,8 +20,8 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use velocity_common::{Action, NaturalKind, Platform, Selector, Step, TestSuite};
-use velocity_core::executor::selector_fields;
+use atalanta_common::{Action, NaturalKind, Platform, Selector, Step, TestSuite};
+use atalanta_core::executor::selector_fields;
 
 use crate::screen::clip;
 
@@ -221,7 +221,7 @@ fn suite_files(dir: &Path, depth: usize, dirs_left: &mut usize, out: &mut Vec<Pa
             if depth < MAX_DEPTH && !SKIP_DIRS.contains(&name.as_str()) {
                 subdirs.push(path);
             }
-        } else if velocity_core::parser::is_suite_file(&path)
+        } else if atalanta_core::parser::is_suite_file(&path)
             && std::fs::metadata(&path).is_ok_and(|m| m.len() <= MAX_FILE_BYTES)
         {
             out.push(path);
@@ -254,7 +254,7 @@ pub fn find(dirs: &[PathBuf], app_id: &str, platform: Platform, goal: &str) -> V
         let Ok(text) = std::fs::read_to_string(&file) else {
             continue;
         };
-        let Ok(suite) = velocity_core::parser::parse_suite_from_str(&text) else {
+        let Ok(suite) = atalanta_core::parser::parse_suite_from_str(&text) else {
             continue;
         };
         if suite.app_id != app_id && placeholder(&suite.app_id).is_none() {
@@ -374,7 +374,7 @@ pub fn render(demos: &[Demo], cap: usize) -> String {
             used += len;
         }
     }
-    velocity_common::redact::redact(out.trim_end()).into_owned()
+    atalanta_common::redact::redact(out.trim_end()).into_owned()
 }
 
 #[cfg(test)]

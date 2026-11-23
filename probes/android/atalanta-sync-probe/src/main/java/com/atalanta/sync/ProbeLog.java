@@ -1,11 +1,11 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Logcat (or stderr on the host JVM), with one-time warnings. */
 final class ProbeLog {
-    static final String TAG = "VelocitySyncProbe";
+    static final String TAG = "AtalantaSyncProbe";
     private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();
 
     private ProbeLog() {}

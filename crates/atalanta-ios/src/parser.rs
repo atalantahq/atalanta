@@ -1,12 +1,12 @@
+use atalanta_common::{AtalantaError, Element, Rect, Result};
 use quick_xml::events::Event;
 use quick_xml::Reader;
-use velocity_common::{Element, Rect, Result, VelocityError};
 
 /// Deepest tree accepted: deeper ones overflow the stack in the recursive
 /// matchers (VEL-079). WDA itself stops at 50 by default (`snapshotMaxDepth`).
 const MAX_DEPTH: usize = 512;
 
-/// Parse WDA's /source XML hierarchy into a velocity Element tree.
+/// Parse WDA's /source XML hierarchy into a atalanta Element tree.
 ///
 /// The iOS XML hierarchy uses XCUIElement types (e.g. XCUIElementTypeButton) and
 /// attributes like `name` (accessibility identifier), `label`, `value`, `visible`,
@@ -112,8 +112,8 @@ pub fn parse_ios_hierarchy(xml: &str) -> Result<Element> {
 
 /// The source could not be read as a screen. Not a configuration error:
 /// the next read may well work.
-fn unreadable(detail: String) -> VelocityError {
-    VelocityError::CommandFailed {
+fn unreadable(detail: String) -> AtalantaError {
+    AtalantaError::CommandFailed {
         device_id: String::new(),
         command: "parse iOS source".into(),
         detail,
@@ -144,7 +144,7 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
     let mut height: i32 = 0;
     let mut is_visible = true;
     let mut enabled = true;
-    // VelocityRunner writes `focused` / `selected` only when true, and WDA
+    // AtalantaRunner writes `focused` / `selected` only when true, and WDA
     // writes them as true/false: a missing attribute is a known `false`.
     let mut focused = false;
     let mut selected = false;
@@ -208,7 +208,7 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
             b"height" => height = coord(&val),
             b"visible" | b"isVisible" => is_visible = val == "true" || val == "1",
             b"enabled" => enabled = val == "true" || val == "1",
-            // VelocityRunner (hasKeyboardFocus) and WDA (`focused`) only
+            // AtalantaRunner (hasKeyboardFocus) and WDA (`focused`) only
             // say it when true.
             b"focused" | b"hasFocus" => focused = val == "true" || val == "1",
             b"selected" | b"isSelected" => selected = val == "true" || val == "1",
@@ -242,7 +242,7 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
         height,
     };
 
-    // Map iOS attributes to velocity Element fields, keeping both:
+    // Map iOS attributes to atalanta Element fields, keeping both:
     // - name (the accessibility identifier, or the label when there's none)
     //   -> platform_id, matched by `id:` / `accessibilityId:`
     // - label (what's shown) -> label, matched by `text:`; falls back to name
@@ -272,7 +272,7 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
     let obscured = element_type == "SecureTextField";
     // The type is kept short (`Button`); its role comes from the iOS table,
     // where `TextView` is a field (S1).
-    let role = velocity_common::role::role_for_type(&format!("XCUIElementType{element_type}"))
+    let role = atalanta_common::role::role_for_type(&format!("XCUIElementType{element_type}"))
         .map(str::to_string);
 
     Ok(Element {
@@ -297,7 +297,7 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
     })
 }
 
-/// A `visibleFrame="x,y,w,h"` (VelocityRunner) or `{{x, y}, {w, h}}`
+/// A `visibleFrame="x,y,w,h"` (AtalantaRunner) or `{{x, y}, {w, h}}`
 /// (NSStringFromCGRect): `None` unless it is four finite numbers.
 fn frame(v: &str) -> Option<Rect> {
     let nums: Vec<i32> = v
@@ -430,7 +430,7 @@ mod tests {
 </XCUIElementTypeApplication>"#;
         let root = parse_ios_hierarchy(xml).unwrap();
         let kids = &root.children[0].children;
-        let name = |i: usize| velocity_common::role::accessible_name(&kids[i]);
+        let name = |i: usize| atalanta_common::role::accessible_name(&kids[i]);
         assert_eq!(kids[0].hint.as_deref(), Some("Email"));
         assert_eq!(name(0).as_deref(), Some("Email"));
         // The identifier stays the id, not the name.
@@ -446,11 +446,11 @@ mod tests {
         // Only fields have a placeholder.
         assert_eq!(kids[4].hint, None);
         // The selector sees it: `{role: textbox, name: Email}`.
-        let sel = velocity_common::Selector::Compound(vec![
-            velocity_common::Selector::Role("textbox".into()),
-            velocity_common::Selector::Name("Email".into()),
+        let sel = atalanta_common::Selector::Compound(vec![
+            atalanta_common::Selector::Role("textbox".into()),
+            atalanta_common::Selector::Name("Email".into()),
         ]);
-        assert!(velocity_common::selector_match::find_in_tree(&root, &sel, None).is_some());
+        assert!(atalanta_common::selector_match::find_in_tree(&root, &sel, None).is_some());
     }
 
     /// S1/S2: the element type maps to a role through the iOS table (a
@@ -471,8 +471,8 @@ mod tests {
         assert_eq!(app.children[1].selected, Some(true));
         assert_eq!(app.children[2].selected, Some(false));
         assert_eq!(app.children[3].role, None);
-        use velocity_common::Selector;
-        let found = velocity_common::selector_match::find_in_tree(
+        use atalanta_common::Selector;
+        let found = atalanta_common::selector_match::find_in_tree(
             &root,
             &Selector::Compound(vec![
                 Selector::Role("button".into()),
@@ -482,7 +482,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(found.label.as_deref(), Some("Home"));
-        let notes = velocity_common::selector_match::find_in_tree(
+        let notes = atalanta_common::selector_match::find_in_tree(
             &root,
             &Selector::Compound(vec![
                 Selector::Role("textbox".into()),
@@ -494,8 +494,8 @@ mod tests {
     }
 
     #[test]
-    fn velocity_runner_output_reads_like_wda() {
-        // The XML VelocityRunner writes since it sends placeholderValue and
+    fn atalanta_runner_output_reads_like_wda() {
+        // The XML AtalantaRunner writes since it sends placeholderValue and
         // visible (ui-frameworks N1/N2): an empty field reads empty, not as
         // its placeholder (VEL-354), an off-screen row is hidden, and the
         // extra attributes (focused, selected, visibleFrame, a truncated
@@ -629,15 +629,15 @@ mod tests {
 </XCUIElementTypeApplication>"#;
         let tree = parse_ios_hierarchy(xml).unwrap();
         let screen = tree.bounds;
-        let sel = |t: &str| velocity_common::Selector::Text(t.into());
-        assert!(velocity_common::selector_match::find_in_tree(
+        let sel = |t: &str| atalanta_common::Selector::Text(t.into());
+        assert!(atalanta_common::selector_match::find_in_tree(
             &tree,
             &sel("General"),
             Some(&screen)
         )
         .is_some());
         // Visibility now comes from the frame: off screen means not visible.
-        assert!(velocity_common::selector_match::find_in_tree(
+        assert!(atalanta_common::selector_match::find_in_tree(
             &tree,
             &sel("Offscreen"),
             Some(&screen)
@@ -674,13 +674,13 @@ mod tests {
         let truncated = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="390" height="844">
   <XCUIElementTypeButton type="XCUIElementTypeButton" label="A" x="0" y="0" width="10" height="10"/>"#;
         let e = parse_ios_hierarchy(truncated).unwrap_err();
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
         assert!(parse_ios_hierarchy("<a></a></b>").is_err());
     }
 
     #[test]
     fn a_failed_snapshot_is_an_error_not_a_blank_screen() {
-        // IOS-N1: VelocityRunner answered a failed snapshot with this.
+        // IOS-N1: AtalantaRunner answered a failed snapshot with this.
         let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <XCUIElementTypeApplication type="XCUIElementTypeApplication" x="0" y="0" width="0" height="0"/>"#;
         assert!(parse_ios_hierarchy(xml).is_err());
@@ -719,8 +719,8 @@ mod tests {
 
     #[test]
     fn test_identifier_and_label_both_match() {
-        use velocity_common::selector_match::find_in_tree;
-        use velocity_common::Selector;
+        use atalanta_common::selector_match::find_in_tree;
+        use atalanta_common::Selector;
         let xml = r#"<XCUIElementTypeApplication type="XCUIElementTypeApplication" name="App" x="0" y="0" width="390" height="844">
   <XCUIElementTypeButton type="XCUIElementTypeButton" name="checkout_btn" label="Pay &amp; finish" enabled="true" visible="true" x="0" y="0" width="100" height="40" />
 </XCUIElementTypeApplication>"#;

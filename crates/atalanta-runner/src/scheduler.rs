@@ -1,4 +1,4 @@
-use velocity_common::TestCase;
+use atalanta_common::TestCase;
 
 use crate::history::TestHistory;
 
@@ -239,7 +239,7 @@ impl SplitMix64 {
 /// with `config.shard_timings`, a timings file they all read.
 pub fn plan_tests(
     all: &[TestCase],
-    config: &velocity_common::RuntimeConfig,
+    config: &atalanta_common::RuntimeConfig,
     history: &TestHistory,
 ) -> Vec<TestCase> {
     let universe = shard_universe(all, config);
@@ -280,7 +280,7 @@ pub fn plan_tests(
 /// selection is reported elsewhere). Selection made after the partition
 /// (`--last-failed`, `--changed-since`) may still leave a shard empty on
 /// purpose, so only the partition counts.
-pub fn empty_shard(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> Option<String> {
+pub fn empty_shard(all: &[TestCase], config: &atalanta_common::RuntimeConfig) -> Option<String> {
     let (Some(idx), Some(total)) = (config.shard_index, config.shard_total) else {
         return None;
     };
@@ -300,7 +300,7 @@ pub fn empty_shard(all: &[TestCase], config: &velocity_common::RuntimeConfig) ->
     ))
 }
 
-fn shard_universe(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> Vec<TestCase> {
+fn shard_universe(all: &[TestCase], config: &atalanta_common::RuntimeConfig) -> Vec<TestCase> {
     let mut tests = filter_by_tags(all, &config.tags);
     if let Some(ref pattern) = config.test_filter {
         tests = filter_by_name(&tests, pattern);
@@ -316,7 +316,7 @@ fn shard_universe(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> 
 /// The timings shards balance by: the ones the caller loaded (the CLI,
 /// once, failing the run when they can't be read), else read here from
 /// `shard_timings` (library callers), else none (balance test counts).
-fn shard_timings(config: &velocity_common::RuntimeConfig) -> Option<TestHistory> {
+fn shard_timings(config: &atalanta_common::RuntimeConfig) -> Option<TestHistory> {
     if let Some(ms) = &config.shard_timings_ms {
         return Some(TestHistory {
             durations: (**ms).clone(),
@@ -357,7 +357,7 @@ pub struct ShardPlan {
 
 /// The partition [`plan_tests`] uses, for every shard (`config`'s
 /// `shard_index` is ignored; `shard_total` defaults to 1).
-pub fn shard_plan(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> ShardPlan {
+pub fn shard_plan(all: &[TestCase], config: &atalanta_common::RuntimeConfig) -> ShardPlan {
     let total = config.shard_total.unwrap_or(1).max(1);
     let universe = shard_universe(all, config);
     let timings = shard_timings(config);
@@ -386,8 +386,8 @@ pub fn shard_plan(all: &[TestCase], config: &velocity_common::RuntimeConfig) -> 
 
 /// Reject shard settings that would silently run nothing or everything: a
 /// total of 0, an index past the last shard, or only one of the two.
-pub fn check_shard(config: &velocity_common::RuntimeConfig) -> velocity_common::Result<()> {
-    let err = |m: String| Err(velocity_common::VelocityError::Config(m));
+pub fn check_shard(config: &atalanta_common::RuntimeConfig) -> atalanta_common::Result<()> {
+    let err = |m: String| Err(atalanta_common::AtalantaError::Config(m));
     match (config.shard_index, config.shard_total) {
         (None, None) => Ok(()),
         (Some(_), None) | (None, Some(_)) => {
@@ -420,7 +420,7 @@ pub fn order_failed_first(tests: &mut [TestCase], history: &TestHistory) {
 ///
 /// The assignment depends only on the set of test names, not on their order
 /// (a shuffled run shards the same way). Each CI shard has its own
-/// `velocity-history.json`, and balancing on it made shards disagree, so
+/// `atalanta-history.json`, and balancing on it made shards disagree, so
 /// some tests ran on no shard and others on two. For duration-balanced
 /// shards, give every shard the same timings file and use
 /// [`shard_tests_by_timings`].
@@ -517,7 +517,7 @@ fn stable_hash(s: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{Action, Step};
+    use atalanta_common::{Action, Step};
 
     fn make_test(name: &str, tags: Vec<&str>) -> TestCase {
         TestCase {
@@ -539,7 +539,7 @@ mod tests {
 
     #[test]
     fn failed_first_moves_last_failures_forward_stably() {
-        use velocity_common::{TestResult, TestStatus};
+        use atalanta_common::{TestResult, TestStatus};
         let mut tests = vec![
             make_test("a", vec![]),
             make_test("b", vec![]),
@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn planned_order_keeps_groups_contiguous_under_shuffle_and_failed_first() {
-        use velocity_common::RuntimeConfig;
+        use atalanta_common::RuntimeConfig;
         let all = vec![
             dep("net", &[]),
             dep("back", &["net"]),
@@ -850,7 +850,7 @@ mod tests {
         let mut hist = TestHistory::default();
         crate::history::update(
             &mut hist,
-            &[velocity_common::TestResult::failed(
+            &[atalanta_common::TestResult::failed(
                 "back",
                 "x".into(),
                 std::time::Duration::ZERO,
@@ -886,7 +886,7 @@ mod tests {
         (missing, seen.len() - uniq.len())
     }
 
-    // VEL-004: each CI shard has its own velocity-history.json; the
+    // VEL-004: each CI shard has its own atalanta-history.json; the
     // assignment must not depend on it.
     #[test]
     fn shards_with_different_local_history_still_partition_the_suite() {
@@ -900,7 +900,7 @@ mod tests {
                 h.durations
                     .insert(format!("t{i:02}"), 1000 + 500 * i as u64);
             }
-            let config = velocity_common::RuntimeConfig {
+            let config = atalanta_common::RuntimeConfig {
                 shard_index: Some(idx),
                 shard_total: Some(2),
                 ..Default::default()
@@ -930,7 +930,7 @@ mod tests {
         hist.durations.insert("test_01".into(), 3000);
         let mut seen = Vec::new();
         for idx in 0..3usize {
-            let cfg = velocity_common::RuntimeConfig {
+            let cfg = atalanta_common::RuntimeConfig {
                 shuffle_seed: Some(1000 + idx as u64 * 7919),
                 shard_index: Some(idx),
                 shard_total: Some(3),
@@ -985,7 +985,7 @@ mod tests {
             .map(|n| make_test(n, vec![]))
             .collect();
         let shard = |idx| {
-            let cfg = velocity_common::RuntimeConfig {
+            let cfg = atalanta_common::RuntimeConfig {
                 shard_index: Some(idx),
                 shard_total: Some(2),
                 shard_timings: Some(dir.to_string_lossy().into_owned()),
@@ -1014,7 +1014,7 @@ mod tests {
                 verify: None,
             })
             .collect();
-        let cfg = |i, t| velocity_common::RuntimeConfig {
+        let cfg = |i, t| atalanta_common::RuntimeConfig {
             shard_index: Some(i),
             shard_total: Some(t),
             ..Default::default()
@@ -1029,7 +1029,7 @@ mod tests {
             empty[0].contains("has no tests") && empty[0].contains("over 3 shards"),
             "{empty:?}"
         );
-        assert!(empty_shard(&all, &velocity_common::RuntimeConfig::default()).is_none());
+        assert!(empty_shard(&all, &atalanta_common::RuntimeConfig::default()).is_none());
         assert!(empty_shard(&[], &cfg(2, 3)).is_none());
     }
 
@@ -1037,7 +1037,7 @@ mod tests {
     // empty (or full) green run.
     #[test]
     fn bad_shard_settings_are_rejected() {
-        let cfg = |i, t| velocity_common::RuntimeConfig {
+        let cfg = |i, t| atalanta_common::RuntimeConfig {
             shard_index: i,
             shard_total: t,
             ..Default::default()
@@ -1082,14 +1082,14 @@ mod tests {
             .collect();
         let owner = shard_plan(
             &all,
-            &velocity_common::RuntimeConfig {
+            &atalanta_common::RuntimeConfig {
                 shard_total: Some(total),
                 ..Default::default()
             },
         );
         let mut ran: Vec<String> = Vec::new();
         for (k, risky_k) in risky.iter().enumerate() {
-            let cfg = velocity_common::RuntimeConfig {
+            let cfg = atalanta_common::RuntimeConfig {
                 shard_index: Some(k),
                 shard_total: Some(total),
                 only_tests: Some(git.clone()),
@@ -1125,13 +1125,13 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        let full = velocity_common::RuntimeConfig {
+        let full = atalanta_common::RuntimeConfig {
             shard_total: Some(2),
             ..Default::default()
         };
         let owner = shard_plan(&all, &full);
         for k in 0..2 {
-            let cfg = velocity_common::RuntimeConfig {
+            let cfg = atalanta_common::RuntimeConfig {
                 shard_index: Some(k),
                 post_shard: Some(Arc::new(failed.clone())),
                 ..full.clone()
@@ -1154,7 +1154,7 @@ mod tests {
         let all: Vec<TestCase> = (0..8)
             .map(|i| make_test(&format!("t{i}"), vec![]))
             .collect();
-        let base = velocity_common::RuntimeConfig {
+        let base = atalanta_common::RuntimeConfig {
             shard_total: Some(3),
             ..Default::default()
         };
@@ -1165,7 +1165,7 @@ mod tests {
         let skewed: std::collections::HashMap<String, u64> = (0..8)
             .map(|i| (format!("t{i}"), if i == 0 { 600_000u64 } else { 1_000 }))
             .collect();
-        let timed = velocity_common::RuntimeConfig {
+        let timed = atalanta_common::RuntimeConfig {
             shard_timings_ms: Some(Arc::new(skewed)),
             // Never read: the loaded timings win.
             shard_timings: Some("/no/such/file".into()),
@@ -1181,7 +1181,7 @@ mod tests {
         );
         // Each shard's plan_tests matches the plan.
         for (i, s) in b.shards.iter().enumerate() {
-            let cfg = velocity_common::RuntimeConfig {
+            let cfg = atalanta_common::RuntimeConfig {
                 shard_index: Some(i),
                 ..timed.clone()
             };

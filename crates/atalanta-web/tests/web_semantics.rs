@@ -5,8 +5,8 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, PlatformDriver, Relation, Selector};
 use common::{css, driver, find, serve, text, wait_text};
-use velocity_common::{PlatformDriver, Relation, Selector, VelocityError};
 
 fn text_sel(s: &str) -> Selector {
     Selector::Text(s.into())
@@ -135,7 +135,7 @@ async fn deep_elements_are_found() {
     assert_eq!(el.element_type, "button");
     let tree = d.get_hierarchy("web").await.unwrap();
     let found =
-        velocity_common::selector_match::find_in_tree(&tree, &text_sel("Save"), None).unwrap();
+        atalanta_common::selector_match::find_in_tree(&tree, &text_sel("Save"), None).unwrap();
     assert_eq!(found.element_type, "button");
     d.cleanup().await;
 }
@@ -245,7 +245,7 @@ async fn text_search_is_linear() {
 
 const HOSTILE: &str = r#"<!doctype html><html><body>
 <div id="a" class="card">first</div>
-<button id="probe" onclick="document.getElementById('seen').textContent=typeof window.__velocityIds">probe</button>
+<button id="probe" onclick="document.getElementById('seen').textContent=typeof window.__atalantaIds">probe</button>
 <div id="seen">-</div>
 <script>
 Document.prototype.querySelectorAll=function(){return []};
@@ -255,9 +255,9 @@ Element.prototype.getBoundingClientRect=function(){return {x:0,y:0,left:0,top:0,
 JSON.stringify=function(){return '"tampered"'};
 </script></body></html>"#;
 
-/// P4: Velocity's queries run in an isolated world, so a page that patches
+/// P4: Atalanta's queries run in an isolated world, so a page that patches
 /// DOM prototypes (polyfills, test doubles, hostile scripts) can't break
-/// them, and the page can't see Velocity's own state.
+/// them, and the page can't see Atalanta's own state.
 #[tokio::test]
 async fn queries_run_in_an_isolated_world() {
     require_chrome!();
@@ -440,7 +440,7 @@ async fn navigation_resolves_urls_and_fails_fast() {
         start.elapsed()
     );
     assert!(
-        !matches!(err, VelocityError::BrowserConnectionLost { .. }),
+        !matches!(err, AtalantaError::BrowserConnectionLost { .. }),
         "{err}"
     );
     d.cleanup().await;
@@ -584,7 +584,7 @@ async fn go_back_works_across_origins() {
     assert_eq!(wait_text(&d, "#where", "a").await, "a");
     // And at the start of the history it still fails at once.
     let err = d.go_back("web").await.unwrap_err();
-    assert!(matches!(err, VelocityError::CommandFailed { .. }), "{err}");
+    assert!(matches!(err, AtalantaError::CommandFailed { .. }), "{err}");
     d.cleanup().await;
 }
 

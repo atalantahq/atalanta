@@ -1,15 +1,15 @@
-//! The console: `velocity inspect` as a device console with a live mirror
+//! The console: `atalanta inspect` as a device console with a live mirror
 //! (in the spirit of ARTEMIS's web console).
 //!
 //! - [`mirror`]: the live screen over a WebSocket (H.264 for WebCodecs, or
 //!   pushed JPEG/PNG frames), from a [`LiveSource`].
 //! - [`control`]: who drives the device. Input takes the device's
 //!   cross-process lease ([`Leases`]); watching needs none.
-//! - [`tasks`]: the task queue. A suite run (`velocity run` in a child
+//! - [`tasks`]: the task queue. A suite run (`atalanta run` in a child
 //!   process, with live step events) or an explore session (a
-//!   `velocity explore` child, [`tasks::ExploreChild`]).
+//!   `atalanta explore` child, [`tasks::ExploreChild`]).
 //! - [`diagnostics`]: the connection wizard's checks ([`Diagnostics`]:
-//!   `velocity doctor`'s, from the CLI).
+//!   `atalanta doctor`'s, from the CLI).
 //! - [`routing`]: one driver over Android, iOS and the web.
 //!
 //! Every hook has a default that works without a device, so the server's
@@ -38,7 +38,7 @@ pub struct ConsoleHooks {
     pub leases: Arc<dyn Leases>,
     pub diagnostics: Arc<dyn Diagnostics>,
     pub explore: Arc<dyn ExploreProvider>,
-    /// Starts a suite run (`velocity run`).
+    /// Starts a suite run (`atalanta run`).
     pub launcher: Arc<dyn tasks::SuiteLauncher>,
     /// The project folder: suites are listed from here, run from here, and
     /// may not be outside it.
@@ -55,8 +55,8 @@ impl Default for ConsoleHooks {
             leases: Arc::new(NoLeases),
             diagnostics: Arc::new(NoDiagnostics),
             explore: Arc::new(ExploreUnavailable),
-            launcher: Arc::new(tasks::VelocityBinary::current()),
-            runs_dir: project_dir.join("velocity-results").join("console"),
+            launcher: Arc::new(tasks::AtalantaBinary::current()),
+            runs_dir: project_dir.join("atalanta-results").join("console"),
             project_dir,
         }
     }

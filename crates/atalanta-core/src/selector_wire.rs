@@ -11,9 +11,9 @@
 //! module still loads, except a bare state filter (`{"checked": true}`),
 //! which never finds anything on its own and the DSL refuses.
 
+use atalanta_common::Selector;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
-use velocity_common::Selector;
 
 /// `s` as the DSL's flat map.
 pub fn to_value(s: &Selector) -> Value {
@@ -105,7 +105,7 @@ pub mod option {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::types::Relation;
+    use atalanta_common::types::Relation;
 
     fn shapes() -> Vec<Selector> {
         vec![

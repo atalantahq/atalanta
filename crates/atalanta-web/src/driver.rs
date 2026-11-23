@@ -4,16 +4,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use atalanta_common::{
+    selector_match::find_all_ref, AtalantaError, DeviceInfo, DeviceState, DeviceType, Direction,
+    Element, Key, Platform, Result, Selector,
+};
 use chromiumoxide::cdp::browser_protocol::page::GetNavigationHistoryParams;
 use chromiumoxide::error::CdpError;
 use chromiumoxide::{Browser, BrowserConfig};
 use futures::StreamExt;
 use tokio::sync::Mutex;
 use tracing::debug;
-use velocity_common::{
-    selector_match::find_all_ref, DeviceInfo, DeviceState, DeviceType, Direction, Element, Key,
-    Platform, Result, Selector, VelocityError,
-};
 
 use crate::cdp::{self, Page};
 use crate::dom::{json_to_element, tree_from_list};
@@ -37,7 +37,7 @@ pub struct WebDriverConfig {
     pub extra_args: Vec<String>,
     /// Requests answered or refused without the network (`web.mocks`,
     /// `web.block`), for every test.
-    pub mocks: Vec<velocity_common::MockRule>,
+    pub mocks: Vec<atalanta_common::MockRule>,
     /// Independent browsers (`--parallel N`, D-48): N Chrome processes,
     /// the devices `web-0` … `web-{N-1}`, each with its own profile and
     /// network rules. One browser is the device `web`.
@@ -45,7 +45,7 @@ pub struct WebDriverConfig {
     /// A mobile-web profile (`web.device`, D-W3): pixel ratio, user agent,
     /// mobile layout and touch. Set it with [`WebDriverConfig::apply_device`],
     /// which also takes its viewport.
-    pub device: Option<velocity_common::web_devices::WebDevice>,
+    pub device: Option<atalanta_common::web_devices::WebDevice>,
     /// How `instances > 1` browsers are made (`web.parallelMode`, W3):
     /// browser contexts in one Chrome (the default), or one Chrome process
     /// each.
@@ -53,13 +53,13 @@ pub struct WebDriverConfig {
 }
 
 /// `web.parallelMode`: what each of `--parallel N`'s web devices is (W3).
-pub use velocity_common::test_types::WebParallelMode as ParallelMode;
+pub use atalanta_common::test_types::WebParallelMode as ParallelMode;
 
 impl WebDriverConfig {
     /// Emulate `device`: its viewport becomes `width`/`height` (set those
     /// after this to override it), and its pixel ratio, user agent, mobile
     /// layout and touch apply to every page.
-    pub fn apply_device(&mut self, device: &velocity_common::web_devices::WebDevice) {
+    pub fn apply_device(&mut self, device: &atalanta_common::web_devices::WebDevice) {
         self.width = device.width;
         self.height = device.height;
         self.device = Some(*device);
@@ -94,14 +94,14 @@ struct Chrome {
     /// This Chrome's own profile, removed when it closes.
     profile_dir: PathBuf,
     /// Chrome's pid and profile, registered for the second signal's
-    /// `kill_all_groups` (review-d6 M2): Chrome runs in Velocity's own
+    /// `kill_all_groups` (review-d6 M2): Chrome runs in Atalanta's own
     /// process group, and `process::exit` skips `kill_on_drop`.
-    _registered: Option<velocity_common::process::PidGuard>,
+    _registered: Option<atalanta_common::process::PidGuard>,
 }
 
 /// A Chrome dropped without `close` (a panic, an early return, the daemon
 /// going away) still stops and its profile goes, which leaked one
-/// `velocity-chrome-*` dir per browser (review-d6 m5).
+/// `atalanta-chrome-*` dir per browser (review-d6 m5).
 impl Drop for Chrome {
     fn drop(&mut self) {
         if let Some(child) = self.browser.get_mut().get_mut_child() {
@@ -113,7 +113,7 @@ impl Drop for Chrome {
         let dir = self.profile_dir.clone();
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::thread::Builder::new()
-            .name("velocity-profile-rm".into())
+            .name("atalanta-profile-rm".into())
             .spawn(move || {
                 for _ in 0..20 {
                     std::thread::sleep(Duration::from_millis(50));
@@ -218,7 +218,7 @@ pub struct WebDriver {
     /// browsers; different devices launch side by side.
     launches: std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>,
     /// On-screen matches of each lookup, counted in the same page call.
-    match_counts: velocity_common::selector_match::MatchCounts,
+    match_counts: atalanta_common::selector_match::MatchCounts,
 }
 
 impl WebDriver {
@@ -336,8 +336,8 @@ impl WebDriver {
         Ok(page.eval(js).await?.value().cloned().unwrap_or_default())
     }
 
-    fn no_session(&self, device_id: &str) -> VelocityError {
-        VelocityError::Config(format!(
+    fn no_session(&self, device_id: &str) -> AtalantaError {
+        AtalantaError::Config(format!(
             "No browser session for {device_id:?} — call prepare() first (this driver's devices: {})",
             self.device_ids().join(", ")
         ))
@@ -397,7 +397,7 @@ impl WebDriver {
         list.as_array()
             .and_then(|l| tree_from_list(l))
             .ok_or_else(|| {
-                VelocityError::Internal(anyhow::anyhow!(
+                AtalantaError::Internal(anyhow::anyhow!(
                     "the page has no <body> to read the element tree from"
                 ))
             })
@@ -474,7 +474,7 @@ impl WebDriver {
         Ok(all)
     }
 
-    /// The Velocity ids of what `selector` matches, in order. Everything but
+    /// The Atalanta ids of what `selector` matches, in order. Everything but
     /// a layout relation resolves in the page. A relation needs boxes and
     /// nesting, so it is matched on the element tree by the shared matcher,
     /// with its target and anchor resolved in the page first: the tree only
@@ -518,7 +518,7 @@ impl WebDriver {
                                 && e.visible_bounds.is_none_or(|v| !v.is_empty())
                         })
                         .collect();
-                    velocity_common::selector_match::in_reading_order(found)
+                    atalanta_common::selector_match::in_reading_order(found)
                         .into_iter()
                         .nth(*index)
                         .map(|e| e.platform_id.clone())
@@ -540,7 +540,7 @@ impl WebDriver {
                 // `textMatches` on the element tree (text, aria-label or
                 // id, placeholder), shown elements only, innermost first in
                 // tree order; `idMatches` on the page's ids and test ids.
-                Selector::TextMatches(_) => velocity_common::selector_match::find_all_tree_order(
+                Selector::TextMatches(_) => atalanta_common::selector_match::find_all_tree_order(
                     tree,
                     selector,
                     Some(&page_rect()),
@@ -556,7 +556,7 @@ impl WebDriver {
                         .filter(|n| {
                             n["ids"].as_array().is_some_and(|ids| {
                                 ids.iter().filter_map(|i| i.as_str()).any(|i| {
-                                    velocity_common::selector_match::pattern_matches(pattern, i)
+                                    atalanta_common::selector_match::pattern_matches(pattern, i)
                                 })
                             })
                         })
@@ -590,8 +590,8 @@ impl WebDriver {
 
     /// A selector the browser can't parse. Not "no such element": that made
     /// every `assertNotVisible` with a typo pass (VEL-338).
-    fn invalid(selector: &Selector, reason: String) -> VelocityError {
-        VelocityError::InvalidSelector {
+    fn invalid(selector: &Selector, reason: String) -> AtalantaError {
+        AtalantaError::InvalidSelector {
             test_name: String::new(),
             step_index: 0,
             reason: format!("{selector}: {reason}"),
@@ -604,8 +604,8 @@ impl WebDriver {
     /// with this at its deadline) instead of passing; a test failure, not
     /// a device error, so it never trips the circuit breaker
     /// (review-fi2 F1).
-    fn frames_unknown(selector: &Selector, skipped: &[String]) -> VelocityError {
-        VelocityError::AssertionFailed {
+    fn frames_unknown(selector: &Selector, skipped: &[String]) -> AtalantaError {
+        AtalantaError::AssertionFailed {
             expected: "every cross-origin frame to answer the lookup".into(),
             actual: format!(
                 "{selector} not found in the page or the frames that answered; \
@@ -617,8 +617,8 @@ impl WebDriver {
         }
     }
 
-    fn not_found(selector: &Selector) -> VelocityError {
-        VelocityError::ElementNotFound {
+    fn not_found(selector: &Selector) -> AtalantaError {
+        AtalantaError::ElementNotFound {
             selector: format!("{selector}"),
             timeout_ms: 0,
             screenshot: None,
@@ -685,7 +685,7 @@ impl WebDriver {
         let warn = |v: &serde_json::Value| {
             for w in v["warn"].as_array().into_iter().flatten() {
                 tracing::warn!(
-                    "velocity-web: tapping <{}>: {}",
+                    "atalanta-web: tapping <{}>: {}",
                     element.element_type,
                     w.as_str().unwrap_or_default()
                 );
@@ -719,7 +719,7 @@ impl WebDriver {
         if last["soft"].as_bool().unwrap_or(false) {
             warn(&last);
             tracing::warn!(
-                "velocity-web: <{}> was still moving after {ACTIONABLE_WAIT:?}; tapped it where it is",
+                "atalanta-web: <{}> was still moving after {ACTIONABLE_WAIT:?}; tapped it where it is",
                 element.element_type
             );
             return Ok(point(&last));
@@ -753,8 +753,8 @@ impl WebDriver {
         for _ in 0..MAX_BLOCKED {
             let (x, y) = Self::actionable_point(page, element).await?;
             // `force: true` clicks wherever the target is, whatever covers it.
-            let forced = velocity_common::actionability::mode()
-                == velocity_common::actionability::ActMode::Force;
+            let forced = atalanta_common::actionability::mode()
+                == atalanta_common::actionability::ActMode::Force;
             let armed = !forced
                 && page
                     .call_el("arm", id, vec![])
@@ -785,7 +785,7 @@ impl WebDriver {
             match verdict["blocked"].as_str() {
                 None if missed => {
                     debug!(
-                        "velocity-web: the click on <{}> never reached its frame; retrying",
+                        "atalanta-web: the click on <{}> never reached its frame; retrying",
                         element.element_type
                     );
                     intruder = "something outside its frame (the click never reached the frame)"
@@ -794,7 +794,7 @@ impl WebDriver {
                 None => return Ok((x, y)),
                 Some(who) => {
                     debug!(
-                        "velocity-web: the click on <{}> would have landed on {who}; retrying",
+                        "atalanta-web: the click on <{}> would have landed on {who}; retrying",
                         element.element_type
                     );
                     intruder = who.to_string();
@@ -835,7 +835,7 @@ impl WebDriver {
                 return Err(not_actionable(element, why));
             }
             if let Some(err) = v["error"].as_str() {
-                return Err(VelocityError::CommandFailed {
+                return Err(AtalantaError::CommandFailed {
                     device_id: device_id.into(),
                     command: "inputText".into(),
                     detail: err.to_string(),
@@ -901,7 +901,7 @@ impl WebDriver {
             }
         }
         if let Some(err) = focus["error"].as_str() {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: device_id.into(),
                 command: "inputText".into(),
                 detail: err.to_string(),
@@ -951,7 +951,7 @@ impl WebDriver {
         }
         let paths = file_paths(text)?;
         if paths.len() > 1 && file["multiple"] != true {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: device_id.into(),
                 command: "inputText".into(),
                 detail: format!(
@@ -966,21 +966,21 @@ impl WebDriver {
     /// After a navigation: a Flutter web app's semantics tree is enabled
     /// once (its "Enable accessibility" placeholder is clicked), so its
     /// `Semantics(identifier:)` ids and labels exist to be found, as
-    /// Maestro's `ensureSemantics` does. `VELOCITY_WEB_FLUTTER_SEMANTICS=off`
+    /// Maestro's `ensureSemantics` does. `ATALANTA_WEB_FLUTTER_SEMANTICS=off`
     /// leaves it alone.
     async fn enable_flutter_semantics(page: &Page) {
         if matches!(
-            velocity_common::env::var("VELOCITY_WEB_FLUTTER_SEMANTICS").as_deref(),
+            atalanta_common::env::var("ATALANTA_WEB_FLUTTER_SEMANTICS").as_deref(),
             Ok("off") | Ok("0") | Ok("false")
         ) {
             return;
         }
         match page.call("flutterSemantics", vec![]).await {
             Ok(v) if v.as_bool() == Some(true) => {
-                debug!("velocity-web: enabled Flutter web semantics")
+                debug!("atalanta-web: enabled Flutter web semantics")
             }
             Ok(_) => {}
-            Err(e) => debug!("velocity-web: Flutter semantics check failed: {e}"),
+            Err(e) => debug!("atalanta-web: Flutter semantics check failed: {e}"),
         }
     }
 
@@ -997,7 +997,7 @@ impl WebDriver {
             }
             Err(_) if !page.is_alive() => return Err(cdp::lost("navigation never finished")),
             Ok(Err(CdpError::ChromeMessage(m))) => {
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "could not load {url}: {m}"
                 )))
             }
@@ -1008,7 +1008,7 @@ impl WebDriver {
         Self::wait_until(page, left, |_, ready| ready != "loading").await;
         let ready: Option<String> = page.eval("document.readyState").await?.into_value().ok();
         if ready.as_deref() == Some("loading") {
-            return Err(VelocityError::Internal(anyhow::anyhow!(
+            return Err(AtalantaError::Internal(anyhow::anyhow!(
                 "{url} did not finish loading within {NAV_TIMEOUT:?}"
             )));
         }
@@ -1119,7 +1119,7 @@ impl WebDriver {
         match opened {
             Some(tab) => {
                 tracing::warn!(
-                    "velocity-web: the page opened a new tab ({}); following it",
+                    "atalanta-web: the page opened a new tab ({}); following it",
                     tab.page.url().await.ok().flatten().unwrap_or_default()
                 );
                 let opener = std::mem::replace(&mut s.page, tab);
@@ -1129,7 +1129,7 @@ impl WebDriver {
                 // Back to the newest opener still open.
                 while s.tabs.is_gone(&s.page) {
                     let Some(opener) = s.openers.pop() else { break };
-                    tracing::warn!("velocity-web: the tab closed; back to the one that opened it");
+                    tracing::warn!("atalanta-web: the tab closed; back to the one that opened it");
                     s.page = opener;
                 }
             }
@@ -1162,7 +1162,7 @@ impl WebDriver {
             match got {
                 Ok(Ok(p)) => break p,
                 failed if Instant::now() >= deadline => {
-                    debug!("velocity-web: the new tab {id} can't be driven: {failed:?}");
+                    debug!("atalanta-web: the new tab {id} can't be driven: {failed:?}");
                     return None;
                 }
                 _ => tokio::time::sleep(Duration::from_millis(50)).await,
@@ -1171,7 +1171,7 @@ impl WebDriver {
         match self.set_up_tab(chrome, page, network).await {
             Ok(tab) => Some(tab),
             Err(e) => {
-                tracing::warn!("velocity-web: new tab {id} not followed: {e}");
+                tracing::warn!("atalanta-web: new tab {id} not followed: {e}");
                 None
             }
         }
@@ -1216,7 +1216,7 @@ impl WebDriver {
                         Ok(Err(e)) => e.to_string(),
                         _ => format!("no answer in {:?}", cdp::CDP_TIMEOUT),
                     };
-                    return Err(VelocityError::DeviceBootFailed {
+                    return Err(AtalantaError::DeviceBootFailed {
                         id: device_id.into(),
                         reason: format!("Failed to create a browser context: {detail}"),
                     });
@@ -1270,7 +1270,7 @@ impl WebDriver {
                 return Ok(c.clone());
             }
             tracing::warn!(
-                "velocity-web: the shared Chrome doesn't answer; killing it and starting another"
+                "atalanta-web: the shared Chrome doesn't answer; killing it and starting another"
             );
         }
         if let Some(dead) = shared.take() {
@@ -1294,7 +1294,7 @@ impl WebDriver {
         if let Err(e) =
             tokio::time::timeout(CLOSE_TIMEOUT, browser.dispose_browser_context(context)).await
         {
-            debug!("velocity-web: disposing a browser context: {e}");
+            debug!("atalanta-web: disposing a browser context: {e}");
         }
     }
 
@@ -1342,7 +1342,7 @@ impl WebDriver {
         // A profile of its own: chromiumoxide's default is one fixed
         // `$TMPDIR/chromiumoxide-runner`, and Chrome's singleton lock on it
         // made a second concurrent run fail to launch (VEL-117).
-        let profile_dir = new_profile_dir().map_err(|e| VelocityError::DeviceBootFailed {
+        let profile_dir = new_profile_dir().map_err(|e| AtalantaError::DeviceBootFailed {
             id: device_id.into(),
             reason: format!("cannot create a Chrome profile directory: {e}"),
         })?;
@@ -1350,13 +1350,13 @@ impl WebDriver {
 
         let cfg = builder
             .build()
-            .map_err(|e| VelocityError::Config(format!("Chrome config error: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("Chrome config error: {e}")))?;
 
         let (mut browser, mut handler) = match Browser::launch(cfg).await {
             Ok(b) => b,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&profile_dir);
-                return Err(VelocityError::DeviceBootFailed {
+                return Err(AtalantaError::DeviceBootFailed {
                     id: device_id.into(),
                     reason: format!("Failed to launch Chrome: {e}"),
                 });
@@ -1365,7 +1365,7 @@ impl WebDriver {
         let registered = browser
             .get_mut_child()
             .and_then(|c| c.inner.id())
-            .map(|pid| velocity_common::process::register_pid(pid, Some(profile_dir.clone())));
+            .map(|pid| atalanta_common::process::register_pid(pid, Some(profile_dir.clone())));
 
         // The CDP event handler must be polled on a background task. When it
         // stops (the socket closed: Chrome exited or was killed), every
@@ -1375,7 +1375,7 @@ impl WebDriver {
         tokio::spawn(async move {
             while let Some(event) = handler.next().await {
                 if let Err(e @ (CdpError::Ws(_) | CdpError::Io(_))) = event {
-                    debug!("velocity-web: DevTools connection closed: {e}");
+                    debug!("atalanta-web: DevTools connection closed: {e}");
                     break;
                 }
             }
@@ -1414,7 +1414,7 @@ impl WebDriver {
                 params.max_touch_points = Some(5);
             }
             if let Err(e) = page.exec(params).await {
-                debug!("velocity-web: could not set touch emulation: {e}");
+                debug!("atalanta-web: could not set touch emulation: {e}");
             }
         }
         if let Some(d) = device {
@@ -1423,7 +1423,7 @@ impl WebDriver {
                 .exec(SetUserAgentOverrideParams::new(d.user_agent))
                 .await
             {
-                tracing::warn!("velocity-web: {}: user agent not set: {e}", d.name);
+                tracing::warn!("atalanta-web: {}: user agent not set: {e}", d.name);
             }
         }
         spawn_dialog_handler(&page).await;
@@ -1439,7 +1439,7 @@ impl WebDriver {
                     network.frames_attached();
                     page.set_frames(frames);
                 }
-                Err(e) => debug!("velocity-web: cross-origin frames not tracked: {e}"),
+                Err(e) => debug!("atalanta-web: cross-origin frames not tracked: {e}"),
             }
         }
         Ok(page)
@@ -1467,7 +1467,7 @@ impl WebDriver {
                     Ok(Err(e)) => e.to_string(),
                     _ => format!("no answer in {:?}", cdp::CDP_TIMEOUT),
                 };
-                return Err(VelocityError::DeviceBootFailed {
+                return Err(AtalantaError::DeviceBootFailed {
                     id: device_id.into(),
                     reason: format!("Failed to open page: {detail}"),
                 });
@@ -1477,7 +1477,7 @@ impl WebDriver {
         let network = crate::network::Network::new(self.config.mocks.clone());
         let tabs = TabWatch::default();
         let page = self.set_up_tab(chrome, page, &network).await.map_err(|e| {
-            VelocityError::DeviceBootFailed {
+            AtalantaError::DeviceBootFailed {
                 id: device_id.into(),
                 reason: e.to_string(),
             }
@@ -1493,7 +1493,7 @@ impl WebDriver {
             }
         }
 
-        debug!("velocity-web: Chrome session ready for {device_id}");
+        debug!("atalanta-web: Chrome session ready for {device_id}");
         Ok((page, network, tabs))
     }
 
@@ -1526,7 +1526,7 @@ impl WebDriver {
 }
 
 #[async_trait::async_trait]
-impl velocity_common::PlatformDriver for WebDriver {
+impl atalanta_common::PlatformDriver for WebDriver {
     // ──────────────────────────────────────────────
     // Lifecycle
     // ──────────────────────────────────────────────
@@ -1550,12 +1550,12 @@ impl velocity_common::PlatformDriver for WebDriver {
         reaction_ms: u64,
         quiet_ms: u64,
         cap_ms: u64,
-    ) -> Option<velocity_common::DeviceSettle> {
+    ) -> Option<atalanta_common::DeviceSettle> {
         let page = self.page_handle(device_id).await.ok()?;
         let limit = Duration::from_millis(cap_ms) + cdp::CDP_TIMEOUT;
         let args = vec![reaction_ms.into(), quiet_ms.into(), cap_ms.into()];
         match page.call_for(limit, "settle", args).await {
-            Ok(v) => Some(velocity_common::DeviceSettle {
+            Ok(v) => Some(atalanta_common::DeviceSettle {
                 settled: v["settled"].as_bool().unwrap_or(false),
                 reacted: v["reacted"].as_bool().unwrap_or(false),
                 elapsed_ms: v["elapsed"].as_u64().unwrap_or(0),
@@ -1563,13 +1563,13 @@ impl velocity_common::PlatformDriver for WebDriver {
             // Mid-navigation (the document went away under the probe):
             // the caller falls back to what it does without one.
             Err(e) => {
-                debug!("velocity-web: settle probe failed: {e}");
+                debug!("atalanta-web: settle probe failed: {e}");
                 None
             }
         }
     }
 
-    async fn add_mock(&self, device_id: &str, rule: velocity_common::MockRule) -> Result<()> {
+    async fn add_mock(&self, device_id: &str, rule: atalanta_common::MockRule) -> Result<()> {
         let page = self.page_handle(device_id).await?;
         let network = self
             .network(device_id)
@@ -1618,14 +1618,14 @@ impl velocity_common::PlatformDriver for WebDriver {
         {
             // Dropped, each Chrome left is killed and its profile removed.
             tracing::warn!(
-                "velocity-web: browsers still closing after {CLEANUP_TIMEOUT:?}; killed"
+                "atalanta-web: browsers still closing after {CLEANUP_TIMEOUT:?}; killed"
             );
         }
     }
 
     /// Healthy when every running browser answers; no browser at all is
     /// unhealthy, as before.
-    async fn health_check(&self) -> velocity_common::HealthStatus {
+    async fn health_check(&self) -> atalanta_common::HealthStatus {
         let pages: Vec<Arc<Page>> = self
             .sessions
             .lock()
@@ -1634,7 +1634,7 @@ impl velocity_common::PlatformDriver for WebDriver {
             .map(|s| s.page.clone())
             .collect();
         if pages.is_empty() {
-            return velocity_common::HealthStatus::Unhealthy;
+            return atalanta_common::HealthStatus::Unhealthy;
         }
         let answers = futures::future::join_all(
             pages
@@ -1643,9 +1643,9 @@ impl velocity_common::PlatformDriver for WebDriver {
         )
         .await;
         if answers.iter().all(|a| a.is_ok()) {
-            velocity_common::HealthStatus::Healthy
+            atalanta_common::HealthStatus::Healthy
         } else {
-            velocity_common::HealthStatus::Unhealthy
+            atalanta_common::HealthStatus::Unhealthy
         }
     }
 
@@ -1753,15 +1753,15 @@ impl velocity_common::PlatformDriver for WebDriver {
     async fn start_evidence(
         &self,
         device_id: &str,
-        req: &velocity_common::EvidenceRequest,
-    ) -> Option<Box<dyn velocity_common::EvidenceSession>> {
+        req: &atalanta_common::EvidenceRequest,
+    ) -> Option<Box<dyn atalanta_common::EvidenceSession>> {
         if !req.video.on() && !req.logs.on() {
             return None;
         }
         let page = self.page_handle(device_id).await.ok()?;
         crate::evidence::WebEvidence::start(page, req)
             .await
-            .map(|e| Box::new(e) as Box<dyn velocity_common::EvidenceSession>)
+            .map(|e| Box::new(e) as Box<dyn atalanta_common::EvidenceSession>)
     }
 
     async fn launch_app(&self, device_id: &str, app_id: &str, clear_state: bool) -> Result<()> {
@@ -1811,7 +1811,7 @@ impl velocity_common::PlatformDriver for WebDriver {
         let url = match resolved.as_str() {
             Some(u) => u.to_string(),
             None => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                 "goto {url:?}: not a URL, and there is no page ({current}) to resolve it against"
             )))
             }
@@ -1822,8 +1822,8 @@ impl velocity_common::PlatformDriver for WebDriver {
             // for one that never comes (puppeteer#257). Navigate in-page instead.
             let js = format!("location.href = {}", serde_json::Value::from(url));
             page.eval(js).await.map_err(|e| match e {
-                VelocityError::BrowserConnectionLost { .. } => e,
-                e => VelocityError::Config(format!("navigate({url}) failed: {e}")),
+                AtalantaError::BrowserConnectionLost { .. } => e,
+                e => AtalantaError::Config(format!("navigate({url}) failed: {e}")),
             })?;
             Self::wait_until(&page, NAV_TIMEOUT, |href, _| href == url).await;
             if !page.is_alive() {
@@ -1863,7 +1863,7 @@ impl velocity_common::PlatformDriver for WebDriver {
                     .all(|e| e.url.is_empty() || e.url == "about:blank")
             });
         if at_start == Some(true) {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: device_id.into(),
                 command: "goBack".into(),
                 detail: "there is no earlier page in this tab's history".into(),
@@ -1943,7 +1943,7 @@ impl velocity_common::PlatformDriver for WebDriver {
             if let Some(s) = sessions.get(device_id) {
                 if let Some((ref tree, ref ts)) = s.hierarchy_cache {
                     if ts.elapsed() < s.cache_ttl {
-                        debug!("velocity-web: hierarchy cache hit");
+                        debug!("atalanta-web: hierarchy cache hit");
                         return Ok(tree.clone());
                     }
                 }
@@ -2139,13 +2139,13 @@ impl velocity_common::PlatformDriver for WebDriver {
             Key::ArrowRight => "ArrowRight",
             // A browser has no volume buttons: it was skipped silently.
             Key::VolumeUp | Key::VolumeDown => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "pressKey: {} has no browser equivalent",
                     key.name()
                 )))
             }
             _ => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "pressKey: {} is not supported on the web",
                     key.name()
                 )))
@@ -2244,9 +2244,9 @@ impl velocity_common::PlatformDriver for WebDriver {
     async fn is_element_visible(&self, device_id: &str, element: &Element) -> Result<bool> {
         let page = self.page_handle(device_id).await?;
         let opts = serde_json::json!({
-            "page": velocity_common::env::var("VELOCITY_WEB_VISIBILITY")
+            "page": atalanta_common::env::var("ATALANTA_WEB_VISIBILITY")
                 .is_ok_and(|v| v.trim().eq_ignore_ascii_case("page")),
-            "minArea": velocity_common::selector_match::min_visible_area(),
+            "minArea": atalanta_common::selector_match::min_visible_area(),
         });
         let v = page
             .call_el("state", &element.platform_id, vec![opts])
@@ -2258,16 +2258,16 @@ impl velocity_common::PlatformDriver for WebDriver {
 /// `beforeunload`, CDP's names) is answered: accept or dismiss, and the
 /// text an accepted prompt gets. Alerts and beforeunload are accepted
 /// (there is nothing to choose, and navigation should proceed). Confirm
-/// and prompt follow `web.dialogs` (`VELOCITY_WEB_DIALOGS`): `dismiss` by
+/// and prompt follow `web.dialogs` (`ATALANTA_WEB_DIALOGS`): `dismiss` by
 /// default, so a test never triggers a destructive action it did not ask
 /// for; `accept` lets a suite test a confirm-guarded delete (review 10
-/// #9). `web.promptText` (`VELOCITY_WEB_PROMPT_TEXT`) is what an accepted
+/// #9). `web.promptText` (`ATALANTA_WEB_PROMPT_TEXT`) is what an accepted
 /// prompt returns.
 fn dialog_answer(kind: &str) -> (bool, Option<String>) {
     match kind {
         "confirm" | "prompt" => {
             let accept = matches!(
-                velocity_common::env::var("VELOCITY_WEB_DIALOGS")
+                atalanta_common::env::var("ATALANTA_WEB_DIALOGS")
                     .unwrap_or_default()
                     .trim()
                     .to_ascii_lowercase()
@@ -2275,7 +2275,7 @@ fn dialog_answer(kind: &str) -> (bool, Option<String>) {
                 "accept" | "1" | "true"
             );
             let text = (accept && kind == "prompt")
-                .then(|| velocity_common::env::var("VELOCITY_WEB_PROMPT_TEXT").unwrap_or_default());
+                .then(|| atalanta_common::env::var("ATALANTA_WEB_PROMPT_TEXT").unwrap_or_default());
             (accept, text)
         }
         _ => (true, None),
@@ -2300,7 +2300,7 @@ async fn spawn_dialog_handler(page: &Arc<Page>) {
     {
         Ok(events) => events,
         Err(e) => {
-            tracing::warn!("velocity-web: cannot watch JS dialogs: {e}");
+            tracing::warn!("atalanta-web: cannot watch JS dialogs: {e}");
             return;
         }
     };
@@ -2310,14 +2310,14 @@ async fn spawn_dialog_handler(page: &Arc<Page>) {
             let kind = event.r#type.as_ref().to_string();
             let (accept, text) = dialog_answer(&kind);
             tracing::info!(
-                "velocity-web: {} JS {kind} \"{}\"",
+                "atalanta-web: {} JS {kind} \"{}\"",
                 if accept { "accepted" } else { "dismissed" },
                 event.message
             );
             let mut params = HandleJavaScriptDialogParams::new(accept);
             params.prompt_text = text;
             if let Err(e) = page.exec(params).await {
-                debug!("velocity-web: answering the JS dialog failed: {e}");
+                debug!("atalanta-web: answering the JS dialog failed: {e}");
             }
         }
     });
@@ -2370,7 +2370,7 @@ impl TabWatch {
             )
         };
         let (Ok(mut created), Ok(mut destroyed)) = (created, destroyed) else {
-            debug!("velocity-web: new tabs are not followed (no target events)");
+            debug!("atalanta-web: new tabs are not followed (no target events)");
             return;
         };
         // Weak, so a device's watch ends with its session even while the
@@ -2435,18 +2435,18 @@ async fn spawn_crash_watch(page: &Arc<Page>) {
     let mut events = match page.page.event_listener::<EventTargetCrashed>().await {
         Ok(events) => events,
         Err(e) => {
-            debug!("velocity-web: cannot watch for renderer crashes: {e}");
+            debug!("atalanta-web: cannot watch for renderer crashes: {e}");
             return;
         }
     };
     if let Err(e) = page.exec(EnableParams::default()).await {
-        debug!("velocity-web: Inspector.enable: {e}");
+        debug!("atalanta-web: Inspector.enable: {e}");
     }
     let page = Arc::downgrade(page);
     tokio::spawn(async move {
         if events.next().await.is_some() {
             if let Some(page) = page.upgrade() {
-                tracing::warn!("velocity-web: the page's renderer crashed");
+                tracing::warn!("atalanta-web: the page's renderer crashed");
                 page.mark_crashed();
             }
         }
@@ -2470,7 +2470,7 @@ fn chrome_arg(arg: &str) -> (&str, Option<&str>) {
 /// was swallowed with them, so the step passed on a dead browser.
 async fn nav_eval(page: &Page, js: &str) -> Result<()> {
     match page.eval(js).await {
-        Err(e @ VelocityError::BrowserConnectionLost { .. }) => Err(e),
+        Err(e @ AtalantaError::BrowserConnectionLost { .. }) => Err(e),
         _ => Ok(()),
     }
 }
@@ -2491,8 +2491,8 @@ fn touch_stroke(width: u32, height: u32, finger: Direction) -> ((f64, f64), (f64
 
 /// Anywhere on the page, but visible and not empty: without a screen the
 /// shared matcher took hidden and zero-size elements too (VEL-127).
-fn page_rect() -> velocity_common::Rect {
-    velocity_common::Rect {
+fn page_rect() -> atalanta_common::Rect {
+    atalanta_common::Rect {
         x: -(1 << 28),
         y: -(1 << 28),
         width: 1 << 29,
@@ -2517,11 +2517,11 @@ fn find_by_id<'a>(tree: &'a Element, id: &str) -> Option<&'a Element> {
 fn relative_ids(
     tree: &Element,
     targets: &[String],
-    relation: velocity_common::Relation,
+    relation: atalanta_common::Relation,
     anchors: &[String],
 ) -> Vec<String> {
-    const TARGET: &str = "\u{1}velocity-target";
-    const ANCHOR: &str = "\u{1}velocity-anchor";
+    const TARGET: &str = "\u{1}atalanta-target";
+    const ANCHOR: &str = "\u{1}atalanta-anchor";
     fn mark(e: &Element, t: &[String], a: &[String]) -> Element {
         Element {
             hint: None,
@@ -2554,7 +2554,7 @@ fn relative_ids(
 
 /// The step's actionability rule, as `act` in `injected.js` takes it.
 fn act_mode_arg() -> &'static str {
-    use velocity_common::actionability::{mode, ActMode};
+    use atalanta_common::actionability::{mode, ActMode};
     match mode() {
         ActMode::Strict => "strict",
         ActMode::Lenient => "lenient",
@@ -2564,8 +2564,8 @@ fn act_mode_arg() -> &'static str {
 
 /// The error for an element the page refuses to act on (disabled,
 /// covered, gone): an assertion-class failure, not a missing element.
-fn not_actionable(element: &Element, reason: &str) -> VelocityError {
-    VelocityError::NotActionable {
+fn not_actionable(element: &Element, reason: &str) -> AtalantaError {
+    AtalantaError::NotActionable {
         selector: format!("<{}>", element.element_type),
         reason: reason.to_string(),
     }
@@ -2661,7 +2661,7 @@ fn new_profile_dir() -> std::io::Result<PathBuf> {
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!(
-            "velocity-chrome-{}-{n}-{nanos:08x}",
+            "atalanta-chrome-{}-{n}-{nanos:08x}",
             std::process::id()
         ));
         match builder.create(&dir) {
@@ -2713,7 +2713,7 @@ fn file_paths(text: &str) -> Result<Vec<String>> {
             if p.is_file() {
                 Ok(p.to_string_lossy().into_owned())
             } else {
-                Err(VelocityError::Config(format!(
+                Err(AtalantaError::Config(format!(
                     "inputText on a file input: no file at {}",
                     p.display()
                 )))
@@ -2721,18 +2721,18 @@ fn file_paths(text: &str) -> Result<Vec<String>> {
         })
         .collect::<Result<_>>()?;
     if paths.is_empty() {
-        return Err(VelocityError::Config(
+        return Err(AtalantaError::Config(
             "inputText on a file input needs a file path (one per line)".into(),
         ));
     }
     Ok(paths)
 }
 
-/// `web.insecureCerts` (`VELOCITY_WEB_INSECURE_CERTS`): accept any TLS
+/// `web.insecureCerts` (`ATALANTA_WEB_INSECURE_CERTS`): accept any TLS
 /// certificate. Off by default.
 fn insecure_certs() -> bool {
     insecure_certs_from(
-        velocity_common::env::var("VELOCITY_WEB_INSECURE_CERTS")
+        atalanta_common::env::var("ATALANTA_WEB_INSECURE_CERTS")
             .ok()
             .as_deref(),
     )
@@ -2742,12 +2742,12 @@ fn insecure_certs_from(v: Option<&str>) -> bool {
     v.is_some_and(|v| matches!(v.trim(), "1" | "true" | "on"))
 }
 
-/// `web.downloads` (`VELOCITY_WEB_DOWNLOADS`): a folder downloads are
+/// `web.downloads` (`ATALANTA_WEB_DOWNLOADS`): a folder downloads are
 /// saved in, or `None` (unset, `deny`, `off`) to refuse them. A download
 /// in headless Chrome used to go into the temporary profile, deleted on
 /// close, or nowhere (review 10 #11).
 fn downloads_dir() -> Option<PathBuf> {
-    let v = velocity_common::env::var("VELOCITY_WEB_DOWNLOADS").ok()?;
+    let v = atalanta_common::env::var("ATALANTA_WEB_DOWNLOADS").ok()?;
     let v = v.trim();
     if v.is_empty() || matches!(v, "deny" | "off" | "0" | "false") {
         return None;
@@ -2755,7 +2755,7 @@ fn downloads_dir() -> Option<PathBuf> {
     let dir = std::env::current_dir().unwrap_or_default().join(v);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         tracing::warn!(
-            "velocity-web: downloads refused: can't make {}: {e}",
+            "atalanta-web: downloads refused: can't make {}: {e}",
             dir.display()
         );
         return None;
@@ -2786,8 +2786,8 @@ async fn watch_downloads(
         let browser = chrome.browser.lock().await;
         match tokio::time::timeout(cdp::CDP_TIMEOUT, browser.execute(params)).await {
             Ok(Ok(_)) => {}
-            Ok(Err(e)) => debug!("velocity-web: download behaviour not set: {e}"),
-            Err(_) => debug!("velocity-web: download behaviour not set: no answer"),
+            Ok(Err(e)) => debug!("atalanta-web: download behaviour not set: {e}"),
+            Err(_) => debug!("atalanta-web: download behaviour not set: no answer"),
         }
         browser.event_listener::<EventDownloadWillBegin>().await
     };
@@ -2808,13 +2808,13 @@ async fn watch_downloads(
             }
             match &dir {
                 Some(d) => tracing::warn!(
-                    "velocity-web: the page downloads {} into {}",
+                    "atalanta-web: the page downloads {} into {}",
                     ev.suggested_filename,
                     d.display()
                 ),
                 None => tracing::warn!(
-                    "velocity-web: the page started a download of {} ({}), which was refused; \
-                     set web.downloads (VELOCITY_WEB_DOWNLOADS) to a folder to keep downloads",
+                    "atalanta-web: the page started a download of {} ({}), which was refused; \
+                     set web.downloads (ATALANTA_WEB_DOWNLOADS) to a folder to keep downloads",
                     ev.suggested_filename,
                     ev.url
                 ),
@@ -2823,11 +2823,11 @@ async fn watch_downloads(
     });
 }
 
-/// `web.frames` (`VELOCITY_WEB_FRAMES`): `off` leaves cross-origin
+/// `web.frames` (`ATALANTA_WEB_FRAMES`): `off` leaves cross-origin
 /// iframes alone (W4), as before: they are opaque boxes.
 fn frames_enabled() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_WEB_FRAMES")
+        atalanta_common::env::var("ATALANTA_WEB_FRAMES")
             .as_deref()
             .map(str::trim),
         Ok("0" | "off" | "false")
@@ -2836,11 +2836,11 @@ fn frames_enabled() -> bool {
 
 /// D-5: `inputText` whose click left the focus on something that takes no
 /// text (a label, a div, nothing at all).
-/// `web.focusCheck` (`VELOCITY_WEB_FOCUS_CHECK`): `off` lets `inputText`
+/// `web.focusCheck` (`ATALANTA_WEB_FOCUS_CHECK`): `off` lets `inputText`
 /// type wherever the focus is, as before D-5.
 fn focus_check_enabled() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_WEB_FOCUS_CHECK")
+        atalanta_common::env::var("ATALANTA_WEB_FOCUS_CHECK")
             .as_deref()
             .map(str::trim),
         Ok("0" | "off" | "false")
@@ -2875,8 +2875,8 @@ pub(crate) async fn opaque_focus(page: &Page) -> Option<String> {
         .ok()?
 }
 
-fn not_editable(element: &Element, focus_tag: Option<&str>) -> VelocityError {
-    VelocityError::AssertionFailed {
+fn not_editable(element: &Element, focus_tag: Option<&str>) -> AtalantaError {
+    AtalantaError::AssertionFailed {
         expected: format!(
             "<{}> focused and editable for inputText",
             element.element_type
@@ -2904,8 +2904,8 @@ mod fake_protocol {
     use std::sync::Mutex;
     use std::time::Duration;
 
+    use atalanta_common::{AtalantaError, Element, Result, Selector};
     use serde_json::{json, Value};
-    use velocity_common::{Element, Result, Selector, VelocityError};
 
     use super::{Pointer, WebDriver};
     use crate::protocol::BrowserProtocol;
@@ -3080,7 +3080,7 @@ mod fake_protocol {
         let none = Fake::default().answer("find", vec![Value::Null]);
         assert!(matches!(
             WebDriver::resolve_element(&none, &sel).await,
-            Err(VelocityError::ElementNotFound { .. })
+            Err(AtalantaError::ElementNotFound { .. })
         ));
     }
 
@@ -3105,7 +3105,7 @@ mod fake_protocol {
                 .await
                 .expect_err("unknown");
             assert!(
-                !matches!(err, VelocityError::ElementNotFound { .. }),
+                !matches!(err, AtalantaError::ElementNotFound { .. }),
                 "{err}"
             );
             assert!(
@@ -3303,7 +3303,7 @@ mod fake_protocol {
         let e = WebDriver::type_into(&plain, "web", &label, "x")
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::AssertionFailed { .. }), "{e}");
         assert_eq!(plain.ops("caretToEnd").len(), 1);
         assert!(start.elapsed() < Duration::from_millis(500));
         // Over a frame whose focus never shows: refused after the wait,
@@ -3320,7 +3320,7 @@ mod fake_protocol {
         let e = WebDriver::type_into(&never, "web", &label, "x")
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::AssertionFailed { .. }), "{e}");
         assert!(never.typed.lock().unwrap().is_empty());
     }
 
@@ -3348,7 +3348,7 @@ mod fake_protocol {
         let e = WebDriver::type_into(&refused, "web", &button(), "hello")
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e}");
+        assert!(matches!(e, AtalantaError::AssertionFailed { .. }), "{e}");
         assert!(refused.typed.lock().unwrap().is_empty());
     }
 }
@@ -3366,7 +3366,7 @@ mod tests {
         assert!(super::insecure_certs_from(Some("true")));
     }
     use super::{chrome_arg, remove_profile_dir, same_document, touch_stroke};
-    use velocity_common::Direction;
+    use atalanta_common::Direction;
 
     /// W2: a touch swipe is the finger moving the named way, through the
     /// middle, 40% of the viewport long.
@@ -3386,7 +3386,7 @@ mod tests {
     /// the first `remove_dir_all`, and the dir survived `cleanup()`.
     #[tokio::test]
     async fn a_profile_dir_written_to_while_removed_is_still_gone() {
-        let dir = std::env::temp_dir().join(format!("velocity-rm-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-rm-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let writer_dir = dir.clone();
         let writer = std::thread::spawn(move || {

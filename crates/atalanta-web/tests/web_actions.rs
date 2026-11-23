@@ -7,8 +7,8 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, PlatformDriver, Selector};
 use common::{driver, find, serve, text, wait_text};
-use velocity_common::{PlatformDriver, Selector, VelocityError};
 
 const DISABLED: &str = r#"<!doctype html><html><body>
 <button id="save" disabled onclick="window.hit=1"><span>Save</span></button>
@@ -40,7 +40,7 @@ async fn a_span_inside_a_disabled_button_is_not_tapped() {
     assert!(err.to_string().contains("disabled"), "{err}");
     // Review T-1: the variant, not just the message.
     assert!(
-        matches!(err, VelocityError::NotActionable { .. }),
+        matches!(err, AtalantaError::NotActionable { .. }),
         "{err:?}"
     );
     assert_eq!(
@@ -546,7 +546,7 @@ async fn enter_in_a_textarea_adds_one_newline() {
         .unwrap();
     let t = find(&d, "#t").await;
     d.input_text("web", &t, "a").await.unwrap();
-    d.press_key("web", velocity_common::Key::Enter)
+    d.press_key("web", atalanta_common::Key::Enter)
         .await
         .unwrap();
     d.input_raw("web", "b").await.unwrap();
@@ -573,7 +573,7 @@ const OVERLAY: &str = r#"<!doctype html><html><head><style>
 /// `force: true` taps without asking.
 #[tokio::test]
 async fn ancestor_overlay_blocks_tap_and_force_taps_anyway() {
-    use velocity_common::actionability::{with_mode, ActMode};
+    use atalanta_common::actionability::{with_mode, ActMode};
     require_chrome!();
     let base = serve(&[("/o.html", OVERLAY)]);
     let d = driver(vec![]).await;
@@ -586,7 +586,7 @@ async fn ancestor_overlay_blocks_tap_and_force_taps_anyway() {
         .await
         .expect_err("an overlay takes the click");
     assert!(
-        matches!(err, VelocityError::NotActionable { .. }),
+        matches!(err, AtalantaError::NotActionable { .. }),
         "{err:?}"
     );
     assert!(err.to_string().contains("ancestor"), "{err}");
@@ -632,7 +632,7 @@ const HOLDER: &str = r#"<!doctype html><html><head><style>
 /// enclosing control. A plain ancestor that is no control still fails.
 #[tokio::test]
 async fn strict_accepts_a_click_on_the_control_holding_the_target() {
-    use velocity_common::actionability::{with_mode, ActMode};
+    use atalanta_common::actionability::{with_mode, ActMode};
     require_chrome!();
     let base = serve(&[("/h.html", HOLDER)]);
     let d = driver(vec![]).await;

@@ -1,4 +1,4 @@
-//! `velocity heal`: review the selectors that self-healing fixed during
+//! `atalanta heal`: review the selectors that self-healing fixed during
 //! passing tests, and accept them into the suite or discard them.
 //!
 //! A heal makes a test pass, but must not stay invisible: this lists each
@@ -6,16 +6,16 @@
 //! in"`) and `--accept` rewrites the YAML in place, keeping comments and
 //! layout, after checking the result still parses.
 
+use atalanta_core::healing::HealedMapping;
 use clap::Args;
 use colored::Colorize;
-use velocity_core::healing::HealedMapping;
 
-const HEALED_FILE: &str = ".velocity/healed-selectors.json";
+const HEALED_FILE: &str = ".atalanta/healed-selectors.json";
 
 #[derive(Args)]
 pub struct HealArgs {
     /// Suite YAML the heals belong to
-    #[arg(short, long, default_value = "velocity.yaml")]
+    #[arg(short, long, default_value = "atalanta.yaml")]
     config: String,
 
     /// Write the proposed selectors into the suite
@@ -29,7 +29,7 @@ pub struct HealArgs {
     /// Drop one pending heal and never propose it again: its number in
     /// the listing (1, 2, …) or its original selector (`text="Log in"` or
     /// `text: "Log in"`); `all` rejects every pending heal. The (selector,
-    /// heal) pair goes into `.velocity/heal-rejected.json`, where runs from
+    /// heal) pair goes into `.atalanta/heal-rejected.json`, where runs from
     /// this directory read it
     #[arg(long, value_name = "N|SELECTOR|all")]
     reject: Option<String>,
@@ -134,9 +134,9 @@ pub fn execute(args: HealArgs) -> anyhow::Result<i32> {
 }
 
 /// The denylist, at the one path the healer reads
-/// (`velocity_core::healing::REJECTED_FILE`, relative to where runs start).
+/// (`atalanta_core::healing::REJECTED_FILE`, relative to where runs start).
 fn rejected_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(velocity_core::healing::REJECTED_FILE)
+    std::path::PathBuf::from(atalanta_core::healing::REJECTED_FILE)
 }
 
 /// `--reject <which>`: move the named heals from the log at `file` to the
@@ -151,7 +151,7 @@ fn reject(
     let (gone, kept): (Vec<HealedMapping>, Vec<HealedMapping>) = mappings
         .into_iter()
         .partition(|m| pairs.contains(&(m.original_selector.clone(), m.healed_selector.clone())));
-    let added = velocity_core::healing::reject_heals(denylist, &gone)?;
+    let added = atalanta_core::healing::reject_heals(denylist, &gone)?;
     if kept.is_empty() {
         std::fs::remove_file(file)?;
     } else {
@@ -193,7 +193,7 @@ fn pick(mappings: &[HealedMapping], which: &str) -> anyhow::Result<Vec<(String, 
         return match list.get(n.wrapping_sub(1)) {
             Some(m) => Ok(vec![pair(m)]),
             None => anyhow::bail!(
-                "--reject {n}: there are {} pending heal(s); run `velocity heal` to list them",
+                "--reject {n}: there are {} pending heal(s); run `atalanta heal` to list them",
                 list.len()
             ),
         };
@@ -202,7 +202,7 @@ fn pick(mappings: &[HealedMapping], which: &str) -> anyhow::Result<Vec<(String, 
         list.into_iter()
             .filter(|m| {
                 m.original_selector == which
-                    || velocity_core::healing::parse_simple_selector(&m.original_selector)
+                    || atalanta_core::healing::parse_simple_selector(&m.original_selector)
                         .is_some_and(|(key, old)| {
                             which == format!("{key}: {old:?}") || which == format!("{key}: {old}")
                         })
@@ -211,7 +211,7 @@ fn pick(mappings: &[HealedMapping], which: &str) -> anyhow::Result<Vec<(String, 
             .collect();
     if named.is_empty() {
         anyhow::bail!(
-            "--reject {which:?}: no pending heal of that selector; run `velocity heal` to list \
+            "--reject {which:?}: no pending heal of that selector; run `atalanta heal` to list \
              them, and reject one by its number"
         );
     }
@@ -221,9 +221,9 @@ fn pick(mappings: &[HealedMapping], which: &str) -> anyhow::Result<Vec<(String, 
 /// The rewritten suite must still parse, validate and resolve its flows;
 /// otherwise nothing is written and the heal log is kept.
 fn check_rewritten(yaml: &str) -> anyhow::Result<()> {
-    let suite = velocity_core::parser::parse_suite_from_str(yaml)
-        .and_then(|suite| velocity_core::validate_suite(&suite).map(|()| suite))
-        .and_then(|suite| velocity_core::resolve_flows(&suite))
+    let suite = atalanta_core::parser::parse_suite_from_str(yaml)
+        .and_then(|suite| atalanta_core::validate_suite(&suite).map(|()| suite))
+        .and_then(|suite| atalanta_core::resolve_flows(&suite))
         .map_err(|e| {
             anyhow::anyhow!("the rewritten suite would not be valid; nothing written: {e}")
         });
@@ -234,7 +234,7 @@ fn check_rewritten(yaml: &str) -> anyhow::Result<()> {
 /// or a flow: the step's own line and the lines indented deeper than it
 /// below it.
 fn step_lines(yaml: &str) -> anyhow::Result<Vec<bool>> {
-    let suite = velocity_core::parser::parse_suite_from_str(yaml)?;
+    let suite = atalanta_core::parser::parse_suite_from_str(yaml)?;
     let lines: Vec<&str> = yaml.lines().collect();
     let mut mask = vec![false; lines.len()];
     let indent = |l: &str| l.len() - l.trim_start().len();
@@ -371,7 +371,7 @@ steps:
     /// the healer reads, and keeps the others pending (m6).
     #[test]
     fn reject_denies_only_the_named_heal() {
-        let dir = std::env::temp_dir().join(format!("velocity-heal-reject-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-heal-reject-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("healed-selectors.json");
         let heal = |from: &str, to: &str| {
@@ -396,7 +396,7 @@ steps:
         let file = log.to_string_lossy().into_owned();
         // By number: the second in the listing (duplicates listed once).
         reject(&file, mappings(&log), "2", &deny).unwrap();
-        let denied = velocity_core::healing::load_rejected(&deny);
+        let denied = atalanta_core::healing::load_rejected(&deny);
         assert_eq!(denied.len(), 1);
         assert_eq!(denied[0].original_selector, r#"text="Pay""#);
         assert_eq!(mappings(&log).len(), 2, "the others stay pending");
@@ -404,12 +404,12 @@ steps:
         assert!(reject(&file, mappings(&log), "text: \"Nope\"", &deny).is_err());
         reject(&file, mappings(&log), "text: \"Log in\"", &deny).unwrap();
         assert!(!log.exists(), "nothing left pending");
-        assert_eq!(velocity_core::healing::load_rejected(&deny).len(), 2);
+        assert_eq!(atalanta_core::healing::load_rejected(&deny).len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
         // Always where the healer reads it, whatever `--file` says.
         assert_eq!(
             rejected_path(),
-            std::path::PathBuf::from(velocity_core::healing::REJECTED_FILE)
+            std::path::PathBuf::from(atalanta_core::healing::REJECTED_FILE)
         );
     }
 

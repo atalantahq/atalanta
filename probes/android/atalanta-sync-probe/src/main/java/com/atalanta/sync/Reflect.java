@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

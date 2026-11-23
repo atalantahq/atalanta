@@ -1,8 +1,8 @@
-# cargo-deny configuration for Velocity.
+# cargo-deny configuration for Atalanta.
 #
 #   cargo deny check licenses advisories bans sources
 #
-# Velocity is Apache-2.0. The allow-list below is the set of licenses that
+# Atalanta is Apache-2.0. The allow-list below is the set of licenses that
 # actually occur in Cargo.lock (see docs/licenses/THIRD-PARTY-RUST.md), all of
 # them permissive and compatible with shipping a single Apache-2.0 binary.
 # Anything new (in particular GPL/LGPL/AGPL/SSPL or an unlicensed crate)
@@ -82,28 +82,28 @@ ignore = false
 # its upstream moves; cargo-deny then reports it as unused.
 multiple-versions = "deny"
 skip = [
-    # chromiumoxide 0.9 (velocity-web) uses reqwest 0.13 with no features at
+    # chromiumoxide 0.9 (atalanta-web) uses reqwest 0.13 with no features at
     # all (`cargo tree -e features -i reqwest@0.13`): plain HTTP to the local
     # DevTools endpoint, no TLS stack, cookies or proxy settings of its own.
     # Everything else, with the TLS choices in Cargo.toml, is reqwest 0.12.
-    # Move velocity-api/core/nl to 0.13 to make it one copy.
+    # Move atalanta-api/core/nl to 0.13 to make it one copy.
     { crate = "reqwest@0.12", reason = "chromiumoxide 0.9 needs 0.13 (featureless, local DevTools only)" },
     { crate = "base64@0.22", reason = "axum and reqwest 0.12; reqwest 0.13 (chromiumoxide) has 0.23" },
-    # tiny-skia 0.11 (velocity-headless) still uses png 0.17, and png 0.17 bitflags 1.
-    { crate = "png@0.17", reason = "tiny-skia 0.11 (velocity-headless)" },
+    # tiny-skia 0.11 (atalanta-headless) still uses png 0.17, and png 0.17 bitflags 1.
+    { crate = "png@0.17", reason = "tiny-skia 0.11 (atalanta-headless)" },
     { crate = "bitflags@1", reason = "png 0.17 through tiny-skia 0.11" },
-    # cosmic-text 0.16 (velocity-headless) pulls an older skrifa through swash.
-    { crate = "skrifa@0.37", reason = "swash 0.2 through cosmic-text 0.16 (velocity-headless)" },
+    # cosmic-text 0.16 (atalanta-headless) pulls an older skrifa through swash.
+    { crate = "skrifa@0.37", reason = "swash 0.2 through cosmic-text 0.16 (atalanta-headless)" },
     { crate = "read-fonts@0.35", reason = "skrifa 0.37 through swash/cosmic-text" },
     # getrandom/rand: ring 0.17 is on 0.2; tungstenite 0.28 on rand 0.9
     # (getrandom 0.3, r-efi 5); proptest on rand 0.10 (getrandom 0.4).
     { crate = "getrandom@0.2", reason = "ring 0.17 (rustls)" },
     { crate = "getrandom@0.3", reason = "rand_core 0.9 through tungstenite 0.28" },
     { crate = "rand_core@0.9", reason = "rand 0.9 through tungstenite 0.28" },
-    { crate = "r-efi@5", reason = "getrandom 0.3 (UEFI only; never built for Velocity's targets)" },
+    { crate = "r-efi@5", reason = "getrandom 0.3 (UEFI only; never built for Atalanta's targets)" },
     # tokio-macros 2.7 has moved to syn 3; most proc-macros are still on syn 2.
     { crate = "syn@2", reason = "most proc-macros; tokio-macros is on syn 3" },
-    # Windows-only crates, never built for Velocity's targets.
+    # Windows-only crates, never built for Atalanta's targets.
     { crate = "windows-sys@0.52", reason = "ring 0.17 (Windows only)" },
     { crate = "windows-sys@0.59", reason = "colored 2 (Windows only)" },
 ]

@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:velocity_flutter_helper/velocity_flutter_helper.dart';
+import 'package:atalanta_flutter_helper/atalanta_flutter_helper.dart';
 
 List<Map<String, dynamic>> nodesOf(Map<String, dynamic> json) =>
     (json['nodes'] as List).cast<Map<String, dynamic>>();
@@ -16,14 +16,14 @@ Map<String, dynamic>? byText(List<Map<String, dynamic>> nodes, String text) {
 }
 
 Future<List<Map<String, dynamic>>> semantics(
-    VelocityBridgeServer s, WidgetTester tester) async {
+    AtalantaBridgeServer s, WidgetTester tester) async {
   final r = await s.handleCommand({'cmd': 'get_hierarchy', 'mode': 'semantics'}, tester: tester);
   expect(r['status'], 'ok');
   return nodesOf(r['data'] as Map<String, dynamic>);
 }
 
 Future<List<Map<String, dynamic>>> widgets(
-    VelocityBridgeServer s, WidgetTester tester) async {
+    AtalantaBridgeServer s, WidgetTester tester) async {
   final r = await s.handleCommand({'cmd': 'get_hierarchy'}, tester: tester);
   expect(r['status'], 'ok');
   return nodesOf(r['data'] as Map<String, dynamic>);
@@ -39,8 +39,8 @@ Map<String, dynamic> targetOf(Map<String, dynamic> n) {
   };
 }
 
-VelocityBridgeServer serverFor(Widget Function() app, {Future<void> Function()? onReset}) =>
-    VelocityBridgeServer(port: 0, appBuilder: app, onReset: onReset);
+AtalantaBridgeServer serverFor(Widget Function() app, {Future<void> Function()? onReset}) =>
+    AtalantaBridgeServer(port: 0, appBuilder: app, onReset: onReset);
 
 class Login extends StatelessWidget {
   const Login({super.key});
@@ -455,7 +455,7 @@ void main() {
   });
 
   testWidgets('run() serves commands in order over TCP and echoes ids', (tester) async {
-    final s = VelocityBridgeServer(port: 0, appBuilder: () => const Counter());
+    final s = AtalantaBridgeServer(port: 0, appBuilder: () => const Counter());
     final replies = <Map<String, dynamic>>[];
     // The client lives in the real zone; run() pumps in the test body.
     late Future<void> client;

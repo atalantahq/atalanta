@@ -1,4 +1,4 @@
-"""Summarise velocity results.json files written by scripts/measure/*.sh.
+"""Summarise atalanta results.json files written by scripts/measure/*.sh.
 
 Usage: summarize.py DIR LABEL [LABEL...] [--steps PATTERN] [--by test|action]
 

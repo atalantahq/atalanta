@@ -1,11 +1,11 @@
-//! `velocity api scaffold`: an API test suite from an OpenAPI 3 document
-//! (the work is in `velocity_api::openapi`).
+//! `atalanta api scaffold`: an API test suite from an OpenAPI 3 document
+//! (the work is in `atalanta_api::openapi`).
 
 use std::path::PathBuf;
 
+use atalanta_api::openapi::{self, Options, Spec};
 use clap::{Args, Subcommand};
 use colored::Colorize;
-use velocity_api::openapi::{self, Options, Spec};
 
 #[derive(Subcommand)]
 pub enum ApiCommand {
@@ -95,9 +95,9 @@ async fn scaffold(args: ScaffoldArgs) -> anyhow::Result<i32> {
 /// The suite must load like any other: a scaffold that doesn't is a bug
 /// here, not the spec's fault.
 fn check(yaml: &str) -> anyhow::Result<()> {
-    let suite = velocity_core::parse_suite_from_str(yaml)
+    let suite = atalanta_core::parse_suite_from_str(yaml)
         .map_err(|e| anyhow::anyhow!("the scaffolded suite doesn't parse: {e}"))?;
-    velocity_core::validate_suite(&suite)
+    atalanta_core::validate_suite(&suite)
         .map_err(|e| anyhow::anyhow!("the scaffolded suite doesn't validate: {e}"))?;
     Ok(())
 }
@@ -143,17 +143,17 @@ fn print_report(r: &openapi::ConfirmReport) {
 mod tests {
     use super::*;
 
-    /// Through the same loader and validator as `velocity run`.
+    /// Through the same loader and validator as `atalanta run`.
     #[test]
     fn a_scaffolded_suite_parses_and_validates() {
-        let text = include_str!("../../../crates/velocity-api/tests/fixtures/petstore.yaml");
+        let text = include_str!("../../../crates/atalanta-api/tests/fixtures/petstore.yaml");
         let spec = Spec::parse(text).unwrap();
         let suite = openapi::scaffold(&spec, &Options::default()).unwrap();
         let yaml = openapi::render(&suite).unwrap();
         check(&yaml).unwrap();
-        let parsed = velocity_core::parse_suite_from_str(&yaml).unwrap();
+        let parsed = atalanta_core::parse_suite_from_str(&yaml).unwrap();
         assert!(parsed.app_id.is_empty());
         assert_eq!(parsed.tests.len(), 2);
-        assert!(velocity_core::http_only_tests(&parsed.tests));
+        assert!(atalanta_core::http_only_tests(&parsed.tests));
     }
 }

@@ -1,4 +1,4 @@
-use velocity_common::{Element, Rect};
+use atalanta_common::{Element, Rect};
 
 /// Deepest element nesting kept from a page.
 pub const MAX_DEPTH: usize = 512;
@@ -8,8 +8,8 @@ pub const MAX_DEPTH: usize = 512;
 /// root). Flat, so the JSON nesting limit can't cut a deep page short;
 /// the recursive walker stopped at depth 40 (VEL-126).
 ///
-/// Each node's Velocity id (kept outside the DOM, stable for the page's
-/// life) becomes the `platform_id` of `velocity_common::Element`.
+/// Each node's Atalanta id (kept outside the DOM, stable for the page's
+/// life) becomes the `platform_id` of `atalanta_common::Element`.
 ///
 /// A node deeper than [`MAX_DEPTH`] hangs from its ancestor at that depth
 /// instead: the page decides the nesting, and drop, clone, serialize and
@@ -134,11 +134,11 @@ mod tests {
             .map(|i| serde_json::json!({"velId": format!("v{i}"), "tag": "div", "p": i as i64 - 1}))
             .collect();
         let root = super::tree_from_list(&list).unwrap();
-        fn deepest(e: &velocity_common::Element) -> usize {
+        fn deepest(e: &atalanta_common::Element) -> usize {
             1 + e.children.iter().map(deepest).max().unwrap_or(0)
         }
         assert!(deepest(&root) <= super::MAX_DEPTH + 1);
-        fn count(e: &velocity_common::Element) -> usize {
+        fn count(e: &atalanta_common::Element) -> usize {
             1 + e.children.iter().map(count).sum::<usize>()
         }
         assert_eq!(count(&root), n, "nothing dropped");
@@ -155,9 +155,9 @@ mod tests {
         });
         let el = json_to_element(&node).unwrap();
         assert_eq!(el.test_id.as_deref(), Some("pay"));
-        assert!(velocity_common::selector_match::matches_selector(
+        assert!(atalanta_common::selector_match::matches_selector(
             &el,
-            &velocity_common::Selector::Id("pay".into()),
+            &atalanta_common::Selector::Id("pay".into()),
             None
         ));
     }

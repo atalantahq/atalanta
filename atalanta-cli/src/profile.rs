@@ -1,4 +1,4 @@
-//! `velocity run --profile <file>`: a Chrome trace of the run.
+//! `atalanta run --profile <file>`: a Chrome trace of the run.
 //!
 //! Every span (test, step, settle, …) becomes a "complete" event with its
 //! duration; each test gets its own track, so parallel runs line up per
@@ -58,8 +58,8 @@ pub fn flush() {
 /// values are redacted, not the serialised text: an all-digit secret (a
 /// PIN, an OTP) was masked inside timestamps and made the JSON invalid.
 fn write(path: &str, mut doc: Value) -> std::io::Result<()> {
-    velocity_common::redact::redact_value(&mut doc);
-    velocity_common::fsutil::write_private(std::path::Path::new(path), doc.to_string().as_bytes())
+    atalanta_common::redact::redact_value(&mut doc);
+    atalanta_common::fsutil::write_private(std::path::Path::new(path), doc.to_string().as_bytes())
 }
 
 pub struct ChromeLayer {
@@ -209,9 +209,9 @@ mod tests {
     #[test]
     fn the_profile_is_redacted_and_private() {
         use std::os::unix::fs::PermissionsExt;
-        velocity_common::redact::register_secret("prof-S3cret-9921");
+        atalanta_common::redact::register_secret("prof-S3cret-9921");
         let path =
-            std::env::temp_dir().join(format!("velocity-profile-{}.json", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-profile-{}.json", std::process::id()));
         let doc = serde_json::json!({
             "traceEvents": [{ "name": "driver call failed", "args": { "error": "no element text=\"prof-S3cret-9921\"" } }]
         });
@@ -228,9 +228,9 @@ mod tests {
     // that contain it stay numbers and the file stays valid JSON.
     #[test]
     fn a_numeric_secret_does_not_corrupt_the_trace() {
-        velocity_common::redact::register_secret("48213977");
+        atalanta_common::redact::register_secret("48213977");
         let path =
-            std::env::temp_dir().join(format!("velocity-profile-num-{}.json", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-profile-num-{}.json", std::process::id()));
         let doc = serde_json::json!({
             "traceEvents": [{ "name": "step", "ts": 1248213977u64, "dur": 482139770u64,
                 "args": { "text": "pin 48213977" } }]

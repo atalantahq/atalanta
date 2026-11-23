@@ -26,7 +26,7 @@ use std::time::Duration;
 // settle's reads no longer depend on how busy the machine is.
 use tokio::time::Instant;
 
-use velocity_common::{Element, PlatformDriver, Result, SyncConfig, VelocityError};
+use atalanta_common::{AtalantaError, Element, PlatformDriver, Result, SyncConfig};
 
 use crate::tree_diff::TreeDiff;
 
@@ -308,7 +308,7 @@ impl AdaptiveSyncEngine {
                 }
                 if !r.settled {
                     self.last_stats.capped = true;
-                    return Err(VelocityError::SyncTimeout {
+                    return Err(AtalantaError::SyncTimeout {
                         timeout_ms: self.cap().as_millis() as u64,
                         stable_count: 0,
                         required: 1,
@@ -396,7 +396,7 @@ impl AdaptiveSyncEngine {
                         self.last_stats.reads
                     )
                 });
-                return Err(VelocityError::SyncTimeout {
+                return Err(AtalantaError::SyncTimeout {
                     timeout_ms: self.cap().as_millis() as u64,
                     stable_count: 0,
                     required: 1,
@@ -437,7 +437,7 @@ pub type SmartPollingSyncEngine = AdaptiveSyncEngine;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{DeviceInfo, Direction, Element, Key, Rect, Selector};
+    use atalanta_common::{DeviceInfo, Direction, Element, Key, Rect, Selector};
 
     fn hash_element(element: &Element) -> u64 {
         TreeDiff::hash_element(element)
@@ -483,7 +483,7 @@ mod tests {
         call_count: AtomicUsize,
         elements: Vec<Element>,
         /// What `settle_on_device` answers (`None`: no device settle).
-        device_settle: Option<velocity_common::DeviceSettle>,
+        device_settle: Option<atalanta_common::DeviceSettle>,
     }
 
     #[async_trait::async_trait]
@@ -563,7 +563,7 @@ mod tests {
             _: u64,
             _: u64,
             _: u64,
-        ) -> Option<velocity_common::DeviceSettle> {
+        ) -> Option<atalanta_common::DeviceSettle> {
             self.device_settle
         }
     }
@@ -627,7 +627,7 @@ mod tests {
         };
         let mut engine = AdaptiveSyncEngine::new(config);
         let result = engine.wait_for_idle(&d, "d").await;
-        assert!(matches!(result, Err(VelocityError::SyncTimeout { .. })));
+        assert!(matches!(result, Err(AtalantaError::SyncTimeout { .. })));
         let stats = engine.last_stats();
         assert!(stats.capped);
         assert!(stats.duration < Duration::from_millis(400), "{stats:?}");
@@ -781,7 +781,7 @@ mod tests {
         };
         let mut engine = AdaptiveSyncEngine::new(config);
         engine.wait_for_idle(&d, "d").await.unwrap();
-        d.device_settle = Some(velocity_common::DeviceSettle {
+        d.device_settle = Some(atalanta_common::DeviceSettle {
             settled: true,
             reacted: true,
             elapsed_ms: 10,
@@ -799,7 +799,7 @@ mod tests {
         let mut d = driver(vec![make_element("form")]);
         let mut engine = AdaptiveSyncEngine::new(SyncConfig::default());
         engine.wait_for_idle(&d, "d").await.unwrap();
-        d.device_settle = Some(velocity_common::DeviceSettle {
+        d.device_settle = Some(atalanta_common::DeviceSettle {
             settled: true,
             reacted: false,
             elapsed_ms: 10,

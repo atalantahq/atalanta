@@ -20,7 +20,7 @@ impl<'a> TestExecutor<'a> {
     ) -> (Result<()>, Option<ResourceDelta>) {
         let Some(resolver) = self.planner.clone() else {
             return (
-                Err(VelocityError::Config(
+                Err(AtalantaError::Config(
                     "natural-language step encountered but no NL planner is configured \
                      (set ANTHROPIC_API_KEY or OPENAI_API_KEY to enable)"
                         .to_string(),
@@ -34,7 +34,7 @@ impl<'a> TestExecutor<'a> {
         // would only fail the same way (N-2).
         let fresh = self.retry_attempt > 0;
         // D-30: `nl.dataPolicy: describe` keeps data values from the model.
-        let describe_data = self.config.nl.data_policy == velocity_common::NlDataPolicy::Describe;
+        let describe_data = self.config.nl.data_policy == atalanta_common::NlDataPolicy::Describe;
         let step = NaturalStep {
             intent,
             kind,
@@ -86,9 +86,9 @@ impl<'a> TestExecutor<'a> {
                     // a configuration problem (VEL-222); a lost device or an
                     // unavailable model API keeps its own variant.
                     let e = match e {
-                        VelocityError::ServiceUnavailable { .. } => e,
+                        AtalantaError::ServiceUnavailable { .. } => e,
                         _ if is_infrastructure(&e) || is_crash(&e) => e,
-                        e => VelocityError::AssertionFailed {
+                        e => AtalantaError::AssertionFailed {
                             expected: format!("waitUntil {condition:?}"),
                             actual: format!("not reached: {e}"),
                             selector: String::new(),
@@ -115,13 +115,13 @@ impl<'a> TestExecutor<'a> {
         let tree = self.driver.get_hierarchy_cached(device_id).await.ok()?;
         self.audit_screen(device_id, &tree);
         let (w, h) = self.driver.screen_size(device_id).await.ok()?;
-        let screen = velocity_common::Rect {
+        let screen = atalanta_common::Rect {
             x: 0,
             y: 0,
             width: w,
             height: h,
         };
-        Some(velocity_common::selector_match::match_count(
+        Some(atalanta_common::selector_match::match_count(
             &tree,
             selector,
             Some(&screen),
@@ -141,12 +141,12 @@ impl<'a> TestExecutor<'a> {
         // current page's origin unless the suite allows otherwise.
         if let Action::Goto { url } = action {
             let current = self.driver.current_url(device_id).await;
-            if let Err(why) = velocity_common::natural::check_goto(
+            if let Err(why) = atalanta_common::natural::check_goto(
                 url,
                 current.as_deref(),
                 self.config.nl.allow_cross_origin,
             ) {
-                return (Err(VelocityError::Config(why)), None);
+                return (Err(AtalantaError::Config(why)), None);
             }
         }
         let twins = self.twin_count(device_id, action).await;
@@ -180,7 +180,7 @@ impl<'a> TestExecutor<'a> {
                 // Identity check (N-4): the rows an index picks among changed,
                 // so it may now hit a different "twin".
                 (Some(was), Some(now)) if was != now => (
-                    Err(VelocityError::Config(format!(
+                    Err(AtalantaError::Config(format!(
                         "the {was} matching elements it chose among are now {now}"
                     ))),
                     None,
@@ -198,7 +198,7 @@ impl<'a> TestExecutor<'a> {
                 if hit.effect == Some(true) && r.effect == Some(false) {
                     resolver.invalidate(step).await;
                     return (
-                        Err(VelocityError::AssertionFailed {
+                        Err(AtalantaError::AssertionFailed {
                             expected: format!(
                                 "{} to change the screen, as it did when it was planned",
                                 describe(&cached)
@@ -217,7 +217,7 @@ impl<'a> TestExecutor<'a> {
             }
             let first_err = match result {
                 Ok(r) => {
-                    tracing::info!(intent = step.intent, "velocity-nl: cache hit");
+                    tracing::info!(intent = step.intent, "atalanta-nl: cache hit");
                     return (Ok(r), delta);
                 }
                 Err(e) => e,
@@ -227,7 +227,7 @@ impl<'a> TestExecutor<'a> {
             // whatever is there and could pass on another element. The
             // entry is dropped, so the next attempt plans it afresh.
             if step.kind == NaturalKind::Assert {
-                tracing::info!(intent = step.intent, reason = %first_err, "velocity-nl: cached assertion failed; not re-planning");
+                tracing::info!(intent = step.intent, reason = %first_err, "atalanta-nl: cached assertion failed; not re-planning");
                 resolver.invalidate(step).await;
                 return (
                     Err(annotate(
@@ -238,7 +238,7 @@ impl<'a> TestExecutor<'a> {
                     delta,
                 );
             }
-            tracing::info!(intent = step.intent, reason = %first_err, "velocity-nl: cached step failed; re-planning");
+            tracing::info!(intent = step.intent, reason = %first_err, "atalanta-nl: cached step failed; re-planning");
             resolver.invalidate(step).await;
             // N-8: re-plan with the old resolution as a hint.
             let hint = format!(
@@ -283,7 +283,7 @@ impl<'a> TestExecutor<'a> {
             } else {
                 "not cached"
             },
-            "velocity-nl: planning"
+            "atalanta-nl: planning"
         );
         let action = match self
             .plan_natural(resolver, step, device_id, attempts, None)
@@ -324,7 +324,7 @@ impl<'a> TestExecutor<'a> {
                     .screen_size(device_id)
                     .await
                     .ok()
-                    .map(|(w, h)| velocity_common::Rect {
+                    .map(|(w, h)| atalanta_common::Rect {
                         x: 0,
                         y: 0,
                         width: w,
@@ -334,7 +334,7 @@ impl<'a> TestExecutor<'a> {
                 .plan_on_screen(step, &hierarchy, screen.as_ref(), hint)
                 .await
             {
-                Err(VelocityError::ElementNotFound { .. }) if attempt < attempts => {
+                Err(AtalantaError::ElementNotFound { .. }) if attempt < attempts => {
                     attempt += 1;
                     tokio::time::sleep(NOT_FOUND_RETRY_DELAY).await;
                     self.driver.invalidate_hierarchy_cache().await;
@@ -357,7 +357,7 @@ impl<'a> TestExecutor<'a> {
     ) -> String {
         let key = format!(
             "{kind:?}\u{1f}{}\u{1f}{has_data}",
-            velocity_common::natural::step_shape(written.trim()),
+            atalanta_common::natural::step_shape(written.trim()),
         );
         let n = self.natural_seen.entry(key).or_insert(0);
         let scope = format!("{}#{n}", self.current_test);
@@ -418,17 +418,17 @@ impl<'a> TestExecutor<'a> {
     }
 
     /// Ask the AI checker whether `claim` holds on the current screen.
-    /// Code decides: see `velocity_nl::checker`.
+    /// Code decides: see `atalanta_nl::checker`.
     pub(super) async fn verify_screen(
         &mut self,
         device_id: &str,
         at: &str,
         claim: &str,
-    ) -> velocity_common::VerifyCheck {
-        let unavailable = |reason: String| velocity_common::VerifyCheck {
+    ) -> atalanta_common::VerifyCheck {
+        let unavailable = |reason: String| atalanta_common::VerifyCheck {
             at: at.to_string(),
             claim: claim.to_string(),
-            outcome: velocity_common::VerifyOutcome::Error,
+            outcome: atalanta_common::VerifyOutcome::Error,
             reason,
             evidence: vec![],
         };
@@ -448,7 +448,7 @@ impl<'a> TestExecutor<'a> {
                 .screen_size(device_id)
                 .await
                 .ok()
-                .map(|(w, h)| velocity_common::Rect {
+                .map(|(w, h)| atalanta_common::Rect {
                     x: 0,
                     y: 0,
                     width: w,
@@ -474,7 +474,7 @@ impl<'a> TestExecutor<'a> {
                 shot.as_deref(),
             )
             .await;
-        tracing::info!(at, outcome = %check.outcome, "velocity-nl: verify");
+        tracing::info!(at, outcome = %check.outcome, "atalanta-nl: verify");
         check
     }
 }

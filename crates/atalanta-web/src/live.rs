@@ -12,13 +12,13 @@
 
 use std::sync::Arc;
 
+use atalanta_common::{AtalantaError, Result};
 use chromiumoxide::cdp::browser_protocol::page::{
     EventScreencastFrame, ScreencastFrameAckParams, StartScreencastFormat, StartScreencastParams,
     StopScreencastParams,
 };
 use futures::StreamExt;
 use tokio::sync::mpsc;
-use velocity_common::{Result, VelocityError};
 
 use crate::cdp::Page;
 use crate::WebDriver;
@@ -60,7 +60,7 @@ impl WebDriver {
             .page
             .event_listener::<EventScreencastFrame>()
             .await
-            .map_err(|e| VelocityError::Internal(anyhow::anyhow!("screencast events: {e}")))?;
+            .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("screencast events: {e}")))?;
         let (tx, frames) = mpsc::channel(4);
         let p = page.clone();
         let task = tokio::spawn(async move {

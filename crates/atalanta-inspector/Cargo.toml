@@ -1,5 +1,5 @@
 [package]
-name = "velocity-inspector"
+name = "atalanta-inspector"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "inspector", "mobile", "accessibility", "ui"]
 categories = ["development-tools::testing"]
-description = "Visual inspector Web UI for Velocity mobile testing framework"
+description = "Visual inspector Web UI for Atalanta mobile testing framework"
 
 # The published crate carries the built web UI (`frontend/dist`, gitignored
 # and produced by `npm ci && npm run build` before packaging) and none of the
@@ -18,10 +18,10 @@ description = "Visual inspector Web UI for Velocity mobile testing framework"
 include = ["/src/**", "/tests/**", "/build.rs", "/frontend/dist/**", "/Cargo.toml", "/README.md"]
 
 [dependencies]
-velocity-common = { workspace = true }
-velocity-core = { workspace = true }
-# The live H.264 stream's types (`velocity_android::video`).
-velocity-android = { workspace = true }
+atalanta-common = { workspace = true }
+atalanta-core = { workspace = true }
+# The live H.264 stream's types (`atalanta_android::video`).
+atalanta-android = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

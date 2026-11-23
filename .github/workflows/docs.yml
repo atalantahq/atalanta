@@ -6,7 +6,7 @@ name: Docs
 
 on:
   pull_request:
-    paths: ["docs/**", "README.md", "crates/velocity-core/src/schema.rs", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "README.md", "crates/atalanta-core/src/schema.rs", ".github/workflows/docs.yml"]
   release:
     types: [published]
   workflow_dispatch:
@@ -47,8 +47,8 @@ jobs:
       # validates; DSL-REFERENCE.md, MCP.md and llms.txt match the code.
       - name: Snippet and generated-page checks
         run: |
-          cargo test -p velocity-core --locked --test doc_examples --test dsl_reference --test llms_txt
-          cargo test -p velocity-mcp-server --locked --lib the_mcp_doc_lists_every_tool
+          cargo test -p atalanta-core --locked --test doc_examples --test dsl_reference --test llms_txt
+          cargo test -p atalanta-mcp-server --locked --lib the_mcp_doc_lists_every_tool
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: mdbook@0.4.52

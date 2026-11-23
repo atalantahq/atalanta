@@ -1,7 +1,7 @@
-//! Velocity's MCP server: JSON-RPC over stdio that gives AI agents the
+//! Atalanta's MCP server: JSON-RPC over stdio that gives AI agents the
 //! device tools (look at the screen, act, assert), suite runs and
-//! `velocity explore` sessions as background tasks, and `velocity doctor`'s
-//! diagnostics. Internal to the `velocity` CLI (`velocity mcp`); its API has
+//! `atalanta explore` sessions as background tasks, and `atalanta doctor`'s
+//! diagnostics. Internal to the `atalanta` CLI (`atalanta mcp`); its API has
 //! no stability promise.
 
 pub mod agent_error;

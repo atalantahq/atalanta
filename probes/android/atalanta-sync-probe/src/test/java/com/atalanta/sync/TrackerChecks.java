@@ -1,6 +1,6 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
-import static com.velocity.sync.HostChecks.check;
+import static com.atalanta.sync.HostChecks.check;
 
 import android.os.Message;
 import android.os.MessageQueue;
@@ -205,7 +205,7 @@ final class TrackerChecks {
         q.clear();
         q.enqueue(Message.of(clock.uptimeMs() + 300, new FakeHandler(), new BlinkLike(), 0));
         q.enqueue(Message.of(clock.uptimeMs() + 300, new FakeHandler(), null, 5));
-        t.ignoreCallbacks(Collections.singletonList("com.velocity.sync.TrackerChecks$FakeHandler"));
+        t.ignoreCallbacks(Collections.singletonList("com.atalanta.sync.TrackerChecks$FakeHandler"));
         check(t.pending(-1) == 1, "B1: an ignored target class drops its what-messages, not the callbacks posted through it");
     }
 
@@ -236,7 +236,7 @@ final class TrackerChecks {
         q.clear();
         q.enqueue(Message.of(clock.uptimeMs() + 400, h, new BlinkLike(), 0));
         check(t.pending(-1) == 1, "P1: an app callback counts");
-        t.ignoreCallbacks(Collections.singletonList("com.velocity.sync.TrackerChecks$BlinkLike"));
+        t.ignoreCallbacks(Collections.singletonList("com.atalanta.sync.TrackerChecks$BlinkLike"));
         check(t.pending(-1) == 0, "P1: ignoreTimerCallbacks drops it");
     }
 
@@ -365,7 +365,7 @@ final class TrackerChecks {
     }
 
     static void timerGlobalIgnores() {
-        LooperTimers.ignoreCallbacksGlobally(Collections.singletonList("com.velocity.sync.TrackerChecks$Blink2"));
+        LooperTimers.ignoreCallbacksGlobally(Collections.singletonList("com.atalanta.sync.TrackerChecks$Blink2"));
         Clock clock = new Clock();
         MessageQueue q = new MessageQueue();
         LooperTimers t = new LooperTimers(q, null, clock); // made after (start() after ignoreTimerCallbacks)
@@ -925,11 +925,11 @@ final class TrackerChecks {
 
     static void okHttpInterceptor() throws Exception {
         NetworkTracker n = new NetworkTracker(new UrlBlocklist(UrlBlocklist.DEFAULT_PATTERNS));
-        VelocityOkHttpInterceptor i = new VelocityOkHttpInterceptor(n);
+        AtalantaOkHttpInterceptor i = new AtalantaOkHttpInterceptor(n);
         Chain ok = new Chain("https://api.example.com/items", n, null);
         Response r = i.intercept(ok);
         check(r.code == 200 && ok.seenInFlight == 1 && n.count() == 0,
-                "P3: VelocityOkHttpInterceptor counts a request while it is in flight");
+                "P3: AtalantaOkHttpInterceptor counts a request while it is in flight");
         Chain bad = new Chain("https://api.example.com/items", n, new IOException("reset"));
         boolean threw = false;
         try {
@@ -960,7 +960,7 @@ final class TrackerChecks {
 
     static void okHttpBody() throws Exception {
         NetworkTracker n = new NetworkTracker(new UrlBlocklist(UrlBlocklist.DEFAULT_PATTERNS));
-        VelocityOkHttpInterceptor i = new VelocityOkHttpInterceptor(n);
+        AtalantaOkHttpInterceptor i = new AtalantaOkHttpInterceptor(n);
         // Headers arrived; the body is read afterwards (Retrofit/enqueue).
         Response r = i.intercept(new BodyChain("https://api.example.com/items", "{\"items\":[1,2,3]}"));
         check(n.count() == 1, "M4: still counted after the headers arrived (the body is unread)");
@@ -994,14 +994,14 @@ final class TrackerChecks {
         check(n.count() == 0, "M4: a response without a body ends at once");
         // A blocklisted URL: not counted, body untouched.
         Response ws = i.intercept(new BodyChain("wss://chat.example.com/live", "x"));
-        check(n.count() == 0 && !(ws.body() instanceof VelocityOkHttpInterceptor.CountedBody), "M4: a WebSocket URL never counts");
+        check(n.count() == 0 && !(ws.body() instanceof AtalantaOkHttpInterceptor.CountedBody), "M4: a WebSocket URL never counts");
         okHttpLeakedBody();
     }
 
     static void okHttpLeakedBody() throws Exception {
         Clock clock = new Clock();
         NetworkTracker n = new NetworkTracker(new UrlBlocklist(UrlBlocklist.DEFAULT_PATTERNS), clock);
-        VelocityOkHttpInterceptor i = new VelocityOkHttpInterceptor(n);
+        AtalantaOkHttpInterceptor i = new AtalantaOkHttpInterceptor(n);
         Response leaked = i.intercept(new BodyChain("https://api.example.com/leak", "never read"));
         clock.now.addAndGet(NetworkTracker.BODY_MAX_MS - 1);
         check(n.count() == 1, "fi4-m6: a body not finished yet counts until the bound");

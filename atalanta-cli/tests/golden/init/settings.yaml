@@ -1,6 +1,6 @@
-# yaml-language-server: $schema=./velocity.schema.json
-# Starter suite written by `velocity init`. Run it: velocity run velocity/settings.yaml
-# The assertions were read from com.android.settings's first screen; `velocity inspect` shows
+# yaml-language-server: $schema=./atalanta.schema.json
+# Starter suite written by `atalanta init`. Run it: atalanta run atalanta/settings.yaml
+# The assertions were read from com.android.settings's first screen; `atalanta inspect` shows
 # the live tree to pick more. Reference: docs/DSL.md (the steps and selectors).
 
 appId: com.android.settings

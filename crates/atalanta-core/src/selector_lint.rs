@@ -1,5 +1,5 @@
-use velocity_common::test_types::{TestCase, TestSuite};
-use velocity_common::types::{Action, Selector};
+use atalanta_common::test_types::{TestCase, TestSuite};
+use atalanta_common::types::{Action, Selector};
 
 /// Severity of a lint warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,7 @@ fn lint_test(test: &TestCase, diagnostics: &mut Vec<LintDiagnostic>) {
     lint_steps(&test.steps, &test.name, diagnostics);
 }
 
-fn lint_steps(steps: &[velocity_common::Step], name: &str, diagnostics: &mut Vec<LintDiagnostic>) {
+fn lint_steps(steps: &[atalanta_common::Step], name: &str, diagnostics: &mut Vec<LintDiagnostic>) {
     for (i, step) in steps.iter().enumerate() {
         // Every selector the step uses, `within:` containers included, and
         // every selector nested in them (VEL-207: only the top one was seen).
@@ -93,7 +93,7 @@ fn check_fixed_wait(
     let message = if next.is_some_and(waits_for_its_target) {
         format!(
             "wait {ms} ms before a step that already waits for its element; remove it \
-             (`velocity migrate waits` does this)"
+             (`atalanta migrate waits` does this)"
         )
     } else {
         format!(
@@ -117,7 +117,7 @@ pub(crate) fn step_selectors(action: &Action) -> Vec<&Selector> {
     let mut out: Vec<&Selector> = extract_selector(action).into_iter().collect();
     if let Action::AssertScreenshot { mask, crop, .. } = action {
         out.extend(mask);
-        if let Some(velocity_common::ScreenshotCrop::Element(sel)) = crop {
+        if let Some(atalanta_common::ScreenshotCrop::Element(sel)) = crop {
             out.push(sel);
         }
     }
@@ -199,7 +199,7 @@ fn lint_selector(
     check_foreign_syntax(selector, test_name, step_index, &sel_str, diagnostics);
 }
 
-/// Selector syntax of other engines that Velocity doesn't speak, and what
+/// Selector syntax of other engines that Atalanta doesn't speak, and what
 /// to write instead: Playwright's chaining (`>>`) and text engine
 /// (`text=`), Playwright's `:has-text()` and jQuery's `:contains()`.
 const FOREIGN_SYNTAX: &[(&str, &str, &str)] = &[
@@ -260,7 +260,7 @@ fn check_foreign_syntax(
                 selector: sel_str.to_string(),
                 rule: "foreign-syntax".to_string(),
                 message: format!(
-                    "'{value}' uses {what}, which Velocity selectors don't support; {instead}"
+                    "'{value}' uses {what}, which Atalanta selectors don't support; {instead}"
                 ),
             });
             return;
@@ -269,7 +269,7 @@ fn check_foreign_syntax(
 }
 
 /// `volatile-id`: an id a build generated; `regex-in-text`: a `text:` that
-/// reads like a regular expression (Maestro's `text:` is one, Velocity's is
+/// reads like a regular expression (Maestro's `text:` is one, Atalanta's is
 /// exact); `digits-in-text`: a price, count or time that changes with the
 /// data.
 fn check_volatile_text_and_ids(
@@ -291,7 +291,7 @@ fn check_volatile_text_and_ids(
     };
     match selector {
         Selector::Id(id) | Selector::AccessibilityId(id)
-            if velocity_common::selector_match::is_volatile_id(id) =>
+            if atalanta_common::selector_match::is_volatile_id(id) =>
         {
             push(
                 "volatile-id",

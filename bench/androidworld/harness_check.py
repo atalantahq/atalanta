@@ -1,7 +1,7 @@
 """Harness sanity check: AndroidWorld's own suite runner with a no-op agent.
 
 Proves initialize -> success check -> teardown works on this machine
-without Velocity and without a model. The agent does nothing and reports
+without Atalanta and without a model. The agent does nothing and reports
 done at once, so a task succeeds only if its start state already meets
 the goal. This is a plumbing check, never a score.
 

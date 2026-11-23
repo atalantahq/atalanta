@@ -2,10 +2,10 @@
 //! AI-021 / API-079): the OS keychain, and one-time codes from a TOTP
 //! secret. Both are written in YAML like any variable, never as values:
 //!
-//! - `${keychain:NAME}`: the password stored under service `velocity`
-//!   (`VELOCITY_KEYCHAIN_SERVICE`), account `NAME`. macOS reads it with
+//! - `${keychain:NAME}`: the password stored under service `atalanta`
+//!   (`ATALANTA_KEYCHAIN_SERVICE`), account `NAME`. macOS reads it with
 //!   `security find-generic-password`, Linux with `secret-tool lookup`
-//!   (libsecret). `VELOCITY_KEYCHAIN_CMD` names another program, called as
+//!   (libsecret). `ATALANTA_KEYCHAIN_CMD` names another program, called as
 //!   `<cmd> <service> <account>`, printing the secret (a 1Password or
 //!   Vault wrapper, a CI secret store).
 //! - `${totp:NAME}`: the current 6-digit RFC 6238 code (SHA-1, 30 s) for
@@ -17,15 +17,15 @@
 
 use std::process::Command;
 
-/// The keychain service Velocity's secrets live under.
+/// The keychain service Atalanta's secrets live under.
 fn service() -> String {
-    crate::env::var("VELOCITY_KEYCHAIN_SERVICE").unwrap_or_else(|_| "velocity".into())
+    crate::env::var("ATALANTA_KEYCHAIN_SERVICE").unwrap_or_else(|_| "atalanta".into())
 }
 
 /// The secret stored for `account`, or why there is none.
 pub fn keychain(account: &str) -> Result<String, String> {
     let service = service();
-    let (program, args): (String, Vec<String>) = match crate::env::var("VELOCITY_KEYCHAIN_CMD") {
+    let (program, args): (String, Vec<String>) = match crate::env::var("ATALANTA_KEYCHAIN_CMD") {
         Ok(cmd) if !cmd.trim().is_empty() => (cmd, vec![service.clone(), account.into()]),
         _ if cfg!(target_os = "macos") => (
             "security".into(),
@@ -49,7 +49,7 @@ pub fn keychain(account: &str) -> Result<String, String> {
         return Err(format!(
             "keychain: no secret for account {account:?} under service {service:?} \
              (store it with: security add-generic-password -s {service} -a {account} -w, \
-             or secret-tool store --label velocity service {service} account {account})"
+             or secret-tool store --label atalanta service {service} account {account})"
         ));
     }
     crate::redact::register_secret(&value);
@@ -108,7 +108,7 @@ fn run_with_deadline(
                 // inherited the pipe could keep it open.
                 return Err(format!(
                     "{program} gave no answer within {:.0}s (a locked keychain waiting for a \
-                     prompt?); VELOCITY_COMMAND_TIMEOUT_MS sets how long to wait",
+                     prompt?); ATALANTA_COMMAND_TIMEOUT_MS sets how long to wait",
                     timeout.as_secs_f32()
                 ));
             }
@@ -221,14 +221,14 @@ mod tests {
         let cmd = dir.path().join("fake-keychain");
         std::fs::write(
             &cmd,
-            "#!/bin/sh\n[ \"$1\" = velocity ] && [ \"$2\" = LOGIN_PASSWORD ] && echo 'hunter2-from-keychain' && exit 0\nexit 44\n",
+            "#!/bin/sh\n[ \"$1\" = atalanta ] && [ \"$2\" = LOGIN_PASSWORD ] && echo 'hunter2-from-keychain' && exit 0\nexit 44\n",
         )
         .unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&cmd, std::fs::Permissions::from_mode(0o755)).unwrap();
         let mut env = crate::env::settings_snapshot();
         env.insert(
-            "VELOCITY_KEYCHAIN_CMD".into(),
+            "ATALANTA_KEYCHAIN_CMD".into(),
             cmd.to_string_lossy().into_owned(),
         );
         crate::env::set_settings(env);
@@ -237,7 +237,7 @@ mod tests {
         let e = keychain("NOPE").unwrap_err();
         assert!(e.contains("no secret for account \"NOPE\""), "{e}");
         let mut env = crate::env::settings_snapshot();
-        env.remove("VELOCITY_KEYCHAIN_CMD");
+        env.remove("ATALANTA_KEYCHAIN_CMD");
         crate::env::set_settings(env);
     }
 
@@ -256,10 +256,10 @@ mod tests {
         let before = crate::env::settings_snapshot();
         let mut env = before.clone();
         env.insert(
-            "VELOCITY_KEYCHAIN_CMD".into(),
+            "ATALANTA_KEYCHAIN_CMD".into(),
             cmd.to_string_lossy().into_owned(),
         );
-        env.insert("VELOCITY_COMMAND_TIMEOUT_MS".into(), "300".into());
+        env.insert("ATALANTA_COMMAND_TIMEOUT_MS".into(), "300".into());
         crate::env::set_settings(env);
         let started = std::time::Instant::now();
         let err = keychain("HUNG").unwrap_err();

@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use velocity_api::path::Path;
+use atalanta_api::path::Path;
 
 fuzz_target!(|data: &[u8]| {
     let Ok(text) = std::str::from_utf8(data) else {
@@ -20,7 +20,7 @@ fuzz_target!(|data: &[u8]| {
         let _ = path.select(&doc);
     }
     // The whole input as an `http:` step.
-    if let Ok(req) = serde_yaml::from_str::<velocity_common::http::HttpRequest>(text) {
-        let _ = velocity_api::validate(&req);
+    if let Ok(req) = serde_yaml::from_str::<atalanta_common::http::HttpRequest>(text) {
+        let _ = atalanta_api::validate(&req);
     }
 });

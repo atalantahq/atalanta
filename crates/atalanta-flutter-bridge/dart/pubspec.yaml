@@ -1,5 +1,5 @@
-name: velocity_flutter_helper
-description: Velocity headless test helper — bridges Flutter WidgetTester to Velocity's Rust bridge
+name: atalanta_flutter_helper
+description: Atalanta headless test helper — bridges Flutter WidgetTester to Atalanta's Rust bridge
 version: 0.1.0
 
 environment:

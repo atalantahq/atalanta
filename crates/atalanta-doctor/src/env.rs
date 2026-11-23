@@ -1,7 +1,7 @@
 //! Where checks read variables and find tools, and how they run them.
 //!
 //! [`Env::process`] reads the process environment through
-//! `velocity_common::env` (so a daemon's installed client environment and
+//! `atalanta_common::env` (so a daemon's installed client environment and
 //! `--set` settings count). [`Env::from_vars`] reads a fixed map instead and
 //! runs every tool with exactly that environment: tests point `PATH` at
 //! fake `adb` / `xcrun` / `xcodebuild` scripts without touching the process
@@ -89,7 +89,7 @@ impl Ran {
 }
 
 impl Env {
-    /// The process environment (through `velocity_common::env`).
+    /// The process environment (through `atalanta_common::env`).
     pub fn process() -> Self {
         Self { vars: None }
     }
@@ -105,7 +105,7 @@ impl Env {
     pub fn var(&self, key: &str) -> Option<String> {
         let v = match &self.vars {
             Some(m) => m.get(key).cloned(),
-            None => velocity_common::env::var(key).ok(),
+            None => atalanta_common::env::var(key).ok(),
         };
         v.filter(|s| !s.trim().is_empty())
     }
@@ -114,12 +114,12 @@ impl Env {
         self.var(key).is_some()
     }
 
-    /// `$HOME`; when it is unset, the private fallback Velocity itself uses
-    /// (`velocity_common::host::home_dir`), never the shared `/tmp`.
+    /// `$HOME`; when it is unset, the private fallback Atalanta itself uses
+    /// (`atalanta_common::host::home_dir`), never the shared `/tmp`.
     pub fn home(&self) -> PathBuf {
         match self.var("HOME") {
             Some(h) => PathBuf::from(h),
-            None => velocity_common::host::home_dir(),
+            None => atalanta_common::host::home_dir(),
         }
     }
 
@@ -144,7 +144,7 @@ impl Env {
             cmd.env_clear().envs(vars.iter());
         }
         let started = Instant::now();
-        let mut result = velocity_common::process::output_with_timeout(&mut cmd, timeout).await;
+        let mut result = atalanta_common::process::output_with_timeout(&mut cmd, timeout).await;
         // ETXTBSY: the program was just written and another thread's fork
         // still holds it open for writing until that child execs (a script
         // a test wrote a moment ago). It clears within milliseconds.
@@ -152,7 +152,7 @@ impl Env {
             match &result {
                 Err(e) if e.raw_os_error() == Some(26) => {
                     tokio::time::sleep(Duration::from_millis(50)).await;
-                    result = velocity_common::process::output_with_timeout(&mut cmd, timeout).await;
+                    result = atalanta_common::process::output_with_timeout(&mut cmd, timeout).await;
                 }
                 _ => break,
             }
@@ -299,9 +299,9 @@ mod tests {
         ));
     }
 
-    /// With HOME unset the doctor looked in `/tmp/.velocity` (and wrote its
-    /// writability probe into the shared `/tmp`), while Velocity uses a
-    /// private `velocity-home-<uid>` (audit 2026-11 FS-1).
+    /// With HOME unset the doctor looked in `/tmp/.atalanta` (and wrote its
+    /// writability probe into the shared `/tmp`), while Atalanta uses a
+    /// private `atalanta-home-<uid>` (audit 2026-11 FS-1).
     #[test]
     fn an_unset_home_never_falls_back_to_the_shared_tmp() {
         let home = Env::from_vars(HashMap::new()).home();

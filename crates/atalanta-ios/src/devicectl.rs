@@ -8,14 +8,14 @@
 use std::process::Stdio;
 use std::time::Duration;
 
+use atalanta_common::process::{output_with_timeout, LONG_TIMEOUT};
+use atalanta_common::{AtalantaError, DeviceInfo, DeviceState, DeviceType, Platform, Result};
 use tokio::process::Command;
 use tracing::debug;
-use velocity_common::process::{output_with_timeout, LONG_TIMEOUT};
-use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform, Result, VelocityError};
 
 /// The word after `--` in a devicectl launch with arguments: devicectl
 /// hands the `--` to the app, and this is what Foundation pairs it with.
-const LAUNCH_ARGS_FILLER: &str = "velocity";
+const LAUNCH_ARGS_FILLER: &str = "atalanta";
 
 pub struct Devicectl {
     xcrun: String,
@@ -47,10 +47,10 @@ impl Drop for TempFile {
 static LIST_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 impl Devicectl {
-    /// `xcrun` from `VELOCITY_XCRUN_PATH`, like `simctl`.
+    /// `xcrun` from `ATALANTA_XCRUN_PATH`, like `simctl`.
     pub fn new() -> Self {
         Self::with_xcrun(
-            &velocity_common::env::var("VELOCITY_XCRUN_PATH").unwrap_or_else(|_| "xcrun".into()),
+            &atalanta_common::env::var("ATALANTA_XCRUN_PATH").unwrap_or_else(|_| "xcrun".into()),
         )
     }
 
@@ -75,7 +75,7 @@ impl Devicectl {
         needs_json: bool,
     ) -> Result<serde_json::Value> {
         let out = TempFile(std::env::temp_dir().join(format!(
-            "velocity-devicectl-{}-{}.json",
+            "atalanta-devicectl-{}-{}.json",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -83,7 +83,7 @@ impl Devicectl {
                 .unwrap_or(0)
         )));
         let command = format!("devicectl {}", args.join(" "));
-        let failed = |detail: String| VelocityError::CommandFailed {
+        let failed = |detail: String| AtalantaError::CommandFailed {
             device_id: udid.to_string(),
             command: command.clone(),
             detail,
@@ -114,7 +114,7 @@ impl Devicectl {
                 .split(|c: char| !c.is_ascii_alphanumeric())
                 .any(|w| w == "locked");
             if !udid.is_empty() && locked {
-                return Err(VelocityError::DeviceLocked {
+                return Err(AtalantaError::DeviceLocked {
                     id: udid.to_string(),
                 });
             }
@@ -233,7 +233,7 @@ impl Devicectl {
         ];
         if let Some(u) = url {
             if u.starts_with('-') {
-                return Err(VelocityError::Config(format!("not a URL to open: {u:?}")));
+                return Err(AtalantaError::Config(format!("not a URL to open: {u:?}")));
             }
             args.extend(["--payload-url", u]);
         }
@@ -244,7 +244,7 @@ impl Devicectl {
         // Foundation pairs it with the next word as a `-key value`: the
         // first real argument was lost (iPhone 12, devicectl 477.30). The
         // filler word takes that pairing instead, so every argument reaches
-        // the app and `UserDefaults`; the app also sees `-- velocity`.
+        // the app and `UserDefaults`; the app also sees `-- atalanta`.
         if !launch_args.is_empty() {
             args.extend(["--", LAUNCH_ARGS_FILLER]);
             args.extend(launch_args.iter().map(String::as_str));
@@ -293,9 +293,9 @@ impl Devicectl {
 
 /// Whether a devicectl copy failed over its `--source` (a path the domain
 /// doesn't have), not the device or the transfer.
-fn refused_source(e: &VelocityError) -> bool {
+fn refused_source(e: &AtalantaError) -> bool {
     // devicectl's own stderr, not the command line (which holds `--source`).
-    let VelocityError::CommandFailed { detail, .. } = e else {
+    let AtalantaError::CommandFailed { detail, .. } = e else {
         return false;
     };
     let msg = detail.to_ascii_lowercase();
@@ -324,7 +324,7 @@ pub(crate) fn check_bundle_id(id: &str) -> Result<()> {
     if ok {
         Ok(())
     } else {
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "not a valid iOS bundle id: {id:?}"
         )))
     }
@@ -425,11 +425,11 @@ mod tests {
     fn an_installed_app_is_stamped_with_its_url_and_versions() {
         let v = json!({ "result": { "apps": [
             { "bundleIdentifier": "other.app", "url": "file:///x/Other.app/" },
-            { "bundleIdentifier": "dev.velocity.demo", "url": "file:///private/var/containers/Bundle/Application/1234/Demo.app/",
+            { "bundleIdentifier": "dev.atalanta.demo", "url": "file:///private/var/containers/Bundle/Application/1234/Demo.app/",
               "version": "1.2", "bundleVersion": "42" }
         ]}});
         assert_eq!(
-            parse_app_stamp(&v, "dev.velocity.demo").as_deref(),
+            parse_app_stamp(&v, "dev.atalanta.demo").as_deref(),
             Some("file:///private/var/containers/Bundle/Application/1234/Demo.app/|1.2|42")
         );
         assert_eq!(parse_app_stamp(&v, "missing.app"), None);
@@ -489,7 +489,7 @@ mod tests {
     /// `args.log`, sets `$OUT` to the `--json-output` path, then runs `body`.
     fn stub(name: &str, body: &str) -> (std::path::PathBuf, Devicectl) {
         let dir = std::env::temp_dir().join(format!(
-            "velocity-devicectl-test-{name}-{}",
+            "atalanta-devicectl-test-{name}-{}",
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
@@ -513,17 +513,17 @@ mod tests {
             .launch("UDID-1", "--environment-variables", None, &[])
             .await
             .unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e:?}");
         assert!(d.uninstall("UDID-1", "-x").await.is_err());
         assert!(d.launch("UDID-1", "a.b", Some("-x"), &[]).await.is_err());
         assert!(!dir.join("args.log").exists(), "devicectl not run");
-        d.launch("UDID-1", "dev.velocity.demo", Some("demo://x"), &[])
+        d.launch("UDID-1", "dev.atalanta.demo", Some("demo://x"), &[])
             .await
             .unwrap();
         d.install("UDID-1", "-odd.app").await.unwrap();
         d.launch(
             "UDID-1",
-            "dev.velocity.demo",
+            "dev.atalanta.demo",
             None,
             &["-server".into(), "https://x y".into()],
         )
@@ -533,8 +533,8 @@ mod tests {
         assert!(log.contains(" ./-odd.app "), "{log}");
         let launch = log.lines().last().unwrap();
         assert!(
-            launch.contains("dev.velocity.demo --json-output ")
-                && launch.ends_with(" -- velocity -server https://x y"),
+            launch.contains("dev.atalanta.demo --json-output ")
+                && launch.ends_with(" -- atalanta -server https://x y"),
             "launch arguments after `--`, past devicectl's own options: {launch}"
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -630,7 +630,7 @@ mod tests {
             )
             .await
             .unwrap_err();
-        assert!(!matches!(e, VelocityError::Config(_)), "VEL-146: {e:?}");
+        assert!(!matches!(e, AtalantaError::Config(_)), "VEL-146: {e:?}");
         let out = std::fs::read_to_string(dir.join("out.path")).unwrap();
         assert!(!out.trim().is_empty());
         assert!(
@@ -653,7 +653,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let (dir, d) = stub("locked", "echo 'The device is locked.' >&2; exit 1");
         let e = d.launch("UDID-3", "a.b", None, &[]).await.unwrap_err();
-        assert!(matches!(e, VelocityError::DeviceLocked { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::DeviceLocked { .. }), "{e:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -677,7 +677,7 @@ mod tests {
         let e = d.launch("UDID-3", "a.b", None, &[]).await.unwrap_err();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(
-            !matches!(e, VelocityError::DeviceLocked { .. }),
+            !matches!(e, AtalantaError::DeviceLocked { .. }),
             "unrelated failure reported as a locked phone: {e:?}"
         );
     }

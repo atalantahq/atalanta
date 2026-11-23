@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Build the Velocity Echo test app (tests/apps/android-echo) into an APK,
-# the same way as probes/android/velocity-tree-server/build.sh: no Gradle.
+# Build the Atalanta Echo test app (tests/apps/android-echo) into an APK,
+# the same way as probes/android/atalanta-tree-server/build.sh: no Gradle.
 set -euo pipefail
 cd "$(dirname "$0")"
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 # Pinned, same as the tree server: TREE_PLATFORM / TREE_BUILD_TOOLS, overridable
 # with PLATFORM / BUILD_TOOLS.
 # shellcheck disable=SC1091  # toolchain.env, next to the tree-server script
-. ../../../probes/android/velocity-tree-server/toolchain.env
+. ../../../probes/android/atalanta-tree-server/toolchain.env
 PLATFORM="${PLATFORM:-$TREE_PLATFORM}"
 BUILD_TOOLS="${BUILD_TOOLS:-$TREE_BUILD_TOOLS}"
 ANDROID_JAR="$SDK/platforms/$PLATFORM/android.jar"
@@ -24,9 +24,9 @@ mkdir -p build/classes
 
 "$AAPT2" link -o build/base.apk --manifest AndroidManifest.xml -I "$ANDROID_JAR" --min-sdk-version 21 --target-sdk-version 34
 
-javac --release 11 -cp "$ANDROID_JAR" -d build/classes src/dev/velocity/echo/MainActivity.java
+javac --release 11 -cp "$ANDROID_JAR" -d build/classes src/dev/atalanta/echo/MainActivity.java
 
-"$D8" --release --min-api 21 --lib "$ANDROID_JAR" --output build/ build/classes/dev/velocity/echo/MainActivity.class
+"$D8" --release --min-api 21 --lib "$ANDROID_JAR" --output build/ build/classes/dev/atalanta/echo/MainActivity.class
 
 ( cd build && zip -q -j base.apk classes.dex )
 
@@ -39,14 +39,14 @@ keytool -genkeypair \
     -keyalg RSA \
     -keysize 2048 \
     -validity 10000 \
-    -dname "CN=Velocity Echo" \
+    -dname "CN=Atalanta Echo" \
     -keystore build/debug.keystore
 
 "$APKSIGNER" sign \
     --ks build/debug.keystore \
     --ks-pass pass:android \
     --key-pass pass:android \
-    --out build/velocity-echo.apk \
+    --out build/atalanta-echo.apk \
     build/aligned.apk
 
-echo "built $(wc -c < build/velocity-echo.apk) bytes -> tests/apps/android-echo/build/velocity-echo.apk"
+echo "built $(wc -c < build/atalanta-echo.apk) bytes -> tests/apps/android-echo/build/atalanta-echo.apk"

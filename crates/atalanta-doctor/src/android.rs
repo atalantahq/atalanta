@@ -48,11 +48,11 @@ pub(crate) fn parse_devices(out: &str) -> Vec<AdbDevice> {
         .collect()
 }
 
-/// The `adb` Velocity will run: `VELOCITY_ADB_PATH`, else `adb` on PATH.
+/// The `adb` Atalanta will run: `ATALANTA_ADB_PATH`, else `adb` on PATH.
 /// The second value is an adb found in the SDK but not on PATH.
 pub(crate) fn find_adb(ctx: &Ctx) -> (Option<PathBuf>, Option<PathBuf>) {
     let env = ctx.env();
-    if let Some(p) = env.var("VELOCITY_ADB_PATH") {
+    if let Some(p) = env.var("ATALANTA_ADB_PATH") {
         return (env.which(&p), None);
     }
     if let Some(p) = env.which("adb") {
@@ -74,10 +74,10 @@ fn sdk_roots(ctx: &Ctx) -> Vec<PathBuf> {
         .collect()
 }
 
-/// The emulator binary, as `velocity devices up` finds it.
+/// The emulator binary, as `atalanta devices up` finds it.
 fn find_emulator(ctx: &Ctx) -> Option<PathBuf> {
     let env = ctx.env();
-    if let Some(p) = env.var("VELOCITY_EMULATOR_PATH") {
+    if let Some(p) = env.var("ATALANTA_EMULATOR_PATH") {
         return env.which(&p);
     }
     let home = env.home();
@@ -95,10 +95,10 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
     let Some(adb) = adb else {
         let status = ctx.missing(Platform::Android);
         let mut c = Check::new("android.adb", A, status, "adb not found");
-        c = match (sdk_adb, ctx.env().var("VELOCITY_ADB_PATH")) {
+        c = match (sdk_adb, ctx.env().var("ATALANTA_ADB_PATH")) {
             (_, Some(p)) => c
-                .with_detail(format!("VELOCITY_ADB_PATH={p} is not an executable"))
-                .with_fix(Fix::guidance("point VELOCITY_ADB_PATH at the adb binary, or unset it")),
+                .with_detail(format!("ATALANTA_ADB_PATH={p} is not an executable"))
+                .with_fix(Fix::guidance("point ATALANTA_ADB_PATH at the adb binary, or unset it")),
             (Some(p), None) => {
                 let dir = p.parent().unwrap_or(Path::new(".")).display().to_string();
                 c.with_detail(format!("the SDK has one at {}, but it is not on PATH", p.display()))
@@ -212,7 +212,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
         .filter(|d| !matches!(d.state.as_str(), "device" | "unauthorized" | "offline"))
         .collect();
     let leases = crate::host::lease_dir(ctx);
-    let leased = velocity_runner::lease::scan(&leases).unwrap_or_default();
+    let leased = atalanta_runner::lease::scan(&leases).unwrap_or_default();
     let in_use = |serial: &str| {
         leased
             .iter()
@@ -279,7 +279,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             s,
             "no Android device or emulator running",
         )
-        .with_fix(Fix::run("velocity devices up --android 1"))
+        .with_fix(Fix::run("atalanta devices up --android 1"))
     } else {
         Check::ok("android.devices", A, summary)
     };
@@ -291,7 +291,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
         let mut old = false;
         let mut silent: Vec<&str> = Vec::new();
         for d in &online {
-            let args = velocity_android::adb::target_args(&d.serial);
+            let args = atalanta_android::adb::target_args(&d.serial);
             let mut argv: Vec<&str> = args.iter().map(String::as_str).collect();
             argv.extend([
                 "shell",
@@ -334,7 +334,7 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             )))
         } else if old {
             Check::warn("android.api", A, summary).with_fix(Fix::guidance(
-                "Velocity's tree server needs API 21 or newer",
+                "Atalanta's tree server needs API 21 or newer",
             ))
         } else {
             Check::ok("android.api", A, summary)
@@ -354,18 +354,18 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             "not checked (`--deep` pushes it to a device and handshakes)",
         ),
         None => Check::skip("android.tree_server", A, "no online device to check it on"),
-        // The opt-out Velocity itself honours (`TreeServer::new`): usually set
+        // The opt-out Atalanta itself honours (`TreeServer::new`): usually set
         // because another tool owns the device's one UiAutomation connection.
         Some(_)
             if matches!(
-                ctx.env().var("VELOCITY_ANDROID_TREE_SERVER").as_deref(),
+                ctx.env().var("ATALANTA_ANDROID_TREE_SERVER").as_deref(),
                 Some("0" | "false" | "off")
             ) =>
         {
             Check::skip(
                 "android.tree_server",
                 A,
-                "disabled by VELOCITY_ANDROID_TREE_SERVER: nothing pushed or started",
+                "disabled by ATALANTA_ANDROID_TREE_SERVER: nothing pushed or started",
             )
         }
         Some(d) => timed(|| tree_server(&adb, &d.serial)).await,
@@ -398,10 +398,10 @@ async fn tree_server(adb: &Path, serial: &str) -> Check {
     // Start a server only when nobody else holds the device: another run
     // has its own server there, and a second UiAutomation client would
     // break it. Attaching (a PING) is harmless.
-    let lease = velocity_runner::lease::try_lock(serial).ok();
-    let server = velocity_android::tree_server::TreeServer::new()
+    let lease = atalanta_runner::lease::try_lock(serial).ok();
+    let server = atalanta_android::tree_server::TreeServer::new()
         .with_adb_path(adb.to_string_lossy().into_owned());
-    let want = velocity_android::tree_server::TreeServer::server_version();
+    let want = atalanta_android::tree_server::TreeServer::server_version();
     let repush = || {
         Fix::safe(
             format!("re-push the tree server to {serial}"),
@@ -443,9 +443,9 @@ async fn tree_server(adb: &Path, serial: &str) -> Check {
             Some(v) => Check::warn(
                 "android.tree_server",
                 A,
-                format!("{serial}: a server speaking protocol {v} is running; this Velocity speaks {want}"),
+                format!("{serial}: a server speaking protocol {v} is running; this Atalanta speaks {want}"),
             )
-            .with_detail("another Velocity version's server; the next run replaces it"),
+            .with_detail("another Atalanta version's server; the next run replaces it"),
         },
     }
 }
@@ -461,10 +461,10 @@ async fn emulator(ctx: &Ctx, have_devices: bool) -> Check {
             "android.emulator",
             A,
             status,
-            "emulator not found (only needed for `velocity devices up --android`)",
+            "emulator not found (only needed for `atalanta devices up --android`)",
         )
         .with_fix(Fix::guidance(
-            "install the Android Emulator from Android Studio's SDK Manager, or set VELOCITY_EMULATOR_PATH",
+            "install the Android Emulator from Android Studio's SDK Manager, or set ATALANTA_EMULATOR_PATH",
         ));
     };
     let ran = ctx.env().run(&emu, &["-list-avds"], ctx.opts.timeout).await;
@@ -576,7 +576,7 @@ esac"#;
     async fn devices_states_api_and_fixes_come_from_adb() {
         let mut t = Tools::new();
         t.tool("adb", ADB);
-        t.set("VELOCITY_LEASE_DIR", &t.path("leases").to_string_lossy());
+        t.set("ATALANTA_LEASE_DIR", &t.path("leases").to_string_lossy());
         let (checks, usable) = checks(&ctx(&t, true)).await;
         assert!(usable);
         let get = |id: &str| checks.iter().find(|c| c.id == id).unwrap().clone();
@@ -713,8 +713,8 @@ esac",
                 log.display()
             ),
         );
-        t.set("VELOCITY_ANDROID_TREE_SERVER", "off");
-        t.set("VELOCITY_LEASE_DIR", &t.path("leases").to_string_lossy());
+        t.set("ATALANTA_ANDROID_TREE_SERVER", "off");
+        t.set("ATALANTA_LEASE_DIR", &t.path("leases").to_string_lossy());
         let mut c = ctx(&t, true);
         c.opts.deep = true;
         let (checks, _) = checks(&c).await;
@@ -733,11 +733,11 @@ esac",
         t.tool("adb", "case \"$1\" in devices) sleep 30;; esac");
         let leases = t.path("leases");
         std::fs::create_dir_all(&leases).unwrap();
-        t.set("VELOCITY_LEASE_DIR", &leases.to_string_lossy());
+        t.set("ATALANTA_LEASE_DIR", &leases.to_string_lossy());
         let path = leases.join("emulator-5554.lock");
         std::fs::write(
             &path,
-            format!("pid={} cmd=velocity run\n", std::process::id()),
+            format!("pid={} cmd=atalanta run\n", std::process::id()),
         )
         .unwrap();
         let f = std::fs::File::options()

@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use atalanta_common::{Action, AtalantaError, Element, Platform, Rect, Result, VerifyCheck};
 use tokio::sync::Mutex;
-use velocity_common::{Action, Element, Platform, Rect, Result, VelocityError, VerifyCheck};
 
 use crate::cache::{Hit, NlCache};
 use crate::checker::ScreenChecker;
@@ -11,7 +11,7 @@ use crate::planner::{
     is_model_failure, NaturalPlanner, PlanRequest, ScreenIndex, UNPARSEABLE_REPLY,
 };
 
-pub use velocity_common::natural::{step_shape, NaturalStep, PendingPlan};
+pub use atalanta_common::natural::{step_shape, NaturalStep, PendingPlan};
 
 /// At most this many quoted values in one step are tried as data slots
 /// (2^n candidate keys per lookup).
@@ -58,14 +58,14 @@ impl StepKeys for NaturalStep<'_> {
 }
 
 /// Stands for the step's data in a cached action, filled in on replay.
-const DATA_PLACEHOLDER: &str = "\u{1}velocity:data\u{1}";
+const DATA_PLACEHOLDER: &str = "\u{1}atalanta:data\u{1}";
 
 /// Stands for the step's `i`th quoted value in a cached action.
 fn literal_placeholder(i: usize) -> String {
-    format!("\u{1}velocity:lit{i}\u{1}")
+    format!("\u{1}atalanta:lit{i}\u{1}")
 }
 
-/// How the cache may be used (`VELOCITY_NL_CACHE`).
+/// How the cache may be used (`ATALANTA_NL_CACHE`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheMode {
     /// Replay, plan on a miss, store what worked.
@@ -81,7 +81,7 @@ pub enum CacheMode {
 
 impl CacheMode {
     pub fn from_env() -> Self {
-        match velocity_common::env::var("VELOCITY_NL_CACHE").as_deref() {
+        match atalanta_common::env::var("ATALANTA_NL_CACHE").as_deref() {
             Ok("read-only") | Ok("readonly") => Self::ReadOnly,
             Ok("frozen") => Self::Frozen,
             Ok("prune") => Self::Prune,
@@ -113,7 +113,7 @@ pub struct NaturalResolver {
     checker: Option<Box<dyn ScreenChecker>>,
     cache: Mutex<NlCache>,
     cache_path: PathBuf,
-    /// Where each fresh plan's inputs are saved for `velocity nl-eval`.
+    /// Where each fresh plan's inputs are saved for `atalanta nl-eval`.
     traces_dir: Option<PathBuf>,
     mode: CacheMode,
     /// Keys read or written this run (for `prune`).
@@ -122,7 +122,7 @@ pub struct NaturalResolver {
 
 /// The executor's view of the resolver: each method is the inherent one.
 #[async_trait::async_trait]
-impl velocity_common::natural::NaturalStepResolver for NaturalResolver {
+impl atalanta_common::natural::NaturalStepResolver for NaturalResolver {
     async fn cached_hit(&self, step: &NaturalStep<'_>) -> Option<Hit> {
         NaturalResolver::cached_hit(self, step).await
     }
@@ -174,7 +174,7 @@ const MAX_REASKS: usize = 1;
 impl NaturalResolver {
     /// Build a resolver over `planner`, persisting resolutions to `cache_path`
     /// (loaded now if it already exists). The cache mode comes from
-    /// `VELOCITY_NL_CACHE`.
+    /// `ATALANTA_NL_CACHE`.
     pub fn new(planner: Box<dyn NaturalPlanner>, cache_path: impl Into<PathBuf>) -> Self {
         let cache_path = cache_path.into();
         let cache = NlCache::load(&cache_path);
@@ -215,7 +215,7 @@ impl NaturalResolver {
     }
 
     /// Save a trace (step, screen, chosen action) for every fresh plan into
-    /// `dir`, so `velocity nl-eval` can re-plan them and measure consistency.
+    /// `dir`, so `atalanta nl-eval` can re-plan them and measure consistency.
     pub fn with_traces(mut self, dir: impl Into<PathBuf>) -> Self {
         self.traces_dir = Some(dir.into());
         self
@@ -239,10 +239,10 @@ impl NaturalResolver {
             let Some(mut hit) = cache.hit(&key) else {
                 continue;
             };
-            if !velocity_common::natural::cacheable(step.kind, &hit.action) {
+            if !atalanta_common::natural::cacheable(step.kind, &hit.action) {
                 tracing::warn!(
                     intent = step.intent,
-                    "velocity-nl: the cached resolution is not an action this step can ground \
+                    "atalanta-nl: the cached resolution is not an action this step can ground \
                      to (an edited nl-cache.json?); ignoring it and re-planning"
                 );
                 continue;
@@ -252,7 +252,7 @@ impl NaturalResolver {
                 if now.as_ref() != Some(bound) {
                     tracing::debug!(
                         intent = step.intent,
-                        "velocity-nl: cached step fits another value; re-planning"
+                        "atalanta-nl: cached step fits another value; re-planning"
                     );
                     continue;
                 }
@@ -271,7 +271,7 @@ impl NaturalResolver {
             ) {
                 tracing::warn!(
                     intent = step.intent,
-                    "velocity-nl: the cached resolution fails the checks a fresh plan passes \
+                    "atalanta-nl: the cached resolution fails the checks a fresh plan passes \
                      ({why}; an edited nl-cache.json?); ignoring it and re-planning"
                 );
                 continue;
@@ -313,14 +313,14 @@ impl NaturalResolver {
         hint: Option<&str>,
     ) -> Result<Action> {
         if !self.mode.may_plan() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "natural step {:?} has no usable cache entry and planning is off \
-                 ({}); run once with a model key set and commit .velocity/nl-cache.json",
+                 ({}); run once with a model key set and commit .atalanta/nl-cache.json",
                 step.intent,
                 if self.mode == CacheMode::Frozen {
-                    "VELOCITY_NL_CACHE=frozen"
+                    "ATALANTA_NL_CACHE=frozen"
                 } else {
-                    "VELOCITY_NL_CACHE=read-only, or no ANTHROPIC_API_KEY / OPENAI_API_KEY"
+                    "ATALANTA_NL_CACHE=read-only, or no ANTHROPIC_API_KEY / OPENAI_API_KEY"
                 }
             )));
         }
@@ -328,7 +328,7 @@ impl NaturalResolver {
             plan_step_on_screen(self.planner.as_ref(), step, hierarchy, screen, hint).await?;
         if let Some(dir) = &self.traces_dir {
             if let Err(e) = crate::eval::write_trace(dir, step, hierarchy, screen, &action) {
-                tracing::debug!("velocity-nl: trace not saved: {e}");
+                tracing::debug!("atalanta-nl: trace not saved: {e}");
             }
         }
         Ok(action)
@@ -352,7 +352,7 @@ impl NaturalResolver {
         let plan = generalize(step, action, twins, effect);
         if plan.is_none() {
             // nl-cache.json is meant to be committed (VEL-096).
-            tracing::debug!("velocity-nl: not caching a step that carries a secret");
+            tracing::debug!("atalanta-nl: not caching a step that carries a secret");
         }
         plan
     }
@@ -379,7 +379,7 @@ impl NaturalResolver {
         }
         if any {
             if let Err(e) = cache.save(&self.cache_path) {
-                tracing::warn!("velocity-nl: failed to persist cache: {e}");
+                tracing::warn!("atalanta-nl: failed to persist cache: {e}");
             }
         }
     }
@@ -419,11 +419,11 @@ impl NaturalResolver {
         if removed {
             tracing::info!(
                 intent = step.intent,
-                "velocity-nl: invalidated cached step (self-heal)"
+                "atalanta-nl: invalidated cached step (self-heal)"
             );
             if self.mode.may_plan() {
                 if let Err(e) = cache.save(&self.cache_path) {
-                    tracing::warn!("velocity-nl: failed to persist cache: {e}");
+                    tracing::warn!("atalanta-nl: failed to persist cache: {e}");
                 }
             }
         }
@@ -457,7 +457,7 @@ impl NaturalResolver {
             None => VerifyCheck {
                 at: at.to_string(),
                 claim: claim.to_string(),
-                outcome: velocity_common::VerifyOutcome::Error,
+                outcome: atalanta_common::VerifyOutcome::Error,
                 reason: "no AI checker is configured (set a model key)".into(),
                 evidence: vec![],
             },
@@ -475,7 +475,7 @@ impl NaturalResolver {
         let n = cache.retain_used(&used);
         if n > 0 {
             if let Err(e) = cache.save(&self.cache_path) {
-                tracing::warn!("velocity-nl: failed to persist cache: {e}");
+                tracing::warn!("atalanta-nl: failed to persist cache: {e}");
             }
         }
         n
@@ -537,7 +537,7 @@ fn generalize(
     // registered secret or the step's secret value.
     let stored = serde_json::to_string(&action).ok()?;
     let leaks = |s: &str| {
-        velocity_common::redact::redact(s) != s
+        atalanta_common::redact::redact(s) != s
             || (secret && step.data.is_some_and(|d| !d.is_empty() && s.contains(d)))
     };
     if leaks(&stored) || leaks(&template) {
@@ -582,7 +582,7 @@ fn fill(action: &Action, data: Option<&str>, literals: &[&str]) -> Option<Action
                 *s = s.replace(&p, lit);
             }
         }
-        if s.contains("\u{1}velocity:") {
+        if s.contains("\u{1}atalanta:") {
             ok = false;
         }
     });
@@ -652,11 +652,11 @@ fn action_contains(action: &Action, needle: &str) -> bool {
 fn is_secret_data(step: &NaturalStep<'_>) -> bool {
     let registered = step
         .data
-        .is_some_and(|d| velocity_common::redact::redact(d) != d);
+        .is_some_and(|d| atalanta_common::redact::redact(d) != d);
     let named = step.data_name.is_some_and(|n| {
         n.split("${").skip(1).any(|rest| {
             let name = rest.split([':', '}']).next().unwrap_or("");
-            velocity_common::redact::is_secret_name(name)
+            atalanta_common::redact::is_secret_name(name)
         })
     });
     registered || named
@@ -704,19 +704,19 @@ pub async fn plan_step_on_screen(
 #[derive(Debug)]
 pub enum PlanFailure {
     /// The planner said the target isn't on screen.
-    NotFound(VelocityError),
+    NotFound(AtalantaError),
     /// The model answered, but never usably: grounding rejected every
     /// answer (wrong op, unasked wait, over-long `ms`, disabled or unknown
     /// element, a value not from the step), or the reply was unparseable,
     /// refused or out of tokens. The planner's failure.
-    Rejected(VelocityError),
+    Rejected(AtalantaError),
     /// The call itself failed: transport, auth, outage.
-    Service(VelocityError),
+    Service(AtalantaError),
 }
 
 impl PlanFailure {
     /// The error the step fails with.
-    pub fn into_error(self) -> VelocityError {
+    pub fn into_error(self) -> AtalantaError {
         match self {
             Self::NotFound(e) | Self::Rejected(e) | Self::Service(e) => e,
         }
@@ -748,7 +748,7 @@ pub async fn plan_step_outcome(
         (None, None) => step.data.map(String::from),
     };
     let mask = |s: &str| -> String {
-        let s = velocity_common::redact::redact(s).into_owned();
+        let s = atalanta_common::redact::redact(s).into_owned();
         let s = match secret {
             Some(d) if !d.is_empty() => s.replace(d, "<secret>"),
             _ => s,
@@ -782,7 +782,7 @@ pub async fn plan_step_outcome(
             // A reply that doesn't parse is asked again, like an answer
             // grounding rejects; it failed the step at once (VEL-249).
             Err(e) if attempt < MAX_REASKS && e.to_string().contains(UNPARSEABLE_REPLY) => {
-                tracing::debug!(intent = step.intent, %e, attempt, "velocity-nl: re-asking");
+                tracing::debug!(intent = step.intent, %e, attempt, "atalanta-nl: re-asking");
                 feedback = Some(
                     "the reply was not one valid JSON object with op, element, text, \
                      direction and ms; answer with exactly that object"
@@ -807,12 +807,12 @@ pub async fn plan_step_outcome(
                     intent = step.intent,
                     ?action,
                     attempt,
-                    "velocity-nl: planned"
+                    "atalanta-nl: planned"
                 );
                 return Ok(action);
             }
             Err(GroundingError::NotFound) => {
-                return Err(PlanFailure::NotFound(VelocityError::ElementNotFound {
+                return Err(PlanFailure::NotFound(AtalantaError::ElementNotFound {
                     selector: format!("natural step {:?}", step.intent),
                     timeout_ms: 0,
                     screenshot: None,
@@ -820,12 +820,12 @@ pub async fn plan_step_outcome(
                 }));
             }
             Err(GroundingError::Rejected(why)) => {
-                tracing::debug!(intent = step.intent, %why, attempt, "velocity-nl: re-asking");
+                tracing::debug!(intent = step.intent, %why, attempt, "atalanta-nl: re-asking");
                 feedback = Some(mask(&why));
             }
         }
     }
-    Err(PlanFailure::Rejected(VelocityError::Config(format!(
+    Err(PlanFailure::Rejected(AtalantaError::Config(format!(
         "planner gave no usable answer for {:?}: {}",
         step.intent,
         feedback.unwrap_or_default()
@@ -838,10 +838,10 @@ mod tests {
     use crate::planner::tests::el;
     use crate::planner::{Op, PlannedStep};
     use async_trait::async_trait;
+    use atalanta_common::NaturalKind;
+    use atalanta_common::Selector;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
-    use velocity_common::NaturalKind;
-    use velocity_common::Selector;
 
     /// Replays scripted answers and records the feedback it was given.
     struct ScriptedPlanner {
@@ -944,7 +944,7 @@ mod tests {
         put(
             &goto_step,
             Action::Goto {
-                url: "https://evil.example/\u{1}velocity:data\u{1}".into(),
+                url: "https://evil.example/\u{1}atalanta:data\u{1}".into(),
             },
         );
         let wait_step = step("tap login again");
@@ -1422,7 +1422,7 @@ mod tests {
     async fn not_found_fails_without_reask() {
         let h = harness("nf", vec![answer(Op::NotFound, None)]);
         let r = h.resolver.plan(&step("tap ghost"), &screen()).await;
-        assert!(matches!(r, Err(VelocityError::ElementNotFound { .. })));
+        assert!(matches!(r, Err(AtalantaError::ElementNotFound { .. })));
         assert_eq!(h.calls.load(Ordering::SeqCst), 1);
     }
 
@@ -1539,7 +1539,7 @@ mod tests {
     #[tokio::test]
     async fn replan_hint_and_feedback_are_masked() {
         let canary = "S3CR3T-CANARY-M4a";
-        velocity_common::redact::register_secret("S3CR3T-CANARY-M4b");
+        atalanta_common::redact::register_secret("S3CR3T-CANARY-M4b");
         let h = harness(
             "m4hint",
             vec![
@@ -1553,7 +1553,7 @@ mod tests {
             kind: NaturalKind::Assert,
             ..step("the token is shown")
         };
-        let err = VelocityError::AssertionFailed {
+        let err = AtalantaError::AssertionFailed {
             expected: canary.into(),
             actual: "S3CR3T-CANARY-M4b".into(),
             selector: "id=token".into(),
@@ -1578,7 +1578,7 @@ mod tests {
     #[tokio::test]
     async fn a_secret_is_never_hashed_into_a_cache_key() {
         let secret = "pw-MINOR10";
-        velocity_common::redact::register_secret(secret);
+        atalanta_common::redact::register_secret(secret);
         let h = harness("secretkey", vec![answer(Op::Tap, Some(0))]);
         let s = NaturalStep {
             data: Some(secret),
@@ -1637,7 +1637,7 @@ mod tests {
         };
         h.resolver.commit(&partial, row, None, None).await;
         assert!(h.resolver.cached(&partial).await.is_none());
-        velocity_common::redact::register_secret("S3CR3T-CANARY-096c");
+        atalanta_common::redact::register_secret("S3CR3T-CANARY-096c");
         let in_intent = step("type S3CR3T-CANARY-096c into the box");
         let typed = Action::Tap {
             selector: Selector::Id("box".into()),
@@ -1646,7 +1646,7 @@ mod tests {
         let file = cache_file("secretcache");
         assert!(!file.contains("S3CR3T-CANARY-096"), "{file}");
         assert!(
-            file.contains("velocity:data"),
+            file.contains("atalanta:data"),
             "kept with a placeholder: {file}"
         );
     }
@@ -1667,7 +1667,7 @@ mod tests {
         };
         h.resolver.commit(&s, typed, None, None).await;
         let file = cache_file("s17");
-        assert!(file.contains("velocity:data"), "{file}");
+        assert!(file.contains("atalanta:data"), "{file}");
         match h.resolver.cached(&s).await {
             Some(Action::InputText { text, .. }) => assert_eq!(text, "Hunter-Value-17"),
             other => panic!("{other:?}"),

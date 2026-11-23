@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use atalanta_common::{Platform, PlatformDriver, Result, StepStatus, TestStatus};
+use atalanta_core::TestExecutor;
 use serde::Serialize;
-use velocity_common::{Platform, PlatformDriver, Result, StepStatus, TestStatus};
-use velocity_core::TestExecutor;
 
 /// One step of one replay.
 #[derive(Debug, Clone, Serialize)]
@@ -63,11 +63,11 @@ pub async fn replay_once(
     device_id: &str,
     platform: Platform,
     overrides: &HashMap<String, String>,
-    base: &velocity_common::SuiteConfig,
+    base: &atalanta_common::SuiteConfig,
     jitter: Option<(u64, u64)>,
 ) -> Result<ReplayRun> {
-    let mut suite = velocity_core::parse_suite_from_str(yaml)?;
-    velocity_core::env::interpolate_suite(&mut suite, overrides)?;
+    let mut suite = atalanta_core::parse_suite_from_str(yaml)?;
+    atalanta_core::env::interpolate_suite(&mut suite, overrides)?;
     // The generated suite has no `config:`; replay with the settings the
     // session explored with.
     let mut config = base.clone();
@@ -76,7 +76,7 @@ pub async fn replay_once(
     let test = suite
         .tests
         .first()
-        .ok_or_else(|| velocity_common::VelocityError::Config("the test has no steps".into()))?;
+        .ok_or_else(|| atalanta_common::AtalantaError::Config("the test has no steps".into()))?;
     let mut executor = TestExecutor::new(driver, config, &suite.app_id);
     // Burn-in (row 1.3): a random pause before each step, so a test that
     // only passes at one speed shows it.
@@ -110,6 +110,6 @@ pub async fn replay_once(
         failed_step,
         error: result
             .error_message
-            .map(|e| velocity_common::redact::redact(&e).into_owned()),
+            .map(|e| atalanta_common::redact::redact(&e).into_owned()),
     })
 }

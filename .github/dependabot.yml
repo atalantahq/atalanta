@@ -26,7 +26,7 @@ updates:
 
   # The inspector's React frontend.
   - package-ecosystem: npm
-    directory: /crates/velocity-inspector/frontend
+    directory: /crates/atalanta-inspector/frontend
     schedule:
       interval: weekly
       day: monday

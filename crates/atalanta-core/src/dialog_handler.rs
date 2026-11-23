@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
+use atalanta_common::{DialogConfig, Element, PlatformDriver, Selector};
 use tracing::{debug, info, warn};
-use velocity_common::{DialogConfig, Element, PlatformDriver, Selector};
 
 /// Known system dialog button labels that should be auto-dismissed.
 /// Organized by platform convention and priority (prefer "Allow" over "Don't Allow").
@@ -44,8 +44,8 @@ const ANDROID_DISMISS_LABELS: &[&str] = &[
 ];
 
 /// `platform_id` prefix the iOS driver gives the buttons of a SpringBoard
-/// alert it merged into the app's tree (see velocity-ios `system_alert`).
-const IOS_SYSTEM_ALERT_BUTTON: &str = "velocity-system-alert-button:";
+/// alert it merged into the app's tree (see atalanta-ios `system_alert`).
+const IOS_SYSTEM_ALERT_BUTTON: &str = "atalanta-system-alert-button:";
 
 /// Wording of iOS system prompts (permissions, "Open in …?"), for an alert
 /// that reached the tree some other way: "“Shop” Would Like to Access…",
@@ -182,7 +182,7 @@ impl DialogHandler {
                 // The step's own selector answers this dialog: leave it alone.
                 if target.is_some_and(|t| {
                     self.find_crash_dialog(&hierarchy).is_some_and(|d| {
-                        velocity_common::selector_match::find_ref(d, t, None).is_some()
+                        atalanta_common::selector_match::find_ref(d, t, None).is_some()
                     })
                 }) {
                     debug!("crash dialog is the step's own target; not dismissing it");
@@ -216,7 +216,7 @@ impl DialogHandler {
                 break;
             };
             if target.is_some_and(|t| {
-                velocity_common::selector_match::find_ref(dialog, t, None).is_some()
+                atalanta_common::selector_match::find_ref(dialog, t, None).is_some()
             }) {
                 debug!("system dialog is the step's own target; not dismissing it");
                 break;
@@ -520,7 +520,7 @@ fn is_ios_system_alert(alert: &Element, root: &Element) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{DeviceInfo, Direction, Element, Key, Rect, Result, VelocityError};
+    use atalanta_common::{AtalantaError, DeviceInfo, Direction, Element, Key, Rect, Result};
 
     fn make_button(label: &str, element_type: &str) -> Element {
         Element {
@@ -722,7 +722,7 @@ mod tests {
         let mut merged = in_app_alert();
         merged.label = Some("Sign in with Apple ID".into());
         for b in &mut merged.children {
-            b.platform_id = format!("velocity-system-alert-button:{}", b.label.clone().unwrap());
+            b.platform_id = format!("atalanta-system-alert-button:{}", b.label.clone().unwrap());
         }
         assert!(handler.find_dismiss_button(&merged).is_some());
         // An Android AlertDialog of the app's own.
@@ -978,7 +978,7 @@ mod tests {
             Ok(())
         }
         async fn find_element(&self, _: &str, _: &Selector) -> Result<Element> {
-            Err(VelocityError::Unsupported("not used".into()))
+            Err(AtalantaError::Unsupported("not used".into()))
         }
         async fn find_elements(&self, _: &str, _: &Selector) -> Result<Vec<Element>> {
             Ok(vec![])

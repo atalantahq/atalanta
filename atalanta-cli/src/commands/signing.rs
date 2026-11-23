@@ -1,19 +1,19 @@
-//! `velocity signing`: headless iOS provisioning through the App Store
+//! `atalanta signing`: headless iOS provisioning through the App Store
 //! Connect API (an API key, never an Apple ID password).
 
+use atalanta_ios::asc::{AscClient, AscKeyRef};
 use clap::{Args, Subcommand};
 use colored::Colorize;
-use velocity_ios::asc::{AscClient, AscKeyRef};
 
 #[derive(Args, Clone)]
 pub struct KeyArgs {
-    /// The API key's `.p8` file (else VELOCITY_ASC_KEY_PATH)
+    /// The API key's `.p8` file (else ATALANTA_ASC_KEY_PATH)
     #[arg(long)]
     key_path: Option<String>,
-    /// The key's ID (else VELOCITY_ASC_KEY_ID)
+    /// The key's ID (else ATALANTA_ASC_KEY_ID)
     #[arg(long)]
     key_id: Option<String>,
-    /// The team's issuer ID (else VELOCITY_ASC_ISSUER_ID)
+    /// The team's issuer ID (else ATALANTA_ASC_ISSUER_ID)
     #[arg(long)]
     issuer_id: Option<String>,
 }
@@ -76,7 +76,7 @@ fn key_ref(k: &KeyArgs) -> anyhow::Result<AscKeyRef> {
         }),
         _ => usage_bail!(
             "an App Store Connect API key is needed: --key-path/--key-id/--issuer-id or \
-             VELOCITY_ASC_KEY_PATH / VELOCITY_ASC_KEY_ID / VELOCITY_ASC_ISSUER_ID \
+             ATALANTA_ASC_KEY_PATH / ATALANTA_ASC_KEY_ID / ATALANTA_ASC_ISSUER_ID \
              (App Store Connect → Users and Access → Integrations)"
         ),
     }
@@ -98,7 +98,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
             if certs.is_empty() {
                 println!(
                     "  {} no development certificate on the team yet; xcodebuild creates one \
-                     on the first signed build when VELOCITY_ASC_* is set",
+                     on the first signed build when ATALANTA_ASC_* is set",
                     "!".yellow()
                 );
             }
@@ -125,7 +125,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
             let c = client(&key)?;
             let targets: Vec<(String, String)> = if udid.is_empty() {
                 // Real devices only: simulators have no team registration.
-                velocity_ios::devicectl::Devicectl::new()
+                atalanta_ios::devicectl::Devicectl::new()
                     .list_devices()
                     .await
                     .into_iter()
@@ -136,7 +136,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
                     .map(|u| {
                         (
                             u.clone(),
-                            name.clone().unwrap_or_else(|| format!("Velocity {u}")),
+                            name.clone().unwrap_or_else(|| format!("Atalanta {u}")),
                         )
                     })
                     .collect()
@@ -166,7 +166,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
         } => {
             let c = client(&key)?;
             let (bundle_res, created) = c
-                .ensure_bundle_id(&bundle_id, &format!("Velocity {bundle_id}"))
+                .ensure_bundle_id(&bundle_id, &format!("Atalanta {bundle_id}"))
                 .await
                 .map_err(e)?;
             if created {
@@ -176,7 +176,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
             if certs.is_empty() {
                 anyhow::bail!(
                     "the team has no development certificate; run one signed build with \
-                     VELOCITY_ASC_* set (xcodebuild creates it) or create one in Xcode"
+                     ATALANTA_ASC_* set (xcodebuild creates it) or create one in Xcode"
                 );
             }
             let mut device_ids = Vec::new();
@@ -192,7 +192,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
             } else {
                 for u in &udid {
                     device_ids.push(
-                        c.ensure_device(u, &format!("Velocity {u}"))
+                        c.ensure_device(u, &format!("Atalanta {u}"))
                             .await
                             .map_err(e)?
                             .0
@@ -201,7 +201,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
                 }
             }
             if device_ids.is_empty() {
-                anyhow::bail!("no registered devices to put in the profile; run `velocity signing register-device`");
+                anyhow::bail!("no registered devices to put in the profile; run `atalanta signing register-device`");
             }
             let stamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -209,7 +209,7 @@ pub async fn execute(command: SigningCommand) -> anyhow::Result<i32> {
                 .unwrap_or(0);
             let bytes = c
                 .create_development_profile(
-                    &format!("Velocity {bundle_id} {stamp}"),
+                    &format!("Atalanta {bundle_id} {stamp}"),
                     &bundle_res,
                     &certs.iter().map(|c| c.id.clone()).collect::<Vec<_>>(),
                     &device_ids,

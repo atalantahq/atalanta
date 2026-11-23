@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use atalanta_common::PlatformDriver;
 use tokio::sync::{Notify, RwLock};
-use velocity_common::PlatformDriver;
 
 use crate::console::control::Control;
 use crate::console::live::Hubs;
@@ -30,13 +30,13 @@ pub struct AppState {
     /// means `flows/` under the working directory.
     pub flows_dir: Option<PathBuf>,
     /// Where the screenshot review page looks for failed `assertScreenshot`
-    /// comparisons (default `velocity-results`).
+    /// comparisons (default `atalanta-results`).
     pub results_dir: PathBuf,
-    /// The page's Accept writes into this `velocity-baselines` folder (same
+    /// The page's Accept writes into this `atalanta-baselines` folder (same
     /// `<platform>/<W>x<H>/<file>` inside) instead of the path the run
     /// recorded: for results downloaded from a CI runner.
     pub baselines_dir: Option<PathBuf>,
-    /// `velocity baselines review --serve`: only `/review` and
+    /// `atalanta baselines review --serve`: only `/review` and
     /// `/api/baselines*` are routed. The review URL is meant to be shared,
     /// and it used to reach the whole console (start runs, save flows).
     pub review_only: bool,
@@ -73,7 +73,7 @@ impl AppState {
             token: security::new_token(),
             host_policy: HostPolicy::default(),
             flows_dir: None,
-            results_dir: PathBuf::from("velocity-results"),
+            results_dir: PathBuf::from("atalanta-results"),
             baselines_dir: None,
             review_only: false,
             snapshots: RwLock::new(HashMap::new()),
@@ -96,7 +96,7 @@ impl AppState {
     pub async fn publish_snapshot(
         &self,
         device_id: &str,
-        tree: velocity_common::types::Element,
+        tree: atalanta_common::types::Element,
         hash: u64,
     ) -> Arc<Snapshot> {
         let mut snapshots = self.snapshots.write().await;

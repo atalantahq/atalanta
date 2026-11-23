@@ -1,4 +1,4 @@
-use velocity_common::{DeviceInfo, Result};
+use atalanta_common::{DeviceInfo, Result};
 
 /// Unified interface for ADB backends (subprocess vs async TCP).
 /// Both `Adb` (subprocess) and `AsyncAdb` (native TCP) implement this trait.

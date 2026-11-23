@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use atalanta_common::types::{Direction, Key, Selector};
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use velocity_common::types::{Direction, Key, Selector};
 
 use crate::state::AppState;
 use crate::yaml_gen;
@@ -13,14 +13,14 @@ use crate::yaml_gen;
 // `selector/generate` answers with (review 02 M5).
 #[derive(Deserialize)]
 pub struct TapRequest {
-    #[serde(default, with = "velocity_core::selector_wire::option")]
+    #[serde(default, with = "atalanta_core::selector_wire::option")]
     pub selector: Option<Selector>,
     pub coordinates: Option<(i32, i32)>,
 }
 
 #[derive(Deserialize)]
 pub struct TypeTextRequest {
-    #[serde(with = "velocity_core::selector_wire")]
+    #[serde(with = "atalanta_core::selector_wire")]
     pub selector: Selector,
     pub text: String,
 }
@@ -47,13 +47,13 @@ pub async fn tap(
     state.poke();
     if let Some((x, y)) = req.coordinates {
         // Tap by coordinates: create a synthetic element with the given bounds
-        let element = velocity_common::types::Element {
+        let element = atalanta_common::types::Element {
             hint: None,
             platform_id: String::new(),
             label: None,
             text: None,
             element_type: String::new(),
-            bounds: velocity_common::types::Rect {
+            bounds: atalanta_common::types::Rect {
                 x,
                 y,
                 width: 1,

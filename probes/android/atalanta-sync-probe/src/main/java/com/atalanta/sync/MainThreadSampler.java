@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;

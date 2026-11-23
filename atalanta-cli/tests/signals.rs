@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -20,11 +20,11 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 fn start_daemon(dir: &Path) -> Child {
-    let child = Command::new(velocity())
+    let child = Command::new(atalanta())
         .args(["daemon", "start"])
         .current_dir(dir)
-        .env("VELOCITY_DAEMON_SOCKET", dir.join("d.sock"))
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_DAEMON_SOCKET", dir.join("d.sock"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -78,13 +78,13 @@ fn the_daemon_still_stops_on_sigterm_after_serving_a_run() {
     )
     .unwrap();
     let mut daemon = start_daemon(&dir);
-    let run = Command::new(velocity())
+    let run = Command::new(atalanta())
         .args([
             "run", "ok.yaml", "--driver", "headless", "--daemon", "--report", "json",
         ])
         .current_dir(&dir)
-        .env("VELOCITY_DAEMON_SOCKET", dir.join("d.sock"))
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_DAEMON_SOCKET", dir.join("d.sock"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
         .output()
         .unwrap();

@@ -1,11 +1,11 @@
-//! Environment diagnostics: the probes behind `velocity doctor`.
+//! Environment diagnostics: the probes behind `atalanta doctor`.
 //!
 //! One typed API so the CLI and the MCP server (`diagnose`) report the same
 //! checks the same way:
 //!
 //! ```no_run
 //! # async fn demo() {
-//! use velocity_doctor::{run_checks, apply_safe_fixes, Options};
+//! use atalanta_doctor::{run_checks, apply_safe_fixes, Options};
 //! let opts = Options::default();
 //! let report = run_checks(&opts).await;
 //! println!("{}", report.render(false));
@@ -35,7 +35,7 @@
 //!
 //! The verdict: any `Fail` → [`Verdict::Blocked`]; else any `Warn` →
 //! [`Verdict::Degraded`]; else [`Verdict::Ready`]. [`Report::exit_code`]
-//! maps it onto Velocity's exit codes (2 config, 3 device/environment).
+//! maps it onto Atalanta's exit codes (2 config, 3 device/environment).
 #![forbid(unsafe_code)]
 
 mod ai;
@@ -53,9 +53,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+pub use atalanta_common::Platform;
 pub use env::Env;
 pub use fixes::{apply_safe_fixes, FixOutcome};
-pub use velocity_common::Platform;
 
 /// The group a check belongs to (also the order they print in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -90,7 +90,7 @@ pub enum Status {
     Ok,
     /// Works with a caveat, or something optional is missing.
     Warn,
-    /// Something Velocity needs here is broken or missing.
+    /// Something Atalanta needs here is broken or missing.
     Fail,
     /// Not checked: not applicable here, or needs `--deep`.
     Skip,
@@ -115,7 +115,7 @@ pub struct Fix {
     /// `"kind": "run" | "guidance", "value": "…"`.
     #[serde(flatten)]
     pub kind: FixKind,
-    /// `velocity doctor --fix` may apply it without asking: it is
+    /// `atalanta doctor --fix` may apply it without asking: it is
     /// non-interactive, needs no privileges, and can't lose user data.
     pub safe_auto: bool,
     /// How `--fix` applies it (only when `safe_auto`).
@@ -232,8 +232,8 @@ impl Check {
     }
 
     /// A failure of the user's configuration (a suite, the impact map, an
-    /// invalid `VELOCITY_NL_PROVIDER` / model) rather than of the machine
-    /// or a device: exit 2, not 3 (`VelocityError::Config` is 2 everywhere
+    /// invalid `ATALANTA_NL_PROVIDER` / model) rather than of the machine
+    /// or a device: exit 2, not 3 (`AtalantaError::Config` is 2 everywhere
     /// else).
     pub fn is_config(&self) -> bool {
         self.area == Area::Project || (self.id == "ai.keys" && self.status == Status::Fail)
@@ -246,7 +246,7 @@ pub struct Report {
     pub verdict: Verdict,
     /// In area order, then the order each area ran them.
     pub checks: Vec<Check>,
-    pub velocity_version: String,
+    pub atalanta_version: String,
     pub elapsed_ms: u64,
 }
 
@@ -257,12 +257,12 @@ impl Report {
         Self {
             verdict: verdict(&checks),
             checks,
-            velocity_version: env!("CARGO_PKG_VERSION").to_string(),
+            atalanta_version: env!("CARGO_PKG_VERSION").to_string(),
             elapsed_ms: elapsed.as_millis() as u64,
         }
     }
 
-    /// Velocity's exit code for this report: 0 when ready, or degraded
+    /// Atalanta's exit code for this report: 0 when ready, or degraded
     /// unless `strict` (then 3, or 2 when every problem is configuration);
     /// blocked: 2 when any failure is configuration (a suite, the impact
     /// map: the folder-run order puts 2 before 3), else 3.
@@ -331,11 +331,11 @@ pub struct Options {
     /// these fails; for any other it is only skipped. Empty: none named
     /// (the project's suites still add theirs).
     pub platforms: Vec<Platform>,
-    /// A suite file or folder to check. `None`: `velocity.yaml` or the
-    /// `velocity/` folder in `cwd`, if there is one.
+    /// A suite file or folder to check. `None`: `atalanta.yaml` or the
+    /// `atalanta/` folder in `cwd`, if there is one.
     pub project: Option<PathBuf>,
     /// The directory the project is looked for in (and state dirs that are
-    /// relative, like `velocity-results/`).
+    /// relative, like `atalanta-results/`).
     pub cwd: PathBuf,
     /// Where variables and tools are looked up.
     pub env: Env,
@@ -435,7 +435,7 @@ pub async fn run_checks(opts: &Options) -> Report {
                 "no device, simulator or browser to test on",
             )
             .with_fix(Fix::guidance(
-                "boot an emulator or simulator (`velocity devices up --android 1` / `--ios 1`), \
+                "boot an emulator or simulator (`atalanta devices up --android 1` / `--ios 1`), \
                  connect a device, or install Chrome for web tests",
             )),
         );
@@ -519,7 +519,7 @@ async fn bounded(
                 ),
             )
             .with_fix(Fix::guidance(
-                "a tool is not answering; run `velocity doctor` again, or check the tool by hand",
+                "a tool is not answering; run `atalanta doctor` again, or check the tool by hand",
             ))],
             false,
         ),
@@ -668,7 +668,7 @@ mod tests {
                  case \"$1\" in\n  devices) printf '{devices}';;\n  shell) sleep 30;;\nesac"
             ),
         );
-        let proj = t.path("proj/velocity");
+        let proj = t.path("proj/atalanta");
         std::fs::create_dir_all(&proj).unwrap();
         std::fs::write(
             proj.join("app.yaml"),

@@ -1,20 +1,20 @@
-//! `velocity mcp install` / `velocity mcp config`: register Velocity's MCP
-//! server with an agent client, and teach the agent the Velocity workflow.
+//! `atalanta mcp install` / `atalanta mcp config`: register Atalanta's MCP
+//! server with an agent client, and teach the agent the Atalanta workflow.
 //!
 //! Per client, the global MCP config is merged (other servers are kept, the
 //! file is backed up to `<file>.bak` before it changes, and a second run
-//! changes nothing), and the agent rules (`assets/velocity-agent-rules.md`)
+//! changes nothing), and the agent rules (`assets/atalanta-agent-rules.md`)
 //! are installed where that client reads global instructions:
 //!
 //! | Client | MCP config | Rules |
 //! |---|---|---|
-//! | Claude Code | `claude mcp add --scope user` (else `~/.claude.json` `mcpServers`) | skill `~/.claude/skills/velocity/SKILL.md` |
+//! | Claude Code | `claude mcp add --scope user` (else `~/.claude.json` `mcpServers`) | skill `~/.claude/skills/atalanta/SKILL.md` |
 //! | Cursor | `~/.cursor/mcp.json` `mcpServers` | none global: printed guidance (User Rules live in Cursor's settings) |
-//! | Codex | `~/.codex/config.toml` `[mcp_servers.velocity]` | skill `~/.agents/skills/velocity/SKILL.md` |
+//! | Codex | `~/.codex/config.toml` `[mcp_servers.atalanta]` | skill `~/.agents/skills/atalanta/SKILL.md` |
 //! | Windsurf | `~/.codeium/windsurf/mcp_config.json` `mcpServers` | a marked block in `~/.codeium/windsurf/memories/global_rules.md` |
 //! | VS Code | user `mcp.json` `servers` (`type: stdio`) | none global: printed guidance |
-//! | Cline | `…/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` `mcpServers` (and `~/.cline/data/settings/` for the CLI) | `~/Documents/Cline/Rules/velocity.md` |
-//! | Gemini CLI | `~/.gemini/settings.json` `mcpServers` | skill `~/.gemini/skills/velocity/SKILL.md` |
+//! | Cline | `…/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json` `mcpServers` (and `~/.cline/data/settings/` for the CLI) | `~/Documents/Cline/Rules/atalanta.md` |
+//! | Gemini CLI | `~/.gemini/settings.json` `mcpServers` | skill `~/.gemini/skills/atalanta/SKILL.md` |
 //!
 //! Everything is relative to an [`InstallEnv`], whose `home` tests point at
 //! a temporary directory.
@@ -24,14 +24,14 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 /// The agent rules, one source for every client.
-pub const AGENT_RULES: &str = include_str!("../assets/velocity-agent-rules.md");
+pub const AGENT_RULES: &str = include_str!("../assets/atalanta-agent-rules.md");
 
 /// The name the server is registered under.
-pub const SERVER_NAME: &str = "velocity";
+pub const SERVER_NAME: &str = "atalanta";
 
 const BLOCK_BEGIN: &str =
-    "<!-- velocity:begin (managed by `velocity mcp install`; edits here are replaced) -->";
-const BLOCK_END: &str = "<!-- velocity:end -->";
+    "<!-- atalanta:begin (managed by `atalanta mcp install`; edits here are replaced) -->";
+const BLOCK_END: &str = "<!-- atalanta:end -->";
 
 /// An agent client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,8 +88,8 @@ pub struct InstallEnv {
     pub os: &'static str,
     /// `%APPDATA%` (Windows).
     pub appdata: Option<PathBuf>,
-    /// The `velocity` binary the clients will start.
-    pub velocity: PathBuf,
+    /// The `atalanta` binary the clients will start.
+    pub atalanta: PathBuf,
     /// Arguments after it (`mcp`, plus any server flags).
     pub args: Vec<String>,
     /// The `claude` CLI, when installed.
@@ -104,12 +104,12 @@ impl InstallEnv {
             .map(PathBuf::from)
             .ok_or_else(|| std::io::Error::other("HOME is not set"))?;
         let exe = std::env::current_exe()?;
-        let velocity = std::fs::canonicalize(&exe).unwrap_or(exe);
+        let atalanta = std::fs::canonicalize(&exe).unwrap_or(exe);
         Ok(Self {
             home,
             os: std::env::consts::OS,
             appdata: std::env::var_os("APPDATA").map(PathBuf::from),
-            velocity,
+            atalanta,
             args,
             claude_cli: find_on_path("claude"),
         })
@@ -129,7 +129,7 @@ impl InstallEnv {
     }
 
     fn command(&self) -> String {
-        self.velocity.to_string_lossy().into_owned()
+        self.atalanta.to_string_lossy().into_owned()
     }
 }
 
@@ -256,7 +256,7 @@ fn mcp_targets(env: &InstallEnv, client: Client) -> Vec<McpTarget> {
 fn rules_target(env: &InstallEnv, client: Client) -> RulesTarget {
     let h = &env.home;
     let skill = |dir: PathBuf| RulesTarget::File {
-        path: dir.join("velocity").join("SKILL.md"),
+        path: dir.join("atalanta").join("SKILL.md"),
         frontmatter: true,
     };
     match client {
@@ -265,14 +265,14 @@ fn rules_target(env: &InstallEnv, client: Client) -> RulesTarget {
         Client::Gemini => skill(h.join(".gemini/skills")),
         Client::Windsurf => RulesTarget::Block(h.join(".codeium/windsurf/memories/global_rules.md")),
         Client::Cline => RulesTarget::File {
-            path: h.join("Documents/Cline/Rules/velocity.md"),
+            path: h.join("Documents/Cline/Rules/atalanta.md"),
             frontmatter: false,
         },
         Client::Cursor => RulesTarget::Guidance(
-            "Cursor has no global rules file: paste the rules (`velocity mcp rules`) into Cursor Settings > Rules > User Rules, or save them as .cursor/rules/velocity.mdc in a project".into(),
+            "Cursor has no global rules file: paste the rules (`atalanta mcp rules`) into Cursor Settings > Rules > User Rules, or save them as .cursor/rules/atalanta.mdc in a project".into(),
         ),
         Client::Vscode => RulesTarget::Guidance(
-            "VS Code has no global rules file here: save the rules (`velocity mcp rules`) as .github/copilot-instructions.md (or a *.instructions.md) in a project".into(),
+            "VS Code has no global rules file here: save the rules (`atalanta mcp rules`) as .github/copilot-instructions.md (or a *.instructions.md) in a project".into(),
         ),
     }
 }
@@ -365,7 +365,7 @@ fn shell_quote(p: &str) -> String {
     }
 }
 
-/// Install (or uninstall) Velocity for `client`.
+/// Install (or uninstall) Atalanta for `client`.
 pub fn install(env: &InstallEnv, client: Client, opts: Options) -> Result<Vec<Change>, String> {
     let mut changes = Vec::new();
     let mut note = |what: String| changes.push(Change { client, what });
@@ -415,7 +415,7 @@ fn write(path: &Path, text: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    velocity_common::fsutil::write_atomic(path, text.as_bytes())
+    atalanta_common::fsutil::write_atomic(path, text.as_bytes())
         .map_err(|e| format!("writing {}: {e}", path.display()))
 }
 
@@ -583,7 +583,7 @@ fn claude_cli(env: &InstallEnv, file: &Path, opts: Options) -> Result<String, St
         return Ok(format!("ran claude mcp remove --scope user {SERVER_NAME}"));
     }
     if installed_here {
-        return Ok("claude: already up to date (claude mcp get velocity)".into());
+        return Ok("claude: already up to date (claude mcp get atalanta)".into());
     }
     if opts.dry_run {
         return Ok(format!("would run: {}", claude_add_line(env)));
@@ -695,7 +695,7 @@ mod tests {
             home: home.to_path_buf(),
             os: "macos",
             appdata: None,
-            velocity: PathBuf::from("/opt/velocity/bin/velocity"),
+            atalanta: PathBuf::from("/opt/atalanta/bin/atalanta"),
             args: vec!["mcp".into()],
             claude_cli: None,
         }
@@ -738,11 +738,11 @@ mod tests {
         assert_eq!(v["mcpServers"]["github"]["command"], "gh-mcp", "kept");
         assert_eq!(v["theme"], "dark");
         assert_eq!(
-            v["mcpServers"]["velocity"]["command"],
-            "/opt/velocity/bin/velocity"
+            v["mcpServers"]["atalanta"]["command"],
+            "/opt/atalanta/bin/atalanta"
         );
         assert_eq!(
-            v["mcpServers"]["velocity"]["args"],
+            v["mcpServers"]["atalanta"]["args"],
             serde_json::json!(["mcp"])
         );
         assert_eq!(
@@ -766,7 +766,7 @@ mod tests {
             },
         );
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&cursor).unwrap()).unwrap();
-        assert!(v["mcpServers"].get("velocity").is_none());
+        assert!(v["mcpServers"].get("atalanta").is_none());
         assert_eq!(v["mcpServers"]["github"]["command"], "gh-mcp");
     }
 
@@ -782,7 +782,7 @@ mod tests {
         std::fs::write(&path, jsonc).unwrap();
         let err = install(&e, Client::Vscode, Options::default()).unwrap_err();
         assert!(
-            err.contains("not plain JSON") && err.contains("\"velocity\""),
+            err.contains("not plain JSON") && err.contains("\"atalanta\""),
             "{err}"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), jsonc);
@@ -800,7 +800,7 @@ mod tests {
             &std::fs::read_to_string(home.path().join(".config/Code/User/mcp.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(v["servers"]["velocity"]["type"], "stdio");
+        assert_eq!(v["servers"]["atalanta"]["type"], "stdio");
     }
 
     #[test]
@@ -816,7 +816,7 @@ mod tests {
         .unwrap();
         let out = run(&e, Client::Codex, Options::default());
         assert!(
-            out[1].contains(".agents/skills/velocity/SKILL.md"),
+            out[1].contains(".agents/skills/atalanta/SKILL.md"),
             "{out:?}"
         );
         let text = std::fs::read_to_string(&path).unwrap();
@@ -824,8 +824,8 @@ mod tests {
         assert!(text.contains("[mcp_servers.other]"), "{text}");
         let doc: toml_edit::DocumentMut = text.parse().unwrap();
         assert_eq!(
-            doc["mcp_servers"]["velocity"]["command"].as_str(),
-            Some("/opt/velocity/bin/velocity")
+            doc["mcp_servers"]["atalanta"]["command"].as_str(),
+            Some("/opt/atalanta/bin/atalanta")
         );
         assert!(run(&e, Client::Codex, Options::default())[0].contains("already up to date"));
         run(
@@ -838,10 +838,10 @@ mod tests {
         );
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
-            !text.contains("velocity") && text.contains("[mcp_servers.other]"),
+            !text.contains("atalanta") && text.contains("[mcp_servers.other]"),
             "{text}"
         );
-        assert!(!home.path().join(".agents/skills/velocity").exists());
+        assert!(!home.path().join(".agents/skills/atalanta").exists());
     }
 
     #[test]
@@ -854,11 +854,11 @@ mod tests {
             &std::fs::read_to_string(home.path().join(".claude.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(v["mcpServers"]["velocity"]["type"], "stdio");
+        assert_eq!(v["mcpServers"]["atalanta"]["type"], "stdio");
         let skill =
-            std::fs::read_to_string(home.path().join(".claude/skills/velocity/SKILL.md")).unwrap();
+            std::fs::read_to_string(home.path().join(".claude/skills/atalanta/SKILL.md")).unwrap();
         assert!(
-            skill.starts_with("---\nname: velocity\ndescription: "),
+            skill.starts_with("---\nname: atalanta\ndescription: "),
             "{skill}"
         );
 
@@ -875,13 +875,13 @@ mod tests {
             let out = run(&e, Client::Claude, Options::default());
             assert!(
                 out[0].starts_with(
-                    "ran claude mcp add --scope user velocity -- /opt/velocity/bin/velocity mcp"
+                    "ran claude mcp add --scope user atalanta -- /opt/atalanta/bin/atalanta mcp"
                 ),
                 "{out:?}"
             );
             let calls = std::fs::read_to_string(&log).unwrap();
             assert!(
-                calls.contains("mcp add --scope user velocity -- /opt/velocity/bin/velocity mcp"),
+                calls.contains("mcp add --scope user atalanta -- /opt/atalanta/bin/atalanta mcp"),
                 "{calls}"
             );
         }
@@ -902,7 +902,7 @@ mod tests {
         assert!(text.starts_with("Always use tabs.\n"), "{text}");
         assert_eq!(text.matches(BLOCK_BEGIN).count(), 1, "{text}");
         assert!(
-            !text.contains("name: velocity"),
+            !text.contains("name: atalanta"),
             "no skill frontmatter: {text}"
         );
         run(
@@ -946,10 +946,10 @@ mod tests {
                 },
             );
         }
-        assert!(!home.path().join(".gemini/skills/velocity").exists());
+        assert!(!home.path().join(".gemini/skills/atalanta").exists());
         assert!(!home
             .path()
-            .join("Documents/Cline/Rules/velocity.md")
+            .join("Documents/Cline/Rules/atalanta.md")
             .exists());
     }
 
@@ -957,7 +957,7 @@ mod tests {
     fn the_rules_teach_the_workflow_and_their_yaml_is_a_valid_suite() {
         for needle in [
             "export_session_flow",
-            "velocity run",
+            "atalanta run",
             "describe_failure",
             "${",
             "snapshot",
@@ -970,9 +970,9 @@ mod tests {
             .and_then(|s| s.split("```").next())
             .unwrap();
         let suite =
-            velocity_core::parser::parse_suite_from_str(yaml).unwrap_or_else(|e| panic!("{e}"));
-        velocity_core::validate_suite(&suite).unwrap();
-        assert!(rules_body().starts_with("# Velocity"));
+            atalanta_core::parser::parse_suite_from_str(yaml).unwrap_or_else(|e| panic!("{e}"));
+        atalanta_core::validate_suite(&suite).unwrap();
+        assert!(rules_body().starts_with("# Atalanta"));
         assert!(
             rules_body().len() < 6000,
             "Windsurf caps global rules at 6000 characters"

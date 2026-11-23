@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 fn a_model_api_outage_is_not_a_device_failure() {
     // Review M5: an Anthropic 429/529 storm marked every NL failure as
     // infrastructure, and the farm quarantined healthy devices.
-    let down = VelocityError::ServiceUnavailable {
+    let down = AtalantaError::ServiceUnavailable {
         service: "Anthropic API".into(),
         detail: "HTTP 529".into(),
     };
@@ -27,18 +27,18 @@ fn a_natural_step_keeps_infrastructure_and_crash_errors() {
     let act = Action::Tap {
         selector: Selector::Text("Pay".into()),
     };
-    let lost = VelocityError::AdbConnectionLost {
+    let lost = AtalantaError::AdbConnectionLost {
         device_id: "d".into(),
         reason: "gone".into(),
     };
     let e = annotate(&act, lost, None);
     assert!(is_infrastructure(&e), "{e:?}");
-    let crashed = VelocityError::AppCrashed {
+    let crashed = AtalantaError::AppCrashed {
         app_id: "app".into(),
         detail: "boom".into(),
     };
     match annotate(&act, crashed, None) {
-        VelocityError::AppCrashed { detail, .. } => {
+        AtalantaError::AppCrashed { detail, .. } => {
             assert!(
                 detail.contains("boom") && detail.contains("Pay"),
                 "{detail}"
@@ -47,7 +47,7 @@ fn a_natural_step_keeps_infrastructure_and_crash_errors() {
         other => panic!("{other:?}"),
     }
     // Anything else still says what the step resolved to.
-    let e = annotate(&act, VelocityError::Config("x".into()), None);
+    let e = annotate(&act, AtalantaError::Config("x".into()), None);
     assert!(e.to_string().contains("resolved to"), "{e}");
 }
 
@@ -86,16 +86,16 @@ fn set_config_accepts_settings_and_sync_timings_only() {
         .contains("milliseconds"));
     assert!(check_set_config("sync.mode", "none").is_err());
     assert!(check_set_config("andriod.scroll", "x").is_err());
-    let mut cfg = velocity_common::SyncConfig::default();
+    let mut cfg = atalanta_common::SyncConfig::default();
     set_sync_field(&mut cfg, "sync.settleCapMs", "250").unwrap();
     assert_eq!(cfg.settle_cap_ms, Some(250));
 }
 
 #[test]
 fn system_state_expectations_report_each_mismatch() {
-    let playing = velocity_common::SystemState {
+    let playing = atalanta_common::SystemState {
         media_playing: true,
-        media_titles: vec!["Velocity Lab Song".into()],
+        media_titles: vec!["Atalanta Lab Song".into()],
         in_call: false,
     };
     assert!(system_state_mismatch(&playing, Some(true), Some("Lab Song"), Some(false)).is_empty());
@@ -161,9 +161,9 @@ fn scrolling_down_swipes_the_finger_up() {
     assert_eq!(finger_for_scroll(Direction::Right), Direction::Left);
     assert_eq!(finger_for_scroll(Direction::Left), Direction::Right);
 }
+use atalanta_common::selector_match::find_in_tree;
+use atalanta_common::{DeviceInfo, Key, Rect, SyncMode};
 use std::sync::Mutex;
-use velocity_common::selector_match::find_in_tree;
-use velocity_common::{DeviceInfo, Key, Rect, SyncMode};
 
 fn node(id: &str, text: &str, y: i32) -> Element {
     Element {
@@ -218,7 +218,7 @@ struct ScriptDriver {
     /// Where each tap landed (the tapped element's top edge).
     tap_ys: Mutex<Vec<i32>>,
     /// The actionability rule each tap ran under (D-3).
-    tap_modes: Mutex<Vec<velocity_common::actionability::ActMode>>,
+    tap_modes: Mutex<Vec<atalanta_common::actionability::ActMode>>,
     /// `navigate` (openLink/goto) succeeds.
     navigates: std::sync::atomic::AtomicBool,
     /// What `current_url` says.
@@ -233,7 +233,7 @@ struct ScriptDriver {
     unlaunched: std::sync::atomic::AtomicBool,
     /// What `app_liveness` says (None: the trait's default), and how
     /// often it was asked.
-    liveness: Mutex<Option<velocity_common::Liveness>>,
+    liveness: Mutex<Option<atalanta_common::Liveness>>,
     liveness_reads: AtomicUsize,
     /// What `system_bars` says.
     bars: Option<Vec<Rect>>,
@@ -270,7 +270,7 @@ struct ScriptDriver {
     barred_taps: AtomicUsize,
     /// Every `drag` (from, to).
     drags: Mutex<Vec<DragLine>>,
-    match_counts: velocity_common::selector_match::MatchCounts,
+    match_counts: atalanta_common::selector_match::MatchCounts,
     /// Model Android's full-tree lookup cache: `find_element` and
     /// `get_hierarchy_cached` resolve against the cached tree (filled
     /// from the screen when empty, before the script advances); the
@@ -282,9 +282,9 @@ struct ScriptDriver {
     pending: Mutex<Option<String>>,
     pending_after: AtomicUsize,
     /// Recorded launches: `(device_id, app_id, clear_state, arguments)`.
-    launches: Mutex<Vec<(String, String, bool, velocity_common::LaunchArgs)>>,
+    launches: Mutex<Vec<(String, String, bool, atalanta_common::LaunchArgs)>>,
     /// The soft keyboard's frame, if one is showing.
-    keyboard: Mutex<Option<velocity_common::Rect>>,
+    keyboard: Mutex<Option<atalanta_common::Rect>>,
     /// How often `hide_keyboard` was called.
     hide_keyboard_calls: AtomicUsize,
 }
@@ -377,17 +377,17 @@ struct FakeEvidence {
 }
 
 #[async_trait::async_trait]
-impl velocity_common::EvidenceSession for FakeEvidence {
+impl atalanta_common::EvidenceSession for FakeEvidence {
     async fn finish(
         self: Box<Self>,
-        out: velocity_common::EvidenceOut<'_>,
-    ) -> velocity_common::Evidence {
-        use velocity_common::{Attachment, AttachmentKind};
+        out: atalanta_common::EvidenceOut<'_>,
+    ) -> atalanta_common::Evidence {
+        use atalanta_common::{Attachment, AttachmentKind};
         self.finished
             .lock()
             .unwrap()
             .push((out.keep_video, out.keep_logs));
-        let mut ev = velocity_common::Evidence {
+        let mut ev = atalanta_common::Evidence {
             notes: self.notes.clone(),
             ..Default::default()
         };
@@ -404,7 +404,7 @@ impl velocity_common::EvidenceSession for FakeEvidence {
             std::fs::write(&p, b"log").unwrap();
             ev.attachments
                 .push(Attachment::new(AttachmentKind::AppLog, p));
-            ev.log_lines.push(velocity_common::evidence::LogLine {
+            ev.log_lines.push(atalanta_common::evidence::LogLine {
                 t: 5,
                 level: 'E',
                 text: "boom".into(),
@@ -419,13 +419,13 @@ impl PlatformDriver for ScriptDriver {
     async fn start_evidence(
         &self,
         _: &str,
-        _: &velocity_common::EvidenceRequest,
-    ) -> Option<Box<dyn velocity_common::EvidenceSession>> {
+        _: &atalanta_common::EvidenceRequest,
+    ) -> Option<Box<dyn atalanta_common::EvidenceSession>> {
         self.evidence.clone().map(|notes| {
             Box::new(FakeEvidence {
                 notes,
                 finished: self.evidence_finished.clone(),
-            }) as Box<dyn velocity_common::EvidenceSession>
+            }) as Box<dyn atalanta_common::EvidenceSession>
         })
     }
     async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
@@ -449,7 +449,7 @@ impl PlatformDriver for ScriptDriver {
         d: &str,
         a: &str,
         c: bool,
-        args: &velocity_common::LaunchArgs,
+        args: &atalanta_common::LaunchArgs,
     ) -> Result<()> {
         *self.pending.lock().unwrap() = None;
         self.launches
@@ -472,7 +472,7 @@ impl PlatformDriver for ScriptDriver {
     async fn find_element(&self, device_id: &str, selector: &Selector) -> Result<Element> {
         if self.unlaunched.load(Ordering::SeqCst) {
             self.finds.fetch_add(1, Ordering::SeqCst);
-            return Err(VelocityError::Config("add a launchApp step".into()));
+            return Err(AtalantaError::Config("add a launchApp step".into()));
         }
         let cached_tree = self.lookup_cache.as_ref().map(|c| {
             c.lock()
@@ -485,13 +485,13 @@ impl PlatformDriver for ScriptDriver {
             self.lost.store(true, Ordering::SeqCst);
         }
         if self.lost.load(Ordering::SeqCst) {
-            return Err(VelocityError::AdbConnectionLost {
+            return Err(AtalantaError::AdbConnectionLost {
                 device_id: "d".into(),
                 reason: "device offline".into(),
             });
         }
         if take_one(&self.unreadable) {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: "d".into(),
                 command: "uiautomator dump".into(),
                 detail: "null root node".into(),
@@ -503,7 +503,7 @@ impl PlatformDriver for ScriptDriver {
             let found = find_in_tree(screen, selector, None);
             if found.is_some() && self.counts {
                 // Shown matches, as the web's page call counts them.
-                let n = velocity_common::selector_match::find_all_ref(screen, selector, None)
+                let n = atalanta_common::selector_match::find_all_ref(screen, selector, None)
                     .into_iter()
                     .filter(|e| e.visible && !e.bounds.is_empty())
                     .count();
@@ -513,14 +513,14 @@ impl PlatformDriver for ScriptDriver {
             }
             found
         };
-        if velocity_common::selector_match::ceiling()
-            == velocity_common::selector_match::Tier::Loose
+        if atalanta_common::selector_match::ceiling()
+            == atalanta_common::selector_match::Tier::Loose
         {
             if let Some(el) = self.late.lock().unwrap().take() {
                 self.screen.lock().unwrap().children.push(el);
             }
         }
-        found.ok_or_else(|| VelocityError::ElementNotFound {
+        found.ok_or_else(|| AtalantaError::ElementNotFound {
             selector: selector.to_string(),
             timeout_ms: 0,
             screenshot: None,
@@ -534,7 +534,7 @@ impl PlatformDriver for ScriptDriver {
         self.find_alls.fetch_add(1, Ordering::SeqCst);
         let screen = self.screen.lock().unwrap();
         Ok(
-            velocity_common::selector_match::find_all_ref(&screen, selector, None)
+            atalanta_common::selector_match::find_all_ref(&screen, selector, None)
                 .into_iter()
                 .cloned()
                 .collect(),
@@ -543,7 +543,7 @@ impl PlatformDriver for ScriptDriver {
     async fn get_hierarchy(&self, _: &str) -> Result<Element> {
         self.dumps.fetch_add(1, Ordering::SeqCst);
         if self.unlaunched.load(Ordering::SeqCst) {
-            return Err(VelocityError::Config("add a launchApp step".into()));
+            return Err(AtalantaError::Config("add a launchApp step".into()));
         }
         Ok(self.screen.lock().unwrap().clone())
     }
@@ -572,7 +572,7 @@ impl PlatformDriver for ScriptDriver {
         if self.navigates.load(Ordering::SeqCst) {
             return Ok(());
         }
-        Err(VelocityError::Config(
+        Err(AtalantaError::Config(
             "openLink/goto isn't supported on this platform".into(),
         ))
     }
@@ -582,7 +582,7 @@ impl PlatformDriver for ScriptDriver {
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok()
         {
-            return Err(VelocityError::AssertionFailed {
+            return Err(AtalantaError::AssertionFailed {
                 expected: "reachable".into(),
                 actual: "covered by the toolbar; scroll it into view first".into(),
                 selector: el.platform_id.clone(),
@@ -590,7 +590,7 @@ impl PlatformDriver for ScriptDriver {
             });
         }
         if self.refuse_disabled && !el.enabled {
-            return Err(VelocityError::NotActionable {
+            return Err(AtalantaError::NotActionable {
                 selector: el.platform_id.clone(),
                 reason: "disabled".into(),
             });
@@ -603,7 +603,7 @@ impl PlatformDriver for ScriptDriver {
         self.tap_modes
             .lock()
             .unwrap()
-            .push(velocity_common::actionability::mode());
+            .push(atalanta_common::actionability::mode());
         Ok(())
     }
     async fn drag(&self, _: &str, from: (i32, i32), to: (i32, i32), _: u64, _: u64) -> Result<()> {
@@ -651,7 +651,7 @@ impl PlatformDriver for ScriptDriver {
     async fn screen_size(&self, _: &str) -> Result<(i32, i32)> {
         Ok((1080, 1920))
     }
-    async fn keyboard_frame(&self, _: &str) -> Result<Option<velocity_common::Rect>> {
+    async fn keyboard_frame(&self, _: &str) -> Result<Option<atalanta_common::Rect>> {
         Ok(*self.keyboard.lock().unwrap())
     }
     async fn hide_keyboard(&self, _: &str) -> Result<bool> {
@@ -659,14 +659,14 @@ impl PlatformDriver for ScriptDriver {
         *self.keyboard.lock().unwrap() = None;
         Ok(true)
     }
-    async fn app_liveness(&self, d: &str, a: &str) -> velocity_common::Liveness {
+    async fn app_liveness(&self, d: &str, a: &str) -> atalanta_common::Liveness {
         self.liveness_reads.fetch_add(1, Ordering::SeqCst);
         let set = self.liveness.lock().unwrap().clone();
         match set {
             Some(l) => l,
             None => match self.crash_report(d, a).await {
-                Some(detail) => velocity_common::Liveness::Dead(detail),
-                None => velocity_common::Liveness::Unknown,
+                Some(detail) => atalanta_common::Liveness::Dead(detail),
+                None => atalanta_common::Liveness::Unknown,
             },
         }
     }
@@ -810,12 +810,12 @@ async fn a_tap_under_a_bottom_bar_scrolls_its_list_once_and_taps_again() {
 #[tokio::test]
 async fn launch_app_passes_its_arguments_to_the_driver() {
     let driver = ScriptDriver::new(vec![]);
-    let mut args = velocity_common::LaunchArgs::default();
+    let mut args = atalanta_common::LaunchArgs::default();
     args.inner
-        .insert("isE2E".into(), velocity_common::LaunchArg::Bool(true));
+        .insert("isE2E".into(), atalanta_common::LaunchArg::Bool(true));
     args.inner.insert(
         "server".into(),
-        velocity_common::LaunchArg::Str("https://staging.example.com".into()),
+        atalanta_common::LaunchArg::Str("https://staging.example.com".into()),
     );
     let mut ex = TestExecutor::new(&driver, config(300), "app");
     let launch = step(Action::LaunchApp {
@@ -853,16 +853,16 @@ async fn default_refusals_name_the_step_not_the_method() {
 fn the_suite_framework_reaches_native_sync() {
     let driver = ScriptDriver::new(vec![]);
     let mut cfg = config(300);
-    cfg.framework = Some(velocity_common::Framework::ReactNative);
+    cfg.framework = Some(atalanta_common::Framework::ReactNative);
     let ex = TestExecutor::new(&driver, cfg, "app");
     assert_eq!(
         ex.sync_manager.framework(),
-        velocity_common::Framework::ReactNative
+        atalanta_common::Framework::ReactNative
     );
     let ex = TestExecutor::new(&driver, config(300), "app");
     assert_eq!(
         ex.sync_manager.framework(),
-        velocity_common::Framework::Native
+        atalanta_common::Framework::Native
     );
 }
 
@@ -930,7 +930,7 @@ async fn a_failed_step_names_its_line_and_its_trace_keeps_the_screen() {
     cfg.artifacts.on_failure = true;
     cfg.artifacts.output_dir = dir.path().to_string_lossy().into_owned();
     let mut ex = TestExecutor::new(&driver, cfg, "app");
-    let at = |line| Some(velocity_common::SourcePos::new("tests/app.yaml", line, 9));
+    let at = |line| Some(atalanta_common::SourcePos::new("tests/app.yaml", line, 9));
     let steps = vec![
         Step {
             source: at(41),
@@ -984,7 +984,7 @@ async fn a_passing_test_keeps_no_trace_by_default() {
     assert!(!dir.path().join("traces").exists());
 
     let mut ex =
-        TestExecutor::new(&driver, cfg, "app").with_trace(velocity_common::TraceMode::Always);
+        TestExecutor::new(&driver, cfg, "app").with_trace(atalanta_common::TraceMode::Always);
     let r = ex
         .execute_test(&test_case(vec![step(tap("Cart"))]), "d", "app")
         .await
@@ -1134,7 +1134,7 @@ impl PlatformDriver for HangingTap {
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
     }
-    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<atalanta_common::Rect>> {
         self.0.keyboard_frame(d).await
     }
     async fn hide_keyboard(&self, d: &str) -> Result<bool> {
@@ -1212,7 +1212,7 @@ impl PlatformDriver for CrashingTap {
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
     }
-    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<atalanta_common::Rect>> {
         self.0.keyboard_frame(d).await
     }
     async fn hide_keyboard(&self, d: &str) -> Result<bool> {
@@ -1236,9 +1236,9 @@ impl PlatformDriver for CrashingTap {
         _: u64,
         _: u64,
         _: u64,
-    ) -> Option<velocity_common::DeviceSettle> {
+    ) -> Option<atalanta_common::DeviceSettle> {
         tokio::time::sleep(self.1).await;
-        Some(velocity_common::DeviceSettle {
+        Some(atalanta_common::DeviceSettle {
             settled: false,
             reacted: true,
             elapsed_ms: self.1.as_millis() as u64,
@@ -1274,7 +1274,7 @@ async fn a_failure_keeps_video_logs_and_trace_html() {
     c.artifacts.on_failure = true;
     c.artifacts.output_dir = out.path().to_string_lossy().into_owned();
     let mut ex =
-        TestExecutor::new(&driver, c, "app").with_trace(velocity_common::TraceMode::OnFailure);
+        TestExecutor::new(&driver, c, "app").with_trace(atalanta_common::TraceMode::OnFailure);
     let pass = ex
         .execute_test(&test_case(vec![step(tap("Pay"))]), "d", "app")
         .await
@@ -1295,7 +1295,7 @@ async fn a_failure_keeps_video_logs_and_trace_html() {
         vec![(false, false), (true, true)]
     );
     let kinds: Vec<_> = fail.attachments.iter().map(|a| a.kind).collect();
-    use velocity_common::AttachmentKind as K;
+    use atalanta_common::AttachmentKind as K;
     assert_eq!(
         kinds,
         vec![K::Video, K::AppLog, K::Trace],
@@ -1650,7 +1650,7 @@ async fn a_lenient_suite_taps_a_disabled_target_with_a_warning() {
     pay.enabled = false;
     let driver = ScriptDriver::new(vec![pay]);
     let mut cfg = config(300);
-    cfg.actionability = velocity_common::Actionability::Lenient;
+    cfg.actionability = atalanta_common::Actionability::Lenient;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let r = ex
         .execute_test(&test_case(vec![step(tap("Pay"))]), "d", "app")
@@ -1707,7 +1707,7 @@ impl PlatformDriver for CoveredUnlessForced {
     async fn long_press(&self, _: &str, _: &Element, _: u64) -> Result<()> {
         Err(covered())
     }
-    async fn touch_forced(&self, _: &str, _: &Element, _: velocity_common::Touch) -> Result<()> {
+    async fn touch_forced(&self, _: &str, _: &Element, _: atalanta_common::Touch) -> Result<()> {
         self.1.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -1726,7 +1726,7 @@ impl PlatformDriver for CoveredUnlessForced {
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
     }
-    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<atalanta_common::Rect>> {
         self.0.keyboard_frame(d).await
     }
     async fn hide_keyboard(&self, d: &str) -> Result<bool> {
@@ -1746,8 +1746,8 @@ impl PlatformDriver for CoveredUnlessForced {
     }
 }
 
-fn covered() -> VelocityError {
-    VelocityError::AssertionFailed {
+fn covered() -> AtalantaError {
+    AtalantaError::AssertionFailed {
         expected: "target reachable".into(),
         actual: "covered by the system window (com.android.systemui)".into(),
         selector: String::new(),
@@ -2020,7 +2020,7 @@ async fn a_target_that_never_stops_moving_fails_naming_the_animation() {
 
 #[tokio::test]
 async fn the_actionability_mode_reaches_the_driver() {
-    use velocity_common::actionability::ActMode;
+    use atalanta_common::actionability::ActMode;
     let driver = ScriptDriver::new(vec![node("pay", "Pay", 0)]);
     let mut forced = step(tap("Pay"));
     forced.modifiers.force = true;
@@ -2031,7 +2031,7 @@ async fn the_actionability_mode_reaches_the_driver() {
         .unwrap();
     assert_eq!(r.status, TestStatus::Passed, "{:?}", r.error_message);
     let mut cfg = config(300);
-    cfg.actionability = velocity_common::Actionability::Lenient;
+    cfg.actionability = atalanta_common::Actionability::Lenient;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     ex.execute_test(&test_case(vec![step(tap("Pay"))]), "d", "app")
         .await
@@ -2124,7 +2124,7 @@ async fn a_healed_target_is_waited_for_until_enabled() {
     let driver = ScriptDriver::new(vec![btn]).after(12, |s| s.children[0].enabled = true);
     let mut cfg = config(1500);
     cfg.healing.enabled = true;
-    cfg.healing.mode = Some(velocity_common::HealingMode::Auto);
+    cfg.healing.mode = Some(atalanta_common::HealingMode::Auto);
     cfg.healing.persist_healed = false;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let r = ex
@@ -2142,11 +2142,11 @@ async fn report_mode_fails_a_healed_step_with_the_patch_and_the_command() {
     let driver = ScriptDriver::new(vec![node("submit", "Submit orders", 0)]);
     let mut cfg = config(300);
     cfg.healing.enabled = true;
-    cfg.healing.mode = Some(velocity_common::HealingMode::Report);
+    cfg.healing.mode = Some(atalanta_common::HealingMode::Report);
     cfg.healing.persist_healed = false;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let mut t = step(tap("Submit order"));
-    t.source = Some(velocity_common::SourcePos::new("tests/shop.yaml", 7, 9));
+    t.source = Some(atalanta_common::SourcePos::new("tests/shop.yaml", 7, 9));
     let r = ex
         .execute_test(&test_case(vec![t]), "d", "app")
         .await
@@ -2163,17 +2163,17 @@ async fn report_mode_fails_a_healed_step_with_the_patch_and_the_command() {
         "{err}"
     );
     assert!(
-        err.contains("velocity heal --accept --config tests/shop.yaml"),
+        err.contains("atalanta heal --accept --config tests/shop.yaml"),
         "{err}"
     );
-    // Kept for `velocity heal --accept` although the test failed.
+    // Kept for `atalanta heal --accept` although the test failed.
     let kept = ex.selector_engine.healer().healed_mappings();
     assert_eq!(kept.len(), 1);
     assert_eq!(kept[0].test.as_deref(), Some("t"));
     // `off`: no heal at all.
     let mut cfg = config(300);
     cfg.healing.enabled = true;
-    cfg.healing.mode = Some(velocity_common::HealingMode::Off);
+    cfg.healing.mode = Some(atalanta_common::HealingMode::Off);
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let r = ex
         .execute_test(&test_case(vec![step(tap("Submit order"))]), "d", "app")
@@ -2193,7 +2193,7 @@ async fn report_mode_uses_a_target_that_arrives_during_the_last_look() {
     *driver.late.lock().unwrap() = Some(node("submit", "Submit order", 0));
     let mut cfg = config(300);
     cfg.healing.enabled = true;
-    cfg.healing.mode = Some(velocity_common::HealingMode::Report);
+    cfg.healing.mode = Some(atalanta_common::HealingMode::Report);
     cfg.healing.persist_healed = false;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let r = ex
@@ -2214,7 +2214,7 @@ async fn report_mode_proposes_this_steps_heal_not_the_last_one() {
     ]);
     let mut cfg = config(300);
     cfg.healing.enabled = true;
-    cfg.healing.mode = Some(velocity_common::HealingMode::Report);
+    cfg.healing.mode = Some(atalanta_common::HealingMode::Report);
     cfg.healing.persist_healed = false;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     // A heal from an earlier step, with an unrelated mapping last.
@@ -2240,7 +2240,7 @@ async fn report_mode_proposes_this_steps_heal_not_the_last_one() {
     assert!(!err.contains("Cancel"), "{err}");
     // m6: the reject command names this heal alone.
     assert!(
-        err.contains(r#"velocity heal --reject 'text="Submit order"'"#),
+        err.contains(r#"atalanta heal --reject 'text="Submit order"'"#),
         "{err}"
     );
 }
@@ -2252,12 +2252,12 @@ async fn report_mode_proposes_this_steps_heal_not_the_last_one() {
 fn a_reject_hint_never_names_a_masked_selector() {
     let plain = reject_hint(r#"text="Submit order""#, "s.yaml");
     assert!(
-        plain.contains(r#"velocity heal --reject 'text="Submit order"' --config s.yaml"#),
+        plain.contains(r#"atalanta heal --reject 'text="Submit order"' --config s.yaml"#),
         "{plain}"
     );
     let quoted = reject_hint("text=\"it's\"", "s.yaml");
     assert!(quoted.contains(r#"'text="it'\''s"'"#), "{quoted}");
-    velocity_common::redact::register_secret("nit12-Zq9xV7pL3kW");
+    atalanta_common::redact::register_secret("nit12-Zq9xV7pL3kW");
     let masked = reject_hint(r#"text="Card nit12-Zq9xV7pL3kW""#, "s.yaml");
     assert!(!masked.contains("nit12-Zq9xV7pL3kW"), "{masked}");
     assert!(masked.contains("--reject <N>"), "{masked}");
@@ -2293,13 +2293,13 @@ fn put(path: &std::path::Path, data: &[u8]) {
 
 #[tokio::test]
 async fn screenshot_names_that_share_a_baseline_file_are_an_error() {
-    // VEL-201: "a.b" and "a b" both read velocity-baselines/<p>/a_b.png.
+    // VEL-201: "a.b" and "a b" both read atalanta-baselines/<p>/a_b.png.
     // New names get their own files; two names that fall back to one
     // legacy file are still an error.
     let dir = tempfile::tempdir().unwrap();
     let screen = crate::visual::painted(40, 40, &[]);
     put(
-        &dir.path().join("velocity-baselines/android/vel201_a_b.png"),
+        &dir.path().join("atalanta-baselines/android/vel201_a_b.png"),
         &screen,
     );
     let driver = ScriptDriver::new(vec![]);
@@ -2341,7 +2341,7 @@ async fn names_that_differ_only_in_case_are_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let screen = crate::visual::painted(40, 40, &[]);
     put(
-        &dir.path().join("velocity-baselines/android/Home.png"),
+        &dir.path().join("atalanta-baselines/android/Home.png"),
         &screen,
     );
     let driver = ScriptDriver::new(vec![]);
@@ -2387,7 +2387,7 @@ async fn a_first_frame_that_matches_passes_with_one_capture() {
     let dir = tempfile::tempdir().unwrap();
     let screen = crate::visual::painted(40, 40, &[(5, 5, 10, 10)]);
     put(
-        &dir.path().join("velocity-baselines/android/home.png"),
+        &dir.path().join("atalanta-baselines/android/home.png"),
         &screen,
     );
     let driver = ScriptDriver::new(vec![]);
@@ -2422,7 +2422,7 @@ async fn a_blinking_caret_is_still_under_the_steps_tolerance() {
     assert!(ex.warnings.iter().all(|w| !w.contains("held still")));
     assert!(dir
         .path()
-        .join("velocity-baselines/android/40x40/caret.png")
+        .join("atalanta-baselines/android/40x40/caret.png")
         .is_file());
 }
 
@@ -2451,7 +2451,7 @@ async fn an_unstable_screen_fails_and_never_becomes_the_baseline() {
     );
     assert!(!dir
         .path()
-        .join("velocity-baselines/android/40x40/spin.png")
+        .join("atalanta-baselines/android/40x40/spin.png")
         .exists());
     for kind in ["previous", "actual", "diff"] {
         assert!(
@@ -2467,10 +2467,10 @@ async fn an_unstable_screen_fails_and_never_becomes_the_baseline() {
     assert_eq!(r.status, StepStatus::Failed);
     assert!(!dir
         .path()
-        .join("velocity-baselines/android/40x40/spin.png")
+        .join("atalanta-baselines/android/40x40/spin.png")
         .exists());
     // With a baseline equal to one of the frames: passes.
-    put(&dir.path().join("velocity-baselines/android/spin.png"), &b);
+    put(&dir.path().join("atalanta-baselines/android/spin.png"), &b);
     let mut ex = TestExecutor::new(&driver, in_suite(dir.path()), "app");
     let r = ex.execute_step(&shot("spin"), "d", "app", 2).await.unwrap();
     assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
@@ -2482,7 +2482,7 @@ async fn a_corrupt_capture_is_taken_again_and_never_a_config_error() {
     let dir = tempfile::tempdir().unwrap();
     let screen = crate::visual::painted(40, 40, &[]);
     put(
-        &dir.path().join("velocity-baselines/android/c.png"),
+        &dir.path().join("atalanta-baselines/android/c.png"),
         &screen,
     );
     let driver = ScriptDriver::new(vec![]);
@@ -2502,7 +2502,7 @@ async fn a_corrupt_capture_is_taken_again_and_never_a_config_error() {
         crop: None,
     };
     let e = ex.assert_screenshot("d", "c", plain).await.unwrap_err();
-    assert_ne!(e.kind(), velocity_common::ErrorKind::ConfigError, "{e}");
+    assert_ne!(e.kind(), atalanta_common::ErrorKind::ConfigError, "{e}");
     assert_eq!(e.exit_code(), 3, "{e}");
     assert_eq!(driver.shots.load(Ordering::SeqCst), 3);
     // The run's outcome too: an infrastructure failure, so the suite
@@ -2557,7 +2557,7 @@ async fn huge_masks_and_unreadable_baselines_say_so_at_once() {
         assert!(start.elapsed() < Duration::from_secs(2));
     }
     put(
-        &dir.path().join("velocity-baselines/android/bad.png"),
+        &dir.path().join("atalanta-baselines/android/bad.png"),
         b"not a png",
     );
     let mut ex = TestExecutor::new(&driver, in_suite(dir.path()), "app");
@@ -2622,39 +2622,39 @@ fn headless_runs_keep_their_own_baselines_next_to_the_suite() {
     assert_eq!(
         device.write,
         dir.path()
-            .join("velocity-baselines/android/1080x1920/home.png")
+            .join("atalanta-baselines/android/1080x1920/home.png")
     );
     let mut c = in_suite(dir.path());
-    c.driver = Some(velocity_common::DriverMode::Headless);
+    c.driver = Some(atalanta_common::DriverMode::Headless);
     let ex = TestExecutor::new(&driver, c, "app");
     let headless = ex.baseline_place("home", size, None);
     assert_eq!(
         headless.write,
         dir.path()
-            .join("velocity-baselines/android-headless/1080x1920/home.png")
+            .join("atalanta-baselines/android-headless/1080x1920/home.png")
     );
     assert!(headless.read.is_none());
     // An existing shared (pre-D-V3) baseline is still read, with a hint.
-    let legacy = dir.path().join("velocity-baselines/android/home.png");
+    let legacy = dir.path().join("atalanta-baselines/android/home.png");
     put(&legacy, b"x");
     let p = ex.baseline_place("home", size, None);
     assert_eq!(p.read.as_deref(), Some(legacy.as_path()));
     assert!(p.legacy);
     // A baseline in the folder the run started from is found too.
     let name = format!("vel-b2-{}", std::process::id());
-    let cwd = PathBuf::from("velocity-baselines/android").join(format!("{name}.png"));
+    let cwd = PathBuf::from("atalanta-baselines/android").join(format!("{name}.png"));
     put(&cwd, b"x");
     let ex = TestExecutor::new(&driver, in_suite(dir.path()), "app");
     let p = ex.baseline_place(&name, size, None);
     let _ = std::fs::remove_file(&cwd);
-    let _ = std::fs::remove_dir("velocity-baselines/android");
-    let _ = std::fs::remove_dir("velocity-baselines");
+    let _ = std::fs::remove_dir("atalanta-baselines/android");
+    let _ = std::fs::remove_dir("atalanta-baselines");
     assert_eq!(p.read, Some(cwd));
     assert!(p.legacy);
     assert_eq!(
         p.write,
         dir.path()
-            .join(format!("velocity-baselines/android/1080x1920/{name}.png"))
+            .join(format!("atalanta-baselines/android/1080x1920/{name}.png"))
     );
 }
 
@@ -2665,15 +2665,15 @@ fn headless_runs_keep_their_own_baselines_next_to_the_suite() {
 /// leaves the other size alone.
 #[tokio::test]
 async fn a_baseline_only_at_another_size_is_missing_for_this_size() {
-    use velocity_common::BaselineUpdate;
+    use atalanta_common::BaselineUpdate;
     let dir = tempfile::tempdir().unwrap();
     let portrait = crate::visual::painted(40, 60, &[(5, 5, 10, 10)]);
     let landscape = crate::visual::painted(60, 40, &[(5, 5, 10, 10)]);
-    let upright = dir.path().join("velocity-baselines/android/40x60/home.png");
+    let upright = dir.path().join("atalanta-baselines/android/40x60/home.png");
     put(&upright, &portrait);
     let driver = ScriptDriver::new(vec![]);
     *driver.frames.lock().unwrap() = vec![landscape.clone()];
-    let rotated = dir.path().join("velocity-baselines/android/60x40/home.png");
+    let rotated = dir.path().join("atalanta-baselines/android/60x40/home.png");
     let mut ex = TestExecutor::new(&driver, in_suite(dir.path()), "app")
         .with_update_baselines(BaselineUpdate::Off);
     let r = ex.execute_step(&shot("home"), "d", "app", 0).await.unwrap();
@@ -2701,11 +2701,11 @@ async fn a_baseline_only_at_another_size_is_missing_for_this_size() {
 /// pixel size is a real size mismatch, and `=missing` doesn't hide it.
 #[tokio::test]
 async fn a_wrong_sized_file_in_the_same_size_folder_is_a_size_mismatch() {
-    use velocity_common::BaselineUpdate;
+    use atalanta_common::BaselineUpdate;
     let dir = tempfile::tempdir().unwrap();
     let small = crate::visual::painted(20, 20, &[(5, 5, 4, 4)]);
     let screen = crate::visual::painted(40, 40, &[(5, 5, 10, 10)]);
-    let file = dir.path().join("velocity-baselines/android/40x40/home.png");
+    let file = dir.path().join("atalanta-baselines/android/40x40/home.png");
     put(&file, &small);
     let driver = ScriptDriver::new(vec![]);
     *driver.frames.lock().unwrap() = vec![screen.clone()];
@@ -2734,14 +2734,14 @@ async fn a_wrong_sized_file_in_the_same_size_folder_is_a_size_mismatch() {
 /// with "size mismatch" on every run).
 #[tokio::test]
 async fn two_sizes_record_their_first_baselines_in_one_parallel_run() {
-    use velocity_common::BaselineUpdate;
+    use atalanta_common::BaselineUpdate;
     let dir = tempfile::tempdir().unwrap();
     let phone = crate::visual::painted(40, 60, &[(5, 5, 10, 10)]);
     let tablet = crate::visual::painted(60, 80, &[(5, 5, 10, 10)]);
     let (da, db) = (ScriptDriver::new(vec![]), ScriptDriver::new(vec![]));
     *da.frames.lock().unwrap() = vec![phone.clone()];
     *db.frames.lock().unwrap() = vec![tablet.clone()];
-    let run = velocity_common::CreatedBaselines::default();
+    let run = atalanta_common::CreatedBaselines::default();
     let device = |drv| {
         TestExecutor::new(drv, in_suite(dir.path()), "app")
             .with_created_baselines(run.clone())
@@ -2759,7 +2759,7 @@ async fn two_sizes_record_their_first_baselines_in_one_parallel_run() {
     assert_eq!(rb.status, StepStatus::Passed, "{:?}", rb.error_message);
     // Sequentially too (device a strictly first), which is the order
     // that failed before.
-    let base = dir.path().join("velocity-baselines/android");
+    let base = dir.path().join("atalanta-baselines/android");
     assert_eq!(std::fs::read(base.join("40x60/home.png")).unwrap(), phone);
     assert_eq!(std::fs::read(base.join("60x80/home.png")).unwrap(), tablet);
     std::fs::remove_dir_all(&base).unwrap();
@@ -2782,7 +2782,7 @@ async fn baselines_live_under_the_capture_size_and_legacy_ones_warn() {
     // (with a warning) only when it is the captured size.
     let dir = tempfile::tempdir().unwrap();
     let screen = crate::visual::painted(40, 30, &[(5, 5, 10, 10)]);
-    let legacy = dir.path().join("velocity-baselines/android/size.png");
+    let legacy = dir.path().join("atalanta-baselines/android/size.png");
     put(&legacy, &screen);
     let driver = ScriptDriver::new(vec![]);
     *driver.frames.lock().unwrap() = vec![screen.clone()];
@@ -2803,7 +2803,7 @@ async fn baselines_live_under_the_capture_size_and_legacy_ones_warn() {
         TestExecutor::new(&driver, in_suite(dir.path()), "app").with_update_baselines(true);
     let r = ex.execute_step(&shot("size"), "d", "app", 0).await.unwrap();
     assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
-    let sized = dir.path().join("velocity-baselines/android/40x30/size.png");
+    let sized = dir.path().join("atalanta-baselines/android/40x30/size.png");
     assert_eq!(std::fs::read(&sized).unwrap(), other);
     assert_eq!(std::fs::read(&legacy).unwrap(), screen, "legacy untouched");
     // Another device size never reads that legacy file.
@@ -2814,13 +2814,13 @@ async fn baselines_live_under_the_capture_size_and_legacy_ones_warn() {
 }
 
 /// U1: a mismatch leaves a review record naming the baseline at this
-/// capture size, so `velocity baselines accept` (and the inspector's
+/// capture size, so `atalanta baselines accept` (and the inspector's
 /// review page) can replace it; accepting makes the next run pass.
 #[tokio::test]
 async fn a_mismatch_is_recorded_for_review_and_accepting_it_passes() {
     let dir = tempfile::tempdir().unwrap();
     let old = crate::visual::painted(40, 30, &[(5, 5, 10, 10)]);
-    let baseline = dir.path().join("velocity-baselines/android/40x30/home.png");
+    let baseline = dir.path().join("atalanta-baselines/android/40x30/home.png");
     put(&baseline, &old);
     let new = crate::visual::painted(40, 30, &[(20, 5, 15, 15)]);
     let driver = ScriptDriver::new(vec![]);
@@ -2856,7 +2856,7 @@ async fn a_later_pass_or_update_clears_the_review_record() {
     let dir = tempfile::tempdir().unwrap();
     let good = crate::visual::painted(40, 30, &[(5, 5, 10, 10)]);
     let broken = crate::visual::painted(40, 30, &[(20, 5, 15, 15)]);
-    let baseline = dir.path().join("velocity-baselines/android/40x30/home.png");
+    let baseline = dir.path().join("atalanta-baselines/android/40x30/home.png");
     put(&baseline, &good);
     let out = dir.path().join("out");
     let driver = ScriptDriver::new(vec![]);
@@ -2911,11 +2911,11 @@ async fn a_pass_on_another_size_keeps_this_sizes_review_record() {
     let phone = crate::visual::painted(40, 30, &[(5, 5, 10, 10)]);
     let tablet = crate::visual::painted(60, 80, &[(5, 5, 10, 10)]);
     put(
-        &dir.path().join("velocity-baselines/android/40x30/home.png"),
+        &dir.path().join("atalanta-baselines/android/40x30/home.png"),
         &phone,
     );
     put(
-        &dir.path().join("velocity-baselines/android/60x80/home.png"),
+        &dir.path().join("atalanta-baselines/android/60x80/home.png"),
         &tablet,
     );
     let out = dir.path().join("out");
@@ -2963,7 +2963,7 @@ async fn an_unstable_screen_clears_the_legacy_named_record() {
     let old = crate::visual::painted(40, 40, &[(5, 5, 10, 10)]);
     put(
         &dir.path()
-            .join("velocity-baselines/android/40x40")
+            .join("atalanta-baselines/android/40x40")
             .join(&legacy),
         &old,
     );
@@ -3003,7 +3003,7 @@ async fn a_missing_baseline_is_created_and_fails_everywhere() {
     assert_eq!(r.status, StepStatus::Failed);
     let msg = r.error_message.unwrap_or_default();
     assert!(msg.contains("created") && msg.contains("commit"), "{msg}");
-    let created = dir.path().join("velocity-baselines/android/40x40/new.png");
+    let created = dir.path().join("atalanta-baselines/android/40x40/new.png");
     assert_eq!(std::fs::read(&created).unwrap(), screen);
     // A retry in the same run doesn't pass on the unreviewed file.
     let r = ex.execute_step(&shot("new"), "d", "app", 0).await.unwrap();
@@ -3014,7 +3014,7 @@ async fn a_missing_baseline_is_created_and_fails_everywhere() {
     assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
 }
 
-/// review-d5 M-1: two runs in one process (`velocity daemon`, MCP):
+/// review-d5 M-1: two runs in one process (`atalanta daemon`, MCP):
 /// the second passes once the baseline exists, in every mode that
 /// compares; the registry no longer outlives the run.
 #[tokio::test]
@@ -3030,8 +3030,8 @@ async fn a_created_baseline_passes_on_the_next_run_in_the_same_process() {
     drop(ex);
     // Run 2 (plain) and run 3 (=missing) pass on it.
     for mode in [
-        velocity_common::BaselineUpdate::Off,
-        velocity_common::BaselineUpdate::Missing,
+        atalanta_common::BaselineUpdate::Off,
+        atalanta_common::BaselineUpdate::Missing,
     ] {
         let mut ex =
             TestExecutor::new(&driver, in_suite(dir.path()), "app").with_update_baselines(mode);
@@ -3054,8 +3054,8 @@ async fn parallel_devices_share_one_runs_created_baselines() {
     let screen = crate::visual::painted(40, 40, &[(5, 5, 10, 10)]);
     let driver = ScriptDriver::new(vec![]);
     *driver.frames.lock().unwrap() = vec![screen.clone()];
-    let run = velocity_common::CreatedBaselines::default();
-    let device = |run: &velocity_common::CreatedBaselines| {
+    let run = atalanta_common::CreatedBaselines::default();
+    let device = |run: &atalanta_common::CreatedBaselines| {
         TestExecutor::new(&driver, in_suite(dir.path()), "app").with_created_baselines(run.clone())
     };
     let (mut a, mut b) = (device(&run), device(&run));
@@ -3064,7 +3064,7 @@ async fn parallel_devices_share_one_runs_created_baselines() {
     let r = b.execute_step(&shot("home"), "b", "app", 0).await.unwrap();
     assert_eq!(r.status, StepStatus::Failed, "device b passed on it");
     assert_eq!(run.len(), 1);
-    let next = velocity_common::CreatedBaselines::default();
+    let next = atalanta_common::CreatedBaselines::default();
     let (mut a, mut b) = (device(&next), device(&next));
     for (ex, id) in [(&mut a, "a"), (&mut b, "b")] {
         let r = ex.execute_step(&shot("home"), id, "app", 0).await.unwrap();
@@ -3079,7 +3079,7 @@ async fn update_baselines_missing_writes_only_missing_ones_and_passes() {
     let screen = crate::visual::painted(40, 40, &[(5, 5, 10, 10)]);
     let driver = ScriptDriver::new(vec![]);
     *driver.frames.lock().unwrap() = vec![screen.clone()];
-    let missing = velocity_common::BaselineUpdate::Missing;
+    let missing = atalanta_common::BaselineUpdate::Missing;
     let mut ex =
         TestExecutor::new(&driver, in_suite(dir.path()), "app").with_update_baselines(missing);
     let r = ex
@@ -3089,12 +3089,12 @@ async fn update_baselines_missing_writes_only_missing_ones_and_passes() {
     assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
     let fresh = dir
         .path()
-        .join("velocity-baselines/android/40x40/fresh.png");
+        .join("atalanta-baselines/android/40x40/fresh.png");
     assert_eq!(std::fs::read(&fresh).unwrap(), screen);
     assert!(ex.warnings.iter().any(|w| w.contains("created baseline")));
     // An existing baseline that differs is still compared, and kept.
     let old = crate::visual::painted(40, 40, &[(25, 25, 10, 10)]);
-    let kept = dir.path().join("velocity-baselines/android/40x40/kept.png");
+    let kept = dir.path().join("atalanta-baselines/android/40x40/kept.png");
     put(&kept, &old);
     let mut ex =
         TestExecutor::new(&driver, in_suite(dir.path()), "app").with_update_baselines(missing);
@@ -3127,7 +3127,7 @@ async fn tolerance_and_the_perceptual_comparator_are_per_step() {
     };
     put(
         &dir.path()
-            .join("velocity-baselines/android/20x20/drift.png"),
+            .join("atalanta-baselines/android/20x20/drift.png"),
         &grey(100),
     );
     let driver = ScriptDriver::new(vec![]);
@@ -3149,7 +3149,7 @@ async fn tolerance_and_the_perceptual_comparator_are_per_step() {
     assert_eq!(run(tol).await, StepStatus::Passed);
     let perceptual = shot_with("drift", |a| {
         if let Action::AssertScreenshot { comparator, .. } = a {
-            *comparator = Some(velocity_common::Comparator::Perceptual);
+            *comparator = Some(atalanta_common::Comparator::Perceptual);
         }
     });
     assert_eq!(run(perceptual).await, StepStatus::Passed);
@@ -3176,11 +3176,11 @@ async fn crop_compares_only_the_cropped_part() {
     let inside = crate::visual::painted(108, 192, &[(10, 10, 10, 10), (20, 40, 20, 20)]);
     for (crop, label) in [
         (
-            velocity_common::ScreenshotCrop::Element(Selector::Id("card".into())),
+            atalanta_common::ScreenshotCrop::Element(Selector::Id("card".into())),
             "element",
         ),
         (
-            velocity_common::ScreenshotCrop::Rect(Rect {
+            atalanta_common::ScreenshotCrop::Rect(Rect {
                 x: 0,
                 y: 0,
                 width: 540,
@@ -3202,7 +3202,7 @@ async fn crop_compares_only_the_cropped_part() {
         assert_eq!(r.status, StepStatus::Passed, "{:?}", r.error_message);
         let stored = std::fs::read(
             dir.path()
-                .join(format!("velocity-baselines/android/108x192/{name}.png")),
+                .join(format!("atalanta-baselines/android/108x192/{name}.png")),
         )
         .unwrap();
         assert_eq!(crate::visual::png_size(&stored), Some((54, 96)), "{label}");
@@ -3220,7 +3220,7 @@ async fn crop_compares_only_the_cropped_part() {
     let mut ex = TestExecutor::new(&driver, in_suite(dir.path()), "app");
     let step = shot_with("card-element", |a| {
         if let Action::AssertScreenshot { crop, mask, .. } = a {
-            *crop = Some(velocity_common::ScreenshotCrop::Element(Selector::Id(
+            *crop = Some(atalanta_common::ScreenshotCrop::Element(Selector::Id(
                 "card".into(),
             )));
             *mask = vec![Selector::Id("card".into())];
@@ -3250,7 +3250,7 @@ async fn an_ambiguous_crop_selector_warns_or_fails_when_strict() {
     *driver.frames.lock().unwrap() = vec![crate::visual::painted(108, 192, &[])];
     let step = shot_with("price", |act| {
         if let Action::AssertScreenshot { crop, .. } = act {
-            *crop = Some(velocity_common::ScreenshotCrop::Element(Selector::Text(
+            *crop = Some(atalanta_common::ScreenshotCrop::Element(Selector::Text(
                 "Price".into(),
             )));
         }
@@ -3269,7 +3269,7 @@ async fn an_ambiguous_crop_selector_warns_or_fails_when_strict() {
     assert!(
         ex.warnings.iter().any(|w| w.contains(&format!(
             "used {}",
-            velocity_common::selector_match::BARE_PICK_RULE
+            atalanta_common::selector_match::BARE_PICK_RULE
         ))),
         "{:?}",
         ex.warnings
@@ -3300,7 +3300,7 @@ async fn a_frozen_status_bar_is_compared_instead_of_masked() {
     let clock = crate::visual::painted(108, 192, &[(40, 5, 20, 10)]);
     put(
         &dir.path()
-            .join("velocity-baselines/android/108x192/bar.png"),
+            .join("atalanta-baselines/android/108x192/bar.png"),
         &base,
     );
     *driver.frames.lock().unwrap() = vec![clock];
@@ -3359,14 +3359,14 @@ async fn tapping_one_of_several_matches_is_reported() {
 /// A stand-in resolver for the executor's error mapping: the model API is
 /// down (`outage`), or it taps the element called "Buy" and finds nothing
 /// for a check. The real resolver runs through the executor in
-/// `velocity-runner/tests/executor_nl.rs`.
+/// `atalanta-runner/tests/executor_nl.rs`.
 struct FakeResolver {
     outage: bool,
 }
 
 #[async_trait::async_trait]
 impl NaturalStepResolver for FakeResolver {
-    async fn cached_hit(&self, _: &NaturalStep<'_>) -> Option<velocity_common::natural::CachedHit> {
+    async fn cached_hit(&self, _: &NaturalStep<'_>) -> Option<atalanta_common::natural::CachedHit> {
         None
     }
     async fn plan_on_screen(
@@ -3377,14 +3377,14 @@ impl NaturalStepResolver for FakeResolver {
         _: Option<&str>,
     ) -> Result<Action> {
         if self.outage {
-            return Err(VelocityError::ServiceUnavailable {
+            return Err(AtalantaError::ServiceUnavailable {
                 service: "Anthropic API".into(),
                 detail: "HTTP 529".into(),
             });
         }
         match step.kind {
             NaturalKind::Act => Ok(tap("Buy")),
-            NaturalKind::Assert => Err(VelocityError::ElementNotFound {
+            NaturalKind::Assert => Err(AtalantaError::ElementNotFound {
                 selector: step.intent.into(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -3411,11 +3411,11 @@ impl NaturalStepResolver for FakeResolver {
         _: Option<&Rect>,
         _: Platform,
         _: Option<&[u8]>,
-    ) -> velocity_common::VerifyCheck {
-        velocity_common::VerifyCheck {
+    ) -> atalanta_common::VerifyCheck {
+        atalanta_common::VerifyCheck {
             at: at.into(),
             claim: claim.into(),
-            outcome: velocity_common::VerifyOutcome::Error,
+            outcome: atalanta_common::VerifyOutcome::Error,
             reason: "fake".into(),
             evidence: vec![],
         }
@@ -3441,7 +3441,7 @@ async fn natural_step_errors_keep_their_type() {
         .await;
     let e = r.unwrap_err();
     assert!(
-        matches!(e, VelocityError::ServiceUnavailable { .. }) && e.is_transient(),
+        matches!(e, AtalantaError::ServiceUnavailable { .. }) && e.is_transient(),
         "{e:?}"
     );
 
@@ -3458,7 +3458,7 @@ async fn natural_step_errors_keep_their_type() {
         )
         .await;
     let e = r.unwrap_err();
-    assert!(matches!(e, VelocityError::AssertionFailed { .. }), "{e:?}");
+    assert!(matches!(e, AtalantaError::AssertionFailed { .. }), "{e:?}");
     assert!(e.to_string().contains("receipt"), "{e}");
 }
 
@@ -3469,7 +3469,7 @@ fn a_natural_step_that_finds_nothing_stays_not_found() {
     };
     let e = annotate(
         &act,
-        VelocityError::ElementNotFound {
+        AtalantaError::ElementNotFound {
             selector: "text=\"Pay\"".into(),
             timeout_ms: 300,
             screenshot: None,
@@ -3489,19 +3489,19 @@ fn a_model_outage_during_a_re_plan_stays_an_outage() {
     let act = Action::Tap {
         selector: Selector::Text("Pay".into()),
     };
-    let gone = || VelocityError::ElementNotFound {
+    let gone = || AtalantaError::ElementNotFound {
         selector: "text=\"Pay\"".into(),
         timeout_ms: 300,
         screenshot: None,
         hierarchy_snapshot: None,
     };
-    let outage = VelocityError::ServiceUnavailable {
+    let outage = AtalantaError::ServiceUnavailable {
         service: "model API".into(),
         detail: "HTTP 529 overloaded".into(),
     };
     let e = replan_failed(&act, gone(), outage);
     assert!(
-        matches!(e, VelocityError::ServiceUnavailable { .. }),
+        matches!(e, AtalantaError::ServiceUnavailable { .. }),
         "{e:?}"
     );
     let msg = e.to_string();
@@ -3511,7 +3511,7 @@ fn a_model_outage_during_a_re_plan_stays_an_outage() {
     );
     assert_ne!(e.exit_code(), 1);
     // A plan that simply didn't work: the first failure, with the note.
-    let e = replan_failed(&act, gone(), VelocityError::Config("no plan".into()));
+    let e = replan_failed(&act, gone(), AtalantaError::Config("no plan".into()));
     assert!(is_not_found(&e), "{e:?}");
     assert!(e.to_string().contains("re-plan failed: "), "{e}");
 }
@@ -3816,7 +3816,7 @@ impl PlatformDriver for StateKeeping {
     async fn press_key(&self, d: &str, k: Key) -> Result<()> {
         self.0.press_key(d, k).await
     }
-    async fn keyboard_frame(&self, d: &str) -> Result<Option<velocity_common::Rect>> {
+    async fn keyboard_frame(&self, d: &str) -> Result<Option<atalanta_common::Rect>> {
         self.0.keyboard_frame(d).await
     }
     async fn hide_keyboard(&self, d: &str) -> Result<bool> {
@@ -3860,9 +3860,9 @@ async fn a_configuration_error_is_never_reported_as_a_crash() {
         ScriptDriver::new(vec![node("p", "Pay", 0)]),
         std::sync::atomic::AtomicBool::new(false),
     );
-    let mut args = velocity_common::LaunchArgs::default();
+    let mut args = atalanta_common::LaunchArgs::default();
     args.inner
-        .insert("isE2E".into(), velocity_common::LaunchArg::Bool(true));
+        .insert("isE2E".into(), atalanta_common::LaunchArg::Bool(true));
     let mut ex = TestExecutor::new(&driver, config(300), "app");
     let r = ex
         .execute_test(
@@ -4004,7 +4004,7 @@ fn only_device_screens_get_a_status_bar_mask() {
     assert!(has_status_bar(&c));
     c.platform = Some(Platform::Ios);
     assert!(has_status_bar(&c));
-    c.driver = Some(velocity_common::DriverMode::Headless);
+    c.driver = Some(atalanta_common::DriverMode::Headless);
     assert!(!has_status_bar(&c));
     c.driver = None;
     c.platform = Some(Platform::Web);
@@ -4262,7 +4262,7 @@ async fn a_disabled_target_that_vanishes_is_not_tapped() {
     assert!(driver.taps.lock().unwrap().is_empty());
 }
 
-fn with_liveness(driver: ScriptDriver, l: velocity_common::Liveness) -> ScriptDriver {
+fn with_liveness(driver: ScriptDriver, l: atalanta_common::Liveness) -> ScriptDriver {
     *driver.liveness.lock().unwrap() = Some(l);
     driver
 }
@@ -4271,7 +4271,7 @@ fn with_liveness(driver: ScriptDriver, l: velocity_common::Liveness) -> ScriptDr
 async fn the_drivers_liveness_decides_a_negative_check_and_the_test() {
     // P2: a driver that knows the app died (its front-app check) though
     // the crash log is silent (ANR, OOM kill, force-stop).
-    let dead = || velocity_common::Liveness::Dead("killed by the low-memory killer".into());
+    let dead = || atalanta_common::Liveness::Dead("killed by the low-memory killer".into());
     for steps in [
         vec![step(tap("Pay")), step(not_visible("Payment failed"))],
         vec![step(tap("Pay"))],
@@ -4294,7 +4294,7 @@ async fn negative_checks_read_liveness_once_between_actions() {
     // call on iOS) cost tens of seconds over a suite.
     let driver = with_liveness(
         ScriptDriver::new(vec![node("p", "Pay", 0)]),
-        velocity_common::Liveness::Foreground,
+        atalanta_common::Liveness::Foreground,
     );
     let mut ex = TestExecutor::new(&driver, config(300), "app");
     let r = ex
@@ -4322,7 +4322,7 @@ async fn negative_checks_read_liveness_once_between_actions() {
 async fn another_app_in_front_is_noted_and_never_batched() {
     let driver = with_liveness(
         ScriptDriver::new(vec![node("p", "Pay", 0)]),
-        velocity_common::Liveness::Background(Some("com.android.launcher3".into())),
+        atalanta_common::Liveness::Background(Some("com.android.launcher3".into())),
     );
     let mut cfg = config(300);
     cfg.batch = true;
@@ -4366,7 +4366,7 @@ async fn a_negative_check_off_app_fails_unless_the_test_left_the_app() {
     // `assertNotVisible` there proved nothing and passed.
     let driver = with_liveness(
         ScriptDriver::new(vec![node("p", "Pay", 0)]),
-        velocity_common::Liveness::Background(Some("com.android.launcher3".into())),
+        atalanta_common::Liveness::Background(Some("com.android.launcher3".into())),
     );
     driver.navigates.store(true, Ordering::SeqCst);
     let launch = |app: &str| {
@@ -4392,7 +4392,7 @@ async fn a_negative_check_off_app_fails_unless_the_test_left_the_app() {
     assert!(err.contains("appInFront: false"), "{err}");
     // Left on purpose: the check runs on that screen, with a note.
     let home = step(Action::PressKey {
-        key: velocity_common::Key::Home,
+        key: atalanta_common::Key::Home,
     });
     let link = step(Action::Goto {
         url: "app://promo".into(),
@@ -4473,10 +4473,10 @@ async fn an_optional_flow_stops_at_its_first_failure_and_the_test_goes_on() {
         env: Default::default(),
     });
     run.modifiers.optional = true;
-    let suite = velocity_common::TestSuite {
+    let suite = atalanta_common::TestSuite {
         app_id: "app".into(),
         config: SuiteConfig::default(),
-        flows: vec![velocity_common::Flow {
+        flows: vec![atalanta_common::Flow {
             id: "onboarding".into(),
             steps: vec![step(tap("Skip")), step(tap("Continue"))],
         }],
@@ -4627,7 +4627,7 @@ async fn an_ambiguous_action_warns_of_the_1_0_default_while_strict_is_unset() {
         .iter()
         .find(|w| w.contains("matched 2 elements"))
         .unwrap_or_else(|| panic!("{:?}", r.warnings));
-    if velocity_common::env::var("VELOCITY_SELECTORS_STRICT").is_err() {
+    if atalanta_common::env::var("ATALANTA_SELECTORS_STRICT").is_err() {
         assert!(w.contains(STRICT_STAGING), "{w}");
         assert!(w.contains("selectors.strict: false"), "{w}");
     }
@@ -4905,8 +4905,8 @@ fn web_settle_wins_over_sync_on_the_web_only() {
         c.platform = Some(platform);
         c.sync.reaction_ms = Some(500);
         c.sync.quiet_ms = Some(90);
-        c.web = Some(velocity_common::test_types::WebConfig {
-            settle: Some(velocity_common::test_types::WebSettle {
+        c.web = Some(atalanta_common::test_types::WebConfig {
+            settle: Some(atalanta_common::test_types::WebSettle {
                 reaction_ms: Some(77),
                 cap_ms: Some(600),
                 ..Default::default()
@@ -4937,8 +4937,8 @@ async fn web_settle_survives_set_config_and_the_next_test() {
     let mut c = config(50);
     c.platform = Some(Platform::Web);
     c.sync.reaction_ms = Some(300);
-    c.web = Some(velocity_common::test_types::WebConfig {
-        settle: Some(velocity_common::test_types::WebSettle {
+    c.web = Some(atalanta_common::test_types::WebConfig {
+        settle: Some(atalanta_common::test_types::WebSettle {
             reaction_ms: Some(40),
             cap_ms: Some(800),
             ..Default::default()
@@ -4984,7 +4984,7 @@ async fn a_cancelled_step_does_not_leak_its_settle_override() {
     let mut ex = TestExecutor::new(&driver, config(50), "app");
     let cap = ex.sync_manager.sync_config_mut().settle_cap_ms;
     let hung = Step {
-        settle: Some(velocity_common::StepSettle {
+        settle: Some(atalanta_common::StepSettle {
             cap_ms: Some(cap.unwrap_or_default() + 1234),
             ..Default::default()
         }),
@@ -5026,7 +5026,7 @@ async fn a_screenshot_name_cannot_leave_the_artifacts_dir() {
     let driver = ScriptDriver::new(vec![]);
     let mut cfg = config(300);
     cfg.artifacts.output_dir = out.to_string_lossy().into_owned();
-    cfg.artifacts.screenshots = velocity_common::ScreenshotPolicy::Always;
+    cfg.artifacts.screenshots = atalanta_common::ScreenshotPolicy::Always;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let shot = step(Action::Screenshot {
         filename: Some("../escaped.png".into()),
@@ -5064,7 +5064,7 @@ fn a11y_steps() -> TestCase {
 
 #[tokio::test]
 async fn the_audit_warns_once_per_problem_and_reads_no_extra_trees() {
-    let run = |cfg: velocity_common::AccessibilityConfig| async move {
+    let run = |cfg: atalanta_common::AccessibilityConfig| async move {
         let driver = a11y_driver();
         let mut c = config(2000);
         c.accessibility = cfg;
@@ -5079,7 +5079,7 @@ async fn the_audit_warns_once_per_problem_and_reads_no_extra_trees() {
     assert!(off.warnings.iter().all(|w| !w.starts_with("accessibility")));
     // On: the same screen read by three lookups is audited once, its
     // one problem reported once, and no tree is read for it.
-    let on = velocity_common::AccessibilityConfig {
+    let on = atalanta_common::AccessibilityConfig {
         audit: true,
         ..Default::default()
     };
@@ -5098,7 +5098,7 @@ async fn the_audit_warns_once_per_problem_and_reads_no_extra_trees() {
     assert_eq!(audits, 1);
     assert_eq!(dumps_on, dumps_off, "the audit read the screen itself");
     // `fail: true`: the error finding fails the test on its last step.
-    let (r, _, _) = run(velocity_common::AccessibilityConfig { fail: true, ..on }).await;
+    let (r, _, _) = run(atalanta_common::AccessibilityConfig { fail: true, ..on }).await;
     assert_eq!(r.status, TestStatus::Failed);
     let msg = r.error_message.unwrap_or_default();
     assert!(
@@ -5151,15 +5151,15 @@ async fn a_timed_out_exec_takes_its_children_down_with_it() {
     let pidfile = dir.path().join("pid");
     let driver = ScriptDriver::new(vec![node("x", "X", 0)]);
     let mut cfg = config(300);
-    cfg.exec = Some(velocity_common::exec::ExecConfig {
+    cfg.exec = Some(atalanta_common::exec::ExecConfig {
         allow: vec!["sh".into()],
     });
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let script = format!("sleep 30 & echo $! > {}; wait", pidfile.display());
     let s = Step {
         timeout_ms: Some(400),
-        ..step(Action::Exec(Box::new(velocity_common::exec::ExecStep {
-            run: velocity_common::exec::ExecCommand::Parts(vec!["sh".into(), "-c".into(), script]),
+        ..step(Action::Exec(Box::new(atalanta_common::exec::ExecStep {
+            run: atalanta_common::exec::ExecCommand::Parts(vec!["sh".into(), "-c".into(), script]),
             expect: Default::default(),
             capture: None,
             cwd: None,
@@ -5195,7 +5195,7 @@ async fn a_timed_out_exec_takes_its_children_down_with_it() {
 async fn a_missing_element_names_the_app_in_front() {
     let driver = with_liveness(
         ScriptDriver::new(vec![node("p", "Pay", 0)]),
-        velocity_common::Liveness::Background(Some("com.google.android.calendar".into())),
+        atalanta_common::Liveness::Background(Some("com.google.android.calendar".into())),
     );
     let mut ex = TestExecutor::new(&driver, config(300), "com.android.settings");
     let r = ex
@@ -5217,7 +5217,7 @@ async fn a_missing_element_names_the_app_in_front() {
     // With the app itself in front, nothing is added.
     let driver = with_liveness(
         ScriptDriver::new(vec![node("p", "Pay", 0)]),
-        velocity_common::Liveness::Foreground,
+        atalanta_common::Liveness::Foreground,
     );
     let mut ex = TestExecutor::new(&driver, config(300), "com.android.settings");
     let r = ex
@@ -5241,7 +5241,7 @@ async fn an_optional_step_does_not_heal() {
     let driver = ScriptDriver::new(vec![node("submit", "Submit orders", 0)]);
     let mut cfg = config(300);
     cfg.healing.enabled = true;
-    cfg.healing.mode = Some(velocity_common::HealingMode::Auto);
+    cfg.healing.mode = Some(atalanta_common::HealingMode::Auto);
     cfg.healing.persist_healed = false;
     let mut ex = TestExecutor::new(&driver, cfg, "app");
     let mut t = step(tap("Submit order"));
@@ -5258,7 +5258,7 @@ async fn an_optional_step_does_not_heal() {
 fn hostile_bounds_do_not_overflow_the_stillness_check() {
     // i32::MIN - i32::MAX overflowed: a panic in a debug build, and in a
     // release build a wrapped 1, so the two reads counted as the same box.
-    let at = |x: i32| velocity_common::Rect {
+    let at = |x: i32| atalanta_common::Rect {
         x,
         y: 0,
         width: 10,
@@ -5273,7 +5273,7 @@ fn hostile_bounds_do_not_overflow_the_stillness_check() {
 fn a_scroll_container_with_hostile_bounds_does_not_overflow() {
     let list = Element {
         element_type: "ScrollView".into(),
-        bounds: velocity_common::Rect {
+        bounds: atalanta_common::Rect {
             x: i32::MAX - 1,
             y: 0,
             width: 100,
@@ -5282,7 +5282,7 @@ fn a_scroll_container_with_hostile_bounds_does_not_overflow() {
         ..Default::default()
     };
     let target = Element {
-        bounds: velocity_common::Rect {
+        bounds: atalanta_common::Rect {
             x: i32::MAX - 1,
             y: 10,
             width: 1,
@@ -5306,10 +5306,10 @@ async fn a_crash_after_an_abandoned_optional_flow_still_fails_the_test() {
         env: Default::default(),
     });
     run.modifiers.optional = true;
-    let suite = velocity_common::TestSuite {
+    let suite = atalanta_common::TestSuite {
         app_id: "app".into(),
         config: SuiteConfig::default(),
-        flows: vec![velocity_common::Flow {
+        flows: vec![atalanta_common::Flow {
             id: "onboarding".into(),
             steps: vec![step(tap("Skip")), step(tap("Continue"))],
         }],
@@ -5318,7 +5318,7 @@ async fn a_crash_after_an_abandoned_optional_flow_still_fails_the_test() {
     let test = crate::resolve_flows(&suite).unwrap().remove(0);
     let driver = with_liveness(
         ScriptDriver::new(vec![node("c", "Continue", 0), node("p", "Pay", 300)]),
-        velocity_common::Liveness::Dead("killed by the low-memory killer".into()),
+        atalanta_common::Liveness::Dead("killed by the low-memory killer".into()),
     );
     let mut ex = TestExecutor::new(&driver, config(200), "app");
     let r = ex.execute_test(&test, "d", "app").await.unwrap();
@@ -5333,7 +5333,7 @@ async fn a_crash_after_an_abandoned_optional_flow_still_fails_the_test() {
 #[tokio::test]
 async fn tap_under_keyboard_hides_it_first() {
     let mut save = node("save", "Save", 1500);
-    save.bounds = velocity_common::Rect {
+    save.bounds = atalanta_common::Rect {
         x: 400,
         y: 1500,
         width: 280,
@@ -5344,7 +5344,7 @@ async fn tap_under_keyboard_hides_it_first() {
         .keyboard
         .lock()
         .unwrap()
-        .replace(velocity_common::Rect {
+        .replace(atalanta_common::Rect {
             x: 0,
             y: 1200,
             width: 1080,
@@ -5393,7 +5393,7 @@ async fn hide_keyboard_step() {
         .keyboard
         .lock()
         .unwrap()
-        .replace(velocity_common::Rect {
+        .replace(atalanta_common::Rect {
             x: 0,
             y: 1200,
             width: 1080,
@@ -5431,7 +5431,7 @@ async fn scroll_strokes_stay_above_keyboard() {
         .keyboard
         .lock()
         .unwrap()
-        .replace(velocity_common::Rect {
+        .replace(atalanta_common::Rect {
             x: 0,
             y: 1440,
             width: 1080,
@@ -5469,7 +5469,7 @@ async fn scroll_with_keyboard_covering_all_hides_keyboard() {
         .keyboard
         .lock()
         .unwrap()
-        .replace(velocity_common::Rect {
+        .replace(atalanta_common::Rect {
             x: 0,
             y: 0,
             width: 1080,

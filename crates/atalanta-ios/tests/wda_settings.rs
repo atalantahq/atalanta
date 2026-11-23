@@ -1,4 +1,4 @@
-//! D-37: the session settings Velocity sends through
+//! D-37: the session settings Atalanta sends through
 //! `POST /session/:id/appium/settings` right after the session starts,
 //! against a fake WDA on 127.0.0.1. Its own test binary: the override
 //! check installs settings for the whole process.
@@ -6,9 +6,9 @@ mod common;
 
 use std::collections::HashMap;
 
+use atalanta_ios::wda::WdaClient;
 use common::*;
 use serde_json::Value;
-use velocity_ios::wda::WdaClient;
 
 async fn sent_settings(fake: &FakeWda) -> Value {
     let mut c = WdaClient::new(&fake.url);
@@ -45,13 +45,13 @@ async fn the_session_bounds_the_accessibility_wait_and_the_snapshot_depth() {
     assert_eq!(s["defaultActiveApplication"], "com.example.app", "{s}");
 
     // `ios.accessibilityDeadlineMs` / `ios.snapshotMaxDepth` change them.
-    velocity_common::env::set_settings(HashMap::from([
+    atalanta_common::env::set_settings(HashMap::from([
         (
-            "VELOCITY_IOS_ACCESSIBILITY_DEADLINE_MS".to_string(),
+            "ATALANTA_IOS_ACCESSIBILITY_DEADLINE_MS".to_string(),
             "2500".to_string(),
         ),
         (
-            "VELOCITY_IOS_SNAPSHOT_MAX_DEPTH".to_string(),
+            "ATALANTA_IOS_SNAPSHOT_MAX_DEPTH".to_string(),
             "80".to_string(),
         ),
     ]));
@@ -60,18 +60,18 @@ async fn the_session_bounds_the_accessibility_wait_and_the_snapshot_depth() {
     assert_eq!(s["snapshotMaxDepth"].as_u64(), Some(80), "{s}");
 
     // 0 leaves WDA's own value alone.
-    velocity_common::env::set_settings(HashMap::from([
+    atalanta_common::env::set_settings(HashMap::from([
         (
-            "VELOCITY_IOS_ACCESSIBILITY_DEADLINE_MS".to_string(),
+            "ATALANTA_IOS_ACCESSIBILITY_DEADLINE_MS".to_string(),
             "0".to_string(),
         ),
         (
-            "VELOCITY_IOS_SNAPSHOT_MAX_DEPTH".to_string(),
+            "ATALANTA_IOS_SNAPSHOT_MAX_DEPTH".to_string(),
             "0".to_string(),
         ),
     ]));
     let s = sent_settings(&fake).await;
     assert!(s.get("accessibilityDeadline").is_none(), "{s}");
     assert!(s.get("snapshotMaxDepth").is_none(), "{s}");
-    velocity_common::env::set_settings(HashMap::new());
+    atalanta_common::env::set_settings(HashMap::new());
 }

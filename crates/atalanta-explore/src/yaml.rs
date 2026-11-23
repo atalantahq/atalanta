@@ -1,4 +1,4 @@
-//! Turning a session into a test: a plain, deterministic Velocity suite.
+//! Turning a session into a test: a plain, deterministic Atalanta suite.
 //!
 //! Rules (docs/EXPLORE.md has the long form):
 //! - `appId`, one test named after the goal, `description:` = the goal (so
@@ -21,11 +21,11 @@
 //! Built as a `serde_yaml::Value` (no string splicing) and checked with the
 //! suite parser and validator before it is returned.
 
+use atalanta_common::{Action, AtalantaError, Direction, Key, LaunchArgs, Result, Selector};
 use serde_yaml::{Mapping, Value};
-use velocity_common::{Action, Direction, Key, LaunchArgs, Result, Selector, VelocityError};
 
 use crate::session::{ExploreReport, LaunchMode, RecordedStep, ValueSlot};
-use velocity_nl::GoalOp;
+use atalanta_nl::GoalOp;
 
 /// Where a generated step came from (for the repair: which recorded step
 /// a failing YAML step belongs to).
@@ -58,7 +58,7 @@ pub struct Generated {
 /// showing `${AWS_SECRET_ACCESS_KEY}` would make the replay read that
 /// variable (security audit 2026-11, MCP-2).
 fn s(v: &str) -> Value {
-    Value::String(velocity_core::env::escape(v))
+    Value::String(atalanta_core::env::escape(v))
 }
 
 /// A value slot's placeholder (`${NAME}`), which the replay must fill in.
@@ -240,8 +240,8 @@ pub fn action_value(action: &Action, typed: Option<&ValueSlot>) -> Result<Value>
     })
 }
 
-fn internal(msg: String) -> VelocityError {
-    VelocityError::Internal(anyhow::anyhow!(msg))
+fn internal(msg: String) -> AtalantaError {
+    AtalantaError::Internal(anyhow::anyhow!(msg))
 }
 
 /// A short label for logs: `tap { text: "Pay" }`.
@@ -251,7 +251,7 @@ pub fn action_label(action: &Action) -> String {
 
 /// [`action_label`], with an input's value shown by name.
 pub fn action_label_named(action: &Action, typed: Option<&ValueSlot>) -> String {
-    let sel = |s: &Selector| velocity_core::executor::selector_fields(s);
+    let sel = |s: &Selector| atalanta_core::executor::selector_fields(s);
     match action {
         Action::Tap { selector } => format!("tap {{ {} }}", sel(selector)),
         Action::LongPress { selector, .. } => format!("longPress {{ {} }}", sel(selector)),
@@ -530,9 +530,9 @@ pub fn check(yaml: &str, report: &ExploreReport) -> Result<()> {
             )));
         }
     }
-    let suite = velocity_core::parse_suite_from_str(yaml)
+    let suite = atalanta_core::parse_suite_from_str(yaml)
         .map_err(|e| internal(format!("the generated test doesn't parse: {e}")))?;
-    velocity_core::validate_suite(&suite)
+    atalanta_core::validate_suite(&suite)
         .map_err(|e| internal(format!("the generated test doesn't validate: {e}")))
 }
 
@@ -636,7 +636,7 @@ mod tests {
             ),
         ]);
         let yaml = serde_yaml::to_string(&doc).unwrap();
-        let suite = velocity_core::parse_suite_from_str(&yaml).unwrap();
+        let suite = atalanta_core::parse_suite_from_str(&yaml).unwrap();
         (yaml, suite.tests[0].steps[0].action.clone())
     }
 
@@ -644,7 +644,7 @@ mod tests {
         ExploreReport {
             goal: "g".into(),
             app_id: "a".into(),
-            platform: velocity_common::Platform::Android,
+            platform: atalanta_common::Platform::Android,
             launch: LaunchMode::Launch,
             outcome: crate::session::ExploreOutcome::Success,
             reason: String::new(),
@@ -853,7 +853,7 @@ mod tests {
         };
         let none = std::collections::HashMap::new();
         assert_eq!(
-            velocity_core::env::interpolate(&t, &none).unwrap(),
+            atalanta_core::env::interpolate(&t, &none).unwrap(),
             "${VEL_AUDIT_SECRET_X}",
             "{yaml}"
         );
@@ -869,7 +869,7 @@ mod tests {
         let v = action_value(&input, Some(&literal)).unwrap();
         let text = v["inputText"]["text"].as_str().unwrap().to_string();
         assert_eq!(
-            velocity_core::env::interpolate(&text, &none).unwrap(),
+            atalanta_core::env::interpolate(&text, &none).unwrap(),
             "${keychain:LOGIN_PW}"
         );
         let secret = ValueSlot {

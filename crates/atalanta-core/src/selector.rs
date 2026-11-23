@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use tracing::info;
-use velocity_common::{
-    Element, HealingConfig, Platform, PlatformDriver, Result, Selector, VelocityError,
+use atalanta_common::{
+    AtalantaError, Element, HealingConfig, Platform, PlatformDriver, Result, Selector,
 };
+use tracing::info;
 
 use crate::healing::SelectorHealer;
 
@@ -42,7 +42,7 @@ impl SelectorEngine {
 
     pub fn with_healing(config: HealingConfig) -> Self {
         Self::with_healer(crate::healing::HealingConfig {
-            enabled: config.enabled && config.mode != Some(velocity_common::HealingMode::Off),
+            enabled: config.enabled && config.mode != Some(atalanta_common::HealingMode::Off),
             confidence_threshold: config.confidence_threshold,
             persist_healed: config.persist_healed,
             ..Default::default()
@@ -50,14 +50,14 @@ impl SelectorEngine {
     }
 
     /// Healing for one app on one platform, with element snapshots kept in
-    /// `.velocity/` between runs when `persist_healed` is on.
+    /// `.atalanta/` between runs when `persist_healed` is on.
     pub fn with_healing_for(config: HealingConfig, platform: Platform, app_id: &str) -> Self {
-        Self::with_healing_in(config, platform, app_id, std::path::Path::new(".velocity"))
+        Self::with_healing_in(config, platform, app_id, std::path::Path::new(".atalanta"))
     }
 
     /// [`Self::with_healing_for`] keeping the healer's files (healed
     /// mappings, element snapshots, rejected heals) in `state_dir` instead
-    /// of `./.velocity` (tests: a temp dir, never the source tree).
+    /// of `./.atalanta` (tests: a temp dir, never the source tree).
     pub fn with_healing_in(
         config: HealingConfig,
         platform: Platform,
@@ -70,7 +70,7 @@ impl SelectorEngine {
             .map(|f| state_dir.join(f));
         Self::with_healer(crate::healing::HealingConfig {
             // `healing.mode: off` (D-7) is `enabled: false`.
-            enabled: config.enabled && config.mode != Some(velocity_common::HealingMode::Off),
+            enabled: config.enabled && config.mode != Some(atalanta_common::HealingMode::Off),
             confidence_threshold: config.confidence_threshold,
             persist_healed: persist,
             persist_path: Some(
@@ -146,7 +146,7 @@ impl SelectorEngine {
         // Per tier ceiling: a loose hit must not answer a stricter lookup.
         let cache_key = format!(
             "{selector}#{:?}",
-            velocity_common::selector_match::ceiling()
+            atalanta_common::selector_match::ceiling()
         );
         let current_gen = self.generation.load(Ordering::SeqCst);
 
@@ -198,11 +198,11 @@ impl SelectorEngine {
             // failed driver call must surface as itself: reporting it as
             // "element not found" blamed the app for the device, and kept
             // it out of quarantine.
-            Err(e) if !matches!(e, VelocityError::ElementNotFound { .. }) => Err(e),
+            Err(e) if !matches!(e, AtalantaError::ElementNotFound { .. }) => Err(e),
             Err(_) => {
                 // Primary lookup failed — attempt self-healing
                 if !allow_healing {
-                    return Err(VelocityError::ElementNotFound {
+                    return Err(AtalantaError::ElementNotFound {
                         selector: format!("{selector}"),
                         timeout_ms: 0,
                         screenshot: None,
@@ -213,7 +213,7 @@ impl SelectorEngine {
                     self.healer.try_heal(driver, device_id, selector).await
                 {
                     info!(
-                        selector = %velocity_common::redact::redact(&selector.to_string()),
+                        selector = %atalanta_common::redact::redact(&selector.to_string()),
                         confidence = confidence,
                         healed_type = healed_element.element_type,
                         healed_label = healed_element.label.as_deref().unwrap_or(""),
@@ -228,7 +228,7 @@ impl SelectorEngine {
                     self.cache_element(&cache_key, healed_element.clone(), current_gen);
                     Ok(healed_element)
                 } else {
-                    Err(VelocityError::ElementNotFound {
+                    Err(AtalantaError::ElementNotFound {
                         selector: format!("{selector}"),
                         timeout_ms: 0,
                         screenshot: None,
@@ -277,7 +277,7 @@ impl SelectorEngine {
     /// its "healed to … — update the selector" note (the step's failure
     /// says it instead; a failed test is not "healed", m5), forget it as
     /// the selector's stand-in, and drop the cached element it found. The
-    /// mapping stays with the healer, as the patch `velocity heal` applies.
+    /// mapping stays with the healer, as the patch `atalanta heal` applies.
     pub fn unuse_last_heal(&mut self) {
         self.heal_notes.pop();
         self.last_heal = None;

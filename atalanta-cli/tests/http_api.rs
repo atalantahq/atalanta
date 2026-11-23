@@ -1,4 +1,4 @@
-//! `velocity run` of an API suite end to end, against an HTTP server on
+//! `atalanta run` of an API suite end to end, against an HTTP server on
 //! 127.0.0.1: no device, no `appId`, captures flowing between steps and
 //! through a flow, every failed check in the report, a secret captured
 //! from a login masked, and `--parallel`.
@@ -9,8 +9,8 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -126,12 +126,12 @@ tests:
 "#;
 
 fn run(dir: &Path, api: &str, extra: &[&str]) -> Output {
-    Command::new(velocity())
+    Command::new(atalanta())
         .args(["run", "api.yaml", "--report", "json,junit"])
         .args(extra)
         .current_dir(dir)
         .env("SHOP_API", api)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env_remove("GITHUB_ACTIONS")
         .env("NO_COLOR", "1")
         .output()
@@ -148,7 +148,7 @@ fn text(out: &Output) -> String {
 
 /// (status, error message) of each test in a results.json.
 fn outcomes(dir: &Path) -> Vec<(String, String, String)> {
-    let raw = std::fs::read_to_string(dir.join("velocity-results/results.json")).unwrap();
+    let raw = std::fs::read_to_string(dir.join("atalanta-results/results.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
     v["tests"]
         .as_array()
@@ -190,8 +190,8 @@ fn an_api_suite_runs_without_a_device() {
         "{error}"
     );
     // The token captured from the login is a secret: no report keeps it.
-    let reports = std::fs::read_to_string(dir.join("velocity-results/results.json")).unwrap()
-        + &std::fs::read_to_string(dir.join("velocity-results/junit.xml")).unwrap()
+    let reports = std::fs::read_to_string(dir.join("atalanta-results/results.json")).unwrap()
+        + &std::fs::read_to_string(dir.join("atalanta-results/junit.xml")).unwrap()
         + &all;
     assert!(!reports.contains("5ecret-0123456789"), "the token leaked");
 }
@@ -279,8 +279,8 @@ tests:
     assert_eq!(o[0].1, "passed", "{o:?}\n{all}");
     assert_eq!(o[1].1, "failed", "{o:?}\n{all}");
     assert!(o[1].2.contains("[redacted]"), "{o:?}");
-    let reports = std::fs::read_to_string(dir.join("velocity-results/results.json")).unwrap()
-        + &std::fs::read_to_string(dir.join("velocity-results/junit.xml")).unwrap()
+    let reports = std::fs::read_to_string(dir.join("atalanta-results/results.json")).unwrap()
+        + &std::fs::read_to_string(dir.join("atalanta-results/junit.xml")).unwrap()
         + &all;
     assert!(
         !reports.contains("hunter2-from-file"),

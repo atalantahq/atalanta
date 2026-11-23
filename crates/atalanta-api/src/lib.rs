@@ -1,4 +1,4 @@
-//! API testing for Velocity: the `http` step.
+//! API testing for Atalanta: the `http` step.
 //!
 //! A step sends one request and checks the response: its status, headers,
 //! JSONPath (RFC 9535) values and body, and how long it took. Every check
@@ -7,11 +7,11 @@
 //! test's later steps, UI steps included: seed an order through the API,
 //! then find it on screen. A test's steps share a cookie jar.
 //!
-//! The step types are in `velocity_common::http` (the parser, schema and
+//! The step types are in `atalanta_common::http` (the parser, schema and
 //! executor share them); this crate sends them ([`HttpSession`]), checks
 //! them before a run ([`validate()`]), and stands in for the device when a
 //! suite has nothing else ([`NoDeviceDriver`]). [`openapi`] writes a suite
-//! from an OpenAPI 3 document (`velocity api scaffold`). Design notes and
+//! from an OpenAPI 3 document (`atalanta api scaffold`). Design notes and
 //! the tools compared: `docs/research/landscape-api-testing.md`.
 #![forbid(unsafe_code)]
 

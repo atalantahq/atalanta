@@ -1,6 +1,6 @@
+use atalanta_core::{parse_suite, selector_lint};
 use clap::Args;
 use colored::Colorize;
-use velocity_core::{parse_suite, selector_lint};
 
 #[derive(Args)]
 pub struct LintArgs {
@@ -9,7 +9,7 @@ pub struct LintArgs {
     path: Option<String>,
 
     /// The suite file to lint
-    #[arg(short, long, default_value = "velocity.yaml")]
+    #[arg(short, long, default_value = "atalanta.yaml")]
     config: String,
 }
 

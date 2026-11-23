@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.util.ArrayList;
 import java.util.HashMap;

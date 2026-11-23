@@ -18,8 +18,8 @@ use commands::{
 
 #[derive(Parser)]
 #[command(
-    name = "velocity",
-    about = "Velocity — fast, reliable mobile UI testing",
+    name = "atalanta",
+    about = "Atalanta — fast, reliable mobile UI testing",
     version
 )]
 struct Cli {
@@ -33,9 +33,9 @@ struct Cli {
         global = true,
         value_name = "WHEN",
         default_value = "auto",
-        value_parser = |s: &str| s.parse::<velocity_common::color::ColorChoice>()
+        value_parser = |s: &str| s.parse::<atalanta_common::color::ColorChoice>()
     )]
-    color: velocity_common::color::ColorChoice,
+    color: atalanta_common::color::ColorChoice,
 }
 
 #[derive(Subcommand)]
@@ -149,7 +149,7 @@ enum Command {
         command: signing::SigningCommand,
     },
 
-    /// Keep devices warm between runs (`velocity run --daemon` uses it)
+    /// Keep devices warm between runs (`atalanta run --daemon` uses it)
     Daemon(daemon::DaemonArgs),
 
     /// Measure natural-language planner consistency (pass^k) on saved traces
@@ -170,10 +170,10 @@ fn main() {
     let cli = Cli::parse();
     // One colour decision for every crate's output (C4): `colored` in the
     // CLI, the runner's own escapes, and the log lines on stderr.
-    let color_on = velocity_common::color::init(cli.color);
+    let color_on = atalanta_common::color::init(cli.color);
     colored::control::set_override(color_on);
 
-    // `velocity run --daemon`: hand the run to a running daemon.
+    // `atalanta run --daemon`: hand the run to a running daemon.
     if let Command::Run(args) = &cli.command {
         if args.via_daemon() {
             let argv: Vec<String> = std::env::args()
@@ -185,7 +185,7 @@ fn main() {
             let argv = without_color_flag(argv);
             match commands::daemon::client_run(argv) {
                 Ok(Some(code)) => std::process::exit(code),
-                Ok(None) => eprintln!("=> no velocity daemon running; running here"),
+                Ok(None) => eprintln!("=> no atalanta daemon running; running here"),
                 Err(e) => {
                     eprintln!("{} {}", "error:".red().bold(), redacted(&e));
                     std::process::exit(5);
@@ -196,7 +196,7 @@ fn main() {
 
     {
         use tracing_subscriber::prelude::*;
-        // stderr: stdout is the program's output, and for `velocity mcp`
+        // stderr: stdout is the program's output, and for `atalanta mcp`
         // the JSON-RPC stream, which a log line would corrupt.
         // Through `redact`: a log line can quote an interpolated selector
         // or a failed command's arguments (VEL-066).
@@ -204,17 +204,17 @@ fn main() {
         let filter = || {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER))
         };
-        // `VELOCITY_LOG_FORMAT=json`: one JSON object per line, with the
+        // `ATALANTA_LOG_FORMAT=json`: one JSON object per line, with the
         // current span's fields (`test`, `device`, `attempt`), for a farm's
         // log pipeline.
-        let json = log_format_is_json(velocity_common::env::var("VELOCITY_LOG_FORMAT").ok());
+        let json = log_format_is_json(atalanta_common::env::var("ATALANTA_LOG_FORMAT").ok());
         let fmt = (!json).then(|| {
             tracing_subscriber::fmt::layer()
-                .with_ansi(velocity_common::color::resolve(
+                .with_ansi(atalanta_common::color::resolve(
                     cli.color,
                     std::io::stderr().is_terminal(),
                 ))
-                .with_writer(|| velocity_common::redact::RedactingWriter::new(std::io::stderr()))
+                .with_writer(|| atalanta_common::redact::RedactingWriter::new(std::io::stderr()))
                 .with_target(false)
                 .with_filter(filter())
         });
@@ -223,15 +223,15 @@ fn main() {
                 .json()
                 .with_current_span(true)
                 .with_span_list(false)
-                .with_writer(|| velocity_common::redact::RedactingWriter::new(std::io::stderr()))
+                .with_writer(|| atalanta_common::redact::RedactingWriter::new(std::io::stderr()))
                 .with_filter(filter())
         });
-        // `--profile` records Velocity's own spans at debug level whatever
+        // `--profile` records Atalanta's own spans at debug level whatever
         // RUST_LOG says, without printing them.
         let chrome = match &cli.command {
             Command::Run(args) => args.profile_path().map(|p| {
                 profile::layer(p).with_filter(tracing_subscriber::filter::filter_fn(|m| {
-                    m.target().starts_with("velocity") && m.level() <= &tracing::Level::DEBUG
+                    m.target().starts_with("atalanta") && m.level() <= &tracing::Level::DEBUG
                 }))
             }),
             _ => None,
@@ -243,22 +243,22 @@ fn main() {
             .init();
     }
 
-    // A panic anywhere in Velocity is an internal error: exit 5 (D-19),
+    // A panic anywhere in Atalanta is an internal error: exit 5 (D-19),
     // not Rust's 101, which CI reads as an unknown failure.
     let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_command(cli))) {
         Ok(r) => r,
         Err(panic) => {
             profile::flush();
-            velocity_runner::reporter::github::resume_commands();
+            atalanta_runner::reporter::github::resume_commands();
             let msg = panic
                 .downcast_ref::<&str>()
                 .map(|s| s.to_string())
                 .or_else(|| panic.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "unknown panic".into());
             eprintln!(
-                "{} internal error: Velocity panicked: {}",
+                "{} internal error: Atalanta panicked: {}",
                 "error:".red().bold(),
-                velocity_common::redact::redact(&msg)
+                atalanta_common::redact::redact(&msg)
             );
             std::process::exit(5);
         }
@@ -282,37 +282,37 @@ fn main() {
 /// when the message already says (a locked device) or there is no one
 /// next step.
 fn next_action(e: &anyhow::Error) -> Option<&'static str> {
-    use velocity_common::VelocityError as V;
+    use atalanta_common::AtalantaError as V;
     // adb missing reaches here as a plain configuration or device error;
     // it is the first thing a Maestro user without platform-tools sees.
     if e.chain()
         .any(|c| c.to_string().contains("Failed to execute adb"))
     {
         return Some(
-            "adb is not installed or not on PATH: velocity doctor -p android says where it is \
-             (or set VELOCITY_ADB_PATH)",
+            "adb is not installed or not on PATH: atalanta doctor -p android says where it is \
+             (or set ATALANTA_ADB_PATH)",
         );
     }
     let v = e.chain().find_map(|c| c.downcast_ref::<V>())?;
     Some(match v {
         V::MissingEnvVars { .. } => "--env NAME=value, --env-file .env, or export the variable",
         V::UnknownFlowRef { .. } => {
-            "check the runFlow id against the suite's flows: (velocity validate lists them)"
+            "check the runFlow id against the suite's flows: (atalanta validate lists them)"
         }
         V::WdaUnhealthy { .. } | V::WdaUnreachable { .. } | V::RunnerFailing { .. } => {
-            "velocity doctor -p ios (Xcode license, xcode-select, simulator runtime)"
+            "atalanta doctor -p ios (Xcode license, xcode-select, simulator runtime)"
         }
         V::CircuitOpen { .. } | V::AdbConnectionLost { .. } => {
-            "velocity doctor --fix (restarts adb), then run again"
+            "atalanta doctor --fix (restarts adb), then run again"
         }
         V::DeviceNotFound { available, .. } if available.is_empty() => {
-            "velocity devices up --android 1 (or --ios 1) boots one; velocity devices list shows what is connected"
+            "atalanta devices up --android 1 (or --ios 1) boots one; atalanta devices list shows what is connected"
         }
-        V::DeviceBootFailed { .. } => "velocity doctor checks the SDK, the AVDs and free memory/disk",
+        V::DeviceBootFailed { .. } => "atalanta doctor checks the SDK, the AVDs and free memory/disk",
         V::SuiteTimeout { .. } => {
             "raise --timeout (it takes a unit: --timeout 30m); the tests it cut off are in the report"
         }
-        V::BrowserConnectionLost { .. } => "velocity doctor -p web checks Chrome",
+        V::BrowserConnectionLost { .. } => "atalanta doctor -p web checks Chrome",
         _ => return None,
     })
 }
@@ -340,7 +340,7 @@ pub(crate) fn without_color_flag(argv: Vec<String>) -> Vec<String> {
 
 /// An error as printed: never with a secret in it (VEL-211).
 pub fn redacted(e: &anyhow::Error) -> String {
-    velocity_common::redact::redact(&e.to_string()).into_owned()
+    atalanta_common::redact::redact(&e.to_string()).into_owned()
 }
 
 #[tokio::main]
@@ -376,22 +376,22 @@ async fn run_command(cli: Cli) -> anyhow::Result<i32> {
         Command::ShardPlan(args) => shard_plan::execute(args),
         Command::Agent(cmd) => Box::pin(agent::execute(cmd)).await,
         Command::Version => {
-            println!("{} {}", "velocity".bold(), env!("CARGO_PKG_VERSION"));
+            println!("{} {}", "atalanta".bold(), env!("CARGO_PKG_VERSION"));
             // Build identity on line 2 (line 1's format is a contract):
             // release.yml sets both variables; other builds say "unknown".
             println!(
                 "commit {}, {}-{}, rustc {}",
-                option_env!("VELOCITY_GIT_SHA").unwrap_or("unknown"),
+                option_env!("ATALANTA_GIT_SHA").unwrap_or("unknown"),
                 std::env::consts::ARCH,
                 std::env::consts::OS,
-                option_env!("VELOCITY_RUSTC_VERSION").unwrap_or("unknown"),
+                option_env!("ATALANTA_RUSTC_VERSION").unwrap_or("unknown"),
             );
             Ok(0)
         }
     }
 }
 
-/// Whether `VELOCITY_LOG_FORMAT` asks for JSON log lines (`json`, any
+/// Whether `ATALANTA_LOG_FORMAT` asks for JSON log lines (`json`, any
 /// case). Anything else, or unset, is the text format.
 fn log_format_is_json(value: Option<String>) -> bool {
     value.is_some_and(|v| v.trim().eq_ignore_ascii_case("json"))
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn device_and_env_errors_say_what_to_do_next() {
-        use velocity_common::VelocityError as V;
+        use atalanta_common::AtalantaError as V;
         let e: anyhow::Error = V::MissingEnvVars {
             vars: vec!["TOKEN".into()],
         }
@@ -472,7 +472,7 @@ mod tests {
             V::Config("Failed to execute adb: No such file or directory".into()).into();
         assert!(super::next_action(&e)
             .unwrap()
-            .contains("VELOCITY_ADB_PATH"));
+            .contains("ATALANTA_ADB_PATH"));
     }
 
     #[test]
@@ -498,15 +498,15 @@ mod tests {
         );
     }
 
-    /// The inspector console's Run panel starts `velocity run` with these
+    /// The inspector console's Run panel starts `atalanta run` with these
     /// arguments: they must be ones `run` takes (a renamed flag failed
     /// every console run with exit 2).
     #[test]
     fn the_console_run_command_parses() {
+        use atalanta_inspector::console::tasks::{AtalantaBinary, RunRequest, SuiteLauncher};
         use clap::Parser;
-        use velocity_inspector::console::tasks::{RunRequest, SuiteLauncher, VelocityBinary};
-        let launcher = VelocityBinary {
-            exe: "velocity".into(),
+        let launcher = AtalantaBinary {
+            exe: "atalanta".into(),
         };
         let req = RunRequest {
             suite: "flows/a.yaml".into(),
@@ -516,8 +516,8 @@ mod tests {
         let cmd = launcher.command(
             std::path::Path::new("/p/flows/a.yaml"),
             &req,
-            std::path::Path::new("/p/velocity-results/console/1"),
-            std::path::Path::new("/p/velocity-results/console/1/events.jsonl"),
+            std::path::Path::new("/p/atalanta-results/console/1"),
+            std::path::Path::new("/p/atalanta-results/console/1/events.jsonl"),
         );
         let std_cmd = cmd.as_std();
         let mut argv = vec![std_cmd.get_program().to_string_lossy().to_string()];
@@ -528,6 +528,6 @@ mod tests {
         }
         assert!(std_cmd
             .get_envs()
-            .any(|(k, _)| k == velocity_common::live_events::EVENTS_FILE_ENV));
+            .any(|(k, _)| k == atalanta_common::live_events::EVENTS_FILE_ENV));
     }
 }

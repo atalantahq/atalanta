@@ -103,8 +103,8 @@ export class MirrorClient {
       fps: Math.round(this.stats.fps(now) * 10) / 10,
       latencyMs: this.stats.latency(),
     };
-    // For the headless check and the curious: window.__velocityMirror.
-    (globalThis as Record<string, unknown>).__velocityMirror = this.status;
+    // For the headless check and the curious: window.__atalantaMirror.
+    (globalThis as Record<string, unknown>).__atalantaMirror = this.status;
     this.listeners.forEach((l) => l(this.status));
   }
 

@@ -18,12 +18,12 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
-use velocity_common::{
-    Action, Element, Platform, PlatformDriver, Result, Selector, Step, StepStatus, TestCase,
-    TestStatus, VelocityError,
+use atalanta_common::{
+    Action, AtalantaError, Element, Platform, PlatformDriver, Result, Selector, Step, StepStatus,
+    TestCase, TestStatus,
 };
-use velocity_core::TestExecutor;
+use atalanta_core::TestExecutor;
+use serde::Serialize;
 
 /// How the wrong-path replay went.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -40,11 +40,11 @@ pub enum WrongPath {
 /// What [`check`] needs besides the driver, the YAML and the goal.
 pub struct CheckOptions<'a> {
     pub device_id: &'a str,
-    pub platform: velocity_common::Platform,
+    pub platform: atalanta_common::Platform,
     /// `${NAME}` values (data and secrets) for the replays.
     pub overrides: &'a std::collections::HashMap<String, String>,
     /// The settings to replay with (a suite file's own `config:`).
-    pub config: &'a velocity_common::SuiteConfig,
+    pub config: &'a atalanta_common::SuiteConfig,
     /// Burn-in replays; must be >= 1 (0 is a Config error).
     pub replays: usize,
     /// Upper bound of the random pause before each step, on replays after the first.
@@ -130,7 +130,7 @@ fn words(s: &str) -> Vec<String> {
 
 /// The first assertion in `yaml`'s test whose text names a word of `goal`.
 pub fn goal_text_assertion(yaml: &str, goal: &str) -> Option<String> {
-    let suite = velocity_core::parse_suite_from_str(yaml).ok()?;
+    let suite = atalanta_core::parse_suite_from_str(yaml).ok()?;
     let goal_words = words(goal);
     let test = suite.tests.first()?;
     test.steps.iter().find_map(|s| {
@@ -167,10 +167,10 @@ pub async fn wrong_path(
     device_id: &str,
     platform: Platform,
     overrides: &HashMap<String, String>,
-    base: &velocity_common::SuiteConfig,
+    base: &atalanta_common::SuiteConfig,
 ) -> Result<WrongPath> {
-    let mut suite = velocity_core::parse_suite_from_str(yaml)?;
-    velocity_core::env::interpolate_suite(&mut suite, overrides)?;
+    let mut suite = atalanta_core::parse_suite_from_str(yaml)?;
+    atalanta_core::env::interpolate_suite(&mut suite, overrides)?;
     let Some(test) = suite.tests.first().cloned() else {
         return Ok(WrongPath::Skipped {
             why: "no test".into(),
@@ -247,13 +247,13 @@ pub async fn wrong_path(
             .screen_size(device_id)
             .await
             .ok()
-            .map(|(w, h)| velocity_common::Rect {
+            .map(|(w, h)| atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: w,
                 height: h,
             });
-        let wrong = velocity_common::selector_build::robust_selector(
+        let wrong = atalanta_common::selector_build::robust_selector(
             &sibling,
             &root,
             screen.as_ref(),
@@ -301,7 +301,7 @@ pub async fn wrong_path(
 }
 
 /// The largest random pause before a step on burn-in replays after the
-/// first, in ms: what `velocity explore` and `velocity gate` use by default.
+/// first, in ms: what `atalanta explore` and `atalanta gate` use by default.
 pub const DEFAULT_JITTER_MS: u64 = 150;
 
 /// Gate `yaml`'s one test against `goal`: replay it `replays` times (the
@@ -315,19 +315,19 @@ pub async fn check(
     opts: &CheckOptions<'_>,
 ) -> Result<CheckResult> {
     if goal.trim().is_empty() {
-        return Err(VelocityError::Config(
+        return Err(AtalantaError::Config(
             "the gates need a goal: what the test is meant to show".into(),
         ));
     }
-    let suite = velocity_core::parse_suite_from_str(yaml)?;
+    let suite = atalanta_core::parse_suite_from_str(yaml)?;
     if suite.tests.len() != 1 {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "the gates check a file with one test; this one has {}",
             suite.tests.len()
         )));
     }
     if opts.replays == 0 {
-        return Err(VelocityError::Config(
+        return Err(AtalantaError::Config(
             "replays must be at least 1 for the gates".into(),
         ));
     }
@@ -494,7 +494,7 @@ mod tests {
             platform_id: "android:id/title".into(),
             text: Some(t.into()),
             element_type: "android.widget.TextView".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 40,
                 y,
                 width: 600,
@@ -506,7 +506,7 @@ mod tests {
         };
         let row = |kids: Vec<Element>, y: i32| Element {
             element_type: "android.widget.LinearLayout".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y,
                 width: 1080,
@@ -520,7 +520,7 @@ mod tests {
         let target = text("All apps", 20, 60);
         let list = Element {
             element_type: "androidx.recyclerview.widget.RecyclerView".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: 1080,
@@ -544,7 +544,7 @@ mod tests {
         let wrap = |kids: Vec<Element>, y: i32| row(vec![row(kids, y)], y);
         let list = Element {
             element_type: "androidx.recyclerview.widget.RecyclerView".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: 1080,
@@ -571,7 +571,7 @@ mod tests {
             platform_id: "CameraVideoSettingsList".into(),
             label: Some(label.into()),
             element_type: "XCUIElementTypeCell".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y,
                 width: 400,
@@ -609,7 +609,7 @@ mod tests {
         assert!(goal_text_assertion(only_page, "open the page").is_none());
     }
 
-    // A hand-written file (`velocity gate FILE`) may mark an assertion
+    // A hand-written file (`atalanta gate FILE`) may mark an assertion
     // `optional: true`: its failure is only a warning, so it is no check.
     #[test]
     fn an_optional_assertion_does_not_count_as_naming_the_goal() {

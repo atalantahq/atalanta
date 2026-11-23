@@ -1,4 +1,4 @@
-package com.velocity.tree;
+package com.atalanta.tree;
 
 /**
  * Checks of Server's pure helpers on the host JVM (no device); build.sh runs
@@ -105,8 +105,8 @@ final class HostChecks {
         check(!Server.clientProofMatches(cn, proof), "the server's proof is not the client's");
         check(!Server.clientProofMatches(cn, Server.TOKEN), "the bare token no longer authenticates");
         check(Server.clientProofMatches(cn,
-                Server.hmac(Server.TOKEN, "velocity-tree client " + Server.NONCE + " " + cn)), "client proof");
-        check(proof.equals(Server.hmac(Server.TOKEN, "velocity-tree server " + Server.NONCE + " " + cn)), "server proof");
+                Server.hmac(Server.TOKEN, "atalanta-tree client " + Server.NONCE + " " + cn)), "client proof");
+        check(proof.equals(Server.hmac(Server.TOKEN, "atalanta-tree server " + Server.NONCE + " " + cn)), "server proof");
     }
 
     /** VideoServer 2: the mutual handshake's proofs (the host computes the same). */
@@ -114,10 +114,10 @@ final class HostChecks {
         String token = "0123456789abcdef0123456789abcdef";
         String cn = "00112233445566778899aabbccddeeff", sn = "ffeeddccbbaa99887766554433221100";
         check(VideoServer.serverProof(token, cn, sn).equals(
-                Server.hmac(token, "velocity-video server " + cn + " " + sn)), "video server proof");
+                Server.hmac(token, "atalanta-video server " + cn + " " + sn)), "video server proof");
         check(!VideoServer.serverProof(token, cn, sn).equals(VideoServer.clientProof(token, cn, sn)),
                 "the server's proof is not the client's");
-        check(VideoServer.tokenFile("velocity_video_1_2").equals("/data/local/tmp/velocity_video_1_2.token"),
+        check(VideoServer.tokenFile("atalanta_video_1_2").equals("/data/local/tmp/atalanta_video_1_2.token"),
                 "video token file");
         check(VideoServer.VERSION.equals("2"), "video server 2");
     }

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use velocity_common::{Action, Result, Selector, Step, TestSuite, VelocityError};
+use atalanta_common::{Action, AtalantaError, Result, Selector, Step, TestSuite};
 
 /// Row 3.2: every `exec` step runs a program `config.exec.allow` lists.
 fn check_exec_allowed(suite: &TestSuite) -> Result<()> {
@@ -15,7 +15,7 @@ fn check_exec_allowed(suite: &TestSuite) -> Result<()> {
                 if let Some(why) = e.refused_by(suite.config.exec.as_ref()) {
                     return Err(at_source(
                         step,
-                        VelocityError::Config(format!("{name} step {}: {why}", i + 1)),
+                        AtalantaError::Config(format!("{name} step {}: {why}", i + 1)),
                     ));
                 }
             }
@@ -33,7 +33,7 @@ pub fn validate_suite(suite: &TestSuite) -> Result<()> {
 /// where the test is, as step errors do (VEL-218).
 pub fn validate_suite_at(
     suite: &TestSuite,
-    tests: &std::collections::HashMap<String, velocity_common::SourcePos>,
+    tests: &std::collections::HashMap<String, atalanta_common::SourcePos>,
 ) -> Result<()> {
     validate_structure_at(suite, tests)?;
     check_exec_allowed(suite)?;
@@ -44,14 +44,14 @@ pub fn validate_suite_at(
 }
 
 /// [`validate_suite_at`] without [`check_platform_selectors`] and
-/// [`check_capabilities`]: `velocity run` checks those once `--platform`
+/// [`check_capabilities`]: `atalanta run` checks those once `--platform`
 /// and `--driver` have been applied, so a `driver: headless` suite run
 /// with `--driver device` isn't refused for what only headless can't do
 /// (review-s9 M2), nor a `platform: android` suite with web-only
 /// selectors run with `--platform web` (review f5-f6 MINOR-7).
 pub fn validate_structure_at(
     suite: &TestSuite,
-    tests: &std::collections::HashMap<String, velocity_common::SourcePos>,
+    tests: &std::collections::HashMap<String, atalanta_common::SourcePos>,
 ) -> Result<()> {
     // Results, history, the cache and `dependsOn` are keyed by test name,
     // and `resolve_flows` kept the last of two flows with one id: both
@@ -59,7 +59,7 @@ pub fn validate_structure_at(
     let mut names = HashSet::new();
     for test in &suite.tests {
         if !names.insert(test.name.as_str()) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "two tests are named '{}'; test names must be unique (results and dependsOn use them)",
                 test.name
             )));
@@ -67,12 +67,12 @@ pub fn validate_structure_at(
     }
     // D-W3: an unknown device profile lists the known ones.
     if let Some(device) = suite.config.web.as_ref().and_then(|w| w.device.as_deref()) {
-        velocity_common::web_devices::lookup(device)?;
+        atalanta_common::web_devices::lookup(device)?;
     }
     let mut flow_ids = HashSet::new();
     for flow in &suite.flows {
         if !flow_ids.insert(flow.id.as_str()) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "two flows have the id '{}'; flow ids must be unique",
                 flow.id
             )));
@@ -94,14 +94,14 @@ pub fn validate_structure_at(
     // `appId` may be left out only where nothing launches an app or opens
     // a page.
     if suite.app_id.trim().is_empty() && !crate::http_only(suite) {
-        return Err(VelocityError::Config(
+        return Err(AtalantaError::Config(
             "the suite has no `appId`; only a suite of http steps (with wait/setConfig) runs without one"
                 .into(),
         ));
     }
 
     validate_dependencies(suite).map_err(|(test, e)| match tests.get(test) {
-        Some(pos) => VelocityError::AtSource {
+        Some(pos) => AtalantaError::AtSource {
             pos: pos.clone(),
             step: format!("test '{test}' dependsOn"),
             inner: Box::new(e),
@@ -120,17 +120,17 @@ pub const RN_NO_HEADLESS: &str = "React Native has no headless renderer; run on 
 /// Steps the suite's platform and driver can never run (VEL-219): a
 /// configuration error before the run, instead of one mid-run.
 pub fn check_capabilities(suite: &TestSuite) -> Result<()> {
-    use velocity_common::config::{DriverMode, Framework};
+    use atalanta_common::config::{DriverMode, Framework};
     if suite.config.driver == Some(DriverMode::Headless)
         && suite.config.framework == Some(Framework::ReactNative)
     {
-        return Err(VelocityError::Config(RN_NO_HEADLESS.to_string()));
+        return Err(AtalantaError::Config(RN_NO_HEADLESS.to_string()));
     }
     for (name, i, step, can) in capabilities(suite) {
         if let Can::Never(why) = can {
             return Err(at_source(
                 step,
-                VelocityError::Config(format!("test '{name}' step {i}: {why}")),
+                AtalantaError::Config(format!("test '{name}' step {i}: {why}")),
             ));
         }
     }
@@ -139,19 +139,19 @@ pub fn check_capabilities(suite: &TestSuite) -> Result<()> {
 
 /// The keys the headless driver accepts (as no-ops): the ones it had
 /// before D-9. The editing keys are refused.
-pub const HEADLESS_KEYS: [velocity_common::Key; 5] = [
-    velocity_common::Key::Back,
-    velocity_common::Key::Home,
-    velocity_common::Key::Enter,
-    velocity_common::Key::VolumeUp,
-    velocity_common::Key::VolumeDown,
+pub const HEADLESS_KEYS: [atalanta_common::Key; 5] = [
+    atalanta_common::Key::Back,
+    atalanta_common::Key::Home,
+    atalanta_common::Key::Enter,
+    atalanta_common::Key::VolumeUp,
+    atalanta_common::Key::VolumeDown,
 ];
 
 /// A `pressKey` the platform's device driver can't send (D-9): iOS has no
 /// escape, forward delete or arrow keys through WebDriverAgent, a browser
 /// no volume buttons. They were skipped silently on the web.
 fn check_keys(suite: &TestSuite) -> Result<()> {
-    use velocity_common::config::{DriverMode, Framework};
+    use atalanta_common::config::{DriverMode, Framework};
     let tests = suite.tests.iter().map(|t| (t.name.as_str(), &t.steps));
     let flows = suite.flows.iter().map(|f| (f.id.as_str(), &f.steps));
     if suite.config.driver == Some(DriverMode::Headless) {
@@ -164,7 +164,7 @@ fn check_keys(suite: &TestSuite) -> Result<()> {
                     if !HEADLESS_KEYS.contains(key) {
                         return Err(at_source(
                             step,
-                            VelocityError::Config(format!(
+                            AtalantaError::Config(format!(
                                 "test '{name}' step {i}: pressKey `{}` can't be sent by the headless driver (it has no keyboard); use inputText, or run on a device or the web",
                                 key.name()
                             )),
@@ -188,14 +188,14 @@ fn check_keys(suite: &TestSuite) -> Result<()> {
         for (i, step) in steps.iter().enumerate() {
             if let Action::PressKey { key } = &step.action {
                 if !key.supported_on(platform) {
-                    let can: Vec<&str> = velocity_common::Key::ALL
+                    let can: Vec<&str> = atalanta_common::Key::ALL
                         .iter()
                         .filter(|k| k.supported_on(platform))
                         .map(|k| k.name())
                         .collect();
                     return Err(at_source(
                         step,
-                        VelocityError::Config(format!(
+                        AtalantaError::Config(format!(
                             "test '{name}' step {i}: pressKey `{}` can't be sent on {platform} (it can send: {})",
                             key.name(),
                             can.join(", ")
@@ -238,7 +238,7 @@ pub fn suite_warnings(suite: &TestSuite) -> Vec<String> {
     }
     let tests = suite.tests.iter().map(|t| (t.name.as_str(), &t.steps));
     let flows = suite.flows.iter().map(|f| (f.id.as_str(), &f.steps));
-    let web = suite.config.platform == Some(velocity_common::Platform::Web);
+    let web = suite.config.platform == Some(atalanta_common::Platform::Web);
     for (name, steps) in tests.chain(flows) {
         for (i, step) in steps.iter().enumerate() {
             // D-W4: one release of notice that the web flipped, a swipe
@@ -253,7 +253,7 @@ pub fn suite_warnings(suite: &TestSuite) -> Vec<String> {
                 if web {
                     let d = format!(
                         "{:?}",
-                        direction.unwrap_or(velocity_common::Direction::Down)
+                        direction.unwrap_or(atalanta_common::Direction::Down)
                     )
                     .to_lowercase();
                     let what = match direction {
@@ -286,7 +286,7 @@ pub fn suite_warnings(suite: &TestSuite) -> Vec<String> {
                 && matches!(
                     step.action,
                     Action::PressKey {
-                        key: velocity_common::Key::Back
+                        key: atalanta_common::Key::Back
                     }
                 )
                 && matches!(
@@ -320,8 +320,8 @@ enum Can {
 /// (VEL-219). goBack/refresh, css/xpath and assertSystemState off Android
 /// are [`check_platform_selectors`]'s.
 fn capabilities(suite: &TestSuite) -> Vec<(&str, usize, &Step, Can)> {
-    use velocity_common::config::{DriverMode, Framework};
-    use velocity_common::Platform;
+    use atalanta_common::config::{DriverMode, Framework};
+    use atalanta_common::Platform;
     let platform = suite.config.platform;
     let headless = suite.config.driver == Some(DriverMode::Headless);
     let bridge = matches!(
@@ -392,21 +392,21 @@ fn at_prefix(step: &Step) -> String {
 /// found". Refuse them up front for `platform`.
 pub fn check_platform_selectors(
     suite: &TestSuite,
-    platform: velocity_common::Platform,
+    platform: atalanta_common::Platform,
 ) -> Result<()> {
     // Device state checks read Android services (media sessions, telephony).
-    if platform != velocity_common::Platform::Android {
+    if platform != atalanta_common::Platform::Android {
         let tests = suite.tests.iter().map(|t| (t.name.as_str(), &t.steps));
         let flows = suite.flows.iter().map(|f| (f.id.as_str(), &f.steps));
         for (name, steps) in tests.chain(flows) {
             for (i, step) in steps.iter().enumerate() {
                 if matches!(
                     step.action,
-                    velocity_common::Action::AssertSystemState { .. }
+                    atalanta_common::Action::AssertSystemState { .. }
                 ) {
                     return Err(at_source(
                         step,
-                        VelocityError::Config(format!(
+                        AtalantaError::Config(format!(
                             "test '{name}' step {i}: `assertSystemState` works only on Android"
                         )),
                     ));
@@ -414,7 +414,7 @@ pub fn check_platform_selectors(
             }
         }
     }
-    if platform == velocity_common::Platform::Web {
+    if platform == atalanta_common::Platform::Web {
         return Ok(());
     }
     let tests = suite.tests.iter().map(|t| (t.name.as_str(), &t.steps));
@@ -425,16 +425,16 @@ pub fn check_platform_selectors(
             // used to pass validation and fail mid-run with "go_back() not
             // supported on this platform".
             let browser_only = match &step.action {
-                velocity_common::Action::GoBack => {
+                atalanta_common::Action::GoBack => {
                     Some(("goBack", "use `pressKey: { key: back }`"))
                 }
-                velocity_common::Action::Refresh => Some(("refresh", "relaunch with `launchApp`")),
+                atalanta_common::Action::Refresh => Some(("refresh", "relaunch with `launchApp`")),
                 _ => None,
             };
             if let Some((action, instead)) = browser_only {
                 return Err(at_source(
                     step,
-                    VelocityError::Config(format!(
+                    AtalantaError::Config(format!(
                         "test '{name}' step {i}: `{action}` works only on the web; on {platform} {instead}"
                     )),
                 ));
@@ -443,7 +443,7 @@ pub fn check_platform_selectors(
                 if let Some(kind) = web_only(sel) {
                     return Err(at_source(
                         step,
-                        VelocityError::InvalidSelector {
+                        AtalantaError::InvalidSelector {
                             test_name: name.to_string(),
                             step_index: i,
                             reason: format!(
@@ -471,9 +471,9 @@ fn web_only(sel: &Selector) -> Option<&'static str> {
 }
 
 /// Point a step's error at its line in the suite, when the parser knew it.
-fn at_source(step: &Step, e: VelocityError) -> VelocityError {
+fn at_source(step: &Step, e: AtalantaError) -> AtalantaError {
     match &step.source {
-        Some(pos) => VelocityError::AtSource {
+        Some(pos) => AtalantaError::AtSource {
             pos: pos.clone(),
             step: crate::executor::step_label(&step.action),
             inner: Box::new(e),
@@ -484,14 +484,14 @@ fn at_source(step: &Step, e: VelocityError) -> VelocityError {
 
 /// `dependsOn` must name tests in this suite and must not form a cycle.
 /// The error comes with the test it is about.
-fn validate_dependencies(suite: &TestSuite) -> std::result::Result<(), (&str, VelocityError)> {
+fn validate_dependencies(suite: &TestSuite) -> std::result::Result<(), (&str, AtalantaError)> {
     let names: HashSet<&str> = suite.tests.iter().map(|t| t.name.as_str()).collect();
     for test in &suite.tests {
         for dep in &test.depends_on {
             if !names.contains(dep.as_str()) {
                 return Err((
                     test.name.as_str(),
-                    VelocityError::Config(format!(
+                    AtalantaError::Config(format!(
                         "test '{}' depends on '{dep}', which is not a test in this suite",
                         test.name
                     )),
@@ -532,7 +532,7 @@ fn validate_dependencies(suite: &TestSuite) -> std::result::Result<(), (&str, Ve
         visit(&test.name, &deps, &mut Vec::new(), &mut done).map_err(|cycle| {
             (
                 test.name.as_str(),
-                VelocityError::Config(format!("dependsOn cycle: {cycle}")),
+                AtalantaError::Config(format!("dependsOn cycle: {cycle}")),
             )
         })?;
     }
@@ -556,7 +556,7 @@ fn validate_step(
             .filter(|b| **b)
             .count();
             if rule.url.is_empty() || bodies > 1 || (rule.block && bodies > 0) {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: mockRequest needs a url and at most one of json/body/file (none with block)"
                 )));
             }
@@ -566,14 +566,14 @@ fn validate_step(
         // `check_exec_allowed`.
         Action::Exec(_) => {}
         Action::Http(req) => {
-            velocity_api::validate(req).map_err(|e| {
-                VelocityError::Config(format!("{context_name} step {step_index}: http: {e}"))
+            atalanta_api::validate(req).map_err(|e| {
+                AtalantaError::Config(format!("{context_name} step {step_index}: http: {e}"))
             })?;
         }
         Action::SetConfig { values } => {
             for (k, v) in values {
                 if let Err(e) = crate::executor::check_set_config(k, v) {
-                    return Err(VelocityError::Config(format!(
+                    return Err(AtalantaError::Config(format!(
                         "{context_name} step {step_index}: {e}"
                     )));
                 }
@@ -585,7 +585,7 @@ fn validate_step(
             in_call,
         } => {
             if media_playing.is_none() && media_title.is_none() && in_call.is_none() {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: assertSystemState needs mediaPlaying, mediaTitle or inCall"
                 )));
             }
@@ -623,7 +623,7 @@ fn validate_step(
             // Zero scrolls can only fail when the element is off screen
             // (VEL-195).
             if *max_scrolls == 0 {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: scrollUntilVisible maxScrolls must be at least 1 (use assertVisible to check without scrolling)"
                 )));
             }
@@ -637,14 +637,14 @@ fn validate_step(
             // `from` alone (or `to` alone) was dropped and the step swiped
             // down instead (VEL-195).
             if from.is_some() != to.is_some() {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: swipe needs both `from` and `to` (or a `direction`)"
                 )));
             }
         }
         Action::RunFlow { flow_id, .. } => {
             if !flow_ids.contains(flow_id.as_str()) {
-                return Err(VelocityError::UnknownFlowRef {
+                return Err(AtalantaError::UnknownFlowRef {
                     flow_id: flow_id.clone(),
                     test_name: context_name.to_string(),
                 });
@@ -653,7 +653,7 @@ fn validate_step(
         // Not selectors: these said "Invalid selector in step 0" (VEL-218).
         Action::Natural { intent, .. } => {
             if intent.trim().is_empty() {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: natural-language step has an empty instruction"
                 )));
             }
@@ -668,22 +668,22 @@ fn validate_step(
             ..
         } => {
             // `tolerance` is the strict rule's; perceptual has its own.
-            if tolerance.is_some() && *comparator == Some(velocity_common::Comparator::Perceptual) {
-                return Err(VelocityError::Config(format!(
+            if tolerance.is_some() && *comparator == Some(atalanta_common::Comparator::Perceptual) {
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: assertScreenshot tolerance applies to \
                      comparator: strict only (perceptual uses a fixed YIQ threshold of 0.1)"
                 )));
             }
-            if let Some(velocity_common::ScreenshotCrop::Element(sel)) = crop {
+            if let Some(atalanta_common::ScreenshotCrop::Element(sel)) = crop {
                 validate_selector(sel, context_name, step_index)?;
             }
             if name.trim().is_empty() {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: assertScreenshot needs a baseline name"
                 )));
             }
             if threshold.is_some_and(|t| !(0.0..=1.0).contains(&t)) {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "{context_name} step {step_index}: assertScreenshot threshold must be between 0 and 1"
                 )));
             }
@@ -710,7 +710,7 @@ fn validate_step(
 /// `s` with each `${...}` reference replaced by a plain word, so a pattern
 /// that takes a value from the environment can be checked before it has one.
 /// `s` with each `${VAR}` replaced by a word, as `textMatches` /
-/// `idMatches` patterns are checked (and `velocity migrate` checks them).
+/// `idMatches` patterns are checked (and `atalanta migrate` checks them).
 pub fn without_env_refs(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
@@ -734,7 +734,7 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
         | Selector::AccessibilityId(v)
         | Selector::ClassName(v) => {
             if v.trim().is_empty() {
-                return Err(VelocityError::InvalidSelector {
+                return Err(AtalantaError::InvalidSelector {
                     test_name: test_name.to_string(),
                     step_index,
                     reason: "selector value is empty".to_string(),
@@ -749,9 +749,9 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
             } else {
                 "idMatches"
             };
-            if let Err(why) = velocity_common::selector_match::compile_pattern(&without_env_refs(v))
+            if let Err(why) = atalanta_common::selector_match::compile_pattern(&without_env_refs(v))
             {
-                return Err(VelocityError::InvalidSelector {
+                return Err(AtalantaError::InvalidSelector {
                     test_name: test_name.to_string(),
                     step_index,
                     reason: format!("{kind} {v:?} is not a valid regular expression: {why}"),
@@ -765,7 +765,7 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
         }
         Selector::Compound(selectors) => {
             if selectors.is_empty() {
-                return Err(VelocityError::InvalidSelector {
+                return Err(AtalantaError::InvalidSelector {
                     test_name: test_name.to_string(),
                     step_index,
                     reason: "compound selector has no children".to_string(),
@@ -779,7 +779,7 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
         }
         Selector::Css(v) | Selector::XPath(v) => {
             if v.trim().is_empty() {
-                return Err(VelocityError::InvalidSelector {
+                return Err(AtalantaError::InvalidSelector {
                     test_name: test_name.to_string(),
                     step_index,
                     reason: "css/xpath selector value is empty".to_string(),
@@ -792,7 +792,7 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
         }
         Selector::Role(v) => {
             if let Some(reason) = role_problem(v) {
-                return Err(VelocityError::InvalidSelector {
+                return Err(AtalantaError::InvalidSelector {
                     test_name: test_name.to_string(),
                     step_index,
                     reason,
@@ -801,7 +801,7 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
         }
         Selector::Name(v) => {
             if v.trim().is_empty() {
-                return Err(VelocityError::InvalidSelector {
+                return Err(AtalantaError::InvalidSelector {
                     test_name: test_name.to_string(),
                     step_index,
                     reason: "name selector value is empty".to_string(),
@@ -814,7 +814,7 @@ fn validate_selector(selector: &Selector, test_name: &str, step_index: usize) ->
         | Selector::Enabled(_) => {}
     }
     if only_state_filters(selector) {
-        return Err(VelocityError::InvalidSelector {
+        return Err(AtalantaError::InvalidSelector {
             test_name: test_name.to_string(),
             step_index,
             reason: "checked, focused, selected and enabled narrow a selector; add id, text, role or name".to_string(),
@@ -842,10 +842,10 @@ pub fn role_problem(role: &str) -> Option<String> {
     if r.is_empty() {
         return Some("role selector value is empty".to_string());
     }
-    if r.contains("${") || velocity_common::role::is_role(&r.to_ascii_lowercase()) {
+    if r.contains("${") || atalanta_common::role::is_role(&r.to_ascii_lowercase()) {
         return None;
     }
-    let near = velocity_common::role::ROLES
+    let near = atalanta_common::role::ROLES
         .iter()
         .min_by_key(|c| crate::config_keys::distance(c, &r.to_ascii_lowercase()))
         .copied()
@@ -858,7 +858,7 @@ pub fn role_problem(role: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::{Flow, SuiteConfig, TestCase};
+    use atalanta_common::{Flow, SuiteConfig, TestCase};
 
     /// SUM-4: `web.settle` parses with its three timings; a typo in it is
     /// refused rather than ignored.
@@ -893,7 +893,7 @@ mod tests {
         validate_suite(&suite("Pixel 7")).unwrap();
         validate_suite(&suite("iphone 15")).unwrap();
         let e = validate_suite(&suite("Nokia 3310")).unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e}");
         assert!(e.to_string().contains("Pixel 7"), "{e}");
     }
 
@@ -1074,7 +1074,7 @@ mod tests {
         );
         let err = validate_suite(&suite).unwrap_err();
         match err {
-            VelocityError::UnknownFlowRef { flow_id, .. } => {
+            AtalantaError::UnknownFlowRef { flow_id, .. } => {
                 assert_eq!(flow_id, "nonexistent");
             }
             other => panic!("expected UnknownFlowRef, got {:?}", other),
@@ -1099,7 +1099,7 @@ mod tests {
         );
         let err = validate_suite(&suite).unwrap_err();
         match err {
-            VelocityError::InvalidSelector { reason, .. } => {
+            AtalantaError::InvalidSelector { reason, .. } => {
                 assert!(reason.contains("empty"));
             }
             other => panic!("expected InvalidSelector, got {:?}", other),
@@ -1164,7 +1164,7 @@ mod tests {
         );
         let err = validate_suite(&suite).unwrap_err();
         match err {
-            VelocityError::InvalidSelector { reason, .. } => {
+            AtalantaError::InvalidSelector { reason, .. } => {
                 assert!(reason.contains("compound"));
             }
             other => panic!("expected InvalidSelector, got {:?}", other),
@@ -1211,7 +1211,7 @@ mod tests {
                     step(Action::Wait { ms: 500 }),
                     step(Action::Screenshot { filename: None }),
                     step(Action::PressKey {
-                        key: velocity_common::Key::Back,
+                        key: atalanta_common::Key::Back,
                     }),
                 ],
                 description: None,
@@ -1281,7 +1281,7 @@ mod tests {
         assert!(validate_suite(&suite("web")).is_ok());
         // No platform: decided at run time (`check_platform_selectors`).
         assert!(validate_suite(&suite("")).is_ok());
-        assert!(check_platform_selectors(&suite(""), velocity_common::Platform::Ios).is_err());
+        assert!(check_platform_selectors(&suite(""), atalanta_common::Platform::Ios).is_err());
     }
 
     /// VEL-195: these all validated.
@@ -1379,7 +1379,7 @@ mod tests {
         let none = std::collections::HashMap::new();
         assert!(validate_suite_at(&suite, &none).is_err());
         validate_structure_at(&suite, &none).unwrap();
-        suite.config.driver = Some(velocity_common::config::DriverMode::Device);
+        suite.config.driver = Some(atalanta_common::config::DriverMode::Device);
         check_capabilities(&suite).unwrap();
     }
 
@@ -1394,8 +1394,8 @@ mod tests {
         let none = std::collections::HashMap::new();
         assert!(validate_suite_at(&suite, &none).is_err());
         validate_structure_at(&suite, &none).unwrap();
-        check_platform_selectors(&suite, velocity_common::Platform::Web).unwrap();
-        assert!(check_platform_selectors(&suite, velocity_common::Platform::Android).is_err());
+        check_platform_selectors(&suite, atalanta_common::Platform::Web).unwrap();
+        assert!(check_platform_selectors(&suite, atalanta_common::Platform::Android).is_err());
     }
 
     #[test]

@@ -277,7 +277,7 @@ export function Mirror() {
             Release control
           </button>
         ) : busy ? (
-          <span className="busy" title="Another Velocity process holds the device">
+          <span className="busy" title="Another Atalanta process holds the device">
             busy: {busy}
           </span>
         ) : (

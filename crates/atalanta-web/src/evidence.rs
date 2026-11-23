@@ -13,6 +13,10 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use atalanta_common::evidence::{
+    self, Attachment, AttachmentKind, Evidence, EvidenceOut, EvidenceRequest, EvidenceSession,
+    LogBuffer, LogLine,
+};
 use chromiumoxide::cdp::browser_protocol::log::{EnableParams as LogEnable, EventEntryAdded};
 use chromiumoxide::cdp::browser_protocol::network::{EventLoadingFailed, EventResponseReceived};
 use chromiumoxide::cdp::browser_protocol::page::{
@@ -23,10 +27,6 @@ use chromiumoxide::cdp::js_protocol::runtime::{EventConsoleApiCalled, EventExcep
 use futures::StreamExt;
 use serde::Serialize;
 use tracing::{debug, warn};
-use velocity_common::evidence::{
-    self, Attachment, AttachmentKind, Evidence, EvidenceOut, EvidenceRequest, EvidenceSession,
-    LogBuffer, LogLine,
-};
 
 use crate::cdp::Page;
 
@@ -301,7 +301,7 @@ impl WebEvidence {
         let path = out.file("screencast", "json");
         match serde_json::to_vec(&index)
             .map_err(std::io::Error::other)
-            .and_then(|b| velocity_common::fsutil::write_atomic(&path, &b))
+            .and_then(|b| atalanta_common::fsutil::write_atomic(&path, &b))
         {
             Ok(()) => {
                 ev.video_offset_ms = index.frames.first().map(|f| f.t);

@@ -30,7 +30,7 @@ tmp=$(mktemp)
 awk -v old="$old" -v new="$new" '
     /^\[/ { section = $0 }
     section == "[workspace.package]" && $0 == "version = \"" old "\"" { $0 = "version = \"" new "\"" }
-    section == "[workspace.dependencies]" && /^velocity-/ { gsub("version = \"=" old "\"", "version = \"=" new "\"") }
+    section == "[workspace.dependencies]" && /^atalanta-/ { gsub("version = \"=" old "\"", "version = \"=" new "\"") }
     { print }
 ' Cargo.toml >"$tmp"
 mv "$tmp" Cargo.toml

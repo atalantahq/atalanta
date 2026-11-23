@@ -12,10 +12,10 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
-/// Default deadline for a device command; `VELOCITY_COMMAND_TIMEOUT_MS`
+/// Default deadline for a device command; `ATALANTA_COMMAND_TIMEOUT_MS`
 /// overrides it.
 pub fn default_timeout() -> Duration {
-    crate::env::var("VELOCITY_COMMAND_TIMEOUT_MS")
+    crate::env::var("ATALANTA_COMMAND_TIMEOUT_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .map(Duration::from_millis)
@@ -107,8 +107,8 @@ pub fn kill_all_groups() {
     kill_all_pids();
 }
 
-/// Processes Velocity didn't spawn in a group of its own (Chrome, which
-/// chromiumoxide starts in Velocity's own group), each with a directory to
+/// Processes Atalanta didn't spawn in a group of its own (Chrome, which
+/// chromiumoxide starts in Atalanta's own group), each with a directory to
 /// remove once it is dead. Keyed by a registration id.
 static LIVE_PIDS: Mutex<Vec<(u64, u32, Option<std::path::PathBuf>)>> = Mutex::new(Vec::new());
 static NEXT_PID_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -252,7 +252,7 @@ fn descendants(root: libc::pid_t) -> Vec<libc::pid_t> {
 /// shell) in its own process group, registered for [`kill_all_groups`]:
 /// a second Ctrl-C or a SIGINT-then-SIGTERM cancel exits through
 /// `std::process::exit`, which skips `kill_on_drop`, and these children
-/// outlived Velocity (review d4 m2). Dropping it kills the group, as
+/// outlived Atalanta (review d4 m2). Dropping it kills the group, as
 /// `kill_on_drop` did. Derefs to the [`tokio::process::Child`].
 pub struct GroupChild {
     child: tokio::process::Child,
@@ -395,7 +395,7 @@ mod tests {
     #[tokio::test]
     async fn a_timeout_kills_grandchildren_too() {
         let _serial = SERIAL.lock().await;
-        let pidfile = std::env::temp_dir().join(format!("velocity-pg-{}", std::process::id()));
+        let pidfile = std::env::temp_dir().join(format!("atalanta-pg-{}", std::process::id()));
         let mut cmd = Command::new("sh");
         // The background sleep outlives the shell unless its group is killed.
         cmd.arg("-c")
@@ -423,7 +423,7 @@ mod tests {
     async fn kill_all_groups_takes_down_running_commands() {
         let _serial = SERIAL.lock().await;
         let pidfile =
-            std::env::temp_dir().join(format!("velocity-pg-killall-{}", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-pg-killall-{}", std::process::id()));
         let _ = std::fs::remove_file(&pidfile);
         let mut cmd = Command::new("sh");
         cmd.arg("-c")
@@ -498,7 +498,7 @@ mod tests {
     #[tokio::test]
     async fn the_second_signal_kills_registered_pids_and_removes_their_dirs() {
         let _serial = SERIAL.lock().await;
-        let dir = std::env::temp_dir().join(format!("velocity-pid-dir-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-pid-dir-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("Default")).unwrap();
         let mut child = std::process::Command::new("sleep")
             .arg("30")
@@ -536,7 +536,7 @@ mod tests {
     #[tokio::test]
     async fn a_dir_a_dying_helper_recreates_is_removed_again() {
         let _serial = SERIAL.lock().await;
-        let dir = std::env::temp_dir().join(format!("velocity-pid-redo-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-pid-redo-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut child = std::process::Command::new("sleep")
             .arg("30")
@@ -606,7 +606,7 @@ mod tests {
     async fn a_cancelled_command_takes_its_children_with_it() {
         let _serial = SERIAL.lock().await;
         let pidfile =
-            std::env::temp_dir().join(format!("velocity-pg-cancel-{}", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-pg-cancel-{}", std::process::id()));
         let _ = std::fs::remove_file(&pidfile);
         let mut cmd = Command::new("sh");
         cmd.arg("-c")

@@ -1,10 +1,10 @@
 //! Project: the suites parse and validate, their apps are installed on a
-//! device, and `velocity-impact.yaml` reads.
+//! device, and `atalanta-impact.yaml` reads.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use velocity_core::impact::ImpactMapping;
+use atalanta_core::impact::ImpactMapping;
 
 use crate::env::Ran;
 use crate::{Area, Check, Ctx, Fix, Options, Platform, Status};
@@ -21,14 +21,14 @@ pub(crate) struct Findings {
 }
 
 /// The suite files to check: `opts.project` (a file, or a folder's suites),
-/// else `velocity.yaml` or the `velocity/` folder in `cwd`.
+/// else `atalanta.yaml` or the `atalanta/` folder in `cwd`.
 pub(crate) fn suite_files(opts: &Options) -> Option<Vec<PathBuf>> {
     let in_dir = |d: &Path| -> Vec<PathBuf> {
         let mut v: Vec<PathBuf> = std::fs::read_dir(d)
             .map(|it| {
                 it.flatten()
                     .map(|e| e.path())
-                    .filter(|p| p.is_file() && velocity_core::is_suite_file(p))
+                    .filter(|p| p.is_file() && atalanta_core::is_suite_file(p))
                     .collect()
             })
             .unwrap_or_default();
@@ -45,8 +45,8 @@ pub(crate) fn suite_files(opts: &Options) -> Option<Vec<PathBuf>> {
             Some(if p.is_dir() { in_dir(&p) } else { vec![p] })
         }
         None => {
-            let file = opts.cwd.join("velocity.yaml");
-            let dir = opts.cwd.join("velocity");
+            let file = opts.cwd.join("atalanta.yaml");
+            let dir = opts.cwd.join("atalanta");
             if file.is_file() {
                 Some(vec![file])
             } else if dir.is_dir() {
@@ -64,14 +64,14 @@ pub(crate) async fn checks(opts: &Options) -> Findings {
         f.checks.push(Check::skip(
             "project.suites",
             A,
-            "no project here (velocity.yaml or velocity/); `velocity doctor <path>` checks one",
+            "no project here (atalanta.yaml or atalanta/); `atalanta doctor <path>` checks one",
         ));
         return f;
     };
     if files.is_empty() {
         f.checks.push(
             Check::fail("project.suites", A, "no suite files found")
-                .with_fix(Fix::run("velocity init")),
+                .with_fix(Fix::run("atalanta init")),
         );
         return f;
     }
@@ -89,9 +89,9 @@ pub(crate) async fn checks(opts: &Options) -> Findings {
             .to_string();
         dirs.insert(file.parent().map(Path::to_path_buf).unwrap_or_default());
         let path = file.to_string_lossy();
-        let parsed = velocity_core::parse_suite_with_positions(&path).and_then(|(s, pos)| {
-            velocity_core::validate_suite_at(&s, &pos)?;
-            velocity_core::resolve_flows(&s)?;
+        let parsed = atalanta_core::parse_suite_with_positions(&path).and_then(|(s, pos)| {
+            atalanta_core::validate_suite_at(&s, &pos)?;
+            atalanta_core::resolve_flows(&s)?;
             Ok(s)
         });
         match parsed {
@@ -141,7 +141,7 @@ pub(crate) async fn checks(opts: &Options) -> Findings {
         )
         .with_detail(bad.join("\n"))
         .with_fix(Fix::run(format!(
-            "velocity validate {}",
+            "atalanta validate {}",
             files[0]
                 .strip_prefix(&opts.cwd)
                 .unwrap_or(&files[0])
@@ -153,7 +153,7 @@ pub(crate) async fn checks(opts: &Options) -> Findings {
 
     // The impact map next to each suite folder.
     for dir in &dirs {
-        let map = ["velocity-impact.yaml", "velocity-impact.yml"]
+        let map = ["atalanta-impact.yaml", "atalanta-impact.yml"]
             .iter()
             .map(|n| dir.join(n))
             .find(|p| p.is_file());
@@ -247,7 +247,7 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
                     .into_iter()
                     .filter(|d| d.state == "device")
                 {
-                    let mut argv: Vec<String> = velocity_android::adb::target_args(&d.serial);
+                    let mut argv: Vec<String> = atalanta_android::adb::target_args(&d.serial);
                     argv.extend(["shell".into(), format!("pm path {app}")]);
                     let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
                     let ran = env.run(&adb, &argv, t).await;
@@ -352,7 +352,7 @@ pub(crate) async fn apps_installed(ctx: &Ctx) -> Option<Check> {
     let mut c = Check::new("project.app_installed", A, status, summary).with_detail(detail);
     if all_missing {
         c = c.with_fix(Fix::guidance(
-            "install the build: `velocity run <suite> --app <path to .apk/.app>`, or set `config: appPath:`",
+            "install the build: `atalanta run <suite> --app <path to .apk/.app>`, or set `config: appPath:`",
         ));
     }
     Some(c)
@@ -374,13 +374,13 @@ mod tests {
     const SUITE: &str = "appId: com.example.app\nconfig:\n  platform: android\ntests:\n  - name: opens\n    steps:\n      - launchApp: {}\n      - assertVisible: { id: \"title\" }\n";
 
     #[tokio::test]
-    async fn suites_in_the_velocity_folder_are_validated_and_the_impact_map_read() {
+    async fn suites_in_the_atalanta_folder_are_validated_and_the_impact_map_read() {
         let t = Tools::new();
-        let dir = t.path("proj/velocity");
+        let dir = t.path("proj/atalanta");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("app.yaml"), SUITE).unwrap();
         std::fs::write(
-            dir.join("velocity-impact.yaml"),
+            dir.join("atalanta-impact.yaml"),
             "tests:\n  opens: [\"src/**\"]\n  gone: [\"x/**\"]\n",
         )
         .unwrap();
@@ -398,12 +398,12 @@ mod tests {
         let t = Tools::new();
         std::fs::create_dir_all(t.path("proj")).unwrap();
         std::fs::write(
-            t.path("proj/velocity.yaml"),
+            t.path("proj/atalanta.yaml"),
             "appId: x\ntests:\n  - name: t\n    steps:\n      - frobnicate: {}\n",
         )
         .unwrap();
         std::fs::write(
-            t.path("proj/velocity-impact.yaml"),
+            t.path("proj/atalanta-impact.yaml"),
             "tests: [not, a, map]\n",
         )
         .unwrap();

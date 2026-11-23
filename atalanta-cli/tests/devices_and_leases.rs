@@ -1,5 +1,5 @@
 //! D-25: `--device` is checked up front (exit 3, at once), and the
-//! cross-process lease policy (`VELOCITY_LEASES=off`, a fatal lease dir
+//! cross-process lease policy (`ATALANTA_LEASES=off`, a fatal lease dir
 //! error with a hint).
 #![cfg(unix)]
 
@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -48,7 +48,7 @@ fn an_unknown_device_exits_3_at_once() {
     .unwrap();
     std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
     let started = Instant::now();
-    let out = Command::new(velocity())
+    let out = Command::new(atalanta())
         .args([
             "run",
             "suite.yaml",
@@ -58,8 +58,8 @@ fn an_unknown_device_exits_3_at_once() {
             "emulator-9999",
         ])
         .current_dir(&dir)
-        .env("VELOCITY_ADB_PATH", &adb)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_ADB_PATH", &adb)
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
         .env_remove("GITHUB_ACTIONS")
         .output()
@@ -79,7 +79,7 @@ fn an_unknown_device_exits_3_at_once() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `velocity run suite.yaml --platform android <args>` against an adb
+/// `atalanta run suite.yaml --platform android <args>` against an adb
 /// script `adb_body` (`$*` is its arguments).
 fn run_with_adb(name: &str, adb_body: &str, args: &[&str], env: &[(&str, &str)]) -> Output {
     let dir = scratch(name);
@@ -87,14 +87,14 @@ fn run_with_adb(name: &str, adb_body: &str, args: &[&str], env: &[(&str, &str)])
     let adb = dir.join("adb");
     std::fs::write(&adb, format!("#!/bin/sh\n{adb_body}\n")).unwrap();
     std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let mut cmd = Command::new(velocity());
+    let mut cmd = Command::new(atalanta());
     cmd.args(["run", "suite.yaml", "--platform", "android"])
         .args(args)
         .current_dir(&dir)
-        .env("VELOCITY_ADB_PATH", &adb)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_ADB_PATH", &adb)
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
-        .env_remove("VELOCITY_ADB_SERVERS")
+        .env_remove("ATALANTA_ADB_SERVERS")
         .env_remove("GITHUB_ACTIONS");
     for (k, v) in env {
         cmd.env(k, v);
@@ -203,7 +203,7 @@ fn a_sequential_device_name_runs_on_its_id() {
     )
     .unwrap();
     std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let out = Command::new(velocity())
+    let out = Command::new(atalanta())
         .args([
             "run",
             "suite.yaml",
@@ -215,10 +215,10 @@ fn a_sequential_device_name_runs_on_its_id() {
             "20000",
         ])
         .current_dir(&dir)
-        .env("VELOCITY_ADB_PATH", &adb)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_ADB_PATH", &adb)
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
-        .env_remove("VELOCITY_ADB_SERVERS")
+        .env_remove("ATALANTA_ADB_SERVERS")
         .env_remove("GITHUB_ACTIONS")
         .output()
         .unwrap();
@@ -237,7 +237,7 @@ fn a_sequential_device_name_runs_on_its_id() {
 
 // Review d4 m3/m4: a listing that fails is "don't know", not "no such
 // device"; a remote `host:port/serial` adb id can't be listed without
-// VELOCITY_ADB_SERVERS, so it isn't checked.
+// ATALANTA_ADB_SERVERS, so it isn't checked.
 #[test]
 fn the_device_check_steps_aside_when_it_cannot_know() {
     let out = run_with_adb(
@@ -273,7 +273,7 @@ fn leases_can_be_turned_off_and_a_bad_lease_dir_says_what_to_do() {
     // A file where the lease dir's parent should be: every lease fails.
     std::fs::write(dir.join("notadir"), "x").unwrap();
     let run = |off: bool| {
-        let mut cmd = Command::new(velocity());
+        let mut cmd = Command::new(atalanta());
         cmd.args([
             "run",
             "suite.yaml",
@@ -283,19 +283,19 @@ fn leases_can_be_turned_off_and_a_bad_lease_dir_says_what_to_do() {
             "json",
         ])
         .current_dir(&dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("notadir/leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("notadir/leases"))
         .env("NO_COLOR", "1")
         .env_remove("GITHUB_ACTIONS");
         if off {
-            cmd.env("VELOCITY_LEASES", "off");
+            cmd.env("ATALANTA_LEASES", "off");
         } else {
-            cmd.env_remove("VELOCITY_LEASES");
+            cmd.env_remove("ATALANTA_LEASES");
         }
         cmd.output().unwrap()
     };
     let out = run(false);
     assert_eq!(out.status.code(), Some(3), "{}", text(&out));
-    assert!(text(&out).contains("VELOCITY_LEASE_DIR"), "{}", text(&out));
+    assert!(text(&out).contains("ATALANTA_LEASE_DIR"), "{}", text(&out));
     let out = run(true);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out));
     let _ = std::fs::remove_dir_all(&dir);

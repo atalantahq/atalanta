@@ -468,7 +468,7 @@ pub fn compiled_pattern(pattern: &str) -> std::sync::Arc<CompiledPattern> {
 /// on screen for an assertion to count it as visible. 0 (the default) is
 /// any pixel; Maestro's rule is 0.1.
 pub fn min_visible_area() -> f64 {
-    crate::env::var("VELOCITY_VISIBILITY_MIN_AREA")
+    crate::env::var("ATALANTA_VISIBILITY_MIN_AREA")
         .ok()
         .and_then(|v| v.trim().parse::<f64>().ok())
         .filter(|f| f.is_finite())
@@ -1150,7 +1150,7 @@ fn by_container(
 /// Under [`Tier::Fold`], `text:` ignores case: Android draws Material buttons
 /// and dialog actions in capitals (`textAllCaps`) and reports them so
 /// ("DELETE" for a button labelled "Delete"), and an exact-only match waited
-/// out the whole element timeout before self-healing tapped it (VelocityLab,
+/// out the whole element timeout before self-healing tapped it (AtalantaLab,
 /// 10 s per dialog button). [`find_ref`] and [`find_all_ref`] try that pass
 /// only when the exact one finds nothing, so an exact match always wins.
 fn innermost_matches<'a>(
@@ -2556,7 +2556,7 @@ mod timing_tests {
     /// elements, a tenth with non-ASCII text and a tenth over two lines),
     /// for each tier and selector kind that compares text. Not run by
     /// default:
-    /// `cargo test --release -p velocity-common lookup_timing -- --ignored --nocapture`.
+    /// `cargo test --release -p atalanta-common lookup_timing -- --ignored --nocapture`.
     #[test]
     #[ignore = "timing only"]
     fn lookup_timing_on_a_large_tree() {

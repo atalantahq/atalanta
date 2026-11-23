@@ -3,10 +3,10 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, Capture, HttpConfig, HttpExpect, HttpRequest, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
 use serde_json::Value;
-use velocity_common::{Capture, HttpConfig, HttpExpect, HttpRequest, Result, VelocityError};
 
 use crate::check::{self, Source};
 use crate::path::{Path, Selected};
@@ -53,12 +53,12 @@ impl HttpSession {
                 // previous url (query string and all) to the redirect's host.
                 .referer(false)
                 .danger_accept_invalid_certs(config.insecure)
-                .user_agent(concat!("velocity/", env!("CARGO_PKG_VERSION")));
+                .user_agent(concat!("atalanta/", env!("CARGO_PKG_VERSION")));
             if block {
                 b = b.dns_resolver(Arc::new(crate::guard::FilteringResolver));
             }
             b.build()
-                .map_err(|e| VelocityError::Config(format!("http: can't make a client: {e}")))
+                .map_err(|e| AtalantaError::Config(format!("http: can't make a client: {e}")))
         };
         Ok(Self {
             config: config.clone(),
@@ -92,7 +92,7 @@ impl HttpSession {
         loop {
             match self.once(req, timeout).await {
                 // A request that can't be built fails the same way again.
-                Err(e @ VelocityError::Config(_)) => return Err(e),
+                Err(e @ AtalantaError::Config(_)) => return Err(e),
                 Err(e) if attempt < retries => {
                     attempt += 1;
                     tracing::debug!("http attempt {attempt}/{retries} failed: {e}");
@@ -117,7 +117,7 @@ impl HttpSession {
     ) -> Result<(Exchange, String)> {
         let method_name = req.method();
         let method = reqwest::Method::from_bytes(method_name.as_bytes()).map_err(|e| {
-            VelocityError::Config(format!(
+            AtalantaError::Config(format!(
                 "http: `{method_name}` is not an HTTP method ({})",
                 refused(e, &method_name, is_token_char)
             ))
@@ -154,17 +154,17 @@ impl HttpSession {
         }
         let request = b
             .build()
-            .map_err(|e| VelocityError::Config(format!("http: {method} {url}: {}", chain(&e))))?;
+            .map_err(|e| AtalantaError::Config(format!("http: {method} {url}: {}", chain(&e))))?;
         let label = format!("{method} {}", request.url());
         let sent_to = request.url().clone();
         let follows = !std::ptr::eq(client, &self.no_follow);
         if let Some(why) = crate::guard::refused_url(request.url()) {
-            return Err(VelocityError::Config(why));
+            return Err(AtalantaError::Config(why));
         }
         tracing::debug!("http {label}");
 
         let started = Instant::now();
-        let unreachable = |e: reqwest::Error| VelocityError::HttpUnreachable {
+        let unreachable = |e: reqwest::Error| AtalantaError::HttpUnreachable {
             request: label.clone(),
             detail: if e.is_timeout() {
                 format!("timed out after {} ms", timeout.as_millis())
@@ -187,10 +187,10 @@ impl HttpSession {
         let mut bytes: Vec<u8> = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(unreachable)? {
             if bytes.len() + chunk.len() > MAX_BODY_BYTES {
-                return Err(VelocityError::HttpUnreachable {
+                return Err(AtalantaError::HttpUnreachable {
                     request: label.clone(),
                     detail: format!(
-                        "the response body is over {} MiB; Velocity reads at most that much",
+                        "the response body is over {} MiB; Atalanta reads at most that much",
                         MAX_BODY_BYTES / (1024 * 1024)
                     ),
                 });
@@ -219,13 +219,13 @@ impl HttpSession {
         let mut map = HeaderMap::new();
         for (name, value) in self.config.headers.iter().chain(&req.headers) {
             let n = HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "http: bad header name `{name}` ({})",
                     refused(e, name, is_token_char)
                 ))
             })?;
             let v = HeaderValue::from_str(value).map_err(|e| {
-                VelocityError::Config(format!(
+                AtalantaError::Config(format!(
                     "http: header `{name}` has a value HTTP can't carry ({})",
                     refused(e, value, |c| c == '\t' || !c.is_ascii_control())
                 ))
@@ -261,10 +261,10 @@ pub fn resolve_url(base: Option<&str>, url: &str) -> Result<String> {
                 format!("{base}/{rest}")
             })
         }
-        Some(b) => Err(VelocityError::Config(format!(
+        Some(b) => Err(AtalantaError::Config(format!(
             "http: config.http.baseUrl `{b}` needs http:// or https://"
         ))),
-        None => Err(VelocityError::Config(format!(
+        None => Err(AtalantaError::Config(format!(
             "http: `{url}` has no http:// or https://, and the suite has no config.http.baseUrl to put before it"
         ))),
     }
@@ -296,13 +296,13 @@ impl Exchange {
         // the environment. Registered before a failure is reported too: its
         // message quotes the start of this very body.
         for (name, value) in &captured {
-            if velocity_common::redact::is_secret_name(name) {
-                velocity_common::redact::register_secret(value);
-                velocity_common::redact::register_secret_name(name);
+            if atalanta_common::redact::is_secret_name(name) {
+                atalanta_common::redact::register_secret(value);
+                atalanta_common::redact::register_secret_name(name);
             }
         }
         if !failures.is_empty() {
-            return Err(VelocityError::HttpCheckFailed {
+            return Err(AtalantaError::HttpCheckFailed {
                 request: label,
                 status: self.status,
                 failures,

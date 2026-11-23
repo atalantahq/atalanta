@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
+use atalanta_common::{Action, NaturalKind, Platform};
 use serde::{Deserialize, Serialize};
-use velocity_common::{Action, NaturalKind, Platform};
 
 /// On-disk format version. Files with another version are ignored (their
 /// keys were computed differently), so an upgrade re-plans once.
@@ -67,7 +67,7 @@ struct CacheEntry {
 
 /// A cached resolution and what was observed when it was planned (see
 /// [`NlCache::put_bound`] for `bound`).
-pub use velocity_common::natural::CachedHit as Hit;
+pub use atalanta_common::natural::CachedHit as Hit;
 
 impl NlCache {
     /// Load a cache from disk, or return an empty one if the file is missing,
@@ -79,7 +79,7 @@ impl NlCache {
         let path = path.as_ref();
         let cache = Self::read(path).unwrap_or_else(|e| {
             tracing::warn!(
-                "velocity-nl: ignoring {} ({e}); it is moved aside on the next save",
+                "atalanta-nl: ignoring {} ({e}); it is moved aside on the next save",
                 path.display()
             );
             Self::default()
@@ -91,7 +91,7 @@ impl NlCache {
             // Not migrated: the old keys hashed values this file never
             // stored, so they can't be recomputed. Each step re-plans once.
             tracing::warn!(
-                "velocity-nl: {} is cache format v{} ({} entries); ignoring them, so those \
+                "atalanta-nl: {} is cache format v{} ({} entries); ignoring them, so those \
                  steps re-plan once and are stored in format v{FORMAT_VERSION} (keys without \
                  test data)",
                 path.display(),
@@ -123,7 +123,7 @@ impl NlCache {
     /// parse is kept as `<name>.corrupt` rather than overwritten (VEL-250).
     pub fn save(&mut self, path: impl AsRef<Path>) -> std::io::Result<()> {
         let path = path.as_ref();
-        velocity_common::fsutil::with_lock(path, || {
+        atalanta_common::fsutil::with_lock(path, || {
             let on_disk = match Self::read(path) {
                 Ok(c) if c.version == FORMAT_VERSION => c,
                 Ok(_) => Self::default(),
@@ -131,7 +131,7 @@ impl NlCache {
                     let mut aside = path.as_os_str().to_owned();
                     aside.push(".corrupt");
                     tracing::warn!(
-                        "velocity-nl: {} doesn't load ({e}); kept as {}",
+                        "atalanta-nl: {} doesn't load ({e}); kept as {}",
                         path.display(),
                         Path::new(&aside).display()
                     );
@@ -146,7 +146,7 @@ impl NlCache {
             }
             self.version = FORMAT_VERSION;
             let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-            velocity_common::fsutil::write_state(path, json.as_bytes())
+            atalanta_common::fsutil::write_state(path, json.as_bytes())
         })?
     }
 
@@ -190,7 +190,7 @@ impl NlCache {
     /// A fingerprint of a value an entry is bound to (see [`Hit::bound`]).
     pub fn fingerprint(value: &str) -> String {
         let mut h = Fnv1a::default();
-        h.write(b"velocity-nl-bound\xff");
+        h.write(b"atalanta-nl-bound\xff");
         h.write(value.as_bytes());
         format!("{:016x}", h.0)
     }
@@ -300,7 +300,7 @@ impl Fnv1a {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::Selector;
+    use atalanta_common::Selector;
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("velnl-{}-{name}", std::process::id()));

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
+use atalanta_common::{AtalantaError, Result};
 use tracing::{debug, info, warn};
-use velocity_common::{Result, VelocityError};
 
 /// Configuration for visual assertion comparison.
 #[derive(Debug, Clone)]
@@ -28,8 +28,8 @@ impl Default for VisualConfig {
         Self {
             threshold: 0.98,
             rule: PixelRule::default(),
-            baselines_dir: PathBuf::from("velocity-baselines"),
-            diffs_dir: PathBuf::from("velocity-diffs"),
+            baselines_dir: PathBuf::from("atalanta-baselines"),
+            diffs_dir: PathBuf::from("atalanta-diffs"),
             update_baselines: false,
             cluster_px: DEFAULT_CLUSTER_PX,
         }
@@ -64,7 +64,7 @@ pub const DEFAULT_CLUSTER_PX: usize = 20;
 /// `comparator` and `tolerance`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixelRule {
-    pub comparator: velocity_common::Comparator,
+    pub comparator: atalanta_common::Comparator,
     /// `strict`: the largest per-channel difference (alpha included) that
     /// still counts as the same, 0..255. Default 16.
     pub tolerance: u8,
@@ -73,7 +73,7 @@ pub struct PixelRule {
 impl Default for PixelRule {
     fn default() -> Self {
         Self {
-            comparator: velocity_common::Comparator::Strict,
+            comparator: atalanta_common::Comparator::Strict,
             tolerance: CHANNEL_TOLERANCE,
         }
     }
@@ -91,11 +91,11 @@ impl PixelRule {
     /// anti-aliasing check).
     fn differs(&self, a: &[u8; 4], b: &[u8; 4]) -> bool {
         match self.comparator {
-            velocity_common::Comparator::Strict => a
+            atalanta_common::Comparator::Strict => a
                 .iter()
                 .zip(b)
                 .any(|(ca, cb)| ca.abs_diff(*cb) > self.tolerance),
-            velocity_common::Comparator::Perceptual => {
+            atalanta_common::Comparator::Perceptual => {
                 yiq_delta(a, b) > MAX_YIQ_DELTA * PERCEPTUAL_THRESHOLD * PERCEPTUAL_THRESHOLD
             }
         }
@@ -220,9 +220,9 @@ impl VisualEngine {
                 return Ok(unchanged);
             }
             std::fs::create_dir_all(&self.config.baselines_dir)
-                .map_err(|e| VelocityError::io("Failed to create baselines dir", e))?;
+                .map_err(|e| AtalantaError::io("Failed to create baselines dir", e))?;
             write_atomic(&baseline_path, screenshot_png).map_err(|e| {
-                VelocityError::io(format!("Failed to write baseline {baseline_name}"), e)
+                AtalantaError::io(format!("Failed to write baseline {baseline_name}"), e)
             })?;
             info!(baseline = baseline_name, "baseline updated");
             return Ok(VisualComparisonResult {
@@ -233,14 +233,14 @@ impl VisualEngine {
 
         // Load baseline
         if !baseline_path.exists() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "Baseline not found: {}. Run with --update-baselines to create it.",
                 baseline_path.display()
             )));
         }
 
         let baseline_bytes = std::fs::read(&baseline_path).map_err(|e| {
-            VelocityError::io(format!("Failed to read baseline {baseline_name}"), e)
+            AtalantaError::io(format!("Failed to read baseline {baseline_name}"), e)
         })?;
 
         // Compare the raw PNG bytes
@@ -297,12 +297,12 @@ impl VisualEngine {
         diff: Option<&[u8]>,
     ) -> Result<Option<PathBuf>> {
         std::fs::create_dir_all(&self.config.diffs_dir)
-            .map_err(|e| VelocityError::io("Failed to create diffs dir", e))?;
+            .map_err(|e| AtalantaError::io("Failed to create diffs dir", e))?;
         let stem = baseline_name.strip_suffix(".png").unwrap_or(baseline_name);
         let write = |kind: &str, data: &[u8]| -> Result<PathBuf> {
             let path = self.config.diffs_dir.join(format!("{stem}-{kind}.png"));
             std::fs::write(&path, data)
-                .map_err(|e| VelocityError::io(format!("Failed to write {}", path.display()), e))?;
+                .map_err(|e| AtalantaError::io(format!("Failed to write {}", path.display()), e))?;
             Ok(path)
         };
         for (kind, data) in frames {
@@ -323,7 +323,7 @@ impl VisualEngine {
         }
 
         let entries = std::fs::read_dir(&self.config.baselines_dir)
-            .map_err(|e| VelocityError::io("Failed to read baselines dir", e))?;
+            .map_err(|e| AtalantaError::io("Failed to read baselines dir", e))?;
 
         let mut baselines = Vec::new();
         for entry in entries.flatten() {
@@ -339,7 +339,7 @@ impl VisualEngine {
     }
 }
 
-/// The most pixels a PNG Velocity decodes may have (64 Mpx; an 8K screen
+/// The most pixels a PNG Atalanta decodes may have (64 Mpx; an 8K screen
 /// is 33 Mpx).
 pub const MAX_PNG_PIXELS: u64 = 64 * 1024 * 1024;
 
@@ -356,14 +356,14 @@ fn decode(png_bytes: &[u8]) -> Result<Rgba> {
     decoder.set_transformations(
         png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
     );
-    let bad = |e: png::DecodingError| VelocityError::Config(format!("invalid PNG: {e}"));
+    let bad = |e: png::DecodingError| AtalantaError::Config(format!("invalid PNG: {e}"));
     let mut reader = decoder.read_info().map_err(bad)?;
     // The header names the size; a 100-byte baseline claiming 2^30 x 2^28
     // pixels made the buffer allocation abort the run (audit 2026-11
     // CORE-2: baselines come with pull requests).
     let (w, h) = (reader.info().width, reader.info().height);
     if u64::from(w) * u64::from(h) > MAX_PNG_PIXELS {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "invalid PNG: {w}x{h} is larger than any screen ({MAX_PNG_PIXELS} pixels at most)"
         )));
     }
@@ -379,7 +379,7 @@ fn decode(png_bytes: &[u8]) -> Result<Rgba> {
             .flat_map(|ga| [ga[0], ga[0], ga[0], ga[1]])
             .collect(),
         other => {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "unsupported PNG color type {other:?}"
             )))
         }
@@ -601,7 +601,7 @@ pub fn compare_images_rule(
     // Different sizes can't be compared pixel by pixel: say so, instead of
     // "0.00% similar" with no diff (VEL-202).
     if (a.width, a.height) != (b.width, b.height) {
-        return Err(VelocityError::AssertionFailed {
+        return Err(AtalantaError::AssertionFailed {
             expected: format!("a {}x{} screen (the baseline's size)", a.width, a.height),
             actual: format!(
                 "a {}x{} screen; re-record the baseline with --update-baselines \
@@ -617,7 +617,7 @@ pub fn compare_images_rule(
     // Masks over most of the screen leave nothing to compare: a mask on a
     // root container or a full-screen list passed with similarity 1.0.
     if total * 2 < mask.len() {
-        return Err(VelocityError::AssertionFailed {
+        return Err(AtalantaError::AssertionFailed {
             expected: "at least half of the screen compared".into(),
             actual: format!(
                 "masks cover {}% of it; mask smaller elements",
@@ -1247,7 +1247,7 @@ mod tests {
         // D-V2: grey shifts below about 26.4 pass at t=0.1 (0.5053 * d^2 <=
         // 35215 * 0.01), larger ones fail; strict fails the 20 shift.
         let perceptual = PixelRule {
-            comparator: velocity_common::Comparator::Perceptual,
+            comparator: atalanta_common::Comparator::Perceptual,
             ..PixelRule::default()
         };
         let base = flat(10, 10, [100, 100, 100, 255]);

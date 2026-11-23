@@ -6,8 +6,8 @@ mod common;
 
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, HealthStatus, PlatformDriver};
 use common::{css, driver, serve};
-use velocity_common::{HealthStatus, PlatformDriver, VelocityError};
 
 #[tokio::test]
 async fn chrome_killed_calls_return_within_deadline() {
@@ -40,7 +40,7 @@ async fn chrome_killed_calls_return_within_deadline() {
         }
     };
     assert!(
-        matches!(err, VelocityError::BrowserConnectionLost { .. }),
+        matches!(err, AtalantaError::BrowserConnectionLost { .. }),
         "{err}"
     );
     assert!(
@@ -52,7 +52,7 @@ async fn chrome_killed_calls_return_within_deadline() {
     let start = Instant::now();
     let err = d.tap_xy("web", 1, 1).await.unwrap_err();
     assert!(
-        matches!(err, VelocityError::BrowserConnectionLost { .. }),
+        matches!(err, AtalantaError::BrowserConnectionLost { .. }),
         "{err}"
     );
     // Navigation steps too: they swallowed the error and passed.
@@ -65,7 +65,7 @@ async fn chrome_killed_calls_return_within_deadline() {
         ),
     ] {
         assert!(
-            matches!(r, Err(VelocityError::BrowserConnectionLost { .. })),
+            matches!(r, Err(AtalantaError::BrowserConnectionLost { .. })),
             "{what}: {r:?}"
         );
     }

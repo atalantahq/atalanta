@@ -1,5 +1,5 @@
-//! `velocity results check`: after a sharded CI run, check that every shard
-//! reported (NEW-001). The rules are in `velocity_runner::results_check`.
+//! `atalanta results check`: after a sharded CI run, check that every shard
+//! reported (NEW-001). The rules are in `atalanta_runner::results_check`.
 
 use clap::Subcommand;
 use colored::Colorize;
@@ -29,7 +29,7 @@ pub fn execute(command: ResultsCommand) -> anyhow::Result<i32> {
             inputs,
             expect_shards,
         } => {
-            use velocity_runner::results_check::{check, find};
+            use atalanta_runner::results_check::{check, find};
             let files = find(&inputs);
             let c = check(&files, expect_shards.map(|n| n as usize));
             for (f, shard, tests) in &c.files {

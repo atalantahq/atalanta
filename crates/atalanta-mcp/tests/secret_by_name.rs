@@ -5,9 +5,9 @@
 
 use std::sync::Arc;
 
+use atalanta_common::{Platform, PlatformDriver};
+use atalanta_mcp::McpServer;
 use serde_json::{json, Value};
-use velocity_common::{Platform, PlatformDriver};
-use velocity_mcp::McpServer;
 
 const VALUE: &str = "hunter2-correct-horse";
 
@@ -31,10 +31,10 @@ fn find_str(v: &Value, key: &str) -> Option<String> {
 #[tokio::test]
 async fn secret_by_name_is_typed_not_echoed_and_exported_as_env() {
     // Only test in this binary: nothing else reads these meanwhile.
-    std::env::set_var("VELOCITY_MCP_TEST_LOGIN_PW", VALUE);
-    std::env::set_var("VELOCITY_MCP_TEST_AWS_SECRET_KEY", "exfil-me-123");
+    std::env::set_var("ATALANTA_MCP_TEST_LOGIN_PW", VALUE);
+    std::env::set_var("ATALANTA_MCP_TEST_AWS_SECRET_KEY", "exfil-me-123");
     // Review MAJOR 4: only listed names; anything else is refused.
-    std::env::set_var("VELOCITY_SECRETS", "VELOCITY_MCP_TEST_LOGIN_PW");
+    std::env::set_var("ATALANTA_SECRETS", "ATALANTA_MCP_TEST_LOGIN_PW");
     let dir = tempfile::tempdir().unwrap();
     let layout = dir.path().join("main.xml");
     std::fs::write(
@@ -46,11 +46,11 @@ async fn secret_by_name_is_typed_not_echoed_and_exported_as_env() {
         </LinearLayout>"#,
     )
     .unwrap();
-    let config = velocity_headless::HeadlessConfig {
+    let config = atalanta_headless::HeadlessConfig {
         app_path: Some(layout.to_string_lossy().into_owned()),
         ..Default::default()
     };
-    let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
+    let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
         Platform::Android,
         config,
     ));
@@ -59,18 +59,18 @@ async fn secret_by_name_is_typed_not_echoed_and_exported_as_env() {
     let typed = s
         .call(
             "type_text",
-            json!({ "selector": { "id": "pw" }, "secret": "VELOCITY_MCP_TEST_LOGIN_PW" }),
+            json!({ "selector": { "id": "pw" }, "secret": "ATALANTA_MCP_TEST_LOGIN_PW" }),
         )
         .await
         .unwrap();
     assert!(typed.get("isError").is_none(), "{typed}");
     assert!(!typed.to_string().contains(VALUE), "{typed}");
-    assert!(typed.to_string().contains("VELOCITY_MCP_TEST_LOGIN_PW"));
+    assert!(typed.to_string().contains("ATALANTA_MCP_TEST_LOGIN_PW"));
     // The value reached the field.
     let tree = driver.get_hierarchy("headless").await.unwrap();
-    let field = velocity_common::selector_match::find_in_tree(
+    let field = atalanta_common::selector_match::find_in_tree(
         &tree,
-        &velocity_common::Selector::Id("pw".into()),
+        &atalanta_common::Selector::Id("pw".into()),
         None,
     )
     .unwrap();
@@ -89,16 +89,16 @@ async fn secret_by_name_is_typed_not_echoed_and_exported_as_env() {
         .await
         .unwrap();
     let yaml = find_str(&exported, "yaml").unwrap_or_else(|| panic!("{exported}"));
-    assert!(yaml.contains("${VELOCITY_MCP_TEST_LOGIN_PW}"), "{yaml}");
+    assert!(yaml.contains("${ATALANTA_MCP_TEST_LOGIN_PW}"), "{yaml}");
     assert!(!yaml.contains(VALUE));
-    let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
-    velocity_core::validate_suite(&suite).unwrap();
+    let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
+    atalanta_core::validate_suite(&suite).unwrap();
     // Unset, both, or a bad name: a clear error that names no value.
     for args in [
-        json!({ "selector": { "id": "pw" }, "secret": "VELOCITY_MCP_TEST_UNSET_X" }),
+        json!({ "selector": { "id": "pw" }, "secret": "ATALANTA_MCP_TEST_UNSET_X" }),
         json!({ "selector": { "id": "pw" }, "secret": "A", "text": "b" }),
         json!({ "selector": { "id": "pw" }, "secret": "$(id)" }),
-        json!({ "selector": { "id": "pw" }, "secret": "VELOCITY_MCP_TEST_AWS_SECRET_KEY" }),
+        json!({ "selector": { "id": "pw" }, "secret": "ATALANTA_MCP_TEST_AWS_SECRET_KEY" }),
     ] {
         let r = s.call("type_text", args).await.unwrap();
         assert_eq!(r["isError"], true, "{r}");
@@ -107,11 +107,11 @@ async fn secret_by_name_is_typed_not_echoed_and_exported_as_env() {
     let r = s
         .call(
             "type_text",
-            json!({ "selector": { "id": "pw" }, "secret": "VELOCITY_MCP_TEST_AWS_SECRET_KEY" }),
+            json!({ "selector": { "id": "pw" }, "secret": "ATALANTA_MCP_TEST_AWS_SECRET_KEY" }),
         )
         .await
         .unwrap();
-    assert!(r.to_string().contains("VELOCITY_SECRETS"), "{r}");
+    assert!(r.to_string().contains("ATALANTA_SECRETS"), "{r}");
     let tree = driver.get_hierarchy("headless").await.unwrap();
     assert!(!format!("{tree:?}").contains("exfil-me-123"), "not typed");
 }

@@ -1,9 +1,9 @@
 # Measurement scripts (P5)
 
 Scripts the owner runs against a real device, emulator or simulator to get
-numbers Velocity's design relies on but nobody has measured on hardware.
+numbers Atalanta's design relies on but nobody has measured on hardware.
 None of them was run when they were written (no device on that machine):
-the suites pass `velocity validate` and the scripts `bash -n`, nothing more.
+the suites pass `atalanta validate` and the scripts `bash -n`, nothing more.
 Each prints numbers; none passes or fails on a threshold.
 
 | Script | Measures | Suite |
@@ -13,9 +13,9 @@ Each prints numbers; none passes or fails on a threshold.
 | `native-settle.sh` | Settle time per action: `sync.mode` native (the in-app probe) vs polling vs none | `suites/native-settle.yaml` |
 | `demo-mode.sh` | Verifies `screenshots.freezeStatusBar`: two exact status-bar compares a minute apart, frozen and an unfrozen control, plus the device's demo-mode state during and after | `suites/demo-mode.yaml` |
 
-Common environment (see `lib.sh`): `VELOCITY` (binary), `DEVICE`,
+Common environment (see `lib.sh`): `ATALANTA` (binary), `DEVICE`,
 `PLATFORM`, `APP_ID` (replaces the suites' `appId`), `ROUNDS` (default 5),
-`OUT` (results folder; default `./velocity-measure/<script>-<time>`).
+`OUT` (results folder; default `./atalanta-measure/<script>-<time>`).
 Suite texts come from `MEASURE_TEXT`, `MEASURE_TAP`, `MEASURE_BACK_TO`;
 the defaults fit the Android emulator's Settings app. `native-settle.sh`
 takes `FRAMEWORK=react_native` for an RN app (turns on the probe's React

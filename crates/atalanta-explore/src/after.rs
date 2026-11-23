@@ -1,4 +1,4 @@
-//! `velocity explore --after login.yaml` (row 1.5, AI-021): start from a
+//! `atalanta explore --after login.yaml` (row 1.5, AI-021): start from a
 //! stored flow, typically a login, replayed with no model, then explore.
 //!
 //! The model never sees the login: its steps run before the first planning
@@ -9,8 +9,8 @@
 
 use std::collections::HashMap;
 
-use velocity_common::{Action, Result, TestCase, VelocityError};
-use velocity_nl::goal::GoalOp;
+use atalanta_common::{Action, AtalantaError, Result, TestCase};
+use atalanta_nl::goal::GoalOp;
 
 use crate::session::{RecordedStep, ValueKind, ValueSlot};
 
@@ -22,10 +22,10 @@ pub fn login_prefix(
     test: Option<&str>,
     overrides: &HashMap<String, String>,
 ) -> Result<Vec<RecordedStep>> {
-    let bad = |m: String| VelocityError::Config(format!("--after: {m}"));
-    let raw = velocity_core::parser::parse_suite_from_str(yaml)?;
+    let bad = |m: String| AtalantaError::Config(format!("--after: {m}"));
+    let raw = atalanta_core::parser::parse_suite_from_str(yaml)?;
     let mut filled = raw.clone();
-    velocity_core::env::interpolate_suite(&mut filled, overrides)?;
+    atalanta_core::env::interpolate_suite(&mut filled, overrides)?;
     let pick = |tests: Vec<TestCase>| -> Result<TestCase> {
         match test {
             Some(name) => tests
@@ -38,13 +38,13 @@ pub fn login_prefix(
                 .ok_or_else(|| bad("the file has no test".into())),
         }
     };
-    let raw_test = pick(velocity_core::resolver::resolve_flows(&raw)?)?;
-    let filled_test = pick(velocity_core::resolver::resolve_flows(&filled)?)?;
+    let raw_test = pick(atalanta_core::resolver::resolve_flows(&raw)?)?;
+    let filled_test = pick(atalanta_core::resolver::resolve_flows(&filled)?)?;
     let names = filled.config.captured_vars.clone();
     let mut out = Vec::new();
     for (i, (raw_step, step)) in raw_test.steps.iter().zip(&filled_test.steps).enumerate() {
         // `${totp:…}` is worked out now, right before the replay.
-        let step = velocity_core::env::bind_step(step, &HashMap::new(), &names)?
+        let step = atalanta_core::env::bind_step(step, &HashMap::new(), &names)?
             .unwrap_or_else(|| step.clone());
         let action = step.action.clone();
         let op = match &action {
@@ -112,9 +112,9 @@ fn slot(written: &str, value: &str) -> ValueSlot {
         Some(n) => {
             let secret = n.starts_with("keychain:")
                 || n.starts_with("totp:")
-                || velocity_common::redact::is_secret_name(n);
+                || atalanta_common::redact::is_secret_name(n);
             if secret {
-                velocity_common::redact::register_secret(value);
+                atalanta_common::redact::register_secret(value);
             }
             ValueSlot {
                 name: n.to_string(),
@@ -224,7 +224,7 @@ tests:
         );
         assert_eq!(steps[3].typed.as_ref().unwrap().kind, ValueKind::Secret);
         assert_eq!(steps[2].typed.as_ref().unwrap().kind, ValueKind::Data);
-        let masked = velocity_common::redact::redact("pw correct horse battery").into_owned();
+        let masked = atalanta_common::redact::redact("pw correct horse battery").into_owned();
         assert!(!masked.contains("correct horse"), "{masked}");
         for s in &steps {
             assert!(!s.label.contains("correct horse"), "{}", s.label);

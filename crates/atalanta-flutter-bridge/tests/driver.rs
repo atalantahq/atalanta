@@ -2,11 +2,11 @@
 
 use std::sync::{Arc, Mutex};
 
+use atalanta_common::{AtalantaError, Element, Platform, PlatformDriver, Rect, Selector};
+use atalanta_flutter_bridge::{FlutterBridgeConfig, FlutterDriver, HierarchyMode};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-use velocity_common::{Element, Platform, PlatformDriver, Rect, Selector, VelocityError};
-use velocity_flutter_bridge::{FlutterBridgeConfig, FlutterDriver, HierarchyMode};
 
 type Log = Arc<Mutex<Vec<Value>>>;
 
@@ -216,11 +216,11 @@ async fn error_replies_fail_every_action() {
         d.input_text("flutter-0", &b, "x").await,
         d.clear_text("flutter-0", &b).await,
         d.swipe_coords("flutter-0", (1, 1), (2, 2)).await,
-        d.press_key("flutter-0", velocity_common::Key::Home).await,
+        d.press_key("flutter-0", atalanta_common::Key::Home).await,
     ];
     for r in results {
         match r {
-            Err(VelocityError::CommandFailed { detail, .. }) => {
+            Err(AtalantaError::CommandFailed { detail, .. }) => {
                 assert!(detail.starts_with("not_hittable"), "{detail}")
             }
             other => panic!("expected CommandFailed, got {other:?}"),
@@ -244,7 +244,7 @@ async fn no_follow_up_pump_after_actions() {
         .await
         .unwrap();
     d.tap("flutter-0", &b).await.unwrap();
-    d.swipe("flutter-0", velocity_common::Direction::Up)
+    d.swipe("flutter-0", atalanta_common::Direction::Up)
         .await
         .unwrap();
     assert!(!cmds(&log).contains(&"pump_frames".to_string()));
@@ -296,7 +296,7 @@ async fn requests_carry_ids_and_old_servers_without_ids_still_work() {
 async fn the_semantics_hierarchy_is_the_default_and_widgets_opts_out() {
     // D-15: semantics unless `hierarchy: widgets` (or the env var) says so.
     let (port, log) = serve(true, hierarchy_reply(login_screen())).await;
-    if std::env::var_os("VELOCITY_FLUTTER_HIERARCHY").is_none() {
+    if std::env::var_os("ATALANTA_FLUTTER_HIERARCHY").is_none() {
         let d = driver(port).await;
         d.get_hierarchy("flutter-0").await.unwrap();
         assert_eq!(log.lock().unwrap()[1]["mode"], "semantics");
@@ -396,7 +396,7 @@ async fn the_reported_surface_is_the_screen() {
     );
     assert_eq!(found[0].bounds.y, 100);
     let before = log.lock().unwrap().len();
-    d.swipe("flutter-0", velocity_common::Direction::Up)
+    d.swipe("flutter-0", atalanta_common::Direction::Up)
         .await
         .unwrap();
     let swipe = sent(&log, before).pop().unwrap();
@@ -527,10 +527,10 @@ async fn a_key_the_bridge_cannot_send_is_unsupported() {
     .await;
     let d = driver(port).await;
     let err = d
-        .press_key("flutter-0", velocity_common::Key::Home)
+        .press_key("flutter-0", atalanta_common::Key::Home)
         .await
         .unwrap_err();
-    assert!(matches!(err, VelocityError::Unsupported(_)), "{err:?}");
+    assert!(matches!(err, AtalantaError::Unsupported(_)), "{err:?}");
     assert_eq!(err.exit_code(), 2);
     assert!(err.to_string().contains("home"), "{err}");
     assert!(!err.kind().is_transient());
@@ -547,8 +547,8 @@ async fn a_bridge_without_a_command_says_to_update_the_package() {
     .await;
     let d = driver(port).await;
     let err = d.stop_app("flutter-0", "app").await.unwrap_err();
-    assert!(matches!(err, VelocityError::Config(_)), "{err:?}");
-    assert!(err.to_string().contains("velocity_flutter_helper"), "{err}");
+    assert!(matches!(err, AtalantaError::Config(_)), "{err:?}");
+    assert!(err.to_string().contains("atalanta_flutter_helper"), "{err}");
 }
 
 // A command the bridge never answers times out, drops the connection, and
@@ -601,7 +601,7 @@ async fn a_timed_out_command_reconnects_for_the_next_one() {
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert_eq!(
         d.health_check().await,
-        velocity_common::HealthStatus::Unhealthy
+        atalanta_common::HealthStatus::Unhealthy
     );
     hang.store(false, std::sync::atomic::Ordering::SeqCst);
     assert_eq!(

@@ -45,7 +45,7 @@ pub use validator::{check_capabilities, validate_structure_at, validate_suite, v
 /// Whether the suite runs without a device: it has an `http` step, and
 /// every step of its tests and flows is one that needs no screen (`http`,
 /// `wait`, `setConfig`, `runFlow`). It may leave out `appId`.
-pub fn http_only(suite: &velocity_common::TestSuite) -> bool {
+pub fn http_only(suite: &atalanta_common::TestSuite) -> bool {
     let steps = suite
         .tests
         .iter()
@@ -55,13 +55,13 @@ pub fn http_only(suite: &velocity_common::TestSuite) -> bool {
 }
 
 /// [`http_only`] for tests with their flows inlined: the ones a run
-/// selected. `velocity run` gives them no device.
-pub fn http_only_tests(tests: &[velocity_common::TestCase]) -> bool {
+/// selected. `atalanta run` gives them no device.
+pub fn http_only_tests(tests: &[atalanta_common::TestCase]) -> bool {
     steps_need_no_device(tests.iter().flat_map(|t| &t.steps))
 }
 
-fn steps_need_no_device<'a>(steps: impl Iterator<Item = &'a velocity_common::Step>) -> bool {
-    use velocity_common::Action;
+fn steps_need_no_device<'a>(steps: impl Iterator<Item = &'a atalanta_common::Step>) -> bool {
+    use atalanta_common::Action;
     let mut any_http = false;
     for s in steps {
         match s.action {

@@ -1,18 +1,18 @@
 //! Review 10 #9 and #11: JavaScript dialogs follow `web.dialogs` /
 //! `web.promptText`, also in cross-origin frames, and downloads follow
 //! `web.downloads`. Its own test binary: it changes the process-wide
-//! settings (`velocity_common::env::set_settings`, not `set_var`), so its
+//! settings (`atalanta_common::env::set_settings`, not `set_var`), so its
 //! steps run in one test, one after another.
 
 mod common;
 
 use std::collections::HashMap;
 
+use atalanta_common::PlatformDriver;
 use common::{driver, eventually, find, serve, wait_text};
-use velocity_common::PlatformDriver;
 
 fn settings(pairs: &[(&str, &str)]) {
-    velocity_common::env::set_settings(
+    atalanta_common::env::set_settings(
         pairs
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -36,7 +36,7 @@ const INNER: &str = r##"<!doctype html><html><body>
 #[tokio::test]
 async fn dialogs_and_downloads_follow_their_settings() {
     require_chrome!();
-    let dir = std::env::temp_dir().join(format!("velocity-downloads-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("atalanta-downloads-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let inner = serve(&[("/inner.html", INNER)]);
     let port = inner.rsplit(':').next().unwrap().to_string();
@@ -72,9 +72,9 @@ async fn dialogs_and_downloads_follow_their_settings() {
 
     // `web.dialogs: accept`, `web.promptText`, `web.downloads: <dir>`.
     settings(&[
-        ("VELOCITY_WEB_DIALOGS", "accept"),
-        ("VELOCITY_WEB_PROMPT_TEXT", "Ada"),
-        ("VELOCITY_WEB_DOWNLOADS", dir.to_str().unwrap()),
+        ("ATALANTA_WEB_DIALOGS", "accept"),
+        ("ATALANTA_WEB_PROMPT_TEXT", "Ada"),
+        ("ATALANTA_WEB_DOWNLOADS", dir.to_str().unwrap()),
     ]);
     let d = driver(vec![]).await;
     d.launch_app("web", &format!("{base}/d.html"), false)

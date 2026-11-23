@@ -1,8 +1,8 @@
 use std::process::Stdio;
 
+use atalanta_common::{AtalantaError, DeviceInfo, DeviceState, Platform, Result};
 use tokio::process::Command;
 use tracing::debug;
-use velocity_common::{DeviceInfo, DeviceState, Platform, Result, VelocityError};
 
 /// Wrapper around `xcrun simctl` subprocess calls for iOS simulator management.
 pub struct Simctl {
@@ -18,7 +18,7 @@ impl Default for Simctl {
 /// A simctl that ran and failed. Only what the user can fix (an unknown
 /// device, a bad argument or path) is a config error; anything else is the
 /// device's trouble (VEL-146: every failure exited 2 and was never retried).
-fn exit_error(args: &[&str], stderr: &str) -> VelocityError {
+fn exit_error(args: &[&str], stderr: &str) -> AtalantaError {
     let detail = stderr.trim().to_string();
     let lower = detail.to_ascii_lowercase();
     let users = [
@@ -32,9 +32,9 @@ fn exit_error(args: &[&str], stderr: &str) -> VelocityError {
     // device state" is a simulator that isn't booted (yet, or any more): the
     // device's trouble, not the config's.
     if users.iter().any(|p| lower.contains(p)) && !lower.contains("invalid device state") {
-        return VelocityError::Config(format!("simctl command failed: {detail}"));
+        return AtalantaError::Config(format!("simctl command failed: {detail}"));
     }
-    VelocityError::CommandFailed {
+    AtalantaError::CommandFailed {
         device_id: args.get(1).copied().unwrap_or_default().to_string(),
         command: format!("simctl {}", args.first().copied().unwrap_or_default()),
         detail,
@@ -44,7 +44,7 @@ fn exit_error(args: &[&str], stderr: &str) -> VelocityError {
 impl Simctl {
     pub fn new() -> Self {
         Self::with_xcrun(
-            &velocity_common::env::var("VELOCITY_XCRUN_PATH")
+            &atalanta_common::env::var("ATALANTA_XCRUN_PATH")
                 .unwrap_or_else(|_| "xcrun".to_string()),
         )
     }
@@ -64,8 +64,8 @@ impl Simctl {
     async fn run(&self, args: &[&str]) -> Result<Vec<u8>> {
         let timeout = match args.first() {
             Some(&"install") | Some(&"boot") | Some(&"erase") | Some(&"clone")
-            | Some(&"bootstatus") | Some(&"create") => velocity_common::process::LONG_TIMEOUT,
-            _ => velocity_common::process::default_timeout(),
+            | Some(&"bootstatus") | Some(&"create") => atalanta_common::process::LONG_TIMEOUT,
+            _ => atalanta_common::process::default_timeout(),
         };
         self.run_for(args, timeout).await
     }
@@ -91,18 +91,18 @@ impl Simctl {
 
         debug!(args = ?args, "simctl command");
 
-        let output = velocity_common::process::output_with_timeout(&mut cmd, timeout)
+        let output = atalanta_common::process::output_with_timeout(&mut cmd, timeout)
             .await
             .map_err(|e| {
                 // A hung simctl is the device's trouble, not the config's.
                 if e.kind() == std::io::ErrorKind::TimedOut {
-                    VelocityError::CommandFailed {
+                    AtalantaError::CommandFailed {
                         device_id: args.get(1).copied().unwrap_or_default().to_string(),
                         command: format!("simctl {}", args.first().copied().unwrap_or_default()),
                         detail: format!("no answer within {}s", timeout.as_secs_f32()),
                     }
                 } else {
-                    VelocityError::Config(format!("Failed to execute xcrun simctl: {e}"))
+                    AtalantaError::Config(format!("Failed to execute xcrun simctl: {e}"))
                 }
             })?;
 
@@ -122,7 +122,7 @@ impl Simctl {
     pub async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
         let output = self.run_text(&["list", "devices", "--json"]).await?;
         let parsed: serde_json::Value = serde_json::from_str(&output)
-            .map_err(|e| VelocityError::Config(format!("Failed to parse simctl JSON: {e}")))?;
+            .map_err(|e| AtalantaError::Config(format!("Failed to parse simctl JSON: {e}")))?;
         parse_devices(&parsed)
     }
 
@@ -131,7 +131,7 @@ impl Simctl {
         debug!(device = device_id, "booting simulator");
         self.run_text(&["boot", device_id])
             .await
-            .map_err(|e| VelocityError::DeviceBootFailed {
+            .map_err(|e| AtalantaError::DeviceBootFailed {
                 id: device_id.to_string(),
                 reason: format!("{e}"),
             })?;
@@ -151,7 +151,7 @@ impl Simctl {
         // A path starting with `-` would be read as an option (second-pass
         // review, as VEL-293 for devicectl).
         if app_path.starts_with('-') {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "not an app path: {app_path:?}"
             )));
         }
@@ -190,7 +190,7 @@ impl Simctl {
         // items, never a shell line.
         let mut argv = vec!["launch", device_id, bundle_id];
         argv.extend(args.iter().map(String::as_str));
-        self.run_env(&argv, velocity_common::process::default_timeout(), &child)
+        self.run_env(&argv, atalanta_common::process::default_timeout(), &child)
             .await?;
         Ok(())
     }
@@ -209,7 +209,7 @@ impl Simctl {
         self.terminate_within(
             device_id,
             bundle_id,
-            velocity_common::process::default_timeout(),
+            atalanta_common::process::default_timeout(),
         )
         .await
     }
@@ -329,7 +329,7 @@ impl Simctl {
     pub async fn list_json(&self, what: &str) -> Result<serde_json::Value> {
         let output = self.run_text(&["list", what, "--json"]).await?;
         serde_json::from_str(&output)
-            .map_err(|e| VelocityError::Config(format!("Failed to parse simctl JSON: {e}")))
+            .map_err(|e| AtalantaError::Config(format!("Failed to parse simctl JSON: {e}")))
     }
 
     /// Clone a shut-down simulator as `name`; returns the new UDID. A clone
@@ -363,7 +363,7 @@ impl Simctl {
         debug!(device = device_id, "waiting for boot");
         self.run_text(&["bootstatus", device_id, "-b"])
             .await
-            .map_err(|e| VelocityError::DeviceBootFailed {
+            .map_err(|e| AtalantaError::DeviceBootFailed {
                 id: device_id.to_string(),
                 reason: format!("{e}"),
             })?;
@@ -394,7 +394,7 @@ fn parse_devices(parsed: &serde_json::Value) -> Result<Vec<DeviceInfo>> {
         .get("devices")
         .and_then(|d| d.as_object())
         .ok_or_else(|| {
-            VelocityError::Config("Missing 'devices' key in simctl output".to_string())
+            AtalantaError::Config("Missing 'devices' key in simctl output".to_string())
         })?;
 
     let mut devices = Vec::new();
@@ -444,7 +444,7 @@ fn parse_devices(parsed: &serde_json::Value) -> Result<Vec<DeviceInfo>> {
                 platform: Platform::Ios,
                 state,
                 os_version: os_version.clone(),
-                device_type: velocity_common::DeviceType::Simulator,
+                device_type: atalanta_common::DeviceType::Simulator,
             });
         }
     }
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn listapps_yields_installed_bundles_without_test_runners() {
-        let plist = "{\n    \"com.apple.Bridge\" =     {\n        ApplicationType = System;\n        GroupContainers =         {\n        };\n    };\n    \"dev.velocity.runner.xctrunner\" =     {\n    };\n    \"com.example.app\" =     {\n    };\n}\n";
+        let plist = "{\n    \"com.apple.Bridge\" =     {\n        ApplicationType = System;\n        GroupContainers =         {\n        };\n    };\n    \"dev.atalanta.runner.xctrunner\" =     {\n    };\n    \"com.example.app\" =     {\n    };\n}\n";
         assert_eq!(
             parse_listapps(plist),
             ["com.apple.Bridge", "com.example.app"]
@@ -591,22 +591,22 @@ mod tests {
             &["boot", "UDID"],
             "Unable to boot device in current state: Booted\n",
         );
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
         assert!(e.to_string().contains("UDID"), "{e}");
         let e = super::exit_error(&["boot", "nope"], "Invalid device: nope");
-        assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e:?}");
         // A simulator that is not booted is not a typo in the config.
         let e = super::exit_error(
             &["launch", "UDID", "com.example.app"],
             "An error was encountered processing the command (domain=com.apple.CoreSimulator.SimError, code=405):\nInvalid device state",
         );
-        assert!(matches!(e, VelocityError::CommandFailed { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::CommandFailed { .. }), "{e:?}");
         assert_eq!(e.exit_code(), 3);
     }
 
     #[tokio::test]
     async fn second_pass_simctl_option_like_bundle_id_is_refused() {
-        let dir = std::env::temp_dir().join(format!("velocity-sp-simctl-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-sp-simctl-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("calls.log");

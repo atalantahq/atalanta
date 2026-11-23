@@ -11,8 +11,8 @@
 
 use std::fmt::Write as _;
 
+use atalanta_common::{AtalantaError, Result};
 use ring::{digest, hmac};
-use velocity_common::{Result, VelocityError};
 
 /// AWS credentials. The secret parts are registered for redaction when
 /// read.
@@ -273,7 +273,7 @@ pub fn credentials_from(
             register(&creds);
             Ok((creds, region_env.or_else(|| get("region"))))
         }
-        _ => Err(VelocityError::Config(format!(
+        _ => Err(AtalantaError::Config(format!(
             "bedrock needs AWS credentials: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY \
              (and AWS_SESSION_TOKEN), keys for profile {profile:?} in {creds_file}, or a \
              Bedrock API key in AWS_BEARER_TOKEN_BEDROCK. SSO and role profiles: run \
@@ -283,9 +283,9 @@ pub fn credentials_from(
 }
 
 fn register(creds: &AwsCredentials) {
-    velocity_common::redact::register_secret(&creds.secret_access_key);
+    atalanta_common::redact::register_secret(&creds.secret_access_key);
     if let Some(t) = &creds.session_token {
-        velocity_common::redact::register_secret(t);
+        atalanta_common::redact::register_secret(t);
     }
 }
 
@@ -478,7 +478,7 @@ mod tests {
             (c.access_key_id.as_str(), region.as_deref()),
             ("AKID", Some("eu-west-1"))
         );
-        assert!(!velocity_common::redact::redact("x SECRET-T1-A").contains("SECRET-T1-A"));
+        assert!(!atalanta_common::redact::redact("x SECRET-T1-A").contains("SECRET-T1-A"));
 
         let dir = std::env::temp_dir().join(format!("velnl-aws-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

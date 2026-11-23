@@ -3,8 +3,8 @@
 # polling and no sync. The script prints each step's median settleMs per
 # mode.
 #
-# Native sync needs an app built with VelocitySyncProbe (iOS) or
-# velocity-sync-probe (Android): set APP_ID, MEASURE_TAP and
+# Native sync needs an app built with AtalantaSyncProbe (iOS) or
+# atalanta-sync-probe (Android): set APP_ID, MEASURE_TAP and
 # MEASURE_BACK_TO for it (FRAMEWORK=react_native for an RN app). Against
 # the default Settings app "native" falls back to polling, which the
 # script reports. Not run by CI: needs a device.

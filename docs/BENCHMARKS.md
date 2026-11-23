@@ -8,14 +8,14 @@ emulator. Each task sets up app state, gives the agent a goal in English, and
 then checks the device itself (databases, files, settings, the screen) to
 decide success; question tasks check the agent's answer.
 
-Velocity runs it with `velocity explore --benchmark`, the same agent loop that
+Atalanta runs it with `atalanta explore --benchmark`, the same agent loop that
 writes tests, driven by a small Python adapter in
 [`bench/androidworld/`](../bench/androidworld/). Exact commands:
 [REPRODUCE.md](../bench/androidworld/REPRODUCE.md).
 
 ### How to read these numbers (read first)
 
-**Every AndroidWorld number here comes from the same 116 task instances (task seed 30, one combination each).** The 59.9% run below was the first full run, with the agent frozen before it started. After it, the agent was changed and run again on the same instances seven more times (2026-11-07 and 2026-11-08), five of them in full. The five complete reruns each used a different Velocity binary: between runs the goal prompt went from `goal-2` to `goal-6`, the Android tree-server protocol changed several times (17 by the last run), and fixes were made for failures seen in the previous run. Changing the agent between runs on the same tasks is tuning on the test set. **The later scores are therefore not held-out results, and no run on another seed has been done.** A fair headline is: "59.9% on the first frozen run; 78.4% after eight runs of iteration on the same seed, not held out."
+**Every AndroidWorld number here comes from the same 116 task instances (task seed 30, one combination each).** The 59.9% run below was the first full run, with the agent frozen before it started. After it, the agent was changed and run again on the same instances seven more times (2026-11-07 and 2026-11-08), five of them in full. The five complete reruns each used a different Atalanta binary: between runs the goal prompt went from `goal-2` to `goal-6`, the Android tree-server protocol changed several times (17 by the last run), and fixes were made for failures seen in the previous run. Changing the agent between runs on the same tasks is tuning on the test set. **The later scores are therefore not held-out results, and no run on another seed has been done.** A fair headline is: "59.9% on the first frozen run; 78.4% after eight runs of iteration on the same seed, not held out."
 
 | Run | Date | Tasks run | Score | Model route |
 |---|---|---|---|---|
@@ -42,9 +42,9 @@ Run directories: `bench/androidworld/runs/full-v*/` (`run.json` holds each run's
 | | |
 |---|---|
 | Model | `anthropic:claude-sonnet-5-5`, effort `low`, screenshot every turn, `--verify final` |
-| Velocity | 0.1.0, release binary sha256 `351f37817604c7a8a7eebd53391133b36bb4832c64f64c461e5c1a364d60c051`, goal prompt `goal-2` (frozen before the run) |
+| Atalanta | 0.1.0, release binary sha256 `351f37817604c7a8a7eebd53391133b36bb4832c64f64c461e5c1a364d60c051`, goal prompt `goal-2` (frozen before the run) |
 | Harness | google-research/android_world `55ddaf5edc6f6c25673aed343907d5b9dca66f84`, AndroidWorldAvd (API 33 Google APIs arm64-v8a), Apple Silicon Mac |
-| Outcomes (Velocity's) | success 63, gave up 31, stuck 13, unverified 6, out of turns 3 (one of them wrongly credited at first; see the correction) |
+| Outcomes (Atalanta's) | success 63, gave up 31, stuck 13, unverified 6, out of turns 3 (one of them wrongly credited at first; see the correction) |
 | Per task | 11.8 planning turns, 4.2 s per turn, 57 s wall clock (setup and check included), 12.5 model calls |
 | Tokens and cost | 11.86 M input, 0.19 M output, est. **$25.63** for the scored rows (≈ $0.22 per task; list prices $2 / $10 per M, cache reads counted at the full input price, so an upper bound) |
 
@@ -87,8 +87,8 @@ Against published numbers:
 
 | Agent | AndroidWorld success | Source |
 |---|---|---|
-| Velocity `explore --benchmark` + Claude Sonnet 5.5 (this run, first frozen run) | 59.9% | our run; trajectories and per-task results published with the run |
-| Velocity, after eight runs of iteration on the same seed | 78.4% | our runs; **not held out** (see [How to read these numbers](#how-to-read-these-numbers-read-first)) |
+| Atalanta `explore --benchmark` + Claude Sonnet 5.5 (this run, first frozen run) | 59.9% | our run; trajectories and per-task results published with the run |
+| Atalanta, after eight runs of iteration on the same seed | 78.4% | our runs; **not held out** (see [How to read these numbers](#how-to-read-these-numbers-read-first)) |
 | Google ARTEMIS | 99.1% | **self-reported** (community leaderboard sheet) |
 | Top community leaderboard entries | 99-100% | **self-reported** |
 | M3A, accessibility tree, GPT-4 Turbo (the paper's best agent) | 30.6% | AndroidWorld paper, Rawles et al., arXiv:2405.14573v5, Table 3 |
@@ -100,7 +100,7 @@ The self-reported entries were not re-run by the AndroidWorld maintainers or by 
 
 | Category | Instances | Examples |
 |---|---|---|
-| A tap whose effect Velocity couldn't see, 3 times in a row: the run stops as `stuck` | 13 | the file manager's "Open with" chooser (all 3 Browser tasks, both Files tasks), brightness slider, clipboard toolbar, Simple Draw canvas |
+| A tap whose effect Atalanta couldn't see, 3 times in a row: the run stops as `stuck` | 13 | the file manager's "Open with" chooser (all 3 Browser tasks, both Files tasks), brightness slider, clipboard toolbar, Simple Draw canvas |
 | Out of turns on long multi-item tasks | ~14 | playlists (Retro, VLC), renaming a Markor note, stepping a calendar day by day, recipes from a Markor file |
 | An answer grounded in shown text but wrong | 6 | sports-tracker totals and counts, task lists, next week's events |
 | Values only in pixels (refused by grounding, by design) | 4 | receipt image, video frames, recipe photo, expenses in a gallery image |
@@ -118,12 +118,12 @@ What would move the number most (not applied to this run, whose agent was frozen
 
 ### How the adapter works
 
-- `velocity_agent.py` is an AndroidWorld agent. For each episode it runs one
-  `velocity explore --benchmark --json` child process with Velocity's turn
+- `atalanta_agent.py` is an AndroidWorld agent. For each episode it runs one
+  `atalanta explore --benchmark --json` child process with Atalanta's turn
   budget set to AndroidWorld's step budget, and the events (the trajectory)
   written to `episodes/<task>/events.jsonl`. A grounded answer is passed to
   AndroidWorld's own answer channel (`env.execute_action(answer)`).
-  A process per episode rather than a long-lived `velocity mcp` session: the
+  A process per episode rather than a long-lived `atalanta mcp` session: the
   agent loop already lives in `explore`, and MCP would only wrap the same
   child; a process per episode isolates tasks and gives a hard kill.
 - `run.py` builds the suite with AndroidWorld's `create_suite`, runs each
@@ -139,11 +139,11 @@ What would move the number most (not applied to this run, whose agent was frozen
 |---|---|---|
 | Tasks | `android_world` family, 116 templates | the same |
 | Parameters | `create_suite(seed=30, n_task_combinations=1)` (its defaults) | the same |
-| Step budget | `int(10 * complexity)` agent steps | the same number of Velocity planning turns (a turn that code refused, an answer and the final `done` each count) |
-| Success | the agent said done **and** the task's check passes | the same: done = Velocity ended by its own decision (`success`, `unverified`, `gaveUp`); budget, time, stuck and errors are not done |
+| Step budget | `int(10 * complexity)` agent steps | the same number of Atalanta planning turns (a turn that code refused, an answer and the final `done` each count) |
+| Success | the agent said done **and** the task's check passes | the same: done = Atalanta ended by its own decision (`success`, `unverified`, `gaveUp`); budget, time, stuck and errors are not done |
 | Headline | mean over templates of each template's mean, instances that raised left out (`process_episodes`) | the same, plus a strict rate where exceptions count as failures |
 
-The model, provider, list prices, Velocity version and binary SHA-256, the
+The model, provider, list prices, Atalanta version and binary SHA-256, the
 harness commit, seed, combinations, effort and prompt version are in each
 run's `run.json`; tokens, cost (list prices, cache reads counted at the full
 input price, so an upper bound), steps and time per task are in
@@ -203,10 +203,10 @@ input price, so an upper bound), steps and time per task are in
   disables only that restart (the retries stay) so other devices on the
   shared adb server keep their connections (`AW_ALLOW_ADB_RESTART=1` restores
   it).
-- Velocity's tree server must not suppress accessibility services, or
+- Atalanta's tree server must not suppress accessibility services, or
   AndroidWorld's accessibility forwarder (which many success checks read)
   loses its tree for the rest of the run. The adapter sets
-  `VELOCITY_ANDROID_KEEP_A11Y=1`; Velocity's `--keep-a11y` connection was
+  `ATALANTA_ANDROID_KEEP_A11Y=1`; Atalanta's `--keep-a11y` connection was
   fixed for this (it had silently fallen back to the suppressing connect on
   API 33 and 34).
 - android_env's accessibility forwarder sometimes crashes when the env

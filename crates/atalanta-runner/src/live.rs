@@ -4,13 +4,13 @@
 //! non-cancellable wait), the CLI drops the run and writes its partial
 //! reports from here, instead of writing none.
 //!
-//! Process-wide: one run at a time per process (`velocity run`, or one
-//! client's run under `velocity daemon`).
+//! Process-wide: one run at a time per process (`atalanta run`, or one
+//! client's run under `atalanta daemon`).
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use velocity_common::{SuiteResult, TestResult, TestStatus};
+use atalanta_common::{SuiteResult, TestResult, TestStatus};
 
 struct Live {
     started: Option<Instant>,

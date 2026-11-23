@@ -17,10 +17,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use velocity_common::selector_match::{find_all_ref, find_in_tree};
-use velocity_common::{
-    DeviceInfo, Direction, Element, Key, PlatformDriver, Rect, Result, Selector, SuiteConfig,
-    SyncMode, VelocityError,
+use atalanta_common::selector_match::{find_all_ref, find_in_tree};
+use atalanta_common::{
+    AtalantaError, DeviceInfo, Direction, Element, Key, PlatformDriver, Rect, Result, Selector,
+    SuiteConfig, SyncMode,
 };
 
 const W: i32 = 1080;
@@ -284,7 +284,7 @@ impl FakeApp {
     /// no dialog handling, short waits.
     pub fn config() -> SuiteConfig {
         let mut c = SuiteConfig {
-            platform: Some(velocity_common::Platform::Android),
+            platform: Some(atalanta_common::Platform::Android),
             ..Default::default()
         };
         c.sync.mode = SyncMode::None;
@@ -413,8 +413,8 @@ fn bottom(h: i32) -> Rect {
     }
 }
 
-fn not_found(selector: &Selector) -> VelocityError {
-    VelocityError::ElementNotFound {
+fn not_found(selector: &Selector) -> AtalantaError {
+    AtalantaError::ElementNotFound {
         selector: selector.to_string(),
         timeout_ms: 0,
         screenshot: None,
@@ -510,7 +510,7 @@ impl PlatformDriver for FakeApp {
             .into_iter()
             .find(|(r, _)| r.intersects(&point))
         {
-            return Err(VelocityError::NotActionable {
+            return Err(AtalantaError::NotActionable {
                 selector: el
                     .text
                     .clone()
@@ -671,9 +671,9 @@ impl PlatformDriver for FakeApp {
             enc.set_depth(png::BitDepth::Eight);
             let mut wr = enc
                 .write_header()
-                .map_err(|e| VelocityError::Internal(anyhow::anyhow!("fake png: {e}")))?;
+                .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("fake png: {e}")))?;
             wr.write_image_data(&rgb)
-                .map_err(|e| VelocityError::Internal(anyhow::anyhow!("fake png: {e}")))?;
+                .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("fake png: {e}")))?;
         }
         Ok(bytes)
     }

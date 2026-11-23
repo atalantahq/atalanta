@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use atalanta_common::types::{DeviceInfo, Direction, Element, Key, Rect, Selector};
+use atalanta_common::{PlatformDriver, Result};
+use atalanta_inspector::InspectorServer;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use velocity_common::types::{DeviceInfo, Direction, Element, Key, Rect, Selector};
-use velocity_common::{PlatformDriver, Result};
-use velocity_inspector::InspectorServer;
 
 struct Fake;
 
@@ -141,7 +141,7 @@ fn tmp_dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!(
         "vel-insp-{tag}-{}-{}",
         std::process::id(),
-        velocity_inspector::security::new_token()
+        atalanta_inspector::security::new_token()
     ));
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -202,7 +202,7 @@ async fn cross_origin_and_tokenless_requests_are_refused() {
         &[
             ("Host", &host),
             ("Origin", "https://evil.example"),
-            ("X-Velocity-Token", &token),
+            ("X-Atalanta-Token", &token),
         ],
         &save_body("a.yaml", step),
     )
@@ -212,7 +212,7 @@ async fn cross_origin_and_tokenless_requests_are_refused() {
         port,
         "GET",
         "/api/devices",
-        &[("Host", "evil.example"), ("X-Velocity-Token", &token)],
+        &[("Host", "evil.example"), ("X-Atalanta-Token", &token)],
         "",
     )
     .await;
@@ -292,7 +292,7 @@ async fn save_only_creates_new_yaml_files_under_the_flows_dir() {
     let h = [
         ("Host", host.as_str()),
         ("Origin", origin.as_str()),
-        ("X-Velocity-Token", token.as_str()),
+        ("X-Atalanta-Token", token.as_str()),
     ];
     let step = "- tap: { text: \"a\" }";
 
@@ -306,7 +306,7 @@ async fn save_only_creates_new_yaml_files_under_the_flows_dir() {
     .await;
     assert_eq!(r.code, 200, "{}", r.body);
     let saved = std::fs::read_to_string(flows.join("login.yaml")).unwrap();
-    velocity_core::parser::parse_suite_from_str(&saved).unwrap();
+    atalanta_core::parser::parse_suite_from_str(&saved).unwrap();
 
     // Never overwrite.
     let r = send(
@@ -359,7 +359,7 @@ async fn type_and_swipe_return_parseable_steps() {
     let host = format!("127.0.0.1:{port}");
     let h = [
         ("Host", host.as_str()),
-        ("X-Velocity-Token", token.as_str()),
+        ("X-Atalanta-Token", token.as_str()),
     ];
     let sel = Selector::Index {
         selector: Box::new(Selector::Compound(vec![
@@ -370,7 +370,7 @@ async fn type_and_swipe_return_parseable_steps() {
     };
     // The flat DSL form the API speaks (review 02 M5).
     let body = serde_json::json!({
-        "selector": velocity_core::selector_wire::to_value(&sel),
+        "selector": atalanta_core::selector_wire::to_value(&sel),
         "text": "a\"b ${HOME}"
     })
     .to_string();
@@ -392,16 +392,16 @@ async fn type_and_swipe_return_parseable_steps() {
     let v: serde_json::Value = serde_json::from_str(&r.body).unwrap();
     let swipe_step = v["yaml"].as_str().unwrap().to_string();
 
-    let yaml = velocity_inspector::yaml_gen::flow_yaml("t", "com.x", &[type_step, swipe_step]);
-    let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+    let yaml = atalanta_inspector::yaml_gen::flow_yaml("t", "com.x", &[type_step, swipe_step]);
+    let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
         .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
     match &suite.tests[0].steps[0].action {
-        velocity_common::types::Action::InputText { selector, text } => {
+        atalanta_common::types::Action::InputText { selector, text } => {
             assert_eq!(selector, &sel);
             // Escaped in the YAML, so loading reads no variable.
             assert_eq!(text, "a\"b $${HOME}");
             assert_eq!(
-                velocity_core::env::interpolate(text, &Default::default()).unwrap(),
+                atalanta_core::env::interpolate(text, &Default::default()).unwrap(),
                 "a\"b ${HOME}"
             );
         }
@@ -416,15 +416,15 @@ async fn type_and_swipe_return_parseable_steps() {
 async fn a_port_in_use_is_a_config_error() {
     let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = held.local_addr().unwrap().port();
-    let err = velocity_inspector::InspectorServer::bind_on(
+    let err = atalanta_inspector::InspectorServer::bind_on(
         std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
         port,
     )
     .await
     .unwrap_err();
     let ve = err
-        .downcast_ref::<velocity_common::VelocityError>()
-        .unwrap_or_else(|| panic!("not a VelocityError: {err:?}"));
+        .downcast_ref::<atalanta_common::AtalantaError>()
+        .unwrap_or_else(|| panic!("not a AtalantaError: {err:?}"));
     assert_eq!(ve.exit_code(), 2, "{ve:?}");
 }
 
@@ -438,7 +438,7 @@ async fn unknown_api_routes_404_and_headless_stubs_501() {
     let h = [
         ("Host", host.as_str()),
         ("Origin", origin.as_str()),
-        ("X-Velocity-Token", token.as_str()),
+        ("X-Atalanta-Token", token.as_str()),
     ];
     let r = send(port, "GET", "/api/nope", &h, "").await;
     assert_eq!(r.code, 404, "{}", r.body);
@@ -470,21 +470,21 @@ const WHITE: [u8; 68] = [
 /// A results dir with one failed comparison per name, as the executor
 /// leaves it; returns (results dir, baseline path per name).
 fn failed_shots(root: &std::path::Path, names: &[&str]) -> (PathBuf, Vec<PathBuf>) {
-    let results = root.join("velocity-results");
+    let results = root.join("atalanta-results");
     let diffs = results.join("diffs");
     std::fs::create_dir_all(&diffs).unwrap();
     let mut paths = vec![];
     for name in names {
-        let baseline = root.join(format!("suite/velocity-baselines/ios/1x1/{name}.png"));
+        let baseline = root.join(format!("suite/atalanta-baselines/ios/1x1/{name}.png"));
         std::fs::create_dir_all(baseline.parent().unwrap()).unwrap();
         std::fs::write(&baseline, BLACK).unwrap();
         std::fs::write(diffs.join(format!("{name}-expected.png")), BLACK).unwrap();
         std::fs::write(diffs.join(format!("{name}-actual.png")), WHITE).unwrap();
         std::fs::write(diffs.join(format!("{name}-diff.png")), WHITE).unwrap();
-        velocity_core::baselines::record_failure(
+        atalanta_core::baselines::record_failure(
             &diffs,
             &format!("{name}.png"),
-            &velocity_core::baselines::ReviewRecord {
+            &atalanta_core::baselines::ReviewRecord {
                 name: name.to_string(),
                 baseline: baseline.clone(),
                 detail: "50.00% similar".into(),
@@ -684,7 +684,7 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
         port,
         "POST",
         "/api/baselines/reject",
-        &[("Host", &host), ("X-Velocity-Token", &token)],
+        &[("Host", &host), ("X-Atalanta-Token", &token)],
         r#"{"id":"diffs/cart"}"#,
     )
     .await;
@@ -697,7 +697,7 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
         port,
         "GET",
         "/api/baselines",
-        &[("Host", &host), ("X-Velocity-Token", &token)],
+        &[("Host", &host), ("X-Atalanta-Token", &token)],
         "",
     )
     .await;
@@ -706,7 +706,7 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
         port,
         "POST",
         "/api/baselines/accept",
-        &[("Host", &host), ("X-Velocity-Token", &token)],
+        &[("Host", &host), ("X-Atalanta-Token", &token)],
         r#"{"id":"diffs/home"}"#,
     )
     .await;
@@ -731,7 +731,7 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
         port,
         "GET",
         "/api/devices",
-        &[("Host", &host), ("X-Velocity-Token", &token)],
+        &[("Host", &host), ("X-Atalanta-Token", &token)],
         "",
     )
     .await;
@@ -747,7 +747,7 @@ async fn the_review_page_lists_accepts_and_rejects_failed_screenshots() {
 async fn review_accept_uses_the_baselines_dir_and_skips_stale_records() {
     let root = tmp_dir("review-ci");
     let (results, baselines) = failed_shots(&root, &["home", "cart"]);
-    let local = root.join("checkout/velocity-baselines");
+    let local = root.join("checkout/atalanta-baselines");
     let listener = InspectorServer::bind(0).await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let srv = InspectorServer::review_only(&results).with_baselines_dir(Some(local.clone()));
@@ -766,7 +766,7 @@ async fn review_accept_uses_the_baselines_dir_and_skips_stale_records() {
                 port,
                 "POST",
                 "/api/baselines/accept",
-                &[("Host", &host), ("X-Velocity-Token", &token)],
+                &[("Host", &host), ("X-Atalanta-Token", &token)],
                 &format!(r#"{{"id":"{id}"}}"#),
             )
             .await

@@ -156,7 +156,7 @@ pub struct RuntimeConfig {
     /// stays current when a later round passes.
     pub run_started: Option<std::time::SystemTime>,
     /// Where self-healing keeps its files (healed mappings, element
-    /// snapshots, rejected heals); `None` is `.velocity/` in the directory
+    /// snapshots, rejected heals); `None` is `.atalanta/` in the directory
     /// the run starts in. Tests point it at a temp dir, so they never write
     /// into the source tree.
     pub state_dir: Option<std::path::PathBuf>,
@@ -208,7 +208,7 @@ impl std::fmt::Debug for StopHandle {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            config_path: "velocity.yaml".to_string(),
+            config_path: "atalanta.yaml".to_string(),
             platform: None,
             device_id: None,
             tags: Vec::new(),
@@ -217,7 +217,7 @@ impl Default for RuntimeConfig {
             shard_total: None,
             retry_count: None,
             report_format: ReportFormat::default(),
-            artifacts_dir: "./velocity-results".to_string(),
+            artifacts_dir: "./atalanta-results".to_string(),
             suite_timeout_ms: None,
             test_timeout_ms: None,
             fail_fast: false,
@@ -280,7 +280,7 @@ impl BaselineUpdate {
         self != Self::Off
     }
 
-    /// `--update-baselines` / `VELOCITY_UPDATE_BASELINES` values: `missing`,
+    /// `--update-baselines` / `ATALANTA_UPDATE_BASELINES` values: `missing`,
     /// `changed`/`all`/`true`/`1`, `off`/`false`/`0`. An empty value is
     /// none of them (the bare flag gets `changed` from clap).
     pub fn parse(v: &str) -> Option<Self> {
@@ -292,7 +292,7 @@ impl BaselineUpdate {
         }
     }
 
-    /// `VELOCITY_UPDATE_BASELINES`: unset or empty is off (as before D-V1,
+    /// `ATALANTA_UPDATE_BASELINES`: unset or empty is off (as before D-V1,
     /// so CI templating that leaves it blank never rewrites baselines);
     /// only an explicit value turns updating on, `1`/`true` meaning the
     /// bare flag. `Err` for a value that isn't one (exit 2).
@@ -300,7 +300,7 @@ impl BaselineUpdate {
         match v.map(str::trim) {
             None | Some("") => Ok(Self::Off),
             Some(v) => Self::parse(v).ok_or_else(|| {
-                format!("VELOCITY_UPDATE_BASELINES={v}: expected missing, changed, 1 or 0")
+                format!("ATALANTA_UPDATE_BASELINES={v}: expected missing, changed, 1 or 0")
             }),
         }
     }
@@ -310,7 +310,7 @@ impl BaselineUpdate {
 /// for the rest of that run, so a retry (or another device of a parallel
 /// run) never passes on a file nobody reviewed. One per run, shared by
 /// every executor of the run (clones share it), and fresh for the next
-/// run, so a long-lived process (`velocity daemon`, MCP) passes once the
+/// run, so a long-lived process (`atalanta daemon`, MCP) passes once the
 /// baseline is committed. Keyed by absolute canonical path, so two
 /// projects' same relative path never meet.
 #[derive(Clone, Default)]
@@ -366,7 +366,7 @@ impl std::fmt::Debug for CreatedBaselines {
 mod tests {
     use super::*;
 
-    /// review-d5 M-2: an empty `VELOCITY_UPDATE_BASELINES` is off, as it was
+    /// review-d5 M-2: an empty `ATALANTA_UPDATE_BASELINES` is off, as it was
     /// before D-V1; only an explicit value turns updating on.
     #[test]
     fn update_baselines_env_values() {

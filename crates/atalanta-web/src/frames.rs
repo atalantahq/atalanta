@@ -18,7 +18,7 @@
 //!   `{autoAttach, flatten, waitForDebuggerOnStart}` there and in every
 //!   frame (nested frames), so each frame is held at its start until its
 //!   `Network` domain is on: none of its requests is missed;
-//! - per frame: Velocity's library (`injected.js`) in an isolated world of
+//! - per frame: Atalanta's library (`injected.js`) in an isolated world of
 //!   the frame (`Page.createIsolatedWorld`), cached per document;
 //! - the frame's requests feed the page's network-idle wait.
 //!
@@ -38,11 +38,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_tungstenite::tungstenite::Message;
+use atalanta_common::{AtalantaError, Result};
 use futures::StreamExt;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot};
 use tracing::debug;
-use velocity_common::{Result, VelocityError};
 
 use crate::cdp::CDP_TIMEOUT;
 
@@ -50,7 +50,7 @@ use crate::cdp::CDP_TIMEOUT;
 const FRAME_ID_MARK: char = '@';
 
 /// The isolated world the library runs in, in each frame.
-const WORLD: &str = "__velocity_frame_world__";
+const WORLD: &str = "__atalanta_frame_world__";
 
 /// Hooks a frame's requests into the page's network-idle wait.
 pub trait FrameNetwork: Send + Sync {
@@ -69,7 +69,7 @@ const NO_ANSWER: &str = "no answer in";
 
 /// Whether `e` is a command that timed out (a hung frame), not one that
 /// failed.
-pub fn is_timeout(e: &VelocityError) -> bool {
+pub fn is_timeout(e: &AtalantaError) -> bool {
     e.to_string().contains(NO_ANSWER)
 }
 
@@ -305,7 +305,7 @@ impl Frames {
         if f.overruns >= OVERRUNS_TO_HUNG && f.hung_until.is_none() {
             f.hung_until = Some(Instant::now() + HUNG_FOR);
             tracing::warn!(
-                "velocity-web: cross-origin frame {key} did not answer {} lookups in a row \
+                "atalanta-web: cross-origin frame {key} did not answer {} lookups in a row \
                  ({what}); left out of lookups while it doesn't answer a ping",
                 f.overruns
             );
@@ -319,7 +319,7 @@ impl Frames {
         if let Some(f) = frames.iter_mut().find(|f| f.key == key) {
             if f.hung_until.is_none() {
                 tracing::warn!(
-                    "velocity-web: cross-origin frame {key} did not answer ({what}); \
+                    "atalanta-web: cross-origin frame {key} did not answer ({what}); \
                      left out of lookups while it doesn't answer a ping"
                 );
             }
@@ -371,7 +371,7 @@ impl Frames {
             drop(frames);
             match done {
                 Err(e) if is_timeout(&e) => me.mark_hung(key, &e.to_string()),
-                Err(e) => debug!("velocity-web: frame {key}: installing the library: {e}"),
+                Err(e) => debug!("atalanta-web: frame {key}: installing the library: {e}"),
                 Ok(_) => {}
             }
         });
@@ -405,7 +405,7 @@ impl Frames {
             .call_fn(
                 &frame,
                 ctx,
-                "function(){return [!!globalThis.__velocity, String(location.href)];}",
+                "function(){return [!!globalThis.__atalanta, String(location.href)];}",
                 &[],
             )
             .await?;
@@ -488,7 +488,7 @@ impl Frames {
         let me = self.clone();
         tokio::spawn(async move {
             if let Err(e) = me.send(Some(&session), method, params).await {
-                debug!("velocity-web: frames: {e}");
+                debug!("atalanta-web: frames: {e}");
             }
         });
     }
@@ -634,7 +634,7 @@ impl Frames {
             hung_until: None,
         };
         debug!(
-            "velocity-web: cross-origin frame {} attached: {}",
+            "atalanta-web: cross-origin frame {} attached: {}",
             frame.key,
             info["url"].as_str().unwrap_or_default()
         );
@@ -648,7 +648,7 @@ impl Frames {
                 ("Target.setAutoAttach", auto_attach()),
             ] {
                 if let Err(e) = me.send(s, method, params).await {
-                    debug!("velocity-web: frame setup: {e}");
+                    debug!("atalanta-web: frame setup: {e}");
                 }
             }
             if waiting {
@@ -956,12 +956,12 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// What a script error of the library in a frame says.
 const LIBRARY_ERROR: &str = "script error in a cross-origin frame";
 
-fn is_library_error(e: &VelocityError) -> bool {
+fn is_library_error(e: &AtalantaError) -> bool {
     e.to_string().contains(LIBRARY_ERROR)
 }
 
-fn err(e: impl std::fmt::Display) -> VelocityError {
-    VelocityError::Internal(anyhow::anyhow!("cross-origin frames: {e}"))
+fn err(e: impl std::fmt::Display) -> AtalantaError {
+    AtalantaError::Internal(anyhow::anyhow!("cross-origin frames: {e}"))
 }
 
 #[cfg(test)]

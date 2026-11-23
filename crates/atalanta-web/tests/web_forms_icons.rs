@@ -5,8 +5,8 @@
 
 mod common;
 
+use atalanta_common::{AtalantaError, PlatformDriver, Selector};
 use common::{driver, find, serve, wait_text};
-use velocity_common::{PlatformDriver, Selector, VelocityError};
 
 const ICONS: &str = r##"<!doctype html><html><body>
 <p id="del"><button class="p-2 rounded hover:bg-gray-100 text-gray-500"><svg aria-hidden="true" width="16" height="16"><title>Delete</title><rect width="16" height="16"/></svg></button></p>
@@ -71,7 +71,7 @@ document.getElementById('city').addEventListener('change', function (e) {
 #[tokio::test]
 async fn file_inputs_and_options() {
     require_chrome!();
-    let dir = std::env::temp_dir().join(format!("velocity-upload-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("atalanta-upload-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("report.csv");
     std::fs::write(&file, "a,b\n1,2\n").unwrap();
@@ -96,7 +96,7 @@ async fn file_inputs_and_options() {
         .input_text("web", &up, dir.join("nope.csv").to_str().unwrap())
         .await
         .unwrap_err();
-    assert!(matches!(missing, VelocityError::Config(_)), "{missing}");
+    assert!(matches!(missing, AtalantaError::Config(_)), "{missing}");
     let two = format!("{}\n{}", file.display(), file.display());
     let err = d.input_text("web", &up, &two).await.unwrap_err();
     assert!(err.to_string().contains("one file"), "{err}");
@@ -136,13 +136,13 @@ document.getElementById('ov').addEventListener('touchend', function () { window.
 async fn the_interceptor_blocks_touch_events() {
     require_chrome!();
     let base = serve(&[("/t.html", TOUCH)]);
-    let mut config = velocity_web::WebDriverConfig {
+    let mut config = atalanta_web::WebDriverConfig {
         chrome_path: common::chrome_path(),
         extra_args: vec!["--no-sandbox".into()],
         ..Default::default()
     };
-    config.apply_device(velocity_common::web_devices::lookup("Pixel 7").unwrap());
-    let d = velocity_web::WebDriver::new(config);
+    config.apply_device(atalanta_common::web_devices::lookup("Pixel 7").unwrap());
+    let d = atalanta_web::WebDriver::new(config);
     d.prepare("web").await.unwrap();
     d.launch_app("web", &format!("{base}/t.html"), false)
         .await

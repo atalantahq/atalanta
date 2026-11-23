@@ -1,4 +1,4 @@
-package com.velocity.tree;
+package com.atalanta.tree;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.UiAutomation;
@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * Persistent UI-tree server for Velocity.
+ * Persistent UI-tree server for Atalanta.
  *
  * Runs on the device as the shell user via app_process (the same way
  * `uiautomator` itself runs), holds one UiAutomation connection, and serves
@@ -36,14 +36,14 @@ import java.util.List;
  *                               new each time the server starts)
  *   HELLO <client nonce>     -> (protocol 18) "PROOF <hex>": HMAC-SHA256
  *                               keyed with the session token over
- *                               "velocity-tree server <boot nonce> <client
+ *                               "atalanta-tree server <boot nonce> <client
  *                               nonce>". The host checks it before it sends
  *                               anything else: an app that bound the public
  *                               socket name first can't read the token file,
  *                               so it can't answer, and never sees the token
  *                               or a typed secret (security review #2)
  *   AUTH <hex>               -> (protocol 18) "OK 0" when <hex> is HMAC-SHA256
- *                               with the token over "velocity-tree client
+ *                               with the token over "atalanta-tree client
  *                               <boot nonce> <client nonce>" for this
  *                               connection's HELLO; otherwise "ERR bad token"
  *                               and the connection is closed. The token never
@@ -135,18 +135,18 @@ import java.util.List;
  * windowing, another app's floating window joined the dump as if it were
  * the app's popup); windows are read from the active window's display;
  * a request tag may carry the host's wait (see #<id>). The video server
- * in this jar takes a token (VELOCITY_VIDEO_TOKEN) and a mutual
+ * in this jar takes a token (ATALANTA_VIDEO_TOKEN) and a mutual
  * HELLO/PROOF/AUTH handshake before it streams.
  */
 public final class Server {
     static final String VERSION = "19";
-    static final String SOCKET = "velocity_tree";
+    static final String SOCKET = "atalanta_tree";
     /** New on every start: a host that reconnects can tell it is the same server. */
     static final String NONCE = Long.toHexString(new java.security.SecureRandom().nextLong());
     /** Protocol 13: the session token every connection presents with AUTH. */
     static final String TOKEN = newToken();
     /** Where the token is left for the host: owner-only, under adb's own directory. */
-    static final String TOKEN_FILE = "/data/local/tmp/velocity-tree.token";
+    static final String TOKEN_FILE = "/data/local/tmp/atalanta-tree.token";
     /** Every request a connection may send; any other line closes it. */
     static final java.util.Set<String> COMMANDS = new java.util.HashSet<>(java.util.Arrays.asList(
             "PING", "HELLO", "AUTH", "DUMP", "TAP", "TAPS", "PRESS", "SWIPE", "KEY", "TEXT", "SETTEXT", "IME",
@@ -210,10 +210,10 @@ public final class Server {
         try {
             server = new LocalServerSocket(SOCKET);
         } catch (java.io.IOException e) {
-            // Someone else holds the public name: maybe a Velocity server
+            // Someone else holds the public name: maybe a Atalanta server
             // started meanwhile, maybe an app squatting on it. Say so in
             // words the host recognises instead of a stack trace.
-            System.err.println("velocity-tree: @" + SOCKET + " is already bound by another process: " + oneLine(e));
+            System.err.println("atalanta-tree: @" + SOCKET + " is already bound by another process: " + oneLine(e));
             System.err.flush();
             System.exit(3);
             return;
@@ -221,7 +221,7 @@ public final class Server {
         // After the bind: a second server that can't bind must not replace
         // the running one's token.
         writeToken();
-        System.out.println("velocity-tree " + VERSION + " listening on @" + SOCKET);
+        System.out.println("atalanta-tree " + VERSION + " listening on @" + SOCKET);
         System.out.flush();
         while (true) {
             final LocalSocket client = server.accept();
@@ -323,12 +323,12 @@ public final class Server {
 
     /** What the server proves with for `clientNonce` (HELLO's answer). */
     static String serverProof(String clientNonce) {
-        return hmac(TOKEN, "velocity-tree server " + NONCE + " " + clientNonce);
+        return hmac(TOKEN, "atalanta-tree server " + NONCE + " " + clientNonce);
     }
 
     /** What AUTH must carry after HELLO `clientNonce` (constant-time check). */
     static boolean clientProofMatches(String clientNonce, String got) {
-        String want = hmac(TOKEN, "velocity-tree client " + NONCE + " " + clientNonce);
+        String want = hmac(TOKEN, "atalanta-tree client " + NONCE + " " + clientNonce);
         return java.security.MessageDigest.isEqual(
                 want.getBytes(StandardCharsets.UTF_8), got.getBytes(StandardCharsets.UTF_8));
     }
@@ -362,7 +362,7 @@ public final class Server {
                     }
                     own[0] = connectKeepingA11y();
                     if (own[0] != null) return;
-                    System.err.println("velocity-tree: --keep-a11y unsupported here; accessibility services are paused");
+                    System.err.println("atalanta-tree: --keep-a11y unsupported here; accessibility services are paused");
                 }
                 wrapperClass.getMethod("connect").invoke(wrapper);
             } catch (Exception e) {
@@ -396,7 +396,7 @@ public final class Server {
         } catch (NoSuchMethodException e) {
             return null;
         }
-        android.os.HandlerThread thread = new android.os.HandlerThread("VelocityUiAutomation");
+        android.os.HandlerThread thread = new android.os.HandlerThread("AtalantaUiAutomation");
         thread.start();
         UiAutomation ua = ctor.newInstance(thread.getLooper(), connection);
         try {
@@ -1169,7 +1169,7 @@ public final class Server {
      * app is force-stopped and relaunched (the accessibility service still
      * points at the dead window); waiting 0.5 s and giving up made every read
      * fail for seconds, and those failures opened the circuit breaker
-     * (VelocityLab, 2 runs in 3). Wait up to 3 s, as Appium waits for the
+     * (AtalantaLab, 2 runs in 3). Wait up to 3 s, as Appium waits for the
      * root, clearing the accessibility cache once, and meanwhile take the
      * front-most application window from the window list, as AndroidX's
      * getWindowRoots does.
@@ -1259,7 +1259,7 @@ public final class Server {
             legacyClient = null;
             legacyClear = null;
             legacyConnectionId = null;
-            System.err.println("velocity-tree: no accessibility cache clear on this Android version (" + oneLine(e) + ")");
+            System.err.println("atalanta-tree: no accessibility cache clear on this Android version (" + oneLine(e) + ")");
         }
     }
 
@@ -1268,7 +1268,7 @@ public final class Server {
      * it: the panes of activity embedding (Settings on every tablet since
      * Android 12L puts its list and the open page in two windows) and split
      * screen. Only the active window used to be dumped, so the other pane was
-     * invisible to Velocity (a POS tablet: "Internet" on screen, not found).
+     * invisible to Atalanta (a POS tablet: "Internet" on screen, not found).
      * A window that overlaps the active one is left out: what a dialog covers
      * must stay hidden.
      */
@@ -1412,7 +1412,7 @@ public final class Server {
         n.getBoundsInScreen(r);
         sb.append("<node index=\"").append(index).append('"');
         // An empty field showing its placeholder reports the placeholder as
-        // its text: Velocity saw "my_note" in Markor's emptied name field, so
+        // its text: Atalanta saw "my_note" in Markor's emptied name field, so
         // an empty field looked filled and a clear that worked read as a
         // no-op (AndroidWorld, 2026-11-08). The placeholder is the hint.
         CharSequence text = n.getText();

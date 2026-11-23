@@ -4,7 +4,7 @@ import ObjectiveC
 /// Delayed work that is not an `NSTimer` scheduled through
 /// `+scheduledTimer...` (see `TimerTracker`): `-performSelector:withObject:
 /// afterDelay:` (and `inModes:`), and work posted with
-/// `VelocitySyncProbe.asyncAfter`. Counted like a one-shot timer: while it is
+/// `AtalantaSyncProbe.asyncAfter`. Counted like a one-shot timer: while it is
 /// due within the horizon (1.5 s, or the connection's `max_timer_ms`) and
 /// was scheduled within it, as EarlGrey's `performSelector:afterDelay:`
 /// tracking does.
@@ -22,7 +22,7 @@ import ObjectiveC
 /// implemented in the system's Dispatch overlay, so rebinding the app's own
 /// symbol pointers (fishhook-style, which is not public API and writes into
 /// the loader's tables) would still miss it. Work the app wants waited for
-/// can go through `VelocitySyncProbe.asyncAfter(deadline:queue:execute:)`
+/// can go through `AtalantaSyncProbe.asyncAfter(deadline:queue:execute:)`
 /// (a tracked `asyncAfter`), or mark itself with
 /// `AppStateTracker.shared.incrementTimer()` / `decrementTimer()`.
 ///
@@ -85,7 +85,7 @@ final class DelayedWorkTracker {
     /// The swizzles that took (for the host checks and `unknown`).
     private(set) static var installedSelectors: [String] = []
     /// Nested calls (one variant calling another) are tracked once.
-    private static let depthKey = "com.velocity.delayed-perform.depth"
+    private static let depthKey = "com.atalanta.delayed-perform.depth"
 
     /// Swizzle the `performSelector:afterDelay:` family once. A method that
     /// isn't there (or has another signature) is skipped with one warning.
@@ -142,7 +142,7 @@ final class DelayedWorkTracker {
 
         if installedSelectors.count < 4 {
             ProbeWarnings.once("delayed-perform",
-                "[VelocitySyncProbe] performSelector:afterDelay: tracking incomplete (\(installedSelectors)); such delayed work may not be waited for")
+                "[AtalantaSyncProbe] performSelector:afterDelay: tracking incomplete (\(installedSelectors)); such delayed work may not be waited for")
         }
     }
 
@@ -174,7 +174,7 @@ final class DelayedWorkTracker {
         }
     }
 
-    /// Work posted with `VelocitySyncProbe.asyncAfter`.
+    /// Work posted with `AtalantaSyncProbe.asyncAfter`.
     static func asyncAfter(deadline: DispatchTime, queue: DispatchQueue, execute work: @escaping () -> Void) {
         let delay = max(0, Double(Int64(deadline.uptimeNanoseconds) - Int64(DispatchTime.now().uptimeNanoseconds)) / 1e9)
         let entry = Entry(target: nil, selector: nil, argument: nil, interval: delay)
@@ -209,7 +209,7 @@ final class DelayedWorkTracker {
         perpetualSeen = perpetual
         if perpetual {
             ProbeWarnings.once("delayed-perform-perpetual",
-                "[VelocitySyncProbe] a performSelector:afterDelay: that re-schedules itself as it runs (a poller): not waited for")
+                "[AtalantaSyncProbe] a performSelector:afterDelay: that re-schedules itself as it runs (a poller): not waited for")
         }
         return n
     }
@@ -244,7 +244,7 @@ final class DelayedWorkTracker {
         if entries.count > maxEntries {
             entries.removeFirst(entries.count - maxEntries)
             ProbeWarnings.once("delayed-perform-cap",
-                "[VelocitySyncProbe] more than \(maxEntries) delayed performs pending; the oldest are no longer tracked")
+                "[AtalantaSyncProbe] more than \(maxEntries) delayed performs pending; the oldest are no longer tracked")
         }
     }
 

@@ -16,12 +16,12 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use atalanta_common::selector_build::robust_selector;
+use atalanta_common::selector_match::find_all_ref;
+use atalanta_common::{Element, Platform, Rect, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_yaml::{Mapping, Value as Yaml};
-use velocity_common::selector_build::robust_selector;
-use velocity_common::selector_match::find_all_ref;
-use velocity_common::{Element, Platform, Rect, Selector};
 
 /// Tools whose successful calls become steps.
 pub const RECORDED_TOOLS: &[&str] = &[
@@ -51,7 +51,7 @@ pub struct Recorded {
     observed: bool,
 }
 
-/// A [`Recorder`] as saved between `velocity` agent commands.
+/// A [`Recorder`] as saved between `atalanta` agent commands.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct RecorderState {
     steps: Vec<RecordedState>,
@@ -264,7 +264,7 @@ pub fn selector_yaml(s: &Selector) -> Mapping {
 /// arguments (which nothing interpolates).
 fn value(v: &str, escape: bool) -> Yaml {
     if escape {
-        velocity_core::env::escape(v).into()
+        atalanta_core::env::escape(v).into()
     } else {
         v.into()
     }
@@ -319,7 +319,7 @@ fn fill(m: &mut Mapping, s: &Selector, esc: bool) {
 
 /// The tool call's selector, parsed.
 fn selector_of(args: &Value, key: &str) -> Option<Selector> {
-    velocity_core::parser::selector_from_value(args.get(key)?.clone()).ok()
+    atalanta_core::parser::selector_from_value(args.get(key)?.clone()).ok()
 }
 
 /// A selector in the flat form tools take, as is: what a ref resolves to,
@@ -346,7 +346,7 @@ pub fn step_yaml(tool: &str, args: &Value) -> Option<Yaml> {
                 Some(name) => format!("${{{name}}}"),
                 // Typed as written: a literal `${HOME}` must not read the
                 // environment when the flow runs.
-                None => velocity_core::env::escape(s("text")?),
+                None => atalanta_core::env::escape(s("text")?),
             };
             let mut m = Mapping::new();
             m.insert("selector".into(), sel()?);
@@ -474,7 +474,7 @@ pub fn pick_assertion(
             && !typed
                 .iter()
                 .any(|x| !x.is_empty() && (t.contains(x.as_str()) || x.contains(t)))
-            && velocity_common::redact::redact(t) == t
+            && atalanta_common::redact::redact(t) == t
     };
     let mut best: Option<(u8, Selector)> = None;
     for e in nodes {
@@ -631,14 +631,14 @@ mod tests {
             None
         );
         // Typed text is not an assertion.
-        let typed = tree(vec![el("", "qa@velocity.dev", 0)]);
+        let typed = tree(vec![el("", "qa@atalanta.sh", 0)]);
         assert_eq!(
             pick_assertion(
                 Some(&tree(vec![])),
                 &typed,
                 None,
                 Platform::Android,
-                &["qa@velocity.dev".into()]
+                &["qa@atalanta.sh".into()]
             ),
             None
         );
@@ -654,7 +654,7 @@ mod tests {
         let text = y["inputText"]["text"].as_str().unwrap().to_string();
         assert_eq!(text, "$${AWS_SECRET_ACCESS_KEY}");
         assert_eq!(
-            velocity_core::env::interpolate(&text, &Default::default()).unwrap(),
+            atalanta_core::env::interpolate(&text, &Default::default()).unwrap(),
             "${AWS_SECRET_ACCESS_KEY}"
         );
     }
@@ -672,15 +672,15 @@ mod tests {
         let written = y["tap"]["text"].as_str().unwrap().to_string();
         assert_eq!(written, "Pay $${AWS_SECRET_ACCESS_KEY}");
         let yaml = suite("app", "t", &[], vec![y]);
-        let mut parsed = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
-        velocity_core::env::interpolate_suite(&mut parsed, &Default::default()).unwrap();
+        let mut parsed = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
+        atalanta_core::env::interpolate_suite(&mut parsed, &Default::default()).unwrap();
         let back = format!("{:?}", parsed.tests[0].steps[0]);
         assert!(back.contains(&format!("{raw:?}")), "{back}");
         // The ref form round-trips through a tool call untouched.
         let json = selector_json(&sel);
         assert_eq!(json["text"], raw);
         assert_eq!(
-            velocity_core::parser::selector_from_value(json).unwrap(),
+            atalanta_core::parser::selector_from_value(json).unwrap(),
             sel
         );
     }
@@ -711,9 +711,9 @@ mod tests {
         r.record("tap", &serde_json::json!({ "bogus": 1 }));
         let (yaml, n) = r.suite_yaml("com.android.settings", "net: \"quoted\"\n- injected");
         assert_eq!(n, 4, "{yaml}");
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml)
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml)
             .unwrap_or_else(|e| panic!("{e}\n{yaml}"));
-        velocity_core::validate_suite(&suite).unwrap();
+        atalanta_core::validate_suite(&suite).unwrap();
         assert_eq!(suite.tests.len(), 1);
         assert_eq!(suite.tests[0].name, "net: \"quoted\"\n- injected");
         // launchApp, tap, assertVisible Internet, inputText, pressKey,
@@ -725,7 +725,7 @@ mod tests {
 
     #[test]
     fn every_selector_shape_round_trips_through_the_parser() {
-        use velocity_common::Relation;
+        use atalanta_common::Relation;
         let shapes = vec![
             Selector::Id("a".into()),
             Selector::Index {
@@ -746,7 +746,7 @@ mod tests {
         for s in shapes {
             let v = serde_yaml::to_value(selector_yaml(&s)).unwrap();
             let json: Value = serde_json::to_value(&v).unwrap();
-            let back = velocity_core::parser::selector_from_value(json.clone())
+            let back = atalanta_core::parser::selector_from_value(json.clone())
                 .unwrap_or_else(|e| panic!("{e}: {json}"));
             assert_eq!(back, s, "{json}");
         }

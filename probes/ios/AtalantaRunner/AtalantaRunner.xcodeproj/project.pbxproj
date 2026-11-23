@@ -7,27 +7,27 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B7F7ECB20A94995B6B5ADF69 /* VelocityRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581AF6DCDB89437371760E78 /* VelocityRunner.swift */; };
+		B7F7ECB20A94995B6B5ADF69 /* AtalantaRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 581AF6DCDB89437371760E78 /* AtalantaRunner.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		581AF6DCDB89437371760E78 /* VelocityRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VelocityRunner.swift; sourceTree = "<group>"; };
-		A97ED12EF41A60EDDED154CF /* VelocityRunnerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VelocityRunnerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		581AF6DCDB89437371760E78 /* AtalantaRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtalantaRunner.swift; sourceTree = "<group>"; };
+		A97ED12EF41A60EDDED154CF /* AtalantaRunnerUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AtalantaRunnerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
-		380C1D1A70725F6A694B8CCC /* VelocityRunnerUITests */ = {
+		380C1D1A70725F6A694B8CCC /* AtalantaRunnerUITests */ = {
 			isa = PBXGroup;
 			children = (
-				581AF6DCDB89437371760E78 /* VelocityRunner.swift */,
+				581AF6DCDB89437371760E78 /* AtalantaRunner.swift */,
 			);
-			path = VelocityRunnerUITests;
+			path = AtalantaRunnerUITests;
 			sourceTree = "<group>";
 		};
 		3DA3DB698F4CDC3628A05EEA /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A97ED12EF41A60EDDED154CF /* VelocityRunnerUITests.xctest */,
+				A97ED12EF41A60EDDED154CF /* AtalantaRunnerUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -35,7 +35,7 @@
 		E0C35277CBE38CDA1C380CBB = {
 			isa = PBXGroup;
 			children = (
-				380C1D1A70725F6A694B8CCC /* VelocityRunnerUITests */,
+				380C1D1A70725F6A694B8CCC /* AtalantaRunnerUITests */,
 				3DA3DB698F4CDC3628A05EEA /* Products */,
 			);
 			sourceTree = "<group>";
@@ -43,9 +43,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		D23C915C28804E6940DD06FB /* VelocityRunnerUITests */ = {
+		D23C915C28804E6940DD06FB /* AtalantaRunnerUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 2C15824AFB63ED994DC1F355 /* Build configuration list for PBXNativeTarget "VelocityRunnerUITests" */;
+			buildConfigurationList = 2C15824AFB63ED994DC1F355 /* Build configuration list for PBXNativeTarget "AtalantaRunnerUITests" */;
 			buildPhases = (
 				2FF690904839B77F9A17DDD6 /* Sources */,
 			);
@@ -53,11 +53,11 @@
 			);
 			dependencies = (
 			);
-			name = VelocityRunnerUITests;
+			name = AtalantaRunnerUITests;
 			packageProductDependencies = (
 			);
-			productName = VelocityRunnerUITests;
-			productReference = A97ED12EF41A60EDDED154CF /* VelocityRunnerUITests.xctest */;
+			productName = AtalantaRunnerUITests;
+			productReference = A97ED12EF41A60EDDED154CF /* AtalantaRunnerUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -74,7 +74,7 @@
 					};
 				};
 			};
-			buildConfigurationList = D5895D0C06268C43C3F88E60 /* Build configuration list for PBXProject "VelocityRunner" */;
+			buildConfigurationList = D5895D0C06268C43C3F88E60 /* Build configuration list for PBXProject "AtalantaRunner" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -88,7 +88,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				D23C915C28804E6940DD06FB /* VelocityRunnerUITests */,
+				D23C915C28804E6940DD06FB /* AtalantaRunnerUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -98,7 +98,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B7F7ECB20A94995B6B5ADF69 /* VelocityRunner.swift in Sources */,
+				B7F7ECB20A94995B6B5ADF69 /* AtalantaRunner.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -179,7 +179,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.velocity.runner;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atalanta.runner;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -197,7 +197,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.velocity.runner;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.atalanta.runner;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -263,7 +263,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		2C15824AFB63ED994DC1F355 /* Build configuration list for PBXNativeTarget "VelocityRunnerUITests" */ = {
+		2C15824AFB63ED994DC1F355 /* Build configuration list for PBXNativeTarget "AtalantaRunnerUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7B92B4372E8B364F5388826F /* Debug */,
@@ -272,7 +272,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
-		D5895D0C06268C43C3F88E60 /* Build configuration list for PBXProject "VelocityRunner" */ = {
+		D5895D0C06268C43C3F88E60 /* Build configuration list for PBXProject "AtalantaRunner" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				15B9B0A7A15AA4D3146121A4 /* Debug */,

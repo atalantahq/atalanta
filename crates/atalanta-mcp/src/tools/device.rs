@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
+use atalanta_common::{AtalantaError, PlatformDriver, Result};
 use base64::Engine;
 use serde_json::Value;
-use velocity_common::{PlatformDriver, Result, VelocityError};
 
 pub async fn list_devices(driver: &Arc<dyn PlatformDriver>, _args: &Value) -> Result<Value> {
     let devices = driver.list_devices().await?;
     serde_json::to_value(&devices)
-        .map_err(|e| VelocityError::Internal(anyhow::anyhow!("Serialization error: {e}")))
+        .map_err(|e| AtalantaError::Internal(anyhow::anyhow!("Serialization error: {e}")))
 }
 
 /// The longest edge an inline screenshot may have: clients reject or
@@ -25,9 +25,9 @@ pub async fn screenshot(
 ) -> Result<Value> {
     let png_bytes = driver.screenshot(device_id).await?;
     let (w, h) = png_size(&png_bytes).unwrap_or((0, 0));
-    let dir = std::env::temp_dir().join("velocity-mcp-screenshots");
+    let dir = std::env::temp_dir().join("atalanta-mcp-screenshots");
     std::fs::create_dir_all(&dir)
-        .map_err(|e| velocity_common::VelocityError::io(dir.display(), e))?;
+        .map_err(|e| atalanta_common::AtalantaError::io(dir.display(), e))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -38,7 +38,7 @@ pub async fn screenshot(
         .collect();
     let path = dir.join(format!("{clean}-{stamp}.png"));
     std::fs::write(&path, &png_bytes)
-        .map_err(|e| velocity_common::VelocityError::io(path.display(), e))?;
+        .map_err(|e| atalanta_common::AtalantaError::io(path.display(), e))?;
     let mut out = serde_json::json!({
         "path": path,
         "width": w,

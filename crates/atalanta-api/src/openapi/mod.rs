@@ -1,4 +1,4 @@
-//! `velocity api scaffold`: an API test suite from an OpenAPI 3 document.
+//! `atalanta api scaffold`: an API test suite from an OpenAPI 3 document.
 //!
 //! One test per resource (`/pets`, `/pets/{petId}` → `pets`), its requests
 //! ordered so a value is captured before a later request uses it. What one
@@ -17,8 +17,8 @@ mod render;
 pub mod spec;
 pub mod values;
 
+use atalanta_common::{Capture, HttpConfig, HttpExpect, HttpRequest};
 use serde_json::Value;
-use velocity_common::{Capture, HttpConfig, HttpExpect, HttpRequest};
 
 pub use confirm::{confirm, ConfirmReport};
 pub use render::render;
@@ -156,7 +156,7 @@ fn defuse(s: &mut Scaffold) {
     for step in s.tests.iter().flat_map(|t| &t.steps) {
         ours.extend(step.request.capture.iter().map(|(n, _)| n.clone()));
     }
-    let mut inert = |t: &str| -> velocity_common::Result<String> { Ok(defuse_text(t, &ours)) };
+    let mut inert = |t: &str| -> atalanta_common::Result<String> { Ok(defuse_text(t, &ours)) };
     if let Some(base) = s.config.base_url.as_mut() {
         *base = defuse_text(base, &ours);
     }

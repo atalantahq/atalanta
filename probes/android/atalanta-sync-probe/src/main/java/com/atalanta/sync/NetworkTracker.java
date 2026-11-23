@@ -1,9 +1,9 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * In-flight requests the app reports (see {@code VelocitySyncProbe.networkStarted}).
+ * In-flight requests the app reports (see {@code AtalantaSyncProbe.networkStarted}).
  * Nothing fed the old counter, so Android network sync was dead code.
  */
 public final class NetworkTracker {

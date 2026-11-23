@@ -1,6 +1,6 @@
-# Velocity tests in YAML
+# Atalanta tests in YAML
 
-A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. `velocity validate <file>` checks one without running it; `velocity schema --markdown` prints every key; `velocity lint <file>` flags fragile selectors and fixed waits.
+A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. `atalanta validate <file>` checks one without running it; `atalanta schema --markdown` prints every key; `atalanta lint <file>` flags fragile selectors and fixed waits.
 
 ```yaml
 appId: com.example.shop

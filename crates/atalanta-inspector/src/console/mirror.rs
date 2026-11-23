@@ -27,13 +27,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use atalanta_android::video::{VideoEvent, VideoStream};
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Path, Query, State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
-use velocity_android::video::{VideoEvent, VideoStream};
 
 use super::live::{
     avc_codec, frame_message, unix_us, FrameHub, ImageFrame, KIND_CONFIG, KIND_H264, KIND_JPEG,

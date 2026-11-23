@@ -1,16 +1,16 @@
 # AI providers
 
-Natural-language steps (`do:`, `assert:`, bare strings), `verify:` checks, `velocity explore` (its goal model) and `velocity nl-eval` use one model service. Pick it by name and set only its key's environment variable. The 19 presets live in `crates/velocity-nl/src/provider.rs` (`PRESETS`); this page lists them.
+Natural-language steps (`do:`, `assert:`, bare strings), `verify:` checks, `atalanta explore` (its goal model) and `atalanta nl-eval` use one model service. Pick it by name and set only its key's environment variable. The 19 presets live in `crates/atalanta-nl/src/provider.rs` (`PRESETS`); this page lists them.
 
-Whatever the provider, the model only picks an operation and an element number. Velocity builds and checks the selector, fills in the values, and judges checks against the elements on screen ("the model picks; code decides").
+Whatever the provider, the model only picks an operation and an element number. Atalanta builds and checks the selector, fills in the values, and judges checks against the elements on screen ("the model picks; code decides").
 
 ## Choosing a provider
 
 One `provider:model` string works everywhere:
 
 ```bash
-velocity nl-eval --model anthropic:claude-haiku-5-5 --model groq:llama-3.3-70b-versatile
-VELOCITY_NL_MODEL=gemini:gemini-3.8-flash velocity run app.yaml
+atalanta nl-eval --model anthropic:claude-haiku-5-5 --model groq:llama-3.3-70b-versatile
+ATALANTA_NL_MODEL=gemini:gemini-3.8-flash atalanta run app.yaml
 ```
 
 ```yaml
@@ -28,24 +28,24 @@ Each setting is read from the environment first, then from `config.ai`, then fro
 
 | Setting | Environment | `config.ai` |
 |---|---|---|
-| Provider | `VELOCITY_NL_PROVIDER`, or the prefix of `VELOCITY_NL_MODEL` | `provider`, or the prefix of `model` |
-| Step and check model | `VELOCITY_NL_MODEL` | `model` |
-| Goal model (`velocity explore`) | `VELOCITY_NL_EXPLORE_MODEL` | `exploreModel` |
-| Endpoint | `VELOCITY_NL_API_URL`, then the provider's URL variable | `baseUrl` |
+| Provider | `ATALANTA_NL_PROVIDER`, or the prefix of `ATALANTA_NL_MODEL` | `provider`, or the prefix of `model` |
+| Step and check model | `ATALANTA_NL_MODEL` | `model` |
+| Goal model (`atalanta explore`) | `ATALANTA_NL_EXPLORE_MODEL` | `exploreModel` |
+| Endpoint | `ATALANTA_NL_API_URL`, then the provider's URL variable | `baseUrl` |
 | Key | the variable `apiKeyEnv` names, else the provider's | `apiKeyEnv` |
-| Screenshots to checks | `VELOCITY_NL_IMAGES=0` | `images` |
+| Screenshots to checks | `ATALANTA_NL_IMAGES=0` | `images` |
 | Bedrock region / Vertex location | `AWS_REGION` / `GOOGLE_CLOUD_LOCATION` | `region` |
 | Vertex project | `GOOGLE_CLOUD_PROJECT` | `project` |
 | Azure `api-version` | `AZURE_OPENAI_API_VERSION` | `apiVersion` |
-| Output mode override | `VELOCITY_NL_OUTPUT=json_schema\|tools\|text` | - |
+| Output mode override | `ATALANTA_NL_OUTPUT=json_schema\|tools\|text` | - |
 
-**Auto-detection.** If no provider is named, Velocity uses the first provider in the table below whose key is set. It logs which one it chose and which other keys it found. Some cases never auto-detect:
+**Auto-detection.** If no provider is named, Atalanta uses the first provider in the table below whose key is set. It logs which one it chose and which other keys it found. Some cases never auto-detect:
 
 - Azure also needs `AZURE_OPENAI_ENDPOINT`.
 - Bedrock is auto-detected only from a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`). Plain AWS or Google credentials are common on developer machines, so Bedrock (with AWS keys) and Vertex are only used when named.
 - Local servers are only used when named.
 
-`VELOCITY_NL_API_KEY` together with `VELOCITY_NL_API_URL` is a generic OpenAI-compatible endpoint. With no usable provider, a committed `.velocity/nl-cache.json` still replays, but nothing new is planned.
+`ATALANTA_NL_API_KEY` together with `ATALANTA_NL_API_URL` is a generic OpenAI-compatible endpoint. With no usable provider, a committed `.atalanta/nl-cache.json` still replays, but nothing new is planned.
 
 **Keys** are only read from environment variables. `apiKeyEnv` must be a variable name: a value that looks like a key is refused, and the error doesn't echo it. Every key, AWS secret, session token and Google token is registered for redaction and never logged.
 
@@ -77,7 +77,7 @@ Default models are **provisional**: they were chosen for cost, not measured. See
 | `ollama` | Chat Completions | none (`OLLAMA_API_KEY` if set) | localhost:11434/v1 | `llama3.2` | - | ✓ | ✓ |
 | `lmstudio` | Chat Completions | none (`LMSTUDIO_API_KEY` if set) | localhost:1234/v1 | the loaded model (set it) | - | ✓ | ✓ |
 | `vllm` | Chat Completions | `VLLM_API_KEY` if set | `VLLM_BASE_URL` (required) | set it | - | ✓ | - |
-| `openai-compatible` (`custom`) | Chat Completions | `VELOCITY_NL_API_KEY` or `apiKeyEnv` | `VELOCITY_NL_API_URL` / `baseUrl` (required) | set it | ✓ | ✓ | ✓ |
+| `openai-compatible` (`custom`) | Chat Completions | `ATALANTA_NL_API_KEY` or `apiKeyEnv` | `ATALANTA_NL_API_URL` / `baseUrl` (required) | set it | ✓ | ✓ | ✓ |
 
 Notes:
 
@@ -108,7 +108,7 @@ The same rules apply for every provider:
 The defaults above were not measured: no keys were available when they were set. Before 1.0, a maintainer with keys runs the fixed task set across providers and records the table in [research/README.md](research/README.md#model-defaults-provisional):
 
 ```bash
-velocity nl-eval -k 5 --tasks builtin --recommend --json nl-models.json \
+atalanta nl-eval -k 5 --tasks builtin --recommend --json nl-models.json \
   --model anthropic:claude-haiku-5-5 --model anthropic:claude-sonnet-5-5 \
   --model openai:gpt-6-luna --model gemini:gemini-3.8-flash --model groq:llama-3.3-70b-versatile \
   --price anthropic:claude-haiku-5-5=0.10,0.50 --price anthropic:claude-sonnet-5-5=2,10

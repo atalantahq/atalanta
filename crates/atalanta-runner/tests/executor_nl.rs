@@ -1,23 +1,23 @@
 //! The executor running natural-language steps through the real
-//! `velocity_nl::NaturalResolver`: the cache contract (write only what the
+//! `atalanta_nl::NaturalResolver`: the cache contract (write only what the
 //! run confirmed), re-planning, the D-17 checks and `verify:`.
 //!
-//! These lived in `velocity-core`'s executor tests; core no longer depends
-//! on `velocity-nl` (it sees the resolver through
-//! `velocity_common::natural::NaturalStepResolver`), so they run here,
+//! These lived in `atalanta-core`'s executor tests; core no longer depends
+//! on `atalanta-nl` (it sees the resolver through
+//! `atalanta_common::natural::NaturalStepResolver`), so they run here,
 //! where both crates are already dependencies.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use velocity_common::selector_match::find_in_tree;
-use velocity_common::{
-    Action, DeviceInfo, Direction, Element, Key, NaturalKind, Platform, PlatformDriver, Rect,
-    Result, Selector, StepStatus, SuiteConfig, SyncMode, TestStatus, VelocityError,
+use atalanta_common::selector_match::find_in_tree;
+use atalanta_common::{
+    Action, AtalantaError, DeviceInfo, Direction, Element, Key, NaturalKind, Platform,
+    PlatformDriver, Rect, Result, Selector, StepStatus, SuiteConfig, SyncMode, TestStatus,
 };
-use velocity_common::{Step, TestCase};
-use velocity_core::TestExecutor;
-use velocity_nl::{NaturalPlanner, NaturalResolver, NaturalStep, Op, PlanRequest, PlannedStep};
+use atalanta_common::{Step, TestCase};
+use atalanta_core::TestExecutor;
+use atalanta_nl::{NaturalPlanner, NaturalResolver, NaturalStep, Op, PlanRequest, PlannedStep};
 
 fn node(id: &str, text: &str, y: i32) -> Element {
     Element {
@@ -89,7 +89,7 @@ impl PlatformDriver for ScriptDriver {
     }
     async fn find_element(&self, _: &str, selector: &Selector) -> Result<Element> {
         find_in_tree(&self.screen.lock().unwrap(), selector, None).ok_or_else(|| {
-            VelocityError::ElementNotFound {
+            AtalantaError::ElementNotFound {
                 selector: selector.to_string(),
                 timeout_ms: 0,
                 screenshot: None,
@@ -100,7 +100,7 @@ impl PlatformDriver for ScriptDriver {
     async fn find_elements(&self, _: &str, selector: &Selector) -> Result<Vec<Element>> {
         let screen = self.screen.lock().unwrap();
         Ok(
-            velocity_common::selector_match::find_all_ref(&screen, selector, None)
+            atalanta_common::selector_match::find_all_ref(&screen, selector, None)
                 .into_iter()
                 .cloned()
                 .collect(),
@@ -117,7 +117,7 @@ impl PlatformDriver for ScriptDriver {
         if self.navigates.load(Ordering::SeqCst) {
             return Ok(());
         }
-        Err(VelocityError::Config(
+        Err(AtalantaError::Config(
             "openLink/goto isn't supported on this platform".into(),
         ))
     }
@@ -361,14 +361,14 @@ async fn a_data_driven_step_replays_with_each_runs_value() {
 
 /// A checker with a fixed verdict that counts its calls.
 struct Verdict(
-    velocity_nl::CheckAnswer,
+    atalanta_nl::CheckAnswer,
     Arc<AtomicUsize>,
     Mutex<Vec<String>>,
 );
 
 #[async_trait::async_trait]
-impl velocity_nl::ScreenChecker for Verdict {
-    async fn check(&self, req: &velocity_nl::CheckRequest<'_>) -> Result<velocity_nl::CheckAnswer> {
+impl atalanta_nl::ScreenChecker for Verdict {
+    async fn check(&self, req: &atalanta_nl::CheckRequest<'_>) -> Result<atalanta_nl::CheckAnswer> {
         self.1.fetch_add(1, Ordering::SeqCst);
         self.2.lock().unwrap().push(req.claim.to_string());
         Ok(self.0.clone())
@@ -389,7 +389,7 @@ fn checked(
         dir.join("nl-cache.json"),
     )
     .with_checker(Box::new(Verdict(
-        velocity_nl::CheckAnswer {
+        atalanta_nl::CheckAnswer {
             holds,
             evidence_element_ids: ids.to_vec(),
             reason: "fake".into(),
@@ -401,7 +401,7 @@ fn checked(
     (Arc::new(r), calls)
 }
 
-fn with_verify(level: velocity_common::VerifyLevel) -> SuiteConfig {
+fn with_verify(level: atalanta_common::VerifyLevel) -> SuiteConfig {
     SuiteConfig {
         verify: Some(level),
         ..config(300)
@@ -418,7 +418,7 @@ fn checkpoint(action: Action, claim: &str) -> Step {
 // checker configured and checkpoints written.
 #[tokio::test]
 async fn verify_off_makes_no_model_call() {
-    use velocity_common::VerifyLevel;
+    use atalanta_common::VerifyLevel;
     let checks = Arc::new(AtomicUsize::new(0));
     let (nl, _) = checked("verify-off", true, &[0], checks.clone());
     let driver = ScriptDriver::new(vec![node("buy", "Buy", 0)]);
@@ -440,7 +440,7 @@ async fn verify_off_makes_no_model_call() {
 // that cites no real element is unknown, and fails the test.
 #[tokio::test]
 async fn verify_final_needs_real_evidence() {
-    use velocity_common::{VerifyLevel, VerifyOutcome};
+    use atalanta_common::{VerifyLevel, VerifyOutcome};
     let driver = ScriptDriver::new(vec![node("buy", "Buy", 0)]);
     let mut test = test_case(vec![step(tap("Buy"))]);
     test.description = Some("the purchase went through".into());
@@ -495,7 +495,7 @@ async fn verify_final_needs_real_evidence() {
 // build TestCase by hand and never went through the resolver.
 #[tokio::test]
 async fn a_tests_own_verify_runs_after_parsing_and_resolution() {
-    use velocity_common::VerifyOutcome;
+    use atalanta_common::VerifyOutcome;
     let yaml = r#"
 appId: app
 tests:
@@ -505,8 +505,8 @@ tests:
     steps:
       - tap: { text: Buy }
 "#;
-    let suite = velocity_core::parse_suite_from_str(yaml).unwrap();
-    let tests = velocity_core::resolve_flows(&suite).unwrap();
+    let suite = atalanta_core::parse_suite_from_str(yaml).unwrap();
+    let tests = atalanta_core::resolve_flows(&suite).unwrap();
     let driver = ScriptDriver::new(vec![node("buy", "Buy", 0)]);
     let checks = Arc::new(AtomicUsize::new(0));
     let (nl, _) = checked("verify-own-level", false, &[], checks.clone());
@@ -527,7 +527,7 @@ tests:
 // at the end; strict stops at the first failed check.
 #[tokio::test]
 async fn checkpoints_report_at_the_end_and_strict_stops_at_once() {
-    use velocity_common::{VerifyLevel, VerifyOutcome};
+    use atalanta_common::{VerifyLevel, VerifyOutcome};
     let test = test_case(vec![
         checkpoint(tap("Buy"), "the cart is open"),
         step(tap("Pay")),
@@ -812,7 +812,7 @@ async fn the_suite_data_policy_reaches_the_planner() {
         intent_template: None,
     });
     let mut cfg = config(300);
-    cfg.nl.data_policy = velocity_common::NlDataPolicy::Describe;
+    cfg.nl.data_policy = atalanta_common::NlDataPolicy::Describe;
     let mut ex = TestExecutor::new(&driver, cfg, "app").with_planner(nl);
     let r = ex
         .execute_test(&test_case(vec![typed]), "d", "app")

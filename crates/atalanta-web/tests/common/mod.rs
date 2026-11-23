@@ -2,7 +2,7 @@
 //! 127.0.0.1 serving fixed pages, and a driver launched against it.
 //!
 //! The tests drive the CLI's own headless Chrome (a fresh profile, never the
-//! user's). Without a Chrome binary they skip: set `VELOCITY_TEST_WEB=0` to
+//! user's). Without a Chrome binary they skip: set `ATALANTA_TEST_WEB=0` to
 //! skip them explicitly.
 #![allow(dead_code)]
 
@@ -11,8 +11,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 
-use velocity_common::{Element, PlatformDriver, Selector};
-use velocity_web::{WebDriver, WebDriverConfig};
+use atalanta_common::{Element, PlatformDriver, Selector};
+use atalanta_web::{WebDriver, WebDriverConfig};
 
 /// Serves `pages` (path -> HTML) on an ephemeral 127.0.0.1 port, for the life
 /// of the test process. Returns the base URL.
@@ -75,7 +75,7 @@ pub fn serve(pages: &[(&str, &str)]) -> String {
 /// else the usual install locations (snap's too).
 pub fn chrome_path() -> Option<String> {
     if matches!(
-        std::env::var("VELOCITY_TEST_WEB").as_deref(),
+        std::env::var("ATALANTA_TEST_WEB").as_deref(),
         Ok("0") | Ok("false")
     ) {
         return None;
@@ -151,20 +151,20 @@ pub async fn wait_found(d: &WebDriver, s: &str) -> bool {
 }
 
 /// Whether a missing Chrome must fail the tests instead of skipping them:
-/// on a CI server, or with `VELOCITY_TEST_STRICT=1`, unless
-/// `VELOCITY_TEST_WEB=0` turned the web tests off on purpose. A runner
+/// on a CI server, or with `ATALANTA_TEST_STRICT=1`, unless
+/// `ATALANTA_TEST_WEB=0` turned the web tests off on purpose. A runner
 /// image that lost Chrome turned ~150 tests into vacuous passes
 /// (review 07 M6).
 pub fn chrome_required() -> bool {
     if matches!(
-        std::env::var("VELOCITY_TEST_WEB").as_deref(),
+        std::env::var("ATALANTA_TEST_WEB").as_deref(),
         Ok("0") | Ok("false")
     ) {
         return false;
     }
     let strict =
-        std::env::var("VELOCITY_TEST_STRICT").is_ok_and(|v| velocity_common::env::ci_flag(&v));
-    strict || velocity_common::env::in_ci_with(|k| std::env::var(k).ok())
+        std::env::var("ATALANTA_TEST_STRICT").is_ok_and(|v| atalanta_common::env::ci_flag(&v));
+    strict || atalanta_common::env::in_ci_with(|k| std::env::var(k).ok())
 }
 
 /// Skips the calling test when there is no Chrome; fails it instead when
@@ -175,18 +175,18 @@ macro_rules! require_chrome {
         if !common::chrome_available() {
             if common::chrome_required() {
                 panic!(
-                    "no Chrome binary on a CI server (or with VELOCITY_TEST_STRICT=1): \
-                     install Chrome, set CHROME_PATH, or VELOCITY_TEST_WEB=0 to skip"
+                    "no Chrome binary on a CI server (or with ATALANTA_TEST_STRICT=1): \
+                     install Chrome, set CHROME_PATH, or ATALANTA_TEST_WEB=0 to skip"
                 );
             }
-            eprintln!("skipped: no Chrome binary (or VELOCITY_TEST_WEB=0)");
+            eprintln!("skipped: no Chrome binary (or ATALANTA_TEST_WEB=0)");
             return;
         }
     };
 }
 
 /// A prepared headless driver, sandbox off for CI containers.
-pub async fn driver(mocks: Vec<velocity_common::MockRule>) -> WebDriver {
+pub async fn driver(mocks: Vec<atalanta_common::MockRule>) -> WebDriver {
     let d = WebDriver::new(WebDriverConfig {
         mocks,
         chrome_path: chrome_path(),

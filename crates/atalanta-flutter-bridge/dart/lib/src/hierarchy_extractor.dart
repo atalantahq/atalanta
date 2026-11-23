@@ -190,7 +190,7 @@ class _Visit {
 }
 
 /// The semantics-tree export: what TalkBack/VoiceOver (and so Maestro, and
-/// Velocity's device drivers) see.
+/// Atalanta's device drivers) see.
 ///
 /// Nodes merged into a parent, hidden (scrolled out, clipped) or invisible
 /// ones are left out, so off-stage routes, `Opacity(0)` and scrolled-away

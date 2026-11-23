@@ -29,7 +29,7 @@ pub mod types;
 pub mod web_devices;
 
 pub use config::*;
-pub use error::{ErrorKind, Result, VelocityError};
+pub use error::{AtalantaError, ErrorKind, Result};
 pub use evidence::{
     Attachment, AttachmentKind, CaptureMode, Evidence, EvidenceOut, EvidenceRequest,
     EvidenceSession,
@@ -44,8 +44,8 @@ pub use test_types::*;
 pub use traits::{HealthStatus, Liveness, PlatformDriver, Touch};
 pub use types::*;
 
-/// Where `saveState` keeps app data: `~/.velocity/state/<device>/<app>/<name>`
-/// (`VELOCITY_STATE_DIR` overrides the root).
+/// Where `saveState` keeps app data: `~/.atalanta/state/<device>/<app>/<name>`
+/// (`ATALANTA_STATE_DIR` overrides the root).
 pub fn state_dir(device_id: &str, app_id: &str, name: &str) -> std::path::PathBuf {
     // One safe path component per name. `.` and `..` passed through and
     // escaped the state root, and names differing only in replaced
@@ -70,9 +70,9 @@ pub fn state_dir(device_id: &str, app_id: &str, name: &str) -> std::path::PathBu
         });
         format!("{}-{hash:016x}", plain.replace('.', "_"))
     };
-    let root = crate::env::var("VELOCITY_STATE_DIR")
+    let root = crate::env::var("ATALANTA_STATE_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| crate::host::home_dir().join(".velocity").join("state"));
+        .unwrap_or_else(|_| crate::host::home_dir().join(".atalanta").join("state"));
     root.join(clean(device_id))
         .join(clean(app_id))
         .join(clean(name))

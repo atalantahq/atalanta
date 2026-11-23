@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.lang.reflect.Method;
 
@@ -18,7 +18,7 @@ import java.lang.reflect.Method;
  * {@link MainThreadCheck#BUDGET_MS} the answer is {@link #MAIN_THREAD_BUSY}.
  *
  * When neither can be read the answer is {@link #UNKNOWN}, never 0, unless
- * animators are disabled (duration scale 0, as the Velocity driver sets it):
+ * animators are disabled (duration scale 0, as the Atalanta driver sets it):
  * then every animation ends at once and 0 is the truth.
  */
 public final class AnimationCounter {

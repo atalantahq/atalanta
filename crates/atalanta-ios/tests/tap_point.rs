@@ -4,8 +4,8 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
+use atalanta_common::{Key, PlatformDriver, Selector};
 use common::*;
-use velocity_common::{Key, PlatformDriver, Selector};
 
 fn screen_xml() -> String {
     app(&[
@@ -50,7 +50,7 @@ async fn fake_on(xml: Arc<Mutex<String>>) -> FakeWda {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn taps_never_land_on_the_keyboard_the_status_bar_or_off_screen() {
     let f = fake(screen_xml()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let el = d
         .find_element(SIM, &Selector::Text("Submit".into()))
         .await
@@ -71,7 +71,7 @@ async fn taps_never_land_on_the_keyboard_the_status_bar_or_off_screen() {
         .unwrap();
     let e = d.tap(SIM, &top).await.unwrap_err().to_string();
     assert!(e.contains("covered by the status bar"), "{e}");
-    assert!(e.contains("VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off"), "{e}");
+    assert!(e.contains("ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off"), "{e}");
     assert!(f.taps().is_empty(), "nothing tapped: {:?}", f.taps());
     // Partly free: tapped on the free part.
     let half = d
@@ -86,7 +86,7 @@ async fn taps_never_land_on_the_keyboard_the_status_bar_or_off_screen() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_bottom_row_is_tapped_on_screen_when_nothing_covers_it() {
     let f = fake(app(&node("StaticText", "Bottom row", 0, 850, 402, 100))).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let el = d
         .find_element(SIM, &Selector::Text("Bottom row".into()))
         .await
@@ -104,7 +104,7 @@ async fn back_never_presses_a_right_hand_nav_bar_button() {
         node("Button", "Delete", 330, 66, 64, 36)
     ));
     let f = fake(xml).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     d.press_key(SIM, Key::Back).await.unwrap();
     assert_eq!(f.count("POST", "/click"), 0, "no element click");
     assert_eq!(f.count("POST", "/element"), 0, "no nav-bar button lookup");
@@ -118,7 +118,7 @@ async fn a_rotation_drops_the_portrait_status_bar() {
     // session, and pushed taps in landscape below it.
     let xml = Arc::new(Mutex::new(app(&node("Button", "Tall", 0, 0, 402, 100))));
     let f = fake_on(xml.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let el = d
         .find_element(SIM, &Selector::Text("Tall".into()))
         .await
@@ -152,7 +152,7 @@ async fn an_empty_field_reads_as_empty_not_as_its_label() {
     ]
     .concat()))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let text = |label: &'static str| {
         let d = &d;
         async move {
@@ -181,7 +181,7 @@ async fn the_opt_in_focus_check_refuses_to_type_into_a_label_or_an_unfocused_fie
     ]
     .concat()))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_focus_check(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_focus_check(true);
     let label = d
         .find_element(SIM, &Selector::Text("Email".into()))
         .await
@@ -206,7 +206,7 @@ async fn the_opt_in_focus_check_refuses_to_type_into_a_label_or_an_unfocused_fie
     assert!(e.contains("did not take focus"), "{e}");
     assert_eq!(f.count("POST", "/wda/keys"), 0);
     // Off (the default): typed as before.
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     d.input_text(SIM, &field, "x").await.unwrap();
     assert_eq!(f.count("POST", "/wda/keys"), 1);
 }
@@ -222,7 +222,7 @@ async fn the_focus_check_waits_for_a_keyboard_that_animates_in() {
     .concat();
     let xml = Arc::new(Mutex::new(app(&base)));
     let f = fake_on(xml.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_focus_check(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_focus_check(true);
     let field = d
         .find_element(SIM, &Selector::Text("Name".into()))
         .await
@@ -257,7 +257,7 @@ async fn a_bare_ambiguous_selector_resolves_to_the_first_in_tree_order() {
     ]
     .concat()))
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let el = d
         .find_element(SIM, &Selector::Text("Go".into()))
         .await
@@ -281,7 +281,7 @@ async fn a_bare_ambiguous_selector_resolves_to_the_first_in_tree_order() {
     assert_eq!(all.len(), 2);
 }
 
-/// A field the runner reports as focused (VelocityRunner `focused="true"`).
+/// A field the runner reports as focused (AtalantaRunner `focused="true"`).
 fn focused_field(label: &str, y: i32) -> String {
     node("TextField", label, 20, y, 362, 44).replace("/>", r#" focused="true"/>"#)
 }
@@ -297,7 +297,7 @@ async fn input_text_fails_when_the_runner_reports_focus_elsewhere() {
     ]
     .concat())));
     let f = fake_on(xml.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let label = d
         .find_element(SIM, &Selector::Text("Email".into()))
         .await
@@ -319,7 +319,7 @@ async fn input_text_fails_when_the_runner_reports_focus_elsewhere() {
         focused_field("Mail", 340),
     ]
     .concat());
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let field = d
         .find_element(SIM, &Selector::Text("Mail".into()))
         .await
@@ -332,17 +332,17 @@ async fn input_text_fails_when_the_runner_reports_focus_elsewhere() {
         focused_field("Name", 100),
     ]
     .concat());
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_strict_focus(false);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_strict_focus(false);
     d.input_text(SIM, &label, "x").await.unwrap();
     assert_eq!(f.count("POST", "/wda/keys"), 2);
 }
 
-/// D-4: `VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off` drops only the status bar
+/// D-4: `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off` drops only the status bar
 /// rule: the row under it is tapped, the keyboard still guards.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_status_bar_rule_has_its_own_opt_out() {
     let f = fake(screen_xml()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_status_bar_guard(false);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_status_bar_guard(false);
     let top = d
         .find_element(SIM, &Selector::Text("Top row".into()))
         .await
@@ -364,7 +364,7 @@ async fn the_status_bar_rule_has_its_own_opt_out() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn editing_keys_are_typed_and_hardware_only_keys_refused() {
     let f = fake(app(&node("TextField", "Email", 20, 100, 362, 44))).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     d.press_key(SIM, Key::Backspace).await.unwrap();
     d.press_key(SIM, Key::Tab).await.unwrap();
     let typed: Vec<String> = f
@@ -381,7 +381,7 @@ async fn editing_keys_are_typed_and_hardware_only_keys_refused() {
     for key in [Key::Escape, Key::Delete, Key::ArrowUp] {
         let e = d.press_key(SIM, key.clone()).await.unwrap_err();
         assert!(
-            matches!(e, velocity_common::VelocityError::Config(_)),
+            matches!(e, atalanta_common::AtalantaError::Config(_)),
             "{key:?}: {e}"
         );
     }
@@ -400,7 +400,7 @@ async fn a_search_field_that_slides_into_the_nav_bar_on_focus_takes_the_keys() {
     .concat();
     let xml = Arc::new(Mutex::new(app(&before)));
     let f = fake_on(xml.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_strict_focus(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_strict_focus(true);
     let field = d
         .find_element(SIM, &Selector::Text("Search".into()))
         .await
@@ -426,17 +426,17 @@ async fn a_search_field_that_slides_into_the_nav_bar_on_focus_takes_the_keys() {
     assert_eq!(f.count("POST", "/wda/keys"), 1);
 }
 
-/// D-38: a fake runner whose `/velocity/hitTest` answers `hit` (`None`:
+/// D-38: a fake runner whose `/atalanta/hitTest` answers `hit` (`None`:
 /// WebDriverAgent's 404 for a route it doesn't have).
 async fn fake_hit(xml: String, hit: Arc<Mutex<Option<String>>>) -> FakeWda {
     FakeWda::start(move |r| {
         if r.path == "/status" {
             return Resp::Json(200, r#"{"value":{"ready":true},"sessionId":"S"}"#.into());
         }
-        if r.path.ends_with("/velocity/hitTest") {
+        if r.path.ends_with("/atalanta/hitTest") {
             return match hit.lock().unwrap().clone() {
                 Some(v) => ok(&v),
-                None => w3c(404, "unknown command", "POST /velocity/hitTest"),
+                None => w3c(404, "unknown command", "POST /atalanta/hitTest"),
             };
         }
         if r.path.ends_with("/source") {
@@ -473,7 +473,7 @@ async fn verify_tap_refuses_a_tap_something_else_is_drawn_over() {
     .concat());
     let answer = Arc::new(Mutex::new(hit("app", "Other", "Dimming", (0, 0, 402, 874))));
     let f = fake_hit(xml, answer.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let pay = d
         .find_element(SIM, &Selector::Text("Pay".into()))
         .await
@@ -505,11 +505,11 @@ async fn verify_tap_refuses_a_tap_something_else_is_drawn_over() {
     assert_eq!(f.taps().len(), 2);
 
     // ios.verifyTap off (the default): no hit test is asked for.
-    let before = f.count("POST", "/velocity/hitTest");
-    let plain = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let before = f.count("POST", "/atalanta/hitTest");
+    let plain = atalanta_ios::IosDriver::with_wda_url(&f.url);
     *answer.lock().unwrap() = hit("app", "Other", "Dimming", (0, 0, 402, 874));
     plain.tap(SIM, &pay).await.unwrap();
-    assert_eq!(f.count("POST", "/velocity/hitTest"), before);
+    assert_eq!(f.count("POST", "/atalanta/hitTest"), before);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -523,7 +523,7 @@ async fn verify_tap_lets_a_tap_under_a_hidden_status_bar_through() {
         (0, 0, 402, 62),
     )));
     let f = fake_hit(xml, answer.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let top = d
         .find_element(SIM, &Selector::Text("Top row".into()))
         .await
@@ -540,7 +540,7 @@ async fn verify_tap_lets_a_tap_under_a_hidden_status_bar_through() {
 }
 
 /// One node of a fi56 hit-test answer: `path` in the app's snapshot and
-/// `chain` (root first) as VelocityRunner sends them, plus `extra` fields.
+/// `chain` (root first) as AtalantaRunner sends them, plus `extra` fields.
 fn hit_node(
     ty: &str,
     label: &str,
@@ -594,7 +594,7 @@ async fn verify_tap_refuses_a_dimming_view_framed_like_the_targets_container() {
         r#"{{"available":true,"owner":"app","pid":42,"hit":{overlay},"element":{overlay}}}"#
     ))));
     let f = fake_hit(xml, answer.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let pay = d
         .find_element(SIM, &Selector::Text("Pay".into()))
         .await
@@ -660,7 +660,7 @@ async fn verify_tap_lets_a_tap_through_a_pass_through_overlay() {
         host("")
     ))));
     let f = fake_hit(xml, answer.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let pay = d
         .find_element(SIM, &Selector::Text("Pay".into()))
         .await
@@ -747,7 +747,7 @@ async fn verify_tap_looks_through_an_empty_window_over_the_app() {
     let xml = app(&format!("{content}{}", window(&other("", &other("", "")))));
     let answer = Arc::new(Mutex::new(Some(on_top(""))));
     let f = fake_hit(xml, answer.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let delete = d
         .find_element(SIM, &Selector::Text("Delete".into()))
         .await
@@ -763,7 +763,7 @@ async fn verify_tap_looks_through_an_empty_window_over_the_app() {
         Arc::new(Mutex::new(Some(on_top("Dimming")))),
     )
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let delete = d
         .find_element(SIM, &Selector::Text("Delete".into()))
         .await
@@ -794,7 +794,7 @@ async fn verify_tap_takes_a_web_views_content_process_as_the_app() {
         r#"{"available":true,"owner":"other","pid":77}"#.to_string(),
     )));
     let f = fake_hit(xml, answer).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url).with_verify_tap(true);
     let field = d
         .find_element(SIM, &Selector::Text("web_input".into()))
         .await
@@ -823,7 +823,7 @@ fn row_switch(value: u8) -> String {
 async fn a_row_switch_that_did_not_flip_is_tapped_at_its_other_end() {
     let xml = Arc::new(Mutex::new(row_switch(0)));
     let f = fake_on(xml.clone()).await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let el = d
         .find_element(SIM, &Selector::Text("Outdoor Seating".into()))
         .await
@@ -864,7 +864,7 @@ async fn a_row_switch_that_flipped_is_tapped_once() {
         }
     })
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let el = d
         .find_element(SIM, &Selector::Text("Outdoor Seating".into()))
         .await
@@ -909,12 +909,12 @@ async fn behind_a_sheet_the_lookup_tree_reads_visibility() {
         ok("null")
     })
     .await;
-    let d = velocity_ios::IosDriver::with_wda_url(&f.url);
+    let d = atalanta_ios::IosDriver::with_wda_url(&f.url);
     let tree = d.get_hierarchy_cached(SIM).await.unwrap();
     fn find<'a>(
-        e: &'a velocity_common::Element,
+        e: &'a atalanta_common::Element,
         label: &str,
-    ) -> Option<&'a velocity_common::Element> {
+    ) -> Option<&'a atalanta_common::Element> {
         if e.label.as_deref() == Some(label) {
             return Some(e);
         }

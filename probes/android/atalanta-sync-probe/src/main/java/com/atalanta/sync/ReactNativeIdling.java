@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -149,7 +149,7 @@ public final class ReactNativeIdling {
         this.isReactApp = isReactApplication(app);
         if (!isReactApp) {
             ProbeLog.warnOnce("rn-app", "framework react_native, but the Application is not a ReactApplication"
-                    + " (or VelocitySyncProbe.start was not given a Context): React Native work not waited for");
+                    + " (or AtalantaSyncProbe.start was not given a Context): React Native work not waited for");
         }
         this.trackers = Collections.unmodifiableList(Arrays.<Tracker>asList(
                 new Named("rn_loading", this::loading, () -> false),

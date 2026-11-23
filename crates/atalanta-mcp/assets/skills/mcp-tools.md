@@ -1,6 +1,6 @@
-# Velocity MCP tools: effects and retries
+# Atalanta MCP tools: effects and retries
 
-What each core tool of `velocity mcp` does, changes and returns, and whether a call is safe to repeat. `--profile full` lists the tools these stand for (docs/MCP.md in the Velocity repository).
+What each core tool of `atalanta mcp` does, changes and returns, and whether a call is safe to repeat. `--profile full` lists the tools these stand for (docs/MCP.md in the Atalanta repository).
 
 | Tool | Changes the device | Returns | Safe to repeat |
 |---|---|---|---|

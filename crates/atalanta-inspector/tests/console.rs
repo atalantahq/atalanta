@@ -7,21 +7,21 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use atalanta_android::video::VideoStream;
+use atalanta_common::types::{DeviceInfo, Direction, Element, Key, Rect, Selector};
+use atalanta_common::{PlatformDriver, Result};
+use atalanta_inspector::console::diagnostics::DiagResult;
+use atalanta_inspector::console::tasks::{
+    ExploreChild, ExploreFiles, ExploreLauncher, ExploreSpec, RunRequest, SuiteLauncher,
+};
+use atalanta_inspector::console::{
+    ConsoleHooks, Diagnostics, LeaseFail, Leases, LiveSource, NoDiagnostics, NoLive,
+};
+use atalanta_inspector::InspectorServer;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
-use velocity_android::video::VideoStream;
-use velocity_common::types::{DeviceInfo, Direction, Element, Key, Rect, Selector};
-use velocity_common::{PlatformDriver, Result};
-use velocity_inspector::console::diagnostics::DiagResult;
-use velocity_inspector::console::tasks::{
-    ExploreChild, ExploreFiles, ExploreLauncher, ExploreSpec, RunRequest, SuiteLauncher,
-};
-use velocity_inspector::console::{
-    ConsoleHooks, Diagnostics, LeaseFail, Leases, LiveSource, NoDiagnostics, NoLive,
-};
-use velocity_inspector::InspectorServer;
 
 // ── A fake device ───────────────────────────────────────────────────────
 
@@ -160,7 +160,7 @@ impl SuiteLauncher for ShellLauncher {
         events_file: &Path,
     ) -> tokio::process::Command {
         let script = r#"
-E="$VELOCITY_EVENTS_FILE"
+E="$ATALANTA_EVENTS_FILE"
 echo '{"event":"testStarted","test":"login","device":"'"$3"'"}' >> "$E"
 echo '{"event":"stepStarted","test":"login","index":0,"step":"launchApp"}' >> "$E"
 printf '\033[32m✓\033[0m running %s\n' "$1"
@@ -180,12 +180,12 @@ exit 0
             .arg(suite)
             .arg(out_dir)
             .arg(&req.device_id)
-            .env("VELOCITY_EVENTS_FILE", events_file);
+            .env("ATALANTA_EVENTS_FILE", events_file);
         c
     }
 }
 
-/// `velocity explore --json` as a shell script: an observed and a planned
+/// `atalanta explore --json` as a shell script: an observed and a planned
 /// turn, waits for an injected line (echoed as an `injected` event), a
 /// replay's test and step events, then the YAML and the JSON result. Its
 /// argv goes to `argv.txt` for the test to check.
@@ -193,7 +193,7 @@ struct ShellExplore;
 impl ExploreLauncher for ShellExplore {
     fn command(&self, spec: &ExploreSpec, files: &ExploreFiles) -> tokio::process::Command {
         let script = r#"
-E="$VELOCITY_EVENTS_FILE"
+E="$ATALANTA_EVENTS_FILE"
 echo "$@" > "$(dirname "$1")/argv.txt"
 echo '{"event":"observed","atMs":5,"turn":1,"title":"Settings","elements":20}' >> "$E"
 echo '{"event":"planned","atMs":9,"turn":1,"op":"tap","element":3,"target":"Network & internet","reason":"open it"}' >> "$E"
@@ -217,7 +217,7 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
             .arg(&spec.goal)
             .arg(&spec.app_id)
             .arg(spec.script.as_deref().unwrap_or(Path::new("-")))
-            .env("VELOCITY_EVENTS_FILE", &files.events);
+            .env("ATALANTA_EVENTS_FILE", &files.events);
         c
     }
 }
@@ -251,7 +251,7 @@ fn tmp_dir(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!(
         "vel-console-{tag}-{}-{}",
         std::process::id(),
-        velocity_inspector::security::new_token()
+        atalanta_inspector::security::new_token()
     ));
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -275,7 +275,7 @@ impl Drop for Srv {
 async fn start_with(live: Arc<dyn LiveSource>, explore: bool) -> Srv {
     let project = tmp_dir("project");
     std::fs::write(
-        project.join("velocity.yaml"),
+        project.join("atalanta.yaml"),
         "appId: a\ntests:\n  - name: login\n    steps:\n      - launchApp\n",
     )
     .unwrap();
@@ -296,10 +296,10 @@ async fn start_with(live: Arc<dyn LiveSource>, explore: bool) -> Srv {
                 launcher: Arc::new(ShellExplore),
             })
         } else {
-            Arc::new(velocity_inspector::console::ExploreUnavailable)
+            Arc::new(atalanta_inspector::console::ExploreUnavailable)
         },
         launcher: Arc::new(ShellLauncher),
-        runs_dir: project.join("velocity-results/console"),
+        runs_dir: project.join("atalanta-results/console"),
         project_dir: project.clone(),
     };
     let srv = InspectorServer::new(fake.clone(), Some("dev".into()), None).with_console(hooks);
@@ -361,7 +361,7 @@ impl Srv {
             self.port,
             method,
             path,
-            &[("Host", &host), ("X-Velocity-Token", &self.token)],
+            &[("Host", &host), ("X-Atalanta-Token", &self.token)],
             body,
         )
         .await
@@ -448,7 +448,7 @@ async fn every_console_route_and_upgrade_needs_the_token_host_and_origin() {
         assert_eq!(r.code, 401, "{method} {path} without a token: {}", r.body);
         // A foreign page, even with the token.
         let mut h = base.clone();
-        h.push(("X-Velocity-Token", &s.token));
+        h.push(("X-Atalanta-Token", &s.token));
         h.push(("Origin", "https://evil.example"));
         let r = send(s.port, method, path, &h, "{}").await;
         assert_eq!(r.code, 403, "{method} {path} from another origin");
@@ -459,14 +459,14 @@ async fn every_console_route_and_upgrade_needs_the_token_host_and_origin() {
         );
         // Cross-site fetch metadata without an Origin.
         let mut h = base.clone();
-        h.push(("X-Velocity-Token", &s.token));
+        h.push(("X-Atalanta-Token", &s.token));
         h.push(("Sec-Fetch-Site", "cross-site"));
         let r = send(s.port, method, path, &h, "{}").await;
         assert_eq!(r.code, 403, "{method} {path} cross-site");
         // DNS rebinding: a foreign Host.
         let mut h: Vec<(&str, &str)> = base.iter().filter(|(k, _)| *k != "Host").cloned().collect();
         h.push(("Host", "evil.example"));
-        h.push(("X-Velocity-Token", &s.token));
+        h.push(("X-Atalanta-Token", &s.token));
         let r = send(s.port, method, path, &h, "{}").await;
         assert_eq!(r.code, 403, "{method} {path} with a foreign Host");
     }
@@ -695,7 +695,7 @@ async fn without_video_the_mirror_pushes_changed_screenshots() {
 async fn suites_run_with_live_steps_and_confined_artifacts() {
     let s = start().await;
     let r = s.api("GET", "/api/project/suites", "").await;
-    assert!(r.body.contains("\"velocity.yaml\""), "{}", r.body);
+    assert!(r.body.contains("\"atalanta.yaml\""), "{}", r.body);
     assert!(r.body.contains("\"login\""), "{}", r.body);
 
     // Outside the project, or not a suite: refused.
@@ -715,7 +715,7 @@ async fn suites_run_with_live_steps_and_confined_artifacts() {
         .api(
             "POST",
             "/api/tasks/run",
-            r#"{"suite":"velocity.yaml","deviceId":"--help"}"#,
+            r#"{"suite":"atalanta.yaml","deviceId":"--help"}"#,
         )
         .await;
     assert_eq!(r.code, 400);
@@ -724,7 +724,7 @@ async fn suites_run_with_live_steps_and_confined_artifacts() {
         .api(
             "POST",
             "/api/tasks/run",
-            r#"{"suite":"velocity.yaml","deviceId":"dev"}"#,
+            r#"{"suite":"atalanta.yaml","deviceId":"dev"}"#,
         )
         .await;
     assert_eq!(r.code, 202, "{}", r.body);
@@ -814,7 +814,7 @@ async fn suites_run_with_live_steps_and_confined_artifacts() {
         &format!("/api/tasks/{id}/files/traces/login/video.mp4"),
         &[
             ("Host", &host),
-            ("X-Velocity-Token", &s.token),
+            ("X-Atalanta-Token", &s.token),
             ("Range", "bytes=2-4"),
         ],
         "",
@@ -825,7 +825,7 @@ async fn suites_run_with_live_steps_and_confined_artifacts() {
     assert!(r.head.contains("content-range: bytes 2-4/10"), "{}", r.head);
 
     // Traversal and symlinks out of the folder are refused.
-    let run_dir = std::fs::read_dir(s.project.join("velocity-results/console"))
+    let run_dir = std::fs::read_dir(s.project.join("atalanta-results/console"))
         .unwrap()
         .flatten()
         .next()
@@ -835,11 +835,11 @@ async fn suites_run_with_live_steps_and_confined_artifacts() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(&outside, run_dir.join("link")).unwrap();
     for path in [
-        "../velocity.yaml",
-        "..%2F..%2Fvelocity.yaml",
+        "../atalanta.yaml",
+        "..%2F..%2Fatalanta.yaml",
         "%2Fetc%2Fpasswd",
         "link/secret.txt",
-        "traces/../../../velocity.yaml",
+        "traces/../../../atalanta.yaml",
     ] {
         let r = s
             .api("GET", &format!("/api/tasks/{id}/files/{path}"), "")
@@ -972,7 +972,7 @@ async fn explore_runs_a_child_streams_its_events_and_saves_the_test() {
     assert_eq!(result["file"], "open-network-internet.yaml", "{result}");
     assert_eq!(result["replay"][0]["passed"], true);
     assert!(result["yaml"].as_str().unwrap().contains("appId"));
-    let run_dir = std::fs::read_dir(s.project.join("velocity-results/console"))
+    let run_dir = std::fs::read_dir(s.project.join("atalanta-results/console"))
         .unwrap()
         .flatten()
         .next()
@@ -1061,7 +1061,7 @@ impl SuiteLauncher for WaitLauncher {
 async fn shutdown_returns_and_leaves_no_child() {
     let project = tmp_dir("shutdown");
     std::fs::write(
-        project.join("velocity.yaml"),
+        project.join("atalanta.yaml"),
         "appId: a\ntests:\n  - name: t\n    steps:\n      - launchApp\n",
     )
     .unwrap();
@@ -1087,8 +1087,8 @@ async fn shutdown_returns_and_leaves_no_child() {
         port,
         "POST",
         "/api/tasks/run",
-        &[("Host", &host), ("X-Velocity-Token", &token)],
-        r#"{"suite":"velocity.yaml","deviceId":"dev"}"#,
+        &[("Host", &host), ("X-Atalanta-Token", &token)],
+        r#"{"suite":"atalanta.yaml","deviceId":"dev"}"#,
     )
     .await;
     assert_eq!(r.code, 202, "{}", r.body);

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Velocity vs Maestro, head to head, on one Android emulator and the Settings
+# Atalanta vs Maestro, head to head, on one Android emulator and the Settings
 # app. See README.md for the rules. Usage:
 #
 #   bench/head-to-head/run.sh [-n RUNS] [-d SERIAL] [-o OUT_DIR]
 #
-# Environment overrides: VELOCITY_BIN, MAESTRO_BIN, MAESTRO_VERSION, API_LEVEL.
+# Environment overrides: ATALANTA_BIN, MAESTRO_BIN, MAESTRO_VERSION, API_LEVEL.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,12 +13,12 @@ REPO="$(cd "$HERE/../.." && pwd)"
 RUNS=5
 DEVICE="${ANDROID_SERIAL:-}"
 OUT=""
-VELOCITY_BIN="${VELOCITY_BIN:-$REPO/target/release/velocity}"
+ATALANTA_BIN="${ATALANTA_BIN:-$REPO/target/release/atalanta}"
 MAESTRO_BIN="${MAESTRO_BIN:-maestro}"
 MAESTRO_VERSION="${MAESTRO_VERSION:-2.3.0}"   # pinned; change only on purpose
 API_LEVEL="${API_LEVEL:-34}"
 APP_ID="com.android.settings"
-VELOCITY_FLOW="$HERE/flows/settings.velocity.yaml"
+ATALANTA_FLOW="$HERE/flows/settings.atalanta.yaml"
 MAESTRO_FLOW="$HERE/flows/settings.maestro.yaml"
 
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -41,13 +41,13 @@ log() { echo "[head-to-head] $*" >&2; }
 command -v adb >/dev/null || die "adb not on PATH"
 command -v python3 >/dev/null || die "python3 not on PATH (summarize.py)"
 
-[[ -x "$VELOCITY_BIN" ]] || die "no Velocity binary at $VELOCITY_BIN; build it: cargo build --release -p velocity-cli"
-case "$VELOCITY_BIN" in
+[[ -x "$ATALANTA_BIN" ]] || die "no Atalanta binary at $ATALANTA_BIN; build it: cargo build --release -p atalanta-cli"
+case "$ATALANTA_BIN" in
   */target/release/*) ;;
-  *) log "warning: $VELOCITY_BIN is not under target/release; make sure it is a release build" ;;
+  *) log "warning: $ATALANTA_BIN is not under target/release; make sure it is a release build" ;;
 esac
-VELOCITY_VERSION="$("$VELOCITY_BIN" --version 2>/dev/null | head -1 || true)"
-[[ -n "$VELOCITY_VERSION" ]] || die "$VELOCITY_BIN --version failed"
+ATALANTA_VERSION="$("$ATALANTA_BIN" --version 2>/dev/null | head -1 || true)"
+[[ -n "$ATALANTA_VERSION" ]] || die "$ATALANTA_BIN --version failed"
 
 command -v "$MAESTRO_BIN" >/dev/null || die "maestro not on PATH (pinned version: $MAESTRO_VERSION)"
 export MAESTRO_CLI_NO_ANALYTICS=1 MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED=true
@@ -80,7 +80,7 @@ echo "phase,iteration,order,tool,wall_ms,exit_code,device,api,started_at" > "$CS
 {
   echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "host=$(uname -sm)"
-  echo "velocity=$VELOCITY_VERSION ($VELOCITY_BIN)"
+  echo "atalanta=$ATALANTA_VERSION ($ATALANTA_BIN)"
   echo "maestro=$got_maestro"
   echo "device=$DEVICE model=$model abi=$abi api=$api"
   echo "runs=$RUNS"
@@ -109,8 +109,8 @@ reset_device() {
   sleep 2
 }
 
-run_velocity() {   # $1 = log/artifact tag
-  VELOCITY_KEEP_ANIMATIONS='' "$VELOCITY_BIN" run "$VELOCITY_FLOW" \
+run_atalanta() {   # $1 = log/artifact tag
+  ATALANTA_KEEP_ANIMATIONS='' "$ATALANTA_BIN" run "$ATALANTA_FLOW" \
     --device "$DEVICE" --platform android --retries 0 \
     --report junit --artifacts-dir "$OUT/artifacts/$1"
 }
@@ -139,14 +139,14 @@ timed() {
 
 # --------------------------------------------------------------------- runs
 # Warm-up: one run of each tool, recorded as phase=warmup and ignored by
-# summarize.py (Maestro installs its driver APKs, Velocity its tree server).
-timed warmup 0 1 velocity
+# summarize.py (Maestro installs its driver APKs, Atalanta its tree server).
+timed warmup 0 1 atalanta
 timed warmup 0 2 maestro
 
 # Measured: N iterations, the order flipping every iteration (V,M then M,V)
 # so neither tool always runs second on a warmer device.
 for (( i = 1; i <= RUNS; i++ )); do
-  if (( i % 2 == 1 )); then first=velocity second=maestro; else first=maestro second=velocity; fi
+  if (( i % 2 == 1 )); then first=atalanta second=maestro; else first=maestro second=atalanta; fi
   timed measured "$i" 1 "$first"
   timed measured "$i" 2 "$second"
 done

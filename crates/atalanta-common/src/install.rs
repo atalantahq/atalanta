@@ -1,14 +1,14 @@
 //! Install-by-hash: reinstall an app only when its build changed.
 //!
 //! A reinstall is the most expensive way to reset an app (SwiftHand
-//! measured 30 s per restart), and CI hands Velocity the same build over and
+//! measured 30 s per restart), and CI hands Atalanta the same build over and
 //! over: every shard, every retry of a job, every device of a parallel run.
 //! So the build is hashed on the host (SHA-256 of an `.apk`; a stable hash
 //! over the files of an `.app` bundle) and each device remembers which hash
 //! it has installed. The drivers keep that marker — Android on the device,
 //! iOS on the host next to the simulator — together with a stamp of the
 //! installed copy (install time, bundle path and mtime), so an app that was
-//! reinstalled or removed behind Velocity's back is never mistaken for the
+//! reinstalled or removed behind Atalanta's back is never mistaken for the
 //! one it hashed.
 
 use std::collections::HashMap;
@@ -61,7 +61,7 @@ pub fn hash_app(path: &Path) -> std::io::Result<String> {
 
 /// [`hash_app`], remembered while the build's file sizes and modification
 /// times stay the same: in memory for the life of the process (a parallel
-/// run asks once per device, `velocity daemon` across runs) and on disk in
+/// run asks once per device, `atalanta daemon` across runs) and on disk in
 /// `<installs_dir>/hashes.json`, so rerunning a suite against the same
 /// build doesn't read the whole build again.
 pub fn hash_app_cached(path: &Path) -> std::io::Result<String> {
@@ -140,12 +140,12 @@ pub fn short(hash: &str) -> &str {
         .map_or(hash, |(i, _)| &hash[..i])
 }
 
-/// Where host-side install markers live: `~/.velocity/installs`
-/// (`VELOCITY_INSTALLS_DIR` overrides it).
+/// Where host-side install markers live: `~/.atalanta/installs`
+/// (`ATALANTA_INSTALLS_DIR` overrides it).
 pub fn installs_dir() -> PathBuf {
-    crate::env::var("VELOCITY_INSTALLS_DIR")
+    crate::env::var("ATALANTA_INSTALLS_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| crate::host::home_dir().join(".velocity").join("installs"))
+        .unwrap_or_else(|_| crate::host::home_dir().join(".atalanta").join("installs"))
 }
 
 /// The host-side marker for `app_id` on `device_id`:
@@ -315,7 +315,7 @@ mod tests {
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "velocity-install-{name}-{}-{}",
+            "atalanta-install-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(UNIX_EPOCH)

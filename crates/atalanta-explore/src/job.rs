@@ -1,4 +1,4 @@
-//! The whole `velocity explore` pipeline as one library call: explore,
+//! The whole `atalanta explore` pipeline as one library call: explore,
 //! write the test, replay it N times with no model, and on a failed replay
 //! try one repair round. The CLI, the MCP server (`run_task(kind=explore)`)
 //! and the console all drive this.
@@ -8,9 +8,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use atalanta_common::{AtalantaError, PlatformDriver, Result};
+use atalanta_nl::{NaturalPlanner, ScreenChecker};
 use serde::Serialize;
-use velocity_common::{PlatformDriver, Result, VelocityError};
-use velocity_nl::{NaturalPlanner, ScreenChecker};
 
 use crate::events::{EventSink, ExploreEvent, InstructionSource};
 use crate::replay::{replay_once, ReplayReport};
@@ -69,7 +69,7 @@ impl InstructionSource for Shared {
     }
 }
 
-/// One `velocity explore` run.
+/// One `atalanta explore` run.
 pub struct ExploreJob {
     pub driver: Arc<dyn PlatformDriver>,
     pub planner: Arc<dyn NaturalPlanner>,
@@ -208,7 +208,7 @@ impl ExploreJob {
             .await?;
             let calls = self.model_calls() - before;
             if calls > 0 {
-                return Err(VelocityError::Internal(anyhow::anyhow!(
+                return Err(AtalantaError::Internal(anyhow::anyhow!(
                     "the replay made {calls} model call(s); it must make none"
                 )));
             }

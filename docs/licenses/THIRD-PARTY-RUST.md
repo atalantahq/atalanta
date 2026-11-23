@@ -2,9 +2,9 @@
 
 Generated from `Cargo.lock` by `scripts/third-party-rust.py` (`cargo metadata --locked --all-features`: every target platform, dev dependencies included). Do not edit by hand: run `scripts/third-party-rust.py --write` after dependency changes (CI fails when this file is stale). `cargo deny check licenses` (see `deny.toml`) enforces the allow-list.
 
-Velocity itself is Apache-2.0. Where a crate offers a choice of licences (for example `MIT OR Apache-2.0`), Velocity uses it under a permissive option.
+Atalanta itself is Apache-2.0. Where a crate offers a choice of licences (for example `MIT OR Apache-2.0`), Atalanta uses it under a permissive option.
 
-Crates whose choice includes a copyleft option Velocity does not take: `r-efi 5.3.0` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later`), `r-efi 6.0.0` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later`), `self_cell 1.2.2` (`Apache-2.0 OR GPL-2.0-only`).
+Crates whose choice includes a copyleft option Atalanta does not take: `r-efi 5.3.0` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later`), `r-efi 6.0.0` (`MIT OR Apache-2.0 OR LGPL-2.1-or-later`), `self_cell 1.2.2` (`Apache-2.0 OR GPL-2.0-only`).
 
 Crates under a copyleft licence only (used unmodified as libraries): `colored 2.2.0` (`MPL-2.0`).
 

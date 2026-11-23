@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use atalanta_common::{AtalantaError, Element, Platform, PlatformDriver, Rect, Result, Selector};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
-use velocity_common::{Element, Platform, PlatformDriver, Rect, Result, Selector, VelocityError};
 
 /// Configuration for self-healing selectors.
 #[derive(Debug, Clone)]
@@ -27,7 +27,7 @@ pub struct HealingConfig {
     pub platform: Option<Platform>,
     /// Separates snapshots of different apps sharing one snapshot file.
     pub scope: String,
-    /// Heals the user rejected (`velocity heal --reject`): never proposed
+    /// Heals the user rejected (`atalanta heal --reject`): never proposed
     /// again (D-7).
     pub rejected_path: Option<PathBuf>,
 }
@@ -47,11 +47,11 @@ impl Default for HealingConfig {
     }
 }
 
-/// Where `velocity heal --reject` keeps the rejected heals.
-pub const REJECTED_FILE: &str = ".velocity/heal-rejected.json";
+/// Where `atalanta heal --reject` keeps the rejected heals.
+pub const REJECTED_FILE: &str = ".atalanta/heal-rejected.json";
 
 /// A heal the user rejected: this selector is never healed to that one
-/// again (`.velocity/heal-rejected.json`, D-7).
+/// again (`.atalanta/heal-rejected.json`, D-7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RejectedHeal {
     pub original_selector: String,
@@ -96,11 +96,11 @@ pub fn reject_heals(path: &std::path::Path, mappings: &[HealedMapping]) -> Resul
             added += 1;
         }
     }
-    velocity_common::redact::redact_serde(&mut list);
+    atalanta_common::redact::redact_serde(&mut list);
     let json =
-        serde_json::to_string_pretty(&list).map_err(|e| VelocityError::io("heal-rejected", e))?;
-    velocity_common::fsutil::write_state(path, json.as_bytes())
-        .map_err(|e| VelocityError::io(format!("Failed to write {}", path.display()), e))?;
+        serde_json::to_string_pretty(&list).map_err(|e| AtalantaError::io("heal-rejected", e))?;
+    atalanta_common::fsutil::write_state(path, json.as_bytes())
+        .map_err(|e| AtalantaError::io(format!("Failed to write {}", path.display()), e))?;
     Ok(added)
 }
 
@@ -377,7 +377,7 @@ impl SelectorHealer {
         // Keyed by the selector with secrets masked: an interpolated
         // password must not end up in the snapshot file (VEL-065).
         let selector = selector.to_string();
-        let selector = velocity_common::redact::redact(&selector);
+        let selector = atalanta_common::redact::redact(&selector);
         format!("{platform}|{}|{selector}", self.config.scope)
     }
 
@@ -494,7 +494,7 @@ impl SelectorHealer {
             return None;
         }
         // Logged at the default level: never with a secret in it (VEL-066).
-        let selector_str = velocity_common::redact::redact(&selector.to_string()).into_owned();
+        let selector_str = atalanta_common::redact::redact(&selector.to_string()).into_owned();
         let platform = self.config.platform;
 
         // Flatten the hierarchy into visible leaf/actionable elements
@@ -594,7 +594,7 @@ impl SelectorHealer {
                 None => {
                     warn!(
                         selector = %selector_str,
-                        healed = %velocity_common::redact::redact(&healed.to_string()),
+                        healed = %atalanta_common::redact::redact(&healed.to_string()),
                         "self-healing: the healed selector doesn't single out the match; not healing"
                     );
                     return None;
@@ -607,7 +607,7 @@ impl SelectorHealer {
             None => return None,
         };
         let healed_selector = healed.to_string();
-        // Rejected by the user (`velocity heal --reject`): never again.
+        // Rejected by the user (`atalanta heal --reject`): never again.
         let original = selector.to_string();
         if self
             .rejected
@@ -616,14 +616,14 @@ impl SelectorHealer {
         {
             warn!(
                 selector = %selector_str,
-                healed = %velocity_common::redact::redact(&healed_selector),
+                healed = %atalanta_common::redact::redact(&healed_selector),
                 "self-healing: this heal was rejected (heal-rejected.json); not healing"
             );
             return None;
         }
         info!(
             original = %selector_str,
-            healed = %velocity_common::redact::redact(&healed_selector),
+            healed = %atalanta_common::redact::redact(&healed_selector),
             confidence = best.score,
             "self-healing: selector healed successfully"
         );
@@ -691,7 +691,7 @@ impl SelectorHealer {
             .config
             .persist_path
             .as_deref()
-            .unwrap_or("velocity-healed-selectors.json");
+            .unwrap_or("atalanta-healed-selectors.json");
 
         // Only heals whose test passed (see `settle_heals`).
         let mut ours: Vec<HealedMapping> = self
@@ -701,7 +701,7 @@ impl SelectorHealer {
             .collect();
         // Secrets typed into a field or interpolated into a selector stay
         // out of the file (VEL-065).
-        velocity_common::redact::redact_serde(&mut ours);
+        atalanta_common::redact::redact_serde(&mut ours);
         let settled = self
             .settled_tests
             .lock()
@@ -730,9 +730,9 @@ impl SelectorHealer {
         }
 
         let json = serde_json::to_string_pretty(&mappings)
-            .map_err(|e| VelocityError::io("Failed to serialize healed mappings", e))?;
-        velocity_common::fsutil::write_state(std::path::Path::new(path), json.as_bytes()).map_err(
-            |e| VelocityError::io(format!("Failed to write healed mappings to {path}"), e),
+            .map_err(|e| AtalantaError::io("Failed to serialize healed mappings", e))?;
+        atalanta_common::fsutil::write_state(std::path::Path::new(path), json.as_bytes()).map_err(
+            |e| AtalantaError::io(format!("Failed to write healed mappings to {path}"), e),
         )?;
 
         info!(
@@ -758,7 +758,7 @@ impl SelectorHealer {
         let mut file = SnapshotFile::load(path);
         for (k, v) in known.iter() {
             let mut v = v.clone();
-            velocity_common::redact::redact_serde(&mut v);
+            atalanta_common::redact::redact_serde(&mut v);
             file.entries.insert(k.clone(), v);
         }
         if let Err(e) = file.save(path) {
@@ -797,7 +797,7 @@ impl SnapshotFile {
     }
 
     fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
-        velocity_common::fsutil::write_state(
+        atalanta_common::fsutil::write_state(
             path,
             &serde_json::to_vec(self).map_err(std::io::Error::other)?,
         )
@@ -845,7 +845,7 @@ fn compute_similarity(
     match selector {
         Selector::Id(id) => {
             max_score += STABLE;
-            // On the web `platform_id` is Velocity's own `data-vel-id`; the
+            // On the web `platform_id` is Atalanta's own `data-vel-id`; the
             // DOM id is in `label` (when there is no aria-label). Comparing
             // with the random vel-id made id healing impossible there.
             let mut best = identifier_similarity(id, &candidate.platform_id);
@@ -923,13 +923,13 @@ fn compute_similarity(
         // the name heals like a text.
         Selector::Role(role) => {
             max_score += STABLE;
-            if velocity_common::role::role_of(candidate) == Some(role.trim()) {
+            if atalanta_common::role::role_of(candidate) == Some(role.trim()) {
                 score += STABLE;
             }
         }
         Selector::Name(name) => {
             max_score += STABLE;
-            let have = velocity_common::role::accessible_name(candidate).unwrap_or_default();
+            let have = atalanta_common::role::accessible_name(candidate).unwrap_or_default();
             score += string_similarity(name, &have) * STABLE;
         }
         Selector::Checked(_)
@@ -1023,7 +1023,7 @@ fn compute_similarity(
 /// compound that `el` already satisfies are kept. `None` when the leaf has
 /// no such form (CSS, XPath) or `el` lacks the attribute.
 fn substitute(selector: &Selector, el: &Element, platform: Option<Platform>) -> Option<Selector> {
-    use velocity_common::selector_match::matches_selector;
+    use atalanta_common::selector_match::matches_selector;
     let keep_or_rewrite = |leaf: &Selector| {
         if matches_selector(el, leaf, None) {
             Some(leaf.clone())
@@ -1061,7 +1061,7 @@ fn rewrite_leaf(leaf: &Selector, el: &Element, platform: Option<Platform>) -> Op
         Selector::TextContains(_) => {
             Selector::TextContains(some(&el.text).or_else(|| some(&el.label))?)
         }
-        // On the web `platform_id` is Velocity's own node id; the DOM id
+        // On the web `platform_id` is Atalanta's own node id; the DOM id
         // is the label.
         Selector::Id(_) if platform == Some(Platform::Web) => {
             Selector::Id(some(&el.label).or_else(id)?)
@@ -1082,7 +1082,7 @@ fn singles_out(
     el: &Element,
     screen: Option<&Rect>,
 ) -> Option<Element> {
-    use velocity_common::selector_match::{ambiguity, find_all_ref};
+    use atalanta_common::selector_match::{ambiguity, find_all_ref};
     if ambiguity(hierarchy, selector, screen) != 1 {
         return None;
     }
@@ -1102,7 +1102,7 @@ fn singles_out(
 /// Some part of `selector` (an `index:` or a relation's target) still matches
 /// in `hierarchy`, so the selector failed on its constraint, not on a rename.
 fn constraint_unmet(selector: &Selector, hierarchy: &Element) -> bool {
-    use velocity_common::selector_match::find_all_ref;
+    use atalanta_common::selector_match::find_all_ref;
     match selector {
         Selector::Index {
             selector: inner, ..
@@ -1158,7 +1158,7 @@ fn keeps_constraints(
             anchor,
         } => {
             keeps_constraints(target, candidate, hierarchy, snapshot)
-                && velocity_common::selector_match::stands_in(
+                && atalanta_common::selector_match::stands_in(
                     hierarchy, candidate, *relation, anchor, None,
                 )
         }
@@ -1172,11 +1172,11 @@ fn keeps_constraints(
         | Selector::Focused(_)
         | Selector::Selected(_)
         | Selector::Enabled(_) => {
-            velocity_common::selector_match::matches_selector(candidate, selector, None)
+            atalanta_common::selector_match::matches_selector(candidate, selector, None)
         }
         Selector::Name(name) => value_ok(
             name,
-            velocity_common::role::accessible_name(candidate).as_deref(),
+            atalanta_common::role::accessible_name(candidate).as_deref(),
         ),
     }
 }
@@ -2066,7 +2066,7 @@ mod tests {
 
     #[test]
     fn device_actors_share_the_healed_file_instead_of_overwriting_it() {
-        let dir = std::env::temp_dir().join(format!("velocity-healed-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-healed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("healed.json");
         let healer = || {
@@ -2476,7 +2476,7 @@ mod tests {
         ]);
         let below = |t: &str| Selector::Relative {
             target: Box::new(Selector::Text(t.into())),
-            relation: velocity_common::Relation::Below,
+            relation: atalanta_common::Relation::Below,
             anchor: Box::new(Selector::Text("Shipping".into())),
         };
         assert_eq!(healed_id(&healer, &below("Edit"), &above), None);
@@ -2511,7 +2511,7 @@ mod tests {
         assert_ne!(healed, Some(300), "healed onto row 0 for index 1");
         // Every heal it does make resolves through the whole selector.
         if let Some((el, _, sel)) = healer.heal_in(&sel, &after) {
-            let all = velocity_common::selector_match::find_all_ref(&after, &sel, None);
+            let all = atalanta_common::selector_match::find_all_ref(&after, &sel, None);
             assert_eq!(all.len(), 1);
             assert_eq!(all[0].bounds, el.bounds);
         }
@@ -2537,7 +2537,7 @@ mod tests {
     fn secrets_stay_out_of_the_heal_files() {
         // VEL-065: snapshots and heals stored typed passwords in clear.
         let secret = "vel065-Pa55w0rd-QzX";
-        velocity_common::redact::register_secret(secret);
+        atalanta_common::redact::register_secret(secret);
         let dir = tempfile::tempdir().unwrap();
         let (snaps, heals) = (dir.path().join("snaps.json"), dir.path().join("heals.json"));
         let healer = SelectorHealer::new(HealingConfig {
@@ -2596,7 +2596,7 @@ mod tests {
     fn heal_logs_never_show_a_secret() {
         // VEL-066: the WARN line printed the interpolated selector.
         let secret = "velSixSixSecretKq";
-        velocity_common::redact::register_secret(secret);
+        atalanta_common::redact::register_secret(secret);
         let log = std::sync::Arc::new(Mutex::new(String::new()));
         let healer = SelectorHealer::new(HealingConfig::default());
         // Close enough to be scored, too far to heal: the WARN line.

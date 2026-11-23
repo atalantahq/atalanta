@@ -1,10 +1,10 @@
-name: VelocityEcho
+name: AtalantaEcho
 options:
-  bundleIdPrefix: dev.velocity
+  bundleIdPrefix: dev.atalanta
   deploymentTarget:
     iOS: "15.0"
 targets:
-  VelocityEcho:
+  AtalantaEcho:
     type: application
     platform: iOS
     sources: Sources
@@ -12,8 +12,8 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Velocity Echo
-        PRODUCT_BUNDLE_IDENTIFIER: dev.velocity.echo
+        INFOPLIST_KEY_CFBundleDisplayName: Atalanta Echo
+        PRODUCT_BUNDLE_IDENTIFIER: dev.atalanta.echo
         SWIFT_VERSION: "5.0"
         CODE_SIGNING_ALLOWED: NO
         TARGETED_DEVICE_FAMILY: "1,2"

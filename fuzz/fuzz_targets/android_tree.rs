@@ -9,6 +9,6 @@ fuzz_target!(|data: &[u8]| {
     let Ok(xml) = std::str::from_utf8(data) else {
         return;
     };
-    let _ = velocity_android::parser::parse_hierarchy(xml);
-    let _ = velocity_android::parser::parse_hierarchy_v2(xml);
+    let _ = atalanta_android::parser::parse_hierarchy(xml);
+    let _ = atalanta_android::parser::parse_hierarchy_v2(xml);
 });

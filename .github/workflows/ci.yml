@@ -61,7 +61,7 @@ jobs:
               - 'Cargo.lock'
               - 'deny.toml'
               - 'crates/**'
-              - 'velocity-cli/**'
+              - 'atalanta-cli/**'
               - 'tests/**'
               - 'examples/**'
               - 'docs/DSL-REFERENCE.md'
@@ -69,7 +69,7 @@ jobs:
               - 'README.md'
               - '.github/workflows/ci.yml'
             frontend:
-              - 'crates/velocity-inspector/frontend/**'
+              - 'crates/atalanta-inspector/frontend/**'
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/**'
@@ -77,8 +77,8 @@ jobs:
               - 'bench/killtest/**'
               - '.github/workflows/ci.yml'
             tree_jar:
-              - 'probes/android/velocity-tree-server/**'
-              - 'crates/velocity-android/assets/**'
+              - 'probes/android/atalanta-tree-server/**'
+              - 'crates/atalanta-android/assets/**'
               - 'scripts/check-tree-jar.sh'
               - '.github/workflows/ci.yml'
 
@@ -91,7 +91,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: crates/velocity-inspector/frontend
+        working-directory: crates/atalanta-inspector/frontend
     steps:
       - name: Harden the runner
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -104,7 +104,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: crates/velocity-inspector/frontend/package-lock.json
+          cache-dependency-path: crates/atalanta-inspector/frontend/package-lock.json
       - run: npm ci
       - run: npm test
       - run: npm run build
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: inspector-dist
-          path: crates/velocity-inspector/frontend/dist
+          path: crates/atalanta-inspector/frontend/dist
           retention-days: 7
 
   fmt:
@@ -297,7 +297,7 @@ jobs:
           tail -60 "$prof/chrome.log"
           kill "$pid" || true
           echo "== one web test with client logs"
-          RUST_LOG=chromiumoxide=debug,velocity_web=debug cargo test -p velocity-web --test web_driver element_text_is_full_and_live -- --nocapture 2>&1 | tail -80
+          RUST_LOG=chromiumoxide=debug,atalanta_web=debug cargo test -p atalanta-web --test web_driver element_text_is_full_and_live -- --nocapture 2>&1 | tail -80
       # The ci profile stores passing tests' output in junit.xml: any test
       # that skipped itself for want of Chrome fails the job here.
       - name: No Chrome test skipped itself
@@ -331,7 +331,7 @@ jobs:
       - name: MCP schema size
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cargo test -p velocity-mcp-server --lib --locked core_profile_schema_budget -- --nocapture 2>&1 \
+          cargo test -p atalanta-mcp-server --lib --locked core_profile_schema_budget -- --nocapture 2>&1 \
             | grep '^mcp schema:' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Test report
         if: always()
@@ -398,8 +398,8 @@ jobs:
       - run: cargo build --workspace --release --locked
       - name: Binary size
         run: |
-          size=$(wc -c < target/release/velocity)
-          echo "velocity binary: $((size / 1048576)) MB" >> "$GITHUB_STEP_SUMMARY"
+          size=$(wc -c < target/release/atalanta)
+          echo "atalanta binary: $((size / 1048576)) MB" >> "$GITHUB_STEP_SUMMARY"
 
   # What the release workflow relies on: the installer and release scripts,
   # the formula renderer, the changelog entry for the workspace version, and
@@ -420,14 +420,14 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: inspector-dist
-          path: crates/velocity-inspector/frontend/dist
+          path: crates/atalanta-inspector/frontend/dist
       # Every shell script in the repo, the probe builds included (-x follows
       # the files they source, relative to each script).
       - run: >-
           shellcheck -x -P SCRIPTDIR install.sh scripts/*.sh scripts/measure/*.sh scripts/hooks/*
-          probes/android/velocity-tree-server/build.sh
-          probes/android/velocity-sync-probe/host-check.sh
-          probes/ios/VelocitySyncProbe/HostChecks/run.sh
+          probes/android/atalanta-tree-server/build.sh
+          probes/android/atalanta-sync-probe/host-check.sh
+          probes/ios/AtalantaSyncProbe/HostChecks/run.sh
           bench/head-to-head/run.sh
       - name: Changelog entry and formula for the workspace version
         run: |
@@ -435,21 +435,21 @@ jobs:
           scripts/changelog-section.sh "$version" > /dev/null
           # The committed formula is the script's HEAD-only output (no
           # release checksums): never URLs for assets that may not exist.
-          scripts/render-formula.sh "$version" | diff -u Formula/velocity.rb - ||
-            { echo "::error::Formula/velocity.rb is stale: scripts/render-formula.sh $version > Formula/velocity.rb"; exit 1; }
+          scripts/render-formula.sh "$version" | diff -u Formula/atalanta.rb - ||
+            { echo "::error::Formula/atalanta.rb is stale: scripts/render-formula.sh $version > Formula/atalanta.rb"; exit 1; }
       # The tree-server protocol is written in three places; CLAUDE.md is
       # what agents read first, so a stale number there misleads them.
       - name: Tree-server protocol agrees across the code and CLAUDE.md
         run: |
-          rust=$(sed -n 's/^const SERVER_VERSION: &str = "\([0-9]*\)";$/\1/p' crates/velocity-android/src/tree_server.rs)
-          java=$(sed -n 's/^ *static final String VERSION = "\([0-9]*\)";$/\1/p' probes/android/velocity-tree-server/src/com/velocity/tree/Server.java)
+          rust=$(sed -n 's/^const SERVER_VERSION: &str = "\([0-9]*\)";$/\1/p' crates/atalanta-android/src/tree_server.rs)
+          java=$(sed -n 's/^ *static final String VERSION = "\([0-9]*\)";$/\1/p' probes/android/atalanta-tree-server/src/com/atalanta/tree/Server.java)
           doc=$(grep -o 'protocol [0-9]*' CLAUDE.md | head -1 | cut -d' ' -f2)
           echo "tree_server.rs $rust, Server.java $java, CLAUDE.md $doc"
           if [ -z "$rust" ] || [ "$rust" != "$java" ] || [ "$rust" != "$doc" ]; then
             echo "::error::tree-server protocol differs: tree_server.rs '$rust', Server.java '$java', CLAUDE.md '$doc'"; exit 1
           fi
       # Release binaries must be built by the toolchain these jobs test:
-      # every workflow that builds Velocity pins the same RUST_VERSION.
+      # every workflow that builds Atalanta pins the same RUST_VERSION.
       - name: One Rust toolchain across workflows
         run: |
           want=$(sed -n 's/^  RUST_VERSION: "\(.*\)"$/\1/p' .github/workflows/ci.yml)
@@ -510,7 +510,7 @@ jobs:
       - name: Package every crate
         run: |
           cargo package --workspace --locked --no-verify --allow-dirty
-          cargo package -p velocity-inspector --list --allow-dirty | grep -qx 'frontend/dist/index.html'
+          cargo package -p atalanta-inspector --list --allow-dirty | grep -qx 'frontend/dist/index.html'
 
   # The committed tree-server jar (include_bytes!'d into every release and
   # pushed to every Android device) must be what the committed Java builds
@@ -531,7 +531,7 @@ jobs:
           persist-credentials: false
       - name: Read the pinned toolchain
         id: pins
-        run: grep -E '^TREE_[A-Z_]+=' probes/android/velocity-tree-server/toolchain.env >> "$GITHUB_OUTPUT"
+        run: grep -E '^TREE_[A-Z_]+=' probes/android/atalanta-tree-server/toolchain.env >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin

@@ -2,12 +2,12 @@
 #
 # Steps are written in plain English and resolved to concrete actions at run time
 # by the LLM planner. Requires ANTHROPIC_API_KEY to be set; the first run plans
-# each step and caches the result to .velocity/nl-cache.json, so reruns replay
+# each step and caches the result to .atalanta/nl-cache.json, so reruns replay
 # instantly with no model calls. A step that later fails is dropped from the
 # cache and re-planned on the next run (self-healing).
 #
 #   export ANTHROPIC_API_KEY=sk-ant-...
-#   velocity run tests/fixtures/natural-web.yaml --platform web
+#   atalanta run tests/fixtures/natural-web.yaml --platform web
 
 appId: "https://demo.vercel.store"
 config:

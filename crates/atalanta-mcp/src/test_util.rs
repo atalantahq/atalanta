@@ -10,7 +10,7 @@ pub fn script(name: &str, content: &str) -> PathBuf {
     let hash = content.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
-    let dir = std::env::temp_dir().join("velocity-mcp-test-scripts");
+    let dir = std::env::temp_dir().join("atalanta-mcp-test-scripts");
     let path = dir.join(format!("{name}-{hash:016x}"));
     if !path.is_file() {
         std::fs::create_dir_all(&dir).unwrap();

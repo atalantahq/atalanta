@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use atalanta_common::types::DeviceInfo;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
-use velocity_common::types::DeviceInfo;
 
 use crate::state::AppState;
 
@@ -49,7 +49,7 @@ pub async fn select(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Bootstrap the device's services once (WDA on iOS, the browser on
-    // the web), as `velocity inspect` does for the device it starts with.
+    // the web), as `atalanta inspect` does for the device it starts with.
     let mut prepared = state.prepared.lock().await;
     if !prepared.contains(&req.device_id) {
         state
@@ -67,7 +67,7 @@ pub async fn select(
 }
 
 /// `GET /api/devices/current`: the device the server has selected (the
-/// one `velocity inspect` started with, or the page's last pick).
+/// one `atalanta inspect` started with, or the page's last pick).
 pub async fn current(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "deviceId": state.device_id().await }))
 }

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use atalanta_common::types::{Element, Selector};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use velocity_common::types::{Element, Selector};
 
 use crate::selector_gen;
 use crate::state::AppState;
@@ -30,7 +30,7 @@ pub struct GenerateRequest {
 #[derive(Serialize)]
 pub struct Candidate {
     /// The DSL's flat form (`{"text": "Pay", "index": 1}`), review 02 M5.
-    #[serde(with = "velocity_core::selector_wire")]
+    #[serde(with = "atalanta_core::selector_wire")]
     pub selector: Selector,
     pub yaml: String,
     #[serde(rename = "matchCount")]
@@ -39,7 +39,7 @@ pub struct Candidate {
 
 #[derive(Serialize)]
 pub struct GenerateResponse {
-    #[serde(with = "velocity_core::selector_wire")]
+    #[serde(with = "atalanta_core::selector_wire")]
     pub selector: Selector,
     pub yaml_tap: String,
     pub yaml_assert: String,

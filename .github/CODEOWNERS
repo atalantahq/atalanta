@@ -23,9 +23,9 @@
 
 # Security boundaries: the MCP server agents drive, and the on-device tree
 # server (its handshake, and the jar every Android run pushes)
-/crates/velocity-mcp/                           @omkar-dev
-/probes/android/velocity-tree-server/           @omkar-dev
-/crates/velocity-android/assets/                @omkar-dev
+/crates/atalanta-mcp/                           @omkar-dev
+/probes/android/atalanta-tree-server/           @omkar-dev
+/crates/atalanta-android/assets/                @omkar-dev
 
 # Security documentation
 /SECURITY.md                                    @omkar-dev

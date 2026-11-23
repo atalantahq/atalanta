@@ -1,4 +1,4 @@
-//! `velocity run --env-file`: variable overrides from a dotenv file
+//! `atalanta run --env-file`: variable overrides from a dotenv file
 //! (Maestro #2817). Read only when named: a `.env` lying in the project is
 //! never picked up on its own, so a run gets only the values asked for.
 //!
@@ -184,11 +184,11 @@ E=''
 
     #[test]
     fn an_unreadable_file_is_a_usage_error() {
-        let e = super::read("/nonexistent/velocity/.env").unwrap_err();
+        let e = super::read("/nonexistent/atalanta/.env").unwrap_err();
         assert_eq!(crate::commands::exit_code_for(&e), 2);
         assert!(
             e.to_string()
-                .contains("--env-file /nonexistent/velocity/.env: "),
+                .contains("--env-file /nonexistent/atalanta/.env: "),
             "{e}"
         );
     }

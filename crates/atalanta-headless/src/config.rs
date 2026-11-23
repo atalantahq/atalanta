@@ -39,9 +39,9 @@ impl HeadlessConfig {
     /// set to different values, or a non-positive ratio or `fontScale`, is
     /// a config error.
     pub fn from_yaml(
-        yaml: Option<&velocity_common::HeadlessYamlConfig>,
-    ) -> velocity_common::Result<Self> {
-        use velocity_common::VelocityError;
+        yaml: Option<&atalanta_common::HeadlessYamlConfig>,
+    ) -> atalanta_common::Result<Self> {
+        use atalanta_common::AtalantaError;
         let mut c = Self::default();
         let Some(hc) = yaml else {
             return Ok(c);
@@ -59,7 +59,7 @@ impl HeadlessConfig {
         let (w, h) = (u64::from(c.width), u64::from(c.height));
         if !(1..=MAX_SIDE_PX).contains(&w) || !(1..=MAX_SIDE_PX).contains(&h) || w * h > MAX_PIXELS
         {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "headless.width and headless.height must each be 1 to {MAX_SIDE_PX} \
                  pixels and together at most {MAX_PIXELS} pixels, got {}x{}",
                 c.width, c.height
@@ -67,19 +67,19 @@ impl HeadlessConfig {
         }
         match (hc.density, hc.device_pixel_ratio) {
             (Some(d), Some(r)) if (f64::from(d) - r).abs() > 1e-6 => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "headless.density ({d}) and headless.devicePixelRatio ({r}) disagree; \
                      set one of them"
                 )));
             }
             (Some(d), _) if !positive(f64::from(d)) => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "headless.density must be a positive number, got {d}"
                 )));
             }
             (Some(d), _) => c.density = d,
             (None, Some(r)) if !positive(r) => {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "headless.devicePixelRatio must be a positive number, got {r}"
                 )));
             }
@@ -88,7 +88,7 @@ impl HeadlessConfig {
         }
         if let Some(s) = hc.font_scale {
             if !positive(f64::from(s)) {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "headless.fontScale must be a positive number, got {s}"
                 )));
             }
@@ -126,7 +126,7 @@ impl Default for HeadlessConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::HeadlessYamlConfig;
+    use atalanta_common::HeadlessYamlConfig;
 
     #[test]
     fn device_pixel_ratio_and_font_scale_come_from_the_suite() {
@@ -175,7 +175,7 @@ mod tests {
             assert!(
                 matches!(
                     HeadlessConfig::from_yaml(Some(&y)),
-                    Err(velocity_common::VelocityError::Config(_))
+                    Err(atalanta_common::AtalantaError::Config(_))
                 ),
                 "{w}x{h}"
             );

@@ -1,5 +1,5 @@
 [package]
-name = "velocity-migrate"
+name = "atalanta-migrate"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,12 +10,12 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "maestro", "migration", "mobile", "yaml"]
 categories = ["development-tools::testing"]
-description = "Migration tools for Velocity: convert Maestro YAML to Velocity format"
+description = "Migration tools for Atalanta: convert Maestro YAML to Atalanta format"
 
 [dependencies]
-velocity-common = { workspace = true }
+atalanta-common = { workspace = true }
 # Only to parse and validate the output before reporting success.
-velocity-core = { workspace = true }
+atalanta-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

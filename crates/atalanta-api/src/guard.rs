@@ -25,7 +25,7 @@ use reqwest::redirect::{Attempt, Policy};
 use reqwest::Url;
 
 /// Set to `1` to refuse cloud-metadata and link-local destinations.
-pub const BLOCK_METADATA_ENV: &str = "VELOCITY_HTTP_BLOCK_METADATA";
+pub const BLOCK_METADATA_ENV: &str = "ATALANTA_HTTP_BLOCK_METADATA";
 
 /// Most redirects one request follows.
 const MAX_REDIRECTS: usize = 10;

@@ -7,23 +7,23 @@
 //!   extra accessibility IPC per node, ~89% of the read (556 → 58 ms). The
 //!   parser works visibility out from frames instead.
 //! - Session settings turn WDA's own idle and animation waits off
-//!   (`waitForIdleTimeout`, `animationCoolOffTimeout` = 0): Velocity runs its
+//!   (`waitForIdleTimeout`, `animationCoolOffTimeout` = 0): Atalanta runs its
 //!   own settle, and WDA's waits cost up to 2 s per gesture on animated
 //!   screens (element click 1,376 → 356–397 ms).
 //! - Taps go through W3C `/actions` (≈360 ms vs 488 ms for a zero-length drag).
 //!
 //! Errors are typed (see `WdaClient::send`):
-//! - a refused connection is [`VelocityError::WdaUnreachable`] (the request
+//! - a refused connection is [`AtalantaError::WdaUnreachable`] (the request
 //!   never arrived, so it can be replayed after a restart). So is any broken
 //!   connection (reset, closed, timed out) on a read or lookup: repeating
 //!   one changes nothing. A read that timed out while WDA's main thread
 //!   still answers (`/wda/screen`) is a plain command failure instead: WDA
 //!   is busy, not dead, up to twice in a row;
-//! - a broken connection on an action is [`VelocityError::WdaLost`]: the tap
+//! - a broken connection on an action is [`AtalantaError::WdaLost`]: the tap
 //!   may have landed, so it is never replayed;
 //! - WDA's W3C `value.error` code decides the rest: `invalid session id` is
-//!   [`VelocityError::WdaSessionLost`] (the driver opens a new session),
-//!   only `no such element` is [`VelocityError::ElementNotFound`];
+//!   [`AtalantaError::WdaSessionLost`] (the driver opens a new session),
+//!   only `no such element` is [`AtalantaError::ElementNotFound`];
 //! - a body that isn't JSON is an error with its status and first 200 bytes,
 //!   never an empty value (an empty `/source` read as an empty screen).
 
@@ -31,11 +31,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use atalanta_common::{AtalantaError, Result};
 use base64::Engine;
 use reqwest::{Client, RequestBuilder};
 use serde_json::{json, Value};
 use tracing::debug;
-use velocity_common::{Result, VelocityError};
 
 /// A reference to an element found by WDA.
 #[derive(Debug, Clone)]
@@ -44,11 +44,11 @@ pub struct WdaElement {
 }
 
 /// Keys per minute when typing. WDA's default is 60, which makes a 20-char
-/// email take 20 s; `VELOCITY_IOS_TYPING_FREQUENCY` overrides.
+/// email take 20 s; `ATALANTA_IOS_TYPING_FREQUENCY` overrides.
 const DEFAULT_TYPING_FREQUENCY: u64 = 180;
 
 /// `ios.accessibilityDeadlineMs` default (D-37): WDA's `accessibilityDeadline`,
-/// sent by default only to a device whose WDA Velocity built from v16.14.1
+/// sent by default only to a device whose WDA Atalanta built from v16.14.1
 /// or later (see [`deadline_safe_ref`]): older WDA crashed WKWebView content
 /// with it (#1290), and an externally started WDA's version is unknown.
 const DEFAULT_ACCESSIBILITY_DEADLINE_MS: u64 = 5000;
@@ -69,7 +69,7 @@ pub(crate) fn deadline_safe_ref(wda_ref: &str) -> bool {
 /// wins; otherwise the default only for a WDA known to be built from a
 /// v16.14.1+ ref (`wda_ref`, per device).
 fn accessibility_deadline_ms(wda_ref: Option<&str>) -> u64 {
-    match velocity_common::env::var("VELOCITY_IOS_ACCESSIBILITY_DEADLINE_MS")
+    match atalanta_common::env::var("ATALANTA_IOS_ACCESSIBILITY_DEADLINE_MS")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
     {
@@ -121,7 +121,7 @@ pub struct WdaClient {
     busy_streak: AtomicU32,
     /// Environment for the app this client launches (WDA's `environment`
     /// capability and launch parameter): the per-simulator
-    /// `VELOCITY_SYNC_PORT` for the in-app sync probe.
+    /// `ATALANTA_SYNC_PORT` for the in-app sync probe.
     app_env: Vec<(String, String)>,
     /// Launch arguments (`launchApp: { arguments }`) for the next launch.
     app_args: Vec<String>,
@@ -137,18 +137,18 @@ const MAX_BUSY: u32 = 2;
 
 /// A swipe gesture's stroke time (it flings, like a person's): `ios.swipeMs`.
 fn swipe_fling_ms() -> u64 {
-    velocity_common::settings::num("VELOCITY_IOS_SWIPE_MS", 250)
+    atalanta_common::settings::num("ATALANTA_IOS_SWIPE_MS", 250)
 }
 
 /// A scroll's stroke (`ios.scrollMs`, 350 by default): the first 3/7 of
 /// the time covers 94% of the way, the rest the last 6%, so it doesn't fling.
 fn scroll_ms() -> (u64, u64) {
-    let total = velocity_common::settings::num("VELOCITY_IOS_SCROLL_MS", 350).max(20);
+    let total = atalanta_common::settings::num("ATALANTA_IOS_SCROLL_MS", 350).max(20);
     let fast = total * 3 / 7;
     (fast, total - fast)
 }
 
-/// What a request to the runner must carry (R-1): VelocityRunner refuses
+/// What a request to the runner must carry (R-1): AtalantaRunner refuses
 /// a request without its bearer token, or whose `Host` isn't its own
 /// loopback address and port.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -161,7 +161,7 @@ pub struct RunnerAuth {
     pub host: Option<String>,
 }
 
-/// A client for the iOS runner (WebDriverAgent or VelocityRunner). It never
+/// A client for the iOS runner (WebDriverAgent or AtalantaRunner). It never
 /// goes through a proxy: the runner is on loopback, a usbmuxd forward or the
 /// local network, and `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` set for the
 /// AI providers or `http` steps must not capture it (ENT-062).
@@ -220,8 +220,8 @@ impl WdaClient {
     }
 
     /// A client whose calls give up after `timeout` (tests use a short one).
-    /// It sends `ios.runnerToken` when set (a runner at `VELOCITY_WDA_URL`
-    /// that Velocity didn't start); [`Self::set_auth`] replaces it with the
+    /// It sends `ios.runnerToken` when set (a runner at `ATALANTA_WDA_URL`
+    /// that Atalanta didn't start); [`Self::set_auth`] replaces it with the
     /// token the bootstrap launched the runner with.
     pub fn with_timeout(base_url: &str, timeout: Duration) -> Self {
         let auth = RunnerAuth {
@@ -333,7 +333,7 @@ impl WdaClient {
         let sid = self
             .session_id
             .as_deref()
-            .ok_or_else(|| VelocityError::Config("No active WDA session".to_string()))?;
+            .ok_or_else(|| AtalantaError::Config("No active WDA session".to_string()))?;
         Ok(format!("{}/session/{}", self.base_url, sid))
     }
 
@@ -388,7 +388,7 @@ impl WdaClient {
 
     /// The error a failed reply stands for, by its W3C `value.error` code
     /// (stable across WDA versions, unlike the message text).
-    fn w3c_error(&self, what: &str, reply: &Reply) -> VelocityError {
+    fn w3c_error(&self, what: &str, reply: &Reply) -> AtalantaError {
         let code = reply.code();
         let detail = match reply.body["value"]["message"].as_str() {
             Some(m) => m.to_string(),
@@ -399,40 +399,40 @@ impl WdaClient {
             ),
         };
         match code {
-            "invalid session id" => VelocityError::WdaSessionLost {
+            "invalid session id" => AtalantaError::WdaSessionLost {
                 test_name: format!("WDA {what} at {}", self.base_url),
                 attempt: 1,
                 max: 1,
             },
-            "no such element" => VelocityError::ElementNotFound {
+            "no such element" => AtalantaError::ElementNotFound {
                 selector: what.to_string(),
                 timeout_ms: 0,
                 screenshot: None,
                 hierarchy_snapshot: None,
             },
-            "invalid selector" => VelocityError::InvalidSelector {
+            "invalid selector" => AtalantaError::InvalidSelector {
                 test_name: String::new(),
                 step_index: 0,
                 reason: format!("WDA {what}: {detail}"),
             },
-            // VelocityRunner answers 500 with the XCTest issues an action
+            // AtalantaRunner answers 500 with the XCTest issues an action
             // recorded (P1); typing with nothing focused is a test failure,
             // not a flaky command to retry.
-            _ if detail.contains("has keyboard focus") => VelocityError::AssertionFailed {
+            _ if detail.contains("has keyboard focus") => AtalantaError::AssertionFailed {
                 expected: format!("a focused text input for {what}"),
                 actual: detail,
                 selector: String::new(),
                 screenshot: None,
             },
             _ => match crashed_app(&detail) {
-                Some(app_id) => VelocityError::AppCrashed { app_id, detail },
+                Some(app_id) => AtalantaError::AppCrashed { app_id, detail },
                 None => self.failed(what, detail),
             },
         }
     }
 
-    fn failed(&self, what: &str, detail: String) -> VelocityError {
-        VelocityError::CommandFailed {
+    fn failed(&self, what: &str, detail: String) -> AtalantaError {
+        AtalantaError::CommandFailed {
             device_id: self.base_url.clone(),
             command: format!("WDA {what}"),
             detail,
@@ -445,13 +445,13 @@ impl WdaClient {
     /// re-created and the app not relaunched (review M1; appium#19382 is
     /// the slow-but-alive case the timeout exists for).
     ///
-    /// The probe is `/wda/screen`, which both WDA and VelocityRunner serve
+    /// The probe is `/wda/screen`, which both WDA and AtalantaRunner serve
     /// on the main thread. `/status` is no good: the runner answers it on
     /// its network queue, so it answers while the main thread is wedged and
     /// a hung runner would be "busy" forever (review MAJOR-1). And busy is
     /// capped: after [`MAX_BUSY`] in a row it is unreachable, so the driver
     /// recovers it.
-    async fn broken(&self, what: &str, e: reqwest::Error, replay: bool) -> VelocityError {
+    async fn broken(&self, what: &str, e: reqwest::Error, replay: bool) -> AtalantaError {
         if replay && e.is_timeout() && self.main_thread_answers().await {
             let streak = self.busy_streak.fetch_add(1, Ordering::Relaxed) + 1;
             if streak <= MAX_BUSY {
@@ -464,7 +464,7 @@ impl WdaClient {
                 );
             }
             self.busy_streak.store(0, Ordering::Relaxed);
-            return VelocityError::WdaUnreachable {
+            return AtalantaError::WdaUnreachable {
                 device_id: self.device_id.clone(),
                 url: self.base_url.clone(),
                 detail: format!(
@@ -494,23 +494,23 @@ impl WdaClient {
     /// mid-way (reset, closed, timed out): a read is as good as never sent,
     /// an action may have run (IOS-N3: these used to be plain command
     /// failures, so a WDA that hung or died mid-request was never restarted).
-    fn transport_error(&self, what: &str, e: reqwest::Error, replay: bool) -> VelocityError {
+    fn transport_error(&self, what: &str, e: reqwest::Error, replay: bool) -> AtalantaError {
         let url = self.base_url.clone();
         let device_id = self.device_id.clone();
         if e.is_connect() {
-            VelocityError::WdaUnreachable {
+            AtalantaError::WdaUnreachable {
                 device_id,
                 url,
                 detail: format!("{what}: connection refused ({})", chain(&e)),
             }
         } else if replay {
-            VelocityError::WdaUnreachable {
+            AtalantaError::WdaUnreachable {
                 device_id,
                 url,
                 detail: format!("{what}: connection lost ({})", chain(&e)),
             }
         } else {
-            VelocityError::WdaLost {
+            AtalantaError::WdaLost {
                 device_id,
                 url,
                 detail: format!("{what}: {}", chain(&e)),
@@ -519,7 +519,7 @@ impl WdaClient {
     }
 
     /// Create a session (launching `bundle_id` when it isn't empty) and apply
-    /// Velocity's session settings. Returns the session id.
+    /// Atalanta's session settings. Returns the session id.
     pub async fn create_session(&mut self, bundle_id: &str) -> Result<String> {
         let url = format!("{}/session", self.base_url);
         let mut always = json!({});
@@ -528,7 +528,7 @@ impl WdaClient {
             // The session launches the app before `apply_settings` can turn
             // WDA's idle wait off: without these WDA waited up to 10 s for
             // the app to go quiet first (4.4 s for Settings on an iOS 26
-            // simulator, DV-2). Velocity settles after the launch itself.
+            // simulator, DV-2). Atalanta settles after the launch itself.
             always["shouldWaitForQuiescence"] = json!(false);
             always["waitForIdleTimeout"] = json!(0);
             if let Some(env) = self.app_env_json() {
@@ -574,7 +574,7 @@ impl WdaClient {
         Ok(session_id)
     }
 
-    /// Session settings: WDA's own waits off (Velocity settles itself),
+    /// Session settings: WDA's own waits off (Atalanta settles itself),
     /// faster typing, and (D-37) a bounded accessibility wait and snapshot
     /// depth:
     /// - `accessibilityDeadline` (seconds, from `ios.accessibilityDeadlineMs`,
@@ -583,10 +583,10 @@ impl WdaClient {
     ///   bootstrap built (older WDA crashed WKWebView content, #1290);
     ///   an explicit value always applies, 0 never sends it.
     /// - `snapshotMaxDepth` (`ios.snapshotMaxDepth`, default 60, Maestro's
-    ///   value; WDA's own default is 50), so WDA and VelocityRunner cut a
+    ///   value; WDA's own default is 50), so WDA and AtalantaRunner cut a
     ///   deep tree at the same depth.
     async fn apply_settings(&self, bundle_id: &str) -> Result<()> {
-        let frequency = velocity_common::env::var("VELOCITY_IOS_TYPING_FREQUENCY")
+        let frequency = atalanta_common::env::var("ATALANTA_IOS_TYPING_FREQUENCY")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(DEFAULT_TYPING_FREQUENCY);
@@ -599,8 +599,8 @@ impl WdaClient {
         if deadline_ms > 0 {
             settings["accessibilityDeadline"] = json!(deadline_ms as f64 / 1000.0);
         }
-        let depth = velocity_common::settings::num(
-            "VELOCITY_IOS_SNAPSHOT_MAX_DEPTH",
+        let depth = atalanta_common::settings::num(
+            "ATALANTA_IOS_SNAPSHOT_MAX_DEPTH",
             DEFAULT_SNAPSHOT_MAX_DEPTH,
         );
         if depth > 0 {
@@ -639,7 +639,7 @@ impl WdaClient {
         .map(|_| ())
     }
 
-    /// VelocityRunner only: the installed apps, one of which is in front
+    /// AtalantaRunner only: the installed apps, one of which is in front
     /// when the session has no app of its own. Sessionless (the runner
     /// keeps them across sessions).
     pub async fn set_app_candidates(&self, bundles: &[String]) -> Result<()> {
@@ -647,7 +647,7 @@ impl WdaClient {
         self.call(
             self.client
                 .post(&url)
-                .json(&json!({ "settings": { "velocityCandidates": bundles } })),
+                .json(&json!({ "settings": { "atalantaCandidates": bundles } })),
             "settings",
         )
         .await
@@ -679,7 +679,7 @@ impl WdaClient {
             )
             .await
             .map_err(|e| match e {
-                VelocityError::ElementNotFound { .. } => VelocityError::ElementNotFound {
+                AtalantaError::ElementNotFound { .. } => AtalantaError::ElementNotFound {
                     selector: format!("{using}={value}"),
                     timeout_ms: 0,
                     screenshot: None,
@@ -807,13 +807,13 @@ impl WdaClient {
     }
 
     /// The XML hierarchy. Without the costly `visible`/`accessible`
-    /// attributes unless `VELOCITY_IOS_FULL_SOURCE=1`.
+    /// attributes unless `ATALANTA_IOS_FULL_SOURCE=1`.
     pub async fn get_source(&self) -> Result<String> {
         let base = match self.session_url() {
             Ok(s) => s,
             Err(_) => self.base_url.clone(),
         };
-        let url = if velocity_common::env::var("VELOCITY_IOS_FULL_SOURCE").as_deref() == Ok("1") {
+        let url = if atalanta_common::env::var("ATALANTA_IOS_FULL_SOURCE").as_deref() == Ok("1") {
             format!("{base}/source")
         } else {
             format!("{base}/source?excluded_attributes=visible,accessible")
@@ -888,7 +888,7 @@ impl WdaClient {
     }
 
     /// The bundle id of the app in front (`/wda/activeAppInfo`); `None`
-    /// when the runner can't tell (VelocityRunner).
+    /// when the runner can't tell (AtalantaRunner).
     pub async fn active_bundle(&self) -> Option<String> {
         let reply = self
             .send(
@@ -905,7 +905,7 @@ impl WdaClient {
     }
 
     /// `XCUIApplication.state` of `bundle_id` (`/wda/apps/state`; WDA and
-    /// VelocityRunner): 1 not running, 2 suspended, 3 background,
+    /// AtalantaRunner): 1 not running, 2 suspended, 3 background,
     /// 4 foreground. `None` when the runner can't tell (an older runner
     /// without the route, or any failure).
     pub async fn app_state(&self, bundle_id: &str) -> Option<u8> {
@@ -988,7 +988,7 @@ impl WdaClient {
                 .filter(|v| *v > 0)
         };
         let (Some(w), Some(h)) = (dim("width"), dim("height")) else {
-            return Err(VelocityError::CommandFailed {
+            return Err(AtalantaError::CommandFailed {
                 device_id: self.device_id.clone(),
                 command: "window size".into(),
                 detail: format!("WDA gave no usable window size: {value}"),
@@ -999,12 +999,12 @@ impl WdaClient {
         Ok(size)
     }
 
-    /// D-38 (`ios.verifyTap`): what VelocityRunner says is drawn at
+    /// D-38 (`ios.verifyTap`): what AtalantaRunner says is drawn at
     /// (`x`, `y`), from XCTest's private hit test. `Ok(None)` when it can't
     /// say: WebDriverAgent has no such route, or the private API is
     /// missing on this iOS. Replay-safe (it only reads).
     pub async fn hit_test(&self, x: f64, y: f64) -> Result<Option<HitTest>> {
-        let url = format!("{}/velocity/hitTest", self.session_url()?);
+        let url = format!("{}/atalanta/hitTest", self.session_url()?);
         let reply = self
             .send(
                 self.client.post(&url).json(&json!({ "x": x, "y": y })),
@@ -1370,7 +1370,7 @@ impl WdaClient {
             .map(String::from)
     }
 
-    /// Re-apply Velocity's settings, pointing queries at `bundle_id`.
+    /// Re-apply Atalanta's settings, pointing queries at `bundle_id`.
     pub async fn retarget(&self, bundle_id: &str) -> Result<()> {
         self.apply_settings(bundle_id).await
     }
@@ -1434,7 +1434,7 @@ fn hit_node(e: &Value) -> Option<HitElement> {
         element_type: e["type"].as_str().unwrap_or("Other").to_string(),
         label: e["label"].as_str().unwrap_or("").to_string(),
         identifier: e["identifier"].as_str().unwrap_or("").to_string(),
-        bounds: velocity_common::Rect {
+        bounds: atalanta_common::Rect {
             x: n("x"),
             y: n("y"),
             width: n("width"),
@@ -1494,7 +1494,7 @@ fn replay_safe(method: &reqwest::Method, path: &str) -> bool {
             && (path.ends_with("/element")
                 || path.ends_with("/elements")
                 || path.ends_with("/appium/settings")
-                || path.ends_with("/velocity/hitTest")))
+                || path.ends_with("/atalanta/hitTest")))
 }
 
 /// The first 200 bytes of a body, for an error message.
@@ -1681,8 +1681,8 @@ mod tests {
 
     #[test]
     fn a_crash_message_names_the_app() {
-        let msg = "The application under test with bundle id 'com.velocity.lab' is not running, possibly crashed";
-        assert_eq!(crashed_app(msg).as_deref(), Some("com.velocity.lab"));
+        let msg = "The application under test with bundle id 'com.atalanta.lab' is not running, possibly crashed";
+        assert_eq!(crashed_app(msg).as_deref(), Some("com.atalanta.lab"));
         assert_eq!(crashed_app("Element not found"), None);
     }
 
@@ -1764,7 +1764,7 @@ mod tests {
     }
 
     // DV-2: WDA waited for the app to go quiet inside the launch request
-    // (4.4 s for Settings on an iOS 26 simulator); Velocity settles itself.
+    // (4.4 s for Settings on an iOS 26 simulator); Atalanta settles itself.
     #[tokio::test]
     async fn a_launch_skips_wdas_idle_wait() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1817,10 +1817,10 @@ mod tests {
         client.set_session_id("s".into());
         let err = client.get_source().await.unwrap_err();
         assert!(
-            matches!(err, VelocityError::WdaUnreachable { .. }),
+            matches!(err, AtalantaError::WdaUnreachable { .. }),
             "{err:?}"
         );
-        assert_eq!(err.kind(), velocity_common::ErrorKind::ConnectionLost);
+        assert_eq!(err.kind(), atalanta_common::ErrorKind::ConnectionLost);
     }
 }
 

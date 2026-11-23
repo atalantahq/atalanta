@@ -2,9 +2,9 @@
 //! a structural hash (stuck detection, "seen before"), a title (history
 //! lines), and which texts are too volatile to assert on.
 
-use velocity_common::selector_build::{robust_selector, stable_id};
-use velocity_common::{Element, Platform, Rect, Selector};
-use velocity_nl::ScreenIndex;
+use atalanta_common::selector_build::{robust_selector, stable_id};
+use atalanta_common::{Element, Platform, Rect, Selector};
+use atalanta_nl::ScreenIndex;
 
 /// One look at the screen.
 pub struct Observation {
@@ -94,7 +94,7 @@ impl Observation {
     /// clone copied each match's whole subtree (review 04 #2).
     pub fn matches(&self, sel: &Selector) -> Vec<&Element> {
         let mut found =
-            velocity_common::selector_match::find_all_ref(&self.root, sel, self.rect.as_ref());
+            atalanta_common::selector_match::find_all_ref(&self.root, sel, self.rect.as_ref());
         found.retain(|m| m.visible && !m.bounds.is_empty());
         found
     }

@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -45,11 +45,11 @@ impl Drop for Daemon {
 }
 
 fn start_daemon(dir: &Path) -> Daemon {
-    let child = Command::new(velocity())
+    let child = Command::new(atalanta())
         .args(["daemon", "start"])
         .current_dir(dir)
-        .env("VELOCITY_DAEMON_SOCKET", dir.join("d.sock"))
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_DAEMON_SOCKET", dir.join("d.sock"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -74,12 +74,12 @@ fn suite(path: &Path, ms: u64) {
     .unwrap();
 }
 
-/// Send a run request for `argv` the way `velocity run --daemon` does.
+/// Send a run request for `argv` the way `atalanta run --daemon` does.
 fn request_run(dir: &Path, argv: &[&str]) -> UnixStream {
     let mut s = UnixStream::connect(dir.join("d.sock")).unwrap();
     let mut env: Vec<(String, String)> = std::env::vars().collect();
     env.push((
-        "VELOCITY_LEASE_DIR".into(),
+        "ATALANTA_LEASE_DIR".into(),
         dir.join("leases").to_string_lossy().into_owned(),
     ));
     env.push(("NO_COLOR".into(), "1".into()));

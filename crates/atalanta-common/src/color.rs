@@ -1,9 +1,9 @@
-//! One colour switch for everything Velocity prints (C4, VEL-174).
+//! One colour switch for everything Atalanta prints (C4, VEL-174).
 //!
 //! The CLI printed through `colored` (which only looked at `NO_COLOR`,
 //! `CLICOLOR` and a TTY on its own), the runner wrote raw ANSI escapes
 //! whatever the terminal, and log lines on stderr had their own rule. Now
-//! one decision, made once per process (per run under `velocity daemon`),
+//! one decision, made once per process (per run under `atalanta daemon`),
 //! is read by all of them:
 //!
 //! 1. `--color always|never` wins;
@@ -82,7 +82,7 @@ pub fn init(choice: ColorChoice) -> bool {
     on
 }
 
-/// Set the decision outright (`velocity daemon` uses the client's).
+/// Set the decision outright (`atalanta daemon` uses the client's).
 pub fn set(on: bool) {
     STDOUT.store(if on { ON } else { OFF }, Ordering::SeqCst);
 }

@@ -1,4 +1,4 @@
-//! `velocity init`: from nothing to a first passing test.
+//! `atalanta init`: from nothing to a first passing test.
 //!
 //! Finds a running device, picks the app (the one in front, or the user's
 //! choice), launches it, reads its first screen and writes a suite whose
@@ -19,12 +19,12 @@ use std::io::{BufRead, IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use atalanta_common::selector_build::stable_id;
+use atalanta_common::selector_match::{is_volatile_id, match_count, min_visible_area, shown_with};
+use atalanta_common::{DeviceState, Element, Platform, PlatformDriver, Rect, Selector};
 use clap::Args;
 use colored::Colorize;
 use serde_yaml::{Mapping, Value};
-use velocity_common::selector_build::stable_id;
-use velocity_common::selector_match::{is_volatile_id, match_count, min_visible_area, shown_with};
-use velocity_common::{DeviceState, Element, Platform, PlatformDriver, Rect, Selector};
 
 use super::create_driver;
 
@@ -50,7 +50,7 @@ pub struct InitArgs {
     device: Option<String>,
 
     /// Folder for the suite (relative to the current directory)
-    #[arg(long, default_value = "velocity", value_name = "PATH")]
+    #[arg(long, default_value = "atalanta", value_name = "PATH")]
     dir: PathBuf,
 
     /// Don't ask anything: take the defaults (for CI and scripts)
@@ -65,12 +65,12 @@ pub struct InitArgs {
     #[arg(long)]
     run: bool,
 
-    /// Also write a `velocity-impact.yaml` stub (for `run --changed-since`)
+    /// Also write a `atalanta-impact.yaml` stub (for `run --changed-since`)
     #[arg(long)]
     impact: bool,
 
     /// Write the CI workflow itself instead of an example: `github` writes
-    /// .github/workflows/velocity.yml (the Velocity Action, two shards and a
+    /// .github/workflows/atalanta.yml (the Atalanta Action, two shards and a
     /// results check)
     #[arg(long, value_name = "github", value_parser = ["github"])]
     ci: Option<String>,
@@ -119,14 +119,14 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
                         Platform::Web
                     } else {
                         return Err(super::no_device(
-                            "no running device: boot one (`velocity devices up --android 1` or `--ios 1`) and run `velocity init` again",
+                            "no running device: boot one (`atalanta devices up --android 1` or `--ios 1`) and run `atalanta init` again",
                             vec![],
                         ));
                     }
                 }
                 0 => {
                     return Err(super::no_device(
-                        "no running device: boot one (`velocity devices up --android 1` or `--ios 1`), or pass --platform web --url <URL>",
+                        "no running device: boot one (`atalanta devices up --android 1` or `--ios 1`), or pass --platform web --url <URL>",
                         vec![],
                     ))
                 }
@@ -162,7 +162,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
                     0 => {
                         return Err(super::no_device(
                             &format!(
-                                "no running {platform} device: boot one (`velocity devices up --{platform} 1`)"
+                                "no running {platform} device: boot one (`atalanta devices up --{platform} 1`)"
                             ),
                             vec![],
                         ))
@@ -188,7 +188,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
         _ => unreachable!("native platforms have a device"),
     };
     if platform == Platform::Android {
-        velocity_android::shell::validate_app_id(&app_id).map_err(|e| usage_err!("{e}"))?;
+        atalanta_android::shell::validate_app_id(&app_id).map_err(|e| usage_err!("{e}"))?;
     }
 
     // 3. Where the files go; refuse to overwrite before touching the device.
@@ -202,11 +202,11 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     let suite_path = dir.join(format!("{slug}.yaml"));
     let real_ci = args.ci.is_some();
     let ci_path = if real_ci {
-        cwd.join(".github").join("workflows").join("velocity.yml")
+        cwd.join(".github").join("workflows").join("atalanta.yml")
     } else {
         dir.join("ci").join("github-actions.example.yml")
     };
-    let impact_path = dir.join("velocity-impact.yaml");
+    let impact_path = dir.join("atalanta-impact.yaml");
     // Not asked: before the first test exists the question means nothing.
     // The next steps mention it instead.
     let want_impact = args.impact;
@@ -255,7 +255,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     };
     if picks.is_empty() {
         println!(
-            "  {} found nothing stable to assert on the first screen; the test only launches the app (add assertions with `velocity inspect`)",
+            "  {} found nothing stable to assert on the first screen; the test only launches the app (add assertions with `atalanta inspect`)",
             "!".yellow()
         );
     } else {
@@ -271,20 +271,20 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     let mut notes = Vec::new();
     write_file(&suite_path, &suite, &cwd, &mut created)?;
     // The schema the suite's modeline points at. A different one already
-    // there (an older Velocity's) is kept unless --force.
+    // there (an older Atalanta's) is kept unless --force.
     let schema_path = dir.join(SCHEMA_FILE);
     let schema = schema_json()?;
     match std::fs::read_to_string(&schema_path) {
         Ok(old) if old == schema => {}
         Ok(_) if !args.force => notes.push(format!(
-            "kept {} (refresh it with --force or `velocity schema > {0}`)",
+            "kept {} (refresh it with --force or `atalanta schema > {0}`)",
             shown(&schema_path, &cwd)
         )),
         _ => write_file(&schema_path, &schema, &cwd, &mut created)?,
     }
     // Re-read from disk the way `run` will: the file, not the string.
-    let (parsed, pos) = velocity_core::parse_suite_with_positions(&suite_path.to_string_lossy())?;
-    velocity_core::validate_suite_at(&parsed, &pos)?;
+    let (parsed, pos) = atalanta_core::parse_suite_with_positions(&suite_path.to_string_lossy())?;
+    atalanta_core::validate_suite_at(&parsed, &pos)?;
     let suite_rel = shown(&suite_path, &cwd);
     let dir_rel = shown(&dir, &cwd);
     write_file(
@@ -303,7 +303,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     }
     match update_gitignore(&cwd)? {
         GitIgnore::Created => created.push(".gitignore".into()),
-        GitIgnore::Updated => created.push(".gitignore (added velocity-results/)".into()),
+        GitIgnore::Updated => created.push(".gitignore (added atalanta-results/)".into()),
         GitIgnore::Unchanged => {}
     }
     match update_vscode_settings(&cwd, &dir) {
@@ -329,7 +329,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     let mut code = 0;
     if run_now {
         println!();
-        println!("{} velocity run {suite_rel}", "=>".cyan().bold());
+        println!("{} atalanta run {suite_rel}", "=>".cyan().bold());
         let mut cmd = std::process::Command::new(std::env::current_exe()?);
         cmd.arg("run").arg(&suite_path);
         if let Some(d) = &device {
@@ -340,13 +340,13 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
         println!();
         if code == 0 {
             println!(
-                "{} Green in {:.1} s from `velocity init`.",
+                "{} Green in {:.1} s from `atalanta init`.",
                 "✓".green().bold(),
                 started.elapsed().as_secs_f64()
             );
         } else {
             println!(
-                "{} The first run failed (exit {code}). velocity-results/failures.md says which step and why; `velocity trace view velocity-results` replays it; `velocity doctor` checks this machine.",
+                "{} The first run failed (exit {code}). atalanta-results/failures.md says which step and why; `atalanta trace view atalanta-results` replays it; `atalanta doctor` checks this machine.",
                 "✗".red().bold()
             );
         }
@@ -358,7 +358,7 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
     if !run_now {
         steps.push((
             format!(
-                "velocity run {suite_rel}{}",
+                "atalanta run {suite_rel}{}",
                 device
                     .as_deref()
                     .map(|d| format!(" -d {d}"))
@@ -368,28 +368,28 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
         ));
     }
     steps.push((
-        "velocity inspect".into(),
+        "atalanta inspect".into(),
         "pick selectors from the live screen",
     ));
     steps.push((
-        format!("velocity run {dir_rel}/"),
+        format!("atalanta run {dir_rel}/"),
         "run every suite in the folder",
     ));
-    steps.push(("velocity doctor".into(), "check this machine and project"));
+    steps.push(("atalanta doctor".into(), "check this machine and project"));
     if !want_impact {
         steps.push((
-            format!("{dir_rel}/velocity-impact.yaml"),
+            format!("{dir_rel}/atalanta-impact.yaml"),
             "map tests to source paths, then `run --changed-since main` runs only what a change affects",
         ));
     }
     if platform != Platform::Web {
         steps.push((
-            format!("velocity explore \"<goal>\" --app-id {app_id}"),
+            format!("atalanta explore \"<goal>\" --app-id {app_id}"),
             "let an AI agent write the next test from a goal",
         ));
     }
     steps.push((
-        "velocity mcp install".into(),
+        "atalanta mcp install".into(),
         "let an AI agent drive your devices (MCP)",
     ));
     let w = steps
@@ -405,23 +405,23 @@ pub async fn execute(args: InitArgs) -> anyhow::Result<i32> {
 
 // ── Devices and apps ────────────────────────────────────────────────────
 
-/// Whether an iOS runner (WebDriverAgent or VelocityRunner) was ever
-/// built here: `~/.velocity/wda` has something in it. Only for the
+/// Whether an iOS runner (WebDriverAgent or AtalantaRunner) was ever
+/// built here: `~/.atalanta/wda` has something in it. Only for the
 /// "first time" note, so a cheap look is enough.
 fn ios_runner_cached() -> bool {
-    let home = velocity_common::env::var("HOME").unwrap_or_default();
-    std::fs::read_dir(std::path::Path::new(&home).join(".velocity").join("wda"))
+    let home = atalanta_common::env::var("HOME").unwrap_or_default();
+    std::fs::read_dir(std::path::Path::new(&home).join(".atalanta").join("wda"))
         .is_ok_and(|mut d| d.next().is_some())
 }
 
 /// Booted devices of `platforms` (simulators only for iOS: listing real
 /// iPhones can take 30 s; pass `--device` for one).
-async fn running_devices(platforms: &[Platform]) -> Vec<(Platform, velocity_common::DeviceInfo)> {
+async fn running_devices(platforms: &[Platform]) -> Vec<(Platform, atalanta_common::DeviceInfo)> {
     let mut out = Vec::new();
     for p in platforms {
         let listed = match p {
-            Platform::Ios => velocity_ios::simctl::Simctl::new().list_devices().await,
-            Platform::Android => velocity_android::adb::Adb::new().list_devices().await,
+            Platform::Ios => atalanta_ios::simctl::Simctl::new().list_devices().await,
+            Platform::Android => atalanta_android::adb::Adb::new().list_devices().await,
             Platform::Web => Ok(vec![]),
         };
         for d in listed.unwrap_or_default() {
@@ -499,7 +499,7 @@ async fn pick_app(platform: Platform, device: &str, prompt: &mut Prompt) -> anyh
 
 /// Third-party packages and the foreground app (not a launcher or System UI).
 async fn android_apps(device: &str) -> (Vec<(String, Option<String>)>, Option<String>) {
-    let adb = velocity_android::adb::Adb::new();
+    let adb = atalanta_android::adb::Adb::new();
     let packages = adb
         .run_device(device, &["shell", "pm", "list", "packages", "-3"])
         .await
@@ -541,10 +541,10 @@ fn android_foreground(dumpsys: &str) -> Option<String> {
 async fn ios_apps(device: &str) -> (Vec<(String, Option<String>)>, Option<String>) {
     let run = |args: Vec<String>| async move {
         let mut cmd = tokio::process::Command::new(
-            velocity_common::env::var("VELOCITY_XCRUN_PATH").unwrap_or_else(|_| "xcrun".into()),
+            atalanta_common::env::var("ATALANTA_XCRUN_PATH").unwrap_or_else(|_| "xcrun".into()),
         );
         cmd.args(&args);
-        velocity_common::process::output_with_timeout(&mut cmd, Duration::from_secs(15))
+        atalanta_common::process::output_with_timeout(&mut cmd, Duration::from_secs(15))
             .await
             .ok()
             .filter(|o| o.status.success())
@@ -617,7 +617,7 @@ pub struct Pick {
 }
 
 /// Launch the app and read its screen until two reads agree (or 10 s).
-/// Holds the device's lease meanwhile: another Velocity run is never
+/// Holds the device's lease meanwhile: another Atalanta run is never
 /// disturbed.
 async fn capture(
     platform: Platform,
@@ -629,9 +629,9 @@ async fn capture(
     if platform == Platform::Ios && keep_runner {
         // Leave the runner up for the `--run` that follows (it reattaches
         // instead of paying ~17 s to launch it again).
-        let mut s = velocity_common::env::settings_snapshot();
-        s.insert("VELOCITY_KEEP_WDA".into(), "1".into());
-        velocity_common::env::set_settings(s);
+        let mut s = atalanta_common::env::settings_snapshot();
+        s.insert("ATALANTA_KEEP_WDA".into(), "1".into());
+        atalanta_common::env::set_settings(s);
     }
     let driver = create_driver(platform);
     let result = read_screen(driver.as_ref(), platform, device, app_id).await;
@@ -686,13 +686,13 @@ async fn capture_web(url: &str) -> anyhow::Result<Vec<Pick>> {
 
 /// Take `device`'s cross-process lease, waiting up to a minute for a run
 /// that holds it.
-async fn lease(device: &str) -> anyhow::Result<velocity_runner::lease::DeviceLock> {
+async fn lease(device: &str) -> anyhow::Result<atalanta_runner::lease::DeviceLock> {
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut said = false;
     loop {
-        match velocity_runner::lease::try_lock(device) {
+        match atalanta_runner::lease::try_lock(device) {
             Ok(l) => return Ok(l),
-            Err(velocity_runner::lease::LeaseError::Held(holder)) if Instant::now() < deadline => {
+            Err(atalanta_runner::lease::LeaseError::Held(holder)) if Instant::now() < deadline => {
                 if !said {
                     println!("  {device} is in use ({holder}); waiting for it…");
                     said = true;
@@ -701,7 +701,7 @@ async fn lease(device: &str) -> anyhow::Result<velocity_runner::lease::DeviceLoc
             }
             Err(e) => {
                 return Err(
-                    anyhow::Error::new(velocity_common::VelocityError::DeviceNotFound {
+                    anyhow::Error::new(atalanta_common::AtalantaError::DeviceNotFound {
                         id: device.to_string(),
                         available: vec![],
                     })
@@ -980,8 +980,8 @@ pub fn suite_yaml(
         ),
     ]);
     let header = format!(
-        "Starter suite written by `velocity init`. Run it: velocity run {file}\n\
-         The assertions were read from {}'s first screen; `velocity inspect` shows\n\
+        "Starter suite written by `atalanta init`. Run it: atalanta run {file}\n\
+         The assertions were read from {}'s first screen; `atalanta inspect` shows\n\
          the live tree to pick more. Reference: docs/DSL.md (the steps and selectors).\n",
         app_id
     );
@@ -994,27 +994,27 @@ pub fn suite_yaml(
 }
 
 /// The suite JSON Schema's file name, next to the suite.
-const SCHEMA_FILE: &str = "velocity.schema.json";
+const SCHEMA_FILE: &str = "atalanta.schema.json";
 const VSCODE_SETTINGS: &str = ".vscode/settings.json";
 
 /// The modeline that points the YAML language server at the schema.
-const SCHEMA_MODELINE: &str = "# yaml-language-server: $schema=./velocity.schema.json";
+const SCHEMA_MODELINE: &str = "# yaml-language-server: $schema=./atalanta.schema.json";
 
-/// `velocity schema`'s output, for `<dir>/velocity.schema.json`.
+/// `atalanta schema`'s output, for `<dir>/atalanta.schema.json`.
 fn schema_json() -> anyhow::Result<String> {
-    Ok(serde_json::to_string_pretty(&velocity_core::schema::suite_schema())? + "\n")
+    Ok(serde_json::to_string_pretty(&atalanta_core::schema::suite_schema())? + "\n")
 }
 
 /// Parse and validate generated YAML: a bug here must never reach a file.
 fn check_suite(yaml: &str) -> anyhow::Result<()> {
-    let suite = velocity_core::parse_suite_from_str(yaml)
-        .map_err(|e| anyhow::anyhow!("velocity init generated a suite that doesn't parse: {e}"))?;
-    velocity_core::validate_suite(&suite)
-        .map_err(|e| anyhow::anyhow!("velocity init generated an invalid suite: {e}"))?;
+    let suite = atalanta_core::parse_suite_from_str(yaml)
+        .map_err(|e| anyhow::anyhow!("atalanta init generated a suite that doesn't parse: {e}"))?;
+    atalanta_core::validate_suite(&suite)
+        .map_err(|e| anyhow::anyhow!("atalanta init generated an invalid suite: {e}"))?;
     Ok(())
 }
 
-/// `velocity-impact.yaml`: nothing mapped yet (so every test still runs:
+/// `atalanta-impact.yaml`: nothing mapped yet (so every test still runs:
 /// `impact.unmapped: run`), with `test` in a commented example.
 pub fn impact_yaml(test: &str) -> String {
     // Nothing mapped yet: a test mapped to no paths would never be
@@ -1038,7 +1038,7 @@ pub fn impact_yaml(test: &str) -> String {
     format!(
         "{}\n{}\n{}\n",
         commented(
-            "Test impact map for `velocity run --changed-since <ref>`: which source paths each\n\
+            "Test impact map for `atalanta run --changed-since <ref>`: which source paths each\n\
              test exercises. Changed files select the tests mapped to them, plus tests that\n\
              failed or flaked recently, are new, or are unmapped (impact.unmapped: run).\n\
              Fill in path patterns, e.g.:"
@@ -1049,11 +1049,11 @@ pub fn impact_yaml(test: &str) -> String {
 }
 
 /// A GitHub Actions workflow to copy, for the platform.
-/// The GitHub repository the Velocity Action is published from.
-const ACTION_REPO: &str = "omkar-dev/velocity";
+/// The GitHub repository the Atalanta Action is published from.
+const ACTION_REPO: &str = "atalantahq/atalanta";
 
 /// The GitHub Actions workflow `init` writes: the suite in two shards
-/// through the Velocity Action (a pinned release, the device brought up
+/// through the Atalanta Action (a pinned release, the device brought up
 /// and retried, a device that never came up exit 3), then
 /// the Action's `check-shards` mode so a shard that died or uploaded
 /// nothing fails the run (NEW-001). `real` is
@@ -1062,22 +1062,22 @@ pub fn ci_workflow(platform: Platform, dir: &str, real: bool) -> String {
     let version = env!("CARGO_PKG_VERSION");
     let intro = if real {
         "\
-# Velocity UI tests, written by `velocity init --ci github`.
-# Two shards run through the Velocity Action (docs/CI.md); the results job
+# Atalanta UI tests, written by `atalanta init --ci github`.
+# Two shards run through the Atalanta Action (docs/CI.md); the results job
 # fails the run when a shard reported nothing.
 "
     } else {
         "\
-# Example GitHub Actions workflow written by `velocity init`.
-# Copy it to .github/workflows/velocity.yml (or run `velocity init --ci
-# github`). Two shards run through the Velocity Action (docs/CI.md); the
+# Example GitHub Actions workflow written by `atalanta init`.
+# Copy it to .github/workflows/atalanta.yml (or run `atalanta init --ci
+# github`). Two shards run through the Atalanta Action (docs/CI.md); the
 # results job fails the run when a shard reported nothing.
 "
     };
     // The tag is this binary's version: a build from source can be ahead of
     // the newest release, and then the tag does not exist yet.
     let header = format!(
-        "{intro}# Pinned to v{version}, the Velocity that wrote this file. Check the release\n\
+        "{intro}# Pinned to v{version}, the Atalanta that wrote this file. Check the release\n\
          # exists (gh release view v{version} -R {ACTION_REPO}) before relying on it.\n"
     );
     let (runs_on, name) = match platform {
@@ -1090,7 +1090,7 @@ pub fn ci_workflow(platform: Platform, dir: &str, real: bool) -> String {
     let dir_q = dir_q.trim();
     format!(
         "{header}
-name: velocity
+name: atalanta
 
 on:
   pull_request:
@@ -1136,12 +1136,12 @@ enum GitIgnore {
     Unchanged,
 }
 
-/// Velocity's run artifacts in `.gitignore`, added once.
+/// Atalanta's run artifacts in `.gitignore`, added once.
 fn update_gitignore(root: &Path) -> anyhow::Result<GitIgnore> {
     const ENTRIES: &[&str] = &[
-        "velocity-results/",
-        ".velocity/healed-selectors.json",
-        ".velocity/healer-snapshots.json",
+        "atalanta-results/",
+        ".atalanta/healed-selectors.json",
+        ".atalanta/healer-snapshots.json",
     ];
     let path = root.join(".gitignore");
     // Bytes, appended to: a `.gitignore` that is not UTF-8 (UTF-16 from a
@@ -1166,7 +1166,7 @@ fn update_gitignore(root: &Path) -> anyhow::Result<GitIgnore> {
     if !existing.is_empty() && !existing.ends_with(b"\n") {
         add.push('\n');
     }
-    add.push_str("# Velocity: run reports, traces, screenshots, history; local heal state\n");
+    add.push_str("# Atalanta: run reports, traces, screenshots, history; local heal state\n");
     for m in missing {
         add.push_str(m);
         add.push('\n');
@@ -1372,7 +1372,7 @@ impl Prompt {
 mod tests {
     /// A `.gitignore` that is not UTF-8 (UTF-16 from a Windows shell, a
     /// Latin-1 comment) used to read as empty and be overwritten with
-    /// Velocity's three lines: every rule the user had was gone.
+    /// Atalanta's three lines: every rule the user had was gone.
     #[test]
     fn a_gitignore_that_is_not_utf8_keeps_its_bytes() {
         let dir = tempfile::tempdir().unwrap();
@@ -1383,7 +1383,7 @@ mod tests {
         let after = std::fs::read(&path).unwrap();
         assert!(after.starts_with(&original), "{after:?}");
         assert!(
-            String::from_utf8_lossy(&after).contains("velocity-results/"),
+            String::from_utf8_lossy(&after).contains("atalanta-results/"),
             "{after:?}"
         );
     }
@@ -1552,13 +1552,13 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/golden/init")
             .join(name);
-        if std::env::var_os("VELOCITY_BLESS").is_some() {
+        if std::env::var_os("ATALANTA_BLESS").is_some() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, actual).unwrap();
         }
         let want = std::fs::read_to_string(&path)
-            .unwrap_or_else(|_| panic!("{} missing: run with VELOCITY_BLESS=1", path.display()));
-        assert_eq!(actual, want, "{name} changed: VELOCITY_BLESS=1 to accept");
+            .unwrap_or_else(|_| panic!("{} missing: run with ATALANTA_BLESS=1", path.display()));
+        assert_eq!(actual, want, "{name} changed: ATALANTA_BLESS=1 to accept");
     }
 
     #[test]
@@ -1575,7 +1575,7 @@ mod tests {
             "com.android.settings",
             Platform::Android,
             "settings",
-            "velocity/settings.yaml",
+            "atalanta/settings.yaml",
             &picks,
         );
         check_suite(&suite).unwrap();
@@ -1585,7 +1585,7 @@ mod tests {
             "com.apple.Preferences",
             Platform::Ios,
             "preferences",
-            "velocity/preferences.yaml",
+            "atalanta/preferences.yaml",
             &[Pick {
                 selector: Selector::Id("General".into()),
             }],
@@ -1603,31 +1603,31 @@ mod tests {
                 selector: Selector::Text("yes: \"no\" # really".into()),
             }],
         );
-        let parsed = velocity_core::parse_suite_from_str(&tricky).unwrap();
+        let parsed = atalanta_core::parse_suite_from_str(&tricky).unwrap();
         match &parsed.tests[0].steps[1].action {
-            velocity_common::Action::AssertVisible { selector } => {
+            atalanta_common::Action::AssertVisible { selector } => {
                 assert_eq!(selector, &Selector::Text("yes: \"no\" # really".into()))
             }
             other => panic!("{other:?}"),
         }
 
         let impact = impact_yaml("settings opens on its first screen");
-        let m: velocity_core::impact::ImpactMapping = serde_yaml::from_str(&impact).unwrap();
+        let m: atalanta_core::impact::ImpactMapping = serde_yaml::from_str(&impact).unwrap();
         assert!(
             m.tests.is_empty(),
             "an empty mapping would deselect the test"
         );
         assert!(impact.contains("#   settings opens on its first screen:"));
-        golden("velocity-impact.yaml", &impact);
+        golden("atalanta-impact.yaml", &impact);
 
-        let ci = ci_workflow(Platform::Android, "velocity", false);
+        let ci = ci_workflow(Platform::Android, "atalanta", false);
         let _: Value = serde_yaml::from_str(&ci).expect("the CI example is YAML");
         assert!(ci.contains("shard: ${{ matrix.shard }}/2"), "{ci}");
         assert!(ci.contains(&format!("version: {}", env!("CARGO_PKG_VERSION"))));
         assert!(ci.contains("check-shards: 2"), "{ci}");
-        let real = ci_workflow(Platform::Web, "velocity", true);
+        let real = ci_workflow(Platform::Web, "atalanta", true);
         let _: Value = serde_yaml::from_str(&real).expect("the workflow is YAML");
-        assert!(real.contains("velocity init --ci github") && real.contains("platform: web"));
+        assert!(real.contains("atalanta init --ci github") && real.contains("platform: web"));
         golden("github-actions.android.yml", &ci);
         for p in [Platform::Ios, Platform::Web] {
             let _: Value = serde_yaml::from_str(&ci_workflow(p, "my tests", false)).unwrap();
@@ -1663,7 +1663,7 @@ mod tests {
 
     #[test]
     fn ios_user_apps_come_from_the_listapps_plist() {
-        let plist = "{\n    \"com.apple.Bridge\" =     {\n        ApplicationType = System;\n        CFBundleDisplayName = Watch;\n    };\n    \"com.example.shop\" =     {\n        ApplicationType = User;\n        CFBundleDisplayName = \"My Shop\";\n        GroupContainers =         {\n        };\n    };\n    \"dev.velocity.runner.xctrunner\" =     {\n        ApplicationType = User;\n    };\n}\n";
+        let plist = "{\n    \"com.apple.Bridge\" =     {\n        ApplicationType = System;\n        CFBundleDisplayName = Watch;\n    };\n    \"com.example.shop\" =     {\n        ApplicationType = User;\n        CFBundleDisplayName = \"My Shop\";\n        GroupContainers =         {\n        };\n    };\n    \"dev.atalanta.runner.xctrunner\" =     {\n        ApplicationType = User;\n    };\n}\n";
         assert_eq!(
             ios_user_apps(plist),
             vec![("com.example.shop".to_string(), Some("My Shop".to_string()))]
@@ -1676,13 +1676,13 @@ mod tests {
             "com.example.app",
             Platform::Android,
             "app",
-            "velocity/app.yaml",
+            "atalanta/app.yaml",
             &[],
         );
         assert_eq!(suite.lines().next(), Some(SCHEMA_MODELINE));
         check_suite(&suite).unwrap();
         let schema: serde_json::Value = serde_json::from_str(&schema_json().unwrap()).unwrap();
-        assert_eq!(schema, velocity_core::schema::suite_schema());
+        assert_eq!(schema, atalanta_core::schema::suite_schema());
     }
 
     fn vscode(root: &Path) -> serde_json::Value {
@@ -1692,7 +1692,7 @@ mod tests {
     #[test]
     fn vscode_settings_are_created_when_absent() {
         let root = tempfile::tempdir().unwrap();
-        let dir = root.path().join("velocity");
+        let dir = root.path().join("atalanta");
         assert!(matches!(
             update_vscode_settings(root.path(), &dir).unwrap(),
             VsCode::Created
@@ -1700,7 +1700,7 @@ mod tests {
         assert_eq!(
             vscode(root.path()),
             serde_json::json!({ "yaml.schemas": {
-                "./velocity/velocity.schema.json": ["velocity/**/*.yaml"]
+                "./atalanta/atalanta.schema.json": ["atalanta/**/*.yaml"]
             }})
         );
         // Twice: nothing to add.
@@ -1712,16 +1712,16 @@ mod tests {
         assert_eq!(
             vscode_schema_key(root.path(), &root.path().join("e2e/./ui")),
             Some((
-                "./e2e/ui/velocity.schema.json".into(),
+                "./e2e/ui/atalanta.schema.json".into(),
                 "e2e/ui/**/*.yaml".into()
             ))
         );
         assert_eq!(
             vscode_schema_key(root.path(), root.path()),
-            Some(("./velocity.schema.json".into(), "**/*.yaml".into()))
+            Some(("./atalanta.schema.json".into(), "**/*.yaml".into()))
         );
         assert!(matches!(
-            update_vscode_settings(root.path(), Path::new("/elsewhere/velocity")).unwrap(),
+            update_vscode_settings(root.path(), Path::new("/elsewhere/atalanta")).unwrap(),
             VsCode::Skipped(_)
         ));
     }
@@ -1729,7 +1729,7 @@ mod tests {
     #[test]
     fn vscode_settings_are_merged_keeping_every_key() {
         let root = tempfile::tempdir().unwrap();
-        let dir = root.path().join("velocity");
+        let dir = root.path().join("atalanta");
         std::fs::create_dir_all(root.path().join(".vscode")).unwrap();
         let path = root.path().join(VSCODE_SETTINGS);
 
@@ -1750,7 +1750,7 @@ mod tests {
             serde_json::json!({
                 "editor.tabSize": 4,
                 "a.b": [1, 2],
-                "yaml.schemas": { "./velocity/velocity.schema.json": ["velocity/**/*.yaml"] }
+                "yaml.schemas": { "./atalanta/atalanta.schema.json": ["atalanta/**/*.yaml"] }
             })
         );
 
@@ -1760,7 +1760,7 @@ mod tests {
         assert_eq!(
             vscode(root.path()),
             serde_json::json!({ "yaml.schemas": {
-                "./velocity/velocity.schema.json": ["velocity/**/*.yaml"]
+                "./atalanta/atalanta.schema.json": ["atalanta/**/*.yaml"]
             }})
         );
 
@@ -1780,13 +1780,13 @@ mod tests {
                 "x": true,
                 "yaml.schemas": {
                     "other.json": "ci/*.yml",
-                    "./velocity/velocity.schema.json": ["velocity/**/*.yaml"]
+                    "./atalanta/atalanta.schema.json": ["atalanta/**/*.yaml"]
                 }
             })
         );
 
         // The user's own mapping for our schema is never replaced.
-        let mine = r#"{"yaml.schemas": {"./velocity/velocity.schema.json": "tests/*.yaml"}}"#;
+        let mine = r#"{"yaml.schemas": {"./atalanta/atalanta.schema.json": "tests/*.yaml"}}"#;
         std::fs::write(&path, mine).unwrap();
         assert!(matches!(
             update_vscode_settings(root.path(), &dir).unwrap(),
@@ -1798,7 +1798,7 @@ mod tests {
     #[test]
     fn jsonc_or_odd_vscode_settings_are_left_alone() {
         let root = tempfile::tempdir().unwrap();
-        let dir = root.path().join("velocity");
+        let dir = root.path().join("atalanta");
         std::fs::create_dir_all(root.path().join(".vscode")).unwrap();
         let path = root.path().join(VSCODE_SETTINGS);
         for text in [
@@ -1820,7 +1820,7 @@ mod tests {
         }
         assert_eq!(
             vscode_entry(root.path(), &dir).unwrap(),
-            r#"{"yaml.schemas":{"./velocity/velocity.schema.json":["velocity/**/*.yaml"]}}"#
+            r#"{"yaml.schemas":{"./atalanta/atalanta.schema.json":["atalanta/**/*.yaml"]}}"#
         );
     }
 
@@ -1840,7 +1840,7 @@ mod tests {
         ));
         let text = std::fs::read_to_string(dir.join(".gitignore")).unwrap();
         assert!(text.starts_with("target/\n#"), "{text}");
-        assert_eq!(text.matches("velocity-results/").count(), 1);
+        assert_eq!(text.matches("atalanta-results/").count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

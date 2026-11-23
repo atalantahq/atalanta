@@ -1,4 +1,4 @@
-use velocity_common::Result;
+use atalanta_common::Result;
 
 /// Lightweight test header extracted without full YAML parsing.
 /// Used for fast test discovery, filtering, and sharding decisions.

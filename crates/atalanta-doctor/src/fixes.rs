@@ -1,4 +1,4 @@
-//! `velocity doctor --fix`: apply the fixes marked `safe_auto`.
+//! `atalanta doctor --fix`: apply the fixes marked `safe_auto`.
 
 use std::time::Duration;
 
@@ -107,7 +107,7 @@ async fn apply(ctx: &Ctx, action: &SafeAction) -> (bool, String) {
             let mut removed = 0;
             let mut errors = Vec::new();
             for p in paths {
-                match velocity_runner::lease::clear_stale(p) {
+                match atalanta_runner::lease::clear_stale(p) {
                     Ok(true) => removed += 1,
                     Ok(false) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -132,7 +132,7 @@ async fn apply(ctx: &Ctx, action: &SafeAction) -> (bool, String) {
             // Only when the device's lease is free (the doc says so, and the
             // `--deep` probe does the same): another run or agent may be
             // using the jar this removes. Held while the jar is replaced.
-            let _lease = match velocity_runner::lease::try_lock(device) {
+            let _lease = match atalanta_runner::lease::try_lock(device) {
                 Ok(l) => l,
                 Err(e) => {
                     return (
@@ -141,7 +141,7 @@ async fn apply(ctx: &Ctx, action: &SafeAction) -> (bool, String) {
                     )
                 }
             };
-            let server = velocity_android::tree_server::TreeServer::new()
+            let server = atalanta_android::tree_server::TreeServer::new()
                 .with_adb_path(adb.to_string_lossy().into_owned());
             match tokio::time::timeout(Duration::from_secs(30), server.repush(device)).await {
                 Ok(Ok(jar)) => (true, format!("pushed the tree server to {device}:{jar}")),
@@ -168,7 +168,7 @@ mod tests {
         let leases = t.path("leases");
         std::fs::create_dir_all(&leases).unwrap();
         let stale = leases.join("emulator-5554.lock");
-        std::fs::write(&stale, "pid=999999997 cmd=velocity run\n").unwrap();
+        std::fs::write(&stale, "pid=999999997 cmd=atalanta run\n").unwrap();
         let report = Report::new(
             vec![
                 Check::fail("android.adb_server", Area::Android, "wedged")
@@ -219,17 +219,17 @@ mod tests {
         struct Restore(std::collections::HashMap<String, String>);
         impl Drop for Restore {
             fn drop(&mut self) {
-                velocity_common::env::set_settings(std::mem::take(&mut self.0));
+                atalanta_common::env::set_settings(std::mem::take(&mut self.0));
             }
         }
-        let _restore = Restore(velocity_common::env::settings_snapshot());
-        velocity_common::env::set_settings(std::collections::HashMap::from([(
-            "VELOCITY_LEASE_DIR".to_string(),
+        let _restore = Restore(atalanta_common::env::settings_snapshot());
+        atalanta_common::env::set_settings(std::collections::HashMap::from([(
+            "ATALANTA_LEASE_DIR".to_string(),
             leases.to_string_lossy().into_owned(),
         )]));
         // A lease held by another open file description, as another
         // process's would be.
-        let held = velocity_runner::lease::try_lock("emulator-5554").unwrap();
+        let held = atalanta_runner::lease::try_lock("emulator-5554").unwrap();
         let (ok, message) = apply(
             &Ctx {
                 opts: Options {
@@ -261,9 +261,9 @@ mod tests {
         t.tool("adb", &format!("echo \"$*\" >> '{}'", log.display()));
         let leases = t.path("leases");
         std::fs::create_dir_all(&leases).unwrap();
-        t.set("VELOCITY_LEASE_DIR", &leases.to_string_lossy());
+        t.set("ATALANTA_LEASE_DIR", &leases.to_string_lossy());
         let path = leases.join("emulator-5554.lock");
-        std::fs::write(&path, "pid=1 cmd=velocity run\n").unwrap();
+        std::fs::write(&path, "pid=1 cmd=atalanta run\n").unwrap();
         let f = std::fs::File::options()
             .read(true)
             .write(true)

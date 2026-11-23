@@ -1,4 +1,4 @@
-package dev.velocity.echo;
+package dev.atalanta.echo;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -36,7 +36,7 @@ public class MainActivity extends Activity {
         android.os.Bundle extras = getIntent().getExtras();
 
         TextView title = new TextView(this);
-        title.setText("Velocity Echo");
+        title.setText("Atalanta Echo");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
         title.setTextIsSelectable(false);
         layout.addView(title);

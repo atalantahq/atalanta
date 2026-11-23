@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
-use velocity_common::{
-    DeviceInfo, Platform, PlatformDriver, ResourceSnapshot, Result, TestResult, TestStatus,
-    VelocityError,
+use atalanta_common::{
+    AtalantaError, DeviceInfo, Platform, PlatformDriver, ResourceSnapshot, Result, TestResult,
+    TestStatus,
 };
+use serde::{Deserialize, Serialize};
 
-pub const HISTORY_FILENAME: &str = "velocity-history.json";
+pub const HISTORY_FILENAME: &str = "atalanta-history.json";
 
 /// Version of the history file this code writes.
 ///
@@ -17,7 +17,7 @@ pub const HISTORY_FILENAME: &str = "velocity-history.json";
 ///   outcomes are that aggregate, and per-device history starts empty.
 /// - 3: adds `failureKinds`, what each recent failed or flaky run failed on
 ///   ([`FailureKind`]). A version-2 file migrates as is: its failures are
-///   of unknown kind. An older Velocity reads a version-3 file and drops
+///   of unknown kind. An older Atalanta reads a version-3 file and drops
 ///   the field when it rewrites it, which reads back the same way.
 pub const HISTORY_VERSION: u32 = 3;
 
@@ -60,7 +60,7 @@ pub enum FailureKind {
     Infrastructure,
     Http,
     Other,
-    /// Recorded before kinds were, or a kind a newer Velocity wrote: one
+    /// Recorded before kinds were, or a kind a newer Atalanta wrote: one
     /// unknown name must not make the whole file unreadable.
     #[serde(other)]
     Unknown,
@@ -449,7 +449,7 @@ impl TestHistory {
     }
 
     /// Median of the known durations; 5 s with none. 0 ms entries (a
-    /// cached pass recorded by an older Velocity) are not durations.
+    /// cached pass recorded by an older Atalanta) are not durations.
     pub fn median_ms(&self) -> u64 {
         let mut all: Vec<u64> = self
             .durations
@@ -475,7 +475,7 @@ impl TestHistory {
 
 /// Load test history from a JSON file at the given directory path.
 ///
-/// The file is expected at `{path}/velocity-history.json`. Returns an empty
+/// The file is expected at `{path}/atalanta-history.json`. Returns an empty
 /// history if the file does not exist.
 pub fn load(path: &str) -> Result<TestHistory> {
     let file_path = std::path::Path::new(path).join(HISTORY_FILENAME);
@@ -486,7 +486,7 @@ pub fn load(path: &str) -> Result<TestHistory> {
 }
 
 /// Load a history file by its own path (a folder means its
-/// `velocity-history.json`). Unlike [`load`], a missing file is an error.
+/// `atalanta-history.json`). Unlike [`load`], a missing file is an error.
 pub fn load_file(file_path: &std::path::Path) -> Result<TestHistory> {
     let joined;
     let file_path = if file_path.is_dir() {
@@ -496,21 +496,21 @@ pub fn load_file(file_path: &std::path::Path) -> Result<TestHistory> {
         file_path
     };
     let contents = std::fs::read_to_string(file_path).map_err(|e| {
-        VelocityError::Config(format!(
+        AtalantaError::Config(format!(
             "failed to read history file {}: {e}",
             file_path.display()
         ))
     })?;
 
     let mut history: TestHistory = serde_json::from_str(&contents).map_err(|e| {
-        VelocityError::Config(format!(
+        AtalantaError::Config(format!(
             "failed to parse history file {}: {e}",
             file_path.display()
         ))
     })?;
     if history.version > HISTORY_VERSION {
         tracing::warn!(
-            "{} is version {} (this Velocity writes {HISTORY_VERSION}); reading what it knows",
+            "{} is version {} (this Atalanta writes {HISTORY_VERSION}); reading what it knows",
             file_path.display(),
             history.version
         );
@@ -520,7 +520,7 @@ pub fn load_file(file_path: &std::path::Path) -> Result<TestHistory> {
 }
 
 /// The durations `--shard-timings` balances shards by (D-23): a
-/// `velocity-history.json` (or a folder holding one), a JUnit XML report,
+/// `atalanta-history.json` (or a folder holding one), a JUnit XML report,
 /// or a folder of JUnit reports (merged). Every shard must read the same
 /// source; the CLI loads it once and a failure is fatal.
 pub fn load_timings(path: &std::path::Path) -> Result<TestHistory> {
@@ -529,14 +529,14 @@ pub fn load_timings(path: &std::path::Path) -> Result<TestHistory> {
             return load_file(path);
         }
         let mut xmls: Vec<std::path::PathBuf> = std::fs::read_dir(path)
-            .map_err(|e| VelocityError::Config(format!("{}: {e}", path.display())))?
+            .map_err(|e| AtalantaError::Config(format!("{}: {e}", path.display())))?
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("xml")))
             .collect();
         xmls.sort();
         if xmls.is_empty() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "{}: no {HISTORY_FILENAME} and no JUnit .xml report in it",
                 path.display()
             )));
@@ -632,7 +632,7 @@ fn junit_seconds_ms(raw: &str) -> Option<u64> {
 /// taken as written instead of failing the whole run.
 fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
     use quick_xml::events::Event;
-    let bad = |e: String| VelocityError::Config(format!("JUnit timings {}: {e}", path.display()));
+    let bad = |e: String| AtalantaError::Config(format!("JUnit timings {}: {e}", path.display()));
     let file = std::fs::File::open(path).map_err(|e| bad(e.to_string()))?;
     let size = file.metadata().map(|m| m.len()).unwrap_or(0);
     if size > MAX_JUNIT_BYTES {
@@ -724,12 +724,12 @@ fn record_case(
 /// Returns the saved history.
 pub fn update_saved(path: &str, change: impl FnOnce(&mut TestHistory)) -> Result<TestHistory> {
     let file = std::path::Path::new(path).join(HISTORY_FILENAME);
-    velocity_common::fsutil::with_lock(&file, || {
+    atalanta_common::fsutil::with_lock(&file, || {
         // A file that can't be read (permissions, a directory) is an
         // error; only one that reads but doesn't parse is moved aside.
         if let Err(e) = std::fs::read(&file) {
             if e.kind() != std::io::ErrorKind::NotFound {
-                return Err(VelocityError::Config(format!(
+                return Err(AtalantaError::Config(format!(
                     "failed to read history file {}: {e}",
                     file.display()
                 )));
@@ -748,7 +748,7 @@ pub fn update_saved(path: &str, change: impl FnOnce(&mut TestHistory)) -> Result
         change(&mut history);
         save(path, &history).map(|()| history)
     })
-    .map_err(|e| VelocityError::io(format!("failed to lock {}", file.display()), e))?
+    .map_err(|e| AtalantaError::io(format!("failed to lock {}", file.display()), e))?
 }
 
 /// Bring a history read from an older file up to [`HISTORY_VERSION`].
@@ -773,7 +773,7 @@ const FORGET_AFTER_SECS: u64 = 90 * 24 * 60 * 60;
 
 /// Drop tests that haven't run for `FORGET_AFTER_SECS` and are no longer
 /// in the suite (`suite_tests`, every test's name, not only those this run
-/// selected): deleted and renamed tests stayed in velocity-history.json
+/// selected): deleted and renamed tests stayed in atalanta-history.json
 /// forever, and the file only grew (VEL-189). A test still in the suite is
 /// kept however long ago it ran: tests outside a `--tags` or shard
 /// selection, release-only tags and `skip:`ped tests lost their duration
@@ -811,7 +811,7 @@ fn forget_stale_at(
 pub fn save(path: &str, history: &TestHistory) -> Result<()> {
     let dir = std::path::Path::new(path);
     std::fs::create_dir_all(dir).map_err(|e| {
-        VelocityError::io(
+        AtalantaError::io(
             format!("failed to create history directory {}", dir.display()),
             e,
         )
@@ -821,11 +821,11 @@ pub fn save(path: &str, history: &TestHistory) -> Result<()> {
     let mut history = history.clone();
     history.version = history.version.max(HISTORY_VERSION);
     let json = serde_json::to_string_pretty(&history)
-        .map_err(|e| VelocityError::io("failed to serialize history", e))?;
+        .map_err(|e| AtalantaError::io("failed to serialize history", e))?;
 
     // Atomic: a torn file would fail to parse and cost the whole history.
-    velocity_common::fsutil::write_private(&file_path, json.as_bytes()).map_err(|e| {
-        VelocityError::io(
+    atalanta_common::fsutil::write_private(&file_path, json.as_bytes()).map_err(|e| {
+        AtalantaError::io(
             format!("failed to write history file {}", file_path.display()),
             e,
         )
@@ -877,7 +877,7 @@ pub fn update_with_devices(
     for result in results {
         // A device or connection failure says nothing about the test; keep
         // it out of the flakiness window and the duration estimate.
-        // Nor does Velocity's own bug (a panic, D-19).
+        // Nor does Atalanta's own bug (a panic, D-19).
         if result.infrastructure_failure || result.internal_error {
             continue;
         }
@@ -893,7 +893,7 @@ pub fn update_with_devices(
             TestStatus::Skipped => continue,
         };
         let now = now_secs();
-        // A file last written by a Velocity without `byDeviceLastRun` (a
+        // A file last written by a Atalanta without `byDeviceLastRun` (a
         // mixed-version matrix, review-fi2 F5): its profiles ran no later
         // than the test's previous run. Written down before this run
         // replaces it, so the rewrite keeps a time for every profile and
@@ -1059,7 +1059,7 @@ pub fn note_flakiness(history: &TestHistory, results: &mut [TestResult]) {
 /// `flips` counts pass<->fail changes between consecutive runs in the window
 /// (exactly one of the two is `HistoryOutcome::Fail`), the same rule
 /// `flakiness_of` uses. `rate` is `flaky + flips` over `runs + (runs - 1)`,
-/// i.e. the same measure `velocity run` reports. Infrastructure failures are
+/// i.e. the same measure `atalanta run` reports. Infrastructure failures are
 /// never recorded in history (the update skips them), so they are in neither
 /// `runs`, `flaky` nor `flips`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1169,8 +1169,8 @@ pub fn check_regression(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atalanta_common::TestStatus;
     use std::time::Duration;
-    use velocity_common::TestStatus;
 
     fn make_result(name: &str, duration_ms: u64) -> TestResult {
         TestResult {
@@ -1525,13 +1525,13 @@ mod tests {
 
     #[test]
     fn test_load_nonexistent_returns_empty() {
-        let history = load("/tmp/velocity_test_nonexistent_dir_12345").unwrap();
+        let history = load("/tmp/atalanta_test_nonexistent_dir_12345").unwrap();
         assert!(history.durations.is_empty());
     }
 
     #[test]
     fn test_save_and_load_roundtrip() {
-        let dir = std::env::temp_dir().join("velocity_history_test");
+        let dir = std::env::temp_dir().join("atalanta_history_test");
         let _ = std::fs::remove_dir_all(&dir);
 
         let mut history = TestHistory::default();
@@ -1634,7 +1634,7 @@ mod tests {
             id: "x".into(),
             name: name.into(),
             platform,
-            state: velocity_common::DeviceState::Booted,
+            state: atalanta_common::DeviceState::Booted,
             os_version: os.map(String::from),
             device_type: Default::default(),
         };
@@ -1704,7 +1704,7 @@ mod tests {
         assert!(json.contains("\"byDeviceLastRun\""), "{json}");
         let back: TestHistory = serde_json::from_str(&json).unwrap();
         assert_eq!(back.by_device_last_run, h.by_device_last_run);
-        // A file an older Velocity rewrote (no profile times): the next
+        // A file an older Atalanta rewrote (no profile times): the next
         // run keeps a time for every profile it holds, its previous
         // run's, not this run's (review-fi2 F5).
         let mut old: TestHistory = serde_json::from_str(
@@ -1742,7 +1742,7 @@ mod tests {
 
     #[test]
     fn a_version_one_file_migrates_into_the_aggregate() {
-        let dir = std::env::temp_dir().join(format!("velocity-hist-v1-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-hist-v1-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -1795,7 +1795,7 @@ mod tests {
     // to replace the others' with the copy it loaded at its start.
     #[test]
     fn concurrent_updates_lose_nothing() {
-        let dir = std::env::temp_dir().join(format!("velocity-hist-merge-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-hist-merge-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let d = dir.to_string_lossy().into_owned();
         std::thread::scope(|s| {
@@ -1820,7 +1820,7 @@ mod tests {
     #[test]
     fn a_corrupt_history_is_moved_aside_not_overwritten() {
         let dir =
-            std::env::temp_dir().join(format!("velocity-hist-corrupt-{}", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-hist-corrupt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(HISTORY_FILENAME), "{ not json").unwrap();
@@ -1840,7 +1840,7 @@ mod tests {
     #[test]
     fn an_unreadable_history_is_an_error_not_moved_aside() {
         let dir =
-            std::env::temp_dir().join(format!("velocity-hist-unreadable-{}", std::process::id()));
+            std::env::temp_dir().join(format!("atalanta-hist-unreadable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(HISTORY_FILENAME)).unwrap();
         let d = dir.to_string_lossy().into_owned();
@@ -1865,10 +1865,10 @@ mod tests {
         std::fs::write(
             &a,
             r#"<?xml version="1.0"?><testsuites><testsuite name="s">
-<testcase name="login" classname="velocity" time="12.5"/>
-<testcase name="pay" classname="velocity" time="3"><failure message="x"/></testcase>
-<testcase name="skip" classname="velocity" time="0"><skipped/></testcase>
-<testcase name="search &amp; filter" classname="velocity" time="1,200.000"/>
+<testcase name="login" classname="atalanta" time="12.5"/>
+<testcase name="pay" classname="atalanta" time="3"><failure message="x"/></testcase>
+<testcase name="skip" classname="atalanta" time="0"><skipped/></testcase>
+<testcase name="search &amp; filter" classname="atalanta" time="1,200.000"/>
 </testsuite></testsuites>"#,
         )
         .unwrap();
@@ -1954,7 +1954,7 @@ mod tests {
         let kind = FailureKind::of_message;
         let cases = [
             (
-                VelocityError::ElementNotFound {
+                AtalantaError::ElementNotFound {
                     selector: "text=\"Pay\"".into(),
                     timeout_ms: 5000,
                     screenshot: None,
@@ -1964,7 +1964,7 @@ mod tests {
                 FailureKind::NotFound,
             ),
             (
-                VelocityError::NotActionable {
+                AtalantaError::NotActionable {
                     selector: "id=buy".into(),
                     reason: "covered".into(),
                 }
@@ -1972,7 +1972,7 @@ mod tests {
                 FailureKind::NotFound,
             ),
             (
-                VelocityError::AssertionFailed {
+                AtalantaError::AssertionFailed {
                     expected: "Paid".into(),
                     actual: "Pending".into(),
                     selector: "id=status".into(),
@@ -1982,7 +1982,7 @@ mod tests {
                 FailureKind::Assertion,
             ),
             (
-                VelocityError::StepTimeout {
+                AtalantaError::StepTimeout {
                     test_name: "t".into(),
                     step_index: 3,
                     timeout_ms: 30_000,
@@ -1991,7 +1991,7 @@ mod tests {
                 FailureKind::Timeout,
             ),
             (
-                VelocityError::SyncTimeout {
+                AtalantaError::SyncTimeout {
                     timeout_ms: 10_000,
                     stable_count: 1,
                     required: 3,
@@ -2000,7 +2000,7 @@ mod tests {
                 FailureKind::Timeout,
             ),
             (
-                VelocityError::AppCrashed {
+                AtalantaError::AppCrashed {
                     app_id: "com.shop".into(),
                     detail: "NullPointerException".into(),
                 }
@@ -2008,7 +2008,7 @@ mod tests {
                 FailureKind::Crash,
             ),
             (
-                VelocityError::AdbConnectionLost {
+                AtalantaError::AdbConnectionLost {
                     device_id: "emulator-5554".into(),
                     reason: "closed".into(),
                 }
@@ -2016,7 +2016,7 @@ mod tests {
                 FailureKind::Infrastructure,
             ),
             (
-                VelocityError::WdaLost {
+                AtalantaError::WdaLost {
                     device_id: String::new(),
                     url: "http://localhost:8100".into(),
                     detail: "reset".into(),
@@ -2025,7 +2025,7 @@ mod tests {
                 FailureKind::Infrastructure,
             ),
             (
-                VelocityError::HttpCheckFailed {
+                AtalantaError::HttpCheckFailed {
                     request: "POST /login".into(),
                     status: 500,
                     failures: vec!["status is 500, expected 200".into()],
@@ -2035,7 +2035,7 @@ mod tests {
                 FailureKind::Http,
             ),
             (
-                VelocityError::HttpUnreachable {
+                AtalantaError::HttpUnreachable {
                     request: "GET /health".into(),
                     detail: "operation timed out".into(),
                 }
@@ -2136,7 +2136,7 @@ mod tests {
 
     #[test]
     fn failure_kinds_survive_a_save_and_load() {
-        let dir = std::env::temp_dir().join(format!("velocity-hist-kinds-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-hist-kinds-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let d = dir.to_string_lossy().into_owned();
         update_saved(&d, |h| {
@@ -2162,7 +2162,7 @@ mod tests {
     // the runs recorded after it are classified and line up with theirs.
     #[test]
     fn a_version_two_file_loads_with_unknown_kinds() {
-        let dir = std::env::temp_dir().join(format!("velocity-hist-v2-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-hist-v2-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -2191,7 +2191,7 @@ mod tests {
             h.kind_note("a").as_deref(),
             Some("unknown 33%, timeout 11%")
         );
-        // A kind a newer Velocity wrote reads as unknown, not as a
+        // A kind a newer Atalanta wrote reads as unknown, not as a
         // corrupt file.
         let newer: TestHistory = serde_json::from_str(
             r#"{"version":9,"durations":{},"outcomes":{"a":["fail"]},"failureKinds":{"a":["gremlin"]}}"#,

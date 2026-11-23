@@ -1,4 +1,4 @@
-//! `velocity explore "<goal>"`: an AI agent works through the goal on a
+//! `atalanta explore "<goal>"`: an AI agent works through the goal on a
 //! device once and writes a deterministic YAML test with assertions, which
 //! is then replayed (no model calls) to prove it holds.
 //!
@@ -11,15 +11,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::Args;
-use colored::Colorize;
-use velocity_common::{Platform, PlatformDriver, ResilientDriver, VerifyLevel};
-use velocity_explore::scripted::{Script, ScriptedChecker, ScriptedPlanner};
-use velocity_explore::{
+use atalanta_common::{Platform, PlatformDriver, ResilientDriver, VerifyLevel};
+use atalanta_explore::scripted::{Script, ScriptedChecker, ScriptedPlanner};
+use atalanta_explore::{
     ExploreEvent, ExploreJob, ExploreOptions, InstructionSource, JobResult, LaunchMode, Outcome,
     ScreenshotMode,
 };
-use velocity_nl::{AiSettings, NaturalPlanner, ScreenChecker};
+use atalanta_nl::{AiSettings, NaturalPlanner, ScreenChecker};
+use clap::Args;
+use colored::Colorize;
 
 #[derive(Args, Debug)]
 pub struct ExploreArgs {
@@ -149,7 +149,7 @@ pub struct ExploreArgs {
     #[arg(long, value_name = "PATH")]
     inject_file: Option<PathBuf>,
 
-    /// How long to wait for a device another Velocity process holds. Takes
+    /// How long to wait for a device another Atalanta process holds. Takes
     /// a unit (30s, 10m); a bare number is seconds
     #[arg(long, default_value = "600", value_name = "DURATION", value_parser = super::duration_arg::bare_secs)]
     lease_wait: Duration,
@@ -158,7 +158,7 @@ pub struct ExploreArgs {
     /// write and replay no test, no auto-dismissed dialogs, `launch` off
     /// (use --open-app / --apps-file to let the agent open apps), screenshots every turn when
     /// the provider takes images. An outside harness judges the result;
-    /// the trajectory goes to $VELOCITY_EVENTS_FILE. See docs/BENCHMARKS.md
+    /// the trajectory goes to $ATALANTA_EVENTS_FILE. See docs/BENCHMARKS.md
     #[arg(long)]
     benchmark: bool,
 
@@ -271,8 +271,8 @@ fn parse_apps_file(text: &str) -> Result<Vec<(String, String)>, String> {
         .collect()
 }
 
-fn parse_price(s: &str) -> Result<velocity_nl::Price, String> {
-    velocity_nl::Price::parse(s)
+fn parse_price(s: &str) -> Result<atalanta_nl::Price, String> {
+    atalanta_nl::Price::parse(s)
 }
 
 /// A value name usable as `${NAME}`.
@@ -309,7 +309,7 @@ fn default_out(goal: &str) -> PathBuf {
 }
 
 /// Live output: one line per turn.
-fn printer(to_stderr: bool) -> velocity_explore::EventSink {
+fn printer(to_stderr: bool) -> atalanta_explore::EventSink {
     let mut planned: Option<(u64, u64, u64)> = None;
     Box::new(move |e: &ExploreEvent| {
         let line = match e {
@@ -436,12 +436,12 @@ fn printer(to_stderr: bool) -> velocity_explore::EventSink {
 
 pub(crate) async fn pick_device(driver: &dyn PlatformDriver) -> anyhow::Result<String> {
     let mut devices = driver.list_devices().await?;
-    devices.sort_by_key(|d| d.state != velocity_common::DeviceState::Booted);
+    devices.sort_by_key(|d| d.state != atalanta_common::DeviceState::Booted);
     devices
         .iter()
         .find(|d| {
-            d.state == velocity_common::DeviceState::Booted
-                && velocity_runner::lease::try_lock(&d.id).is_ok()
+            d.state == atalanta_common::DeviceState::Booted
+                && atalanta_runner::lease::try_lock(&d.id).is_ok()
         })
         .or(devices.first())
         .map(|d| d.id.clone())
@@ -455,13 +455,13 @@ pub(crate) async fn lease(
     device: &str,
     wait: Duration,
     quiet: bool,
-) -> anyhow::Result<velocity_runner::lease::DeviceLock> {
+) -> anyhow::Result<atalanta_runner::lease::DeviceLock> {
     let started = std::time::Instant::now();
     let mut told = false;
     loop {
-        match velocity_runner::lease::try_lock(device) {
+        match atalanta_runner::lease::try_lock(device) {
             Ok(l) => return Ok(l),
-            Err(velocity_runner::lease::LeaseError::Held(holder)) => {
+            Err(atalanta_runner::lease::LeaseError::Held(holder)) => {
                 if started.elapsed() >= wait {
                     return Err(super::no_device(
                         &format!("device {device} is still held by {holder} after {wait:?}"),
@@ -506,9 +506,9 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
     let mut secrets = Vec::new();
     for name in &args.secrets {
         check_name(name, "--secret")?;
-        let value = velocity_common::env::var(name)
+        let value = atalanta_common::env::var(name)
             .map_err(|_| usage_err!("--secret {name}: ${name} is not set"))?;
-        velocity_common::redact::register_secret(&value);
+        atalanta_common::redact::register_secret(&value);
         secrets.push((name.clone(), value));
     }
     let mut apps: Vec<(String, String)> = Vec::new();
@@ -569,7 +569,7 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
                 }
                 None => AiSettings::from_env()?.ok_or_else(|| {
                     usage_err!(
-                        "velocity explore needs a model: set a provider's key (e.g. ANTHROPIC_API_KEY), \
+                        "atalanta explore needs a model: set a provider's key (e.g. ANTHROPIC_API_KEY), \
                          or pass --model provider:model; see docs/AI-PROVIDERS.md (or --script for a fixed plan)"
                     )
                 })?,
@@ -636,7 +636,7 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
                 std::fs::read_to_string(path).map_err(|e| usage_err!("--after {path}: {e}"))?;
             let overrides: std::collections::HashMap<String, String> =
                 data.iter().chain(secrets.iter()).cloned().collect();
-            velocity_explore::after::login_prefix(&yaml, args.after_test.as_deref(), &overrides)
+            atalanta_explore::after::login_prefix(&yaml, args.after_test.as_deref(), &overrides)
                 .map_err(|e| usage_err!("{e}"))?
         }
         None => Vec::new(),
@@ -690,12 +690,12 @@ pub async fn execute(args: ExploreArgs) -> anyhow::Result<i32> {
     ));
 
     // Live lines, and the same events as JSON lines for a supervisor
-    // (`VELOCITY_EVENTS_FILE`: the MCP server's tasks, the console).
+    // (`ATALANTA_EVENTS_FILE`: the MCP server's tasks, the console).
     let mut print = printer(args.json);
-    let events: velocity_explore::EventSink = Box::new(move |e: &ExploreEvent| {
-        if velocity_common::live_events::enabled() {
+    let events: atalanta_explore::EventSink = Box::new(move |e: &ExploreEvent| {
+        if atalanta_common::live_events::enabled() {
             if let Ok(v) = serde_json::to_value(e) {
-                velocity_common::live_events::emit(v);
+                atalanta_common::live_events::emit(v);
             }
         }
         print(e);
@@ -848,14 +848,14 @@ fn print_summary(r: &JobResult, written: &[String]) {
     }
     if let Some(f) = written.first() {
         if r.ok() {
-            println!("\n   next: velocity run {f}   (commit it; CI replays it with no model)");
+            println!("\n   next: atalanta run {f}   (commit it; CI replays it with no model)");
         }
     }
 }
 
-/// Print a job's trust gates (also used by `velocity gate`).
-pub(crate) fn print_gates(g: &velocity_explore::gates::GateReport) {
-    use velocity_explore::gates::WrongPath;
+/// Print a job's trust gates (also used by `atalanta gate`).
+pub(crate) fn print_gates(g: &atalanta_explore::gates::GateReport) {
+    use atalanta_explore::gates::WrongPath;
     let wrong = match &g.wrong_path {
         WrongPath::Rejected { tapped, .. } => format!("fails when it taps {tapped} instead"),
         WrongPath::Passed { tapped, .. } => {
@@ -975,7 +975,7 @@ mod tests {
         assert_eq!(default_out("!!!"), PathBuf::from("explore.yaml"));
         assert_eq!(
             parse_price("3,15").unwrap(),
-            velocity_nl::Price::new(3.0, 15.0)
+            atalanta_nl::Price::new(3.0, 15.0)
         );
         let p = parse_price("3,15,0.3,3.75").unwrap();
         assert_eq!((p.cache_read(), p.cache_write()), (0.3, 3.75));

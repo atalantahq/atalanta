@@ -28,4 +28,4 @@ tests:
       - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
       - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
       - assertVisible: { textContains: "${MEASURE_TEXT:-Network}" }
-      - assertNotVisible: { text: "velocity-measure-no-such-element" }
+      - assertNotVisible: { text: "atalanta-measure-no-such-element" }

@@ -1,7 +1,7 @@
 //! Whether a value passes an `expect` matcher, and how it doesn't.
 
+use atalanta_common::{Checks, JsonType, Matcher};
 use serde_json::Value;
-use velocity_common::{Checks, JsonType, Matcher};
 
 /// What is being checked, which changes how some checks read it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

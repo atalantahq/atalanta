@@ -1,4 +1,4 @@
-//! The Maestro converter (`velocity migrate maestro`): reads a flow file
+//! The Maestro converter (`atalanta migrate maestro`): reads a flow file
 //! someone else wrote, converts it, and parses the result as a suite.
 //! It works on files, so each input is written to a private temp folder.
 #![no_main]
@@ -6,7 +6,7 @@
 use std::sync::OnceLock;
 
 use libfuzzer_sys::fuzz_target;
-use velocity_migrate::MaestroMigrator;
+use atalanta_migrate::MaestroMigrator;
 
 fn dir() -> &'static tempfile::TempDir {
     static DIR: OnceLock<tempfile::TempDir> = OnceLock::new();

@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: './',
-  // `npm run dev`: forward the API to `velocity inspect` (no CORS). Open the
+  // `npm run dev`: forward the API to `atalanta inspect` (no CORS). Open the
   // inspector's printed URL once so the session cookie is set for localhost.
   server: {
     proxy: {

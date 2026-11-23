@@ -6,8 +6,8 @@ mod common;
 
 use std::collections::HashMap;
 
+use atalanta_common::{PlatformDriver, Selector};
 use common::{driver, serve};
-use velocity_common::{PlatformDriver, Selector};
 
 const PAGE: &str = r#"<!doctype html><html><body style="margin:0">
 <button id="top">Top</button>
@@ -53,19 +53,19 @@ async fn assertions_see_only_what_is_on_screen() {
     assert!(visible("#half").await);
     let mut set = HashMap::new();
     set.insert(
-        "VELOCITY_VISIBILITY_MIN_AREA".to_string(),
+        "ATALANTA_VISIBILITY_MIN_AREA".to_string(),
         "0.6".to_string(),
     );
-    velocity_common::env::set_settings(set);
+    atalanta_common::env::set_settings(set);
     assert!(!visible("#half").await);
     // `web.visibility: page`: the old rule, anywhere on the page.
     let mut set = HashMap::new();
-    set.insert("VELOCITY_WEB_VISIBILITY".to_string(), "page".to_string());
-    velocity_common::env::set_settings(set);
+    set.insert("ATALANTA_WEB_VISIBILITY".to_string(), "page".to_string());
+    atalanta_common::env::set_settings(set);
     assert!(visible("#far").await);
     assert!(visible("#slide2").await);
     assert!(!visible("#clear").await);
-    velocity_common::env::set_settings(HashMap::new());
+    atalanta_common::env::set_settings(HashMap::new());
     // An action still scrolls its target into view, and then it is on screen.
     let far = d.find_element("web", &css("#far")).await.unwrap();
     d.tap("web", &far).await.unwrap();

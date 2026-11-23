@@ -1,6 +1,6 @@
 # Summary
 
-[Velocity docs](README.md)
+[Atalanta docs](README.md)
 
 - [Guide](GUIDE.md)
 - [Writing suites](DSL.md)

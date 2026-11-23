@@ -228,7 +228,7 @@ pub fn mux_h264(
         let hdlr = full_box(
             b"hdlr",
             0,
-            &[&[0u8; 4], b"vide", &[0u8; 12], b"Velocity video\0"],
+            &[&[0u8; 4], b"vide", &[0u8; 12], b"Atalanta video\0"],
         );
         let vmhd = full_box(b"vmhd", 1, &[&[0u8; 8]]);
         let url = full_box(b"url ", 1, &[]);
@@ -236,7 +236,7 @@ pub fn mux_h264(
         let dinf = mp4_box(b"dinf", &[&dref]);
         let avcc_box = mp4_box(b"avcC", &[&avcc]);
         let mut compressor = [0u8; 32];
-        let name = b"Velocity H.264";
+        let name = b"Atalanta H.264";
         compressor[0] = name.len() as u8;
         compressor[1..=name.len()].copy_from_slice(name);
         let avc1 = mp4_box(

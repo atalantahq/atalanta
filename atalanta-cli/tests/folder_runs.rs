@@ -1,4 +1,4 @@
-//! `velocity run <folder>`: tag selection across the folder (M-1) and
+//! `atalanta run <folder>`: tag selection across the folder (M-1) and
 //! Ctrl-C between and during suites (M-2). Headless driver, no device.
 #![cfg(unix)]
 
@@ -8,8 +8,8 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-fn velocity() -> &'static str {
-    env!("CARGO_BIN_EXE_velocity")
+fn atalanta() -> &'static str {
+    env!("CARGO_BIN_EXE_atalanta")
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -31,11 +31,11 @@ fn suite(dir: &Path, file: &str, tags: &str, ms: u64) {
 }
 
 fn run(dir: &Path, extra: &[&str]) -> Command {
-    let mut cmd = Command::new(velocity());
+    let mut cmd = Command::new(atalanta());
     cmd.args(["run", "suites", "--driver", "headless", "--report", "json"])
         .args(extra)
         .current_dir(dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1");
     cmd
 }
@@ -82,7 +82,7 @@ fn folders_named_like_suites_are_skipped_and_equal_stems_do_not_share_results() 
     assert_eq!(out.status.code(), Some(0), "{text}");
     for stem in ["a.yaml", "a.yml"] {
         assert!(
-            dir.join("velocity-results")
+            dir.join("atalanta-results")
                 .join(stem)
                 .join("results.json")
                 .exists(),

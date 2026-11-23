@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to Velocity are recorded in this file.
+All notable changes to Atalanta are recorded in this file.
 
-The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and Velocity uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a minor release (0.x.0) may change behaviour; such changes are listed under "Behaviour changes that can fail existing suites".
+The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/), and Atalanta uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before 1.0, a minor release (0.x.0) may change behaviour; such changes are listed under "Behaviour changes that can fail existing suites".
 
 ## [Unreleased]
 
@@ -13,14 +13,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts** (and their dimming view) instead of dismissing the sheet. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#ios-sheets)
 - **[may fail suites]** **iOS `pressKey: back` taps only a real Back button**, else swipes from the left edge; closing a sheet matches whole names only. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#ios-back)
 - **[may fail suites]** **MCP screenshots are files.** `screenshot` (and `observe {what: screenshot}`) saves the PNG and returns its path and size; the image is in the reply only with `inline: true`, and then downscaled below 2,000 px on its longest edge.
-- **[may fail suites]** **`velocity explore` trusts a test only after its gates** (5 replays, a wrong-path replay that must fail, a goal assertion); an untrusted test exits 1. `--no-gates` skips them ([EXPLORE.md](docs/EXPLORE.md#trust-gates)). [Details](docs/research/changelog-0.2.0-details.md#explore-gates)
+- **[may fail suites]** **`atalanta explore` trusts a test only after its gates** (5 replays, a wrong-path replay that must fail, a goal assertion); an untrusted test exits 1. `--no-gates` skips them ([EXPLORE.md](docs/EXPLORE.md#trust-gates)). [Details](docs/research/changelog-0.2.0-details.md#explore-gates)
 - **[may fail suites]** **No silent passes.** A shard that owns no test (more shards than tests) exits 2, naming it, instead of passing empty. A planned test that ends with no result (a worker that stopped) is reported failed as an internal error (exit 5) instead of missing from the totals.
-- **[may fail suites]** **`velocity mcp` serves five tools by default** (`observe`, `act`, `run`, `artifacts`, `verify_change`); a call to a full tool gets an error naming the core call. `--profile full` serves all 33 ([MCP.md](docs/MCP.md#core-tools)). [Details](docs/research/changelog-0.2.0-details.md#mcp-core)
+- **[may fail suites]** **`atalanta mcp` serves five tools by default** (`observe`, `act`, `run`, `artifacts`, `verify_change`); a call to a full tool gets an error naming the core call. `--profile full` serves all 33 ([MCP.md](docs/MCP.md#core-tools)). [Details](docs/research/changelog-0.2.0-details.md#mcp-core)
 - **[may fail suites]** **`explore --values-from-goal` no longer copies screen text**; add `--values-from-screen` for the old behaviour. [Details](docs/research/changelog-0.2.0-details.md#values-goal)
 - **[may fail suites]** **The memory check fails the test** (was a warning) when peak PSS rises past `pssGrowthThresholdPct`, in both runners; `heapGrowthThresholdPct` still works with a warning. Android only. [Details](docs/research/changelog-0.2.0-details.md#memory-check)
-- **[may fail suites]** **Cabled iPhones bind loopback by default**; `VELOCITY_IOS_DEVICE_LOOPBACK=0` opts out if the runner never answers. Unchecked on a real iPhone. [Details](docs/research/changelog-0.2.0-details.md#iphone-loopback)
-- **[may fail suites]** **VelocityRunner needs a token**: one you start yourself needs `VELOCITY_RUNNER_TOKEN` (and `ios.runnerToken`); direct callers send `Authorization: Bearer` and no `Origin`. [Details](docs/research/changelog-0.2.0-details.md#runner-token)
-- **[may fail suites]** **Tree-server protocol changes**: an older Velocity replaces a newer server with its own; third-party tools on `@velocity_tree` must do the protocol 18 `HELLO`/`PROOF`/`AUTH` handshake. [Details](docs/research/changelog-0.2.0-details.md#tree-protocol)
+- **[may fail suites]** **Cabled iPhones bind loopback by default**; `ATALANTA_IOS_DEVICE_LOOPBACK=0` opts out if the runner never answers. Unchecked on a real iPhone. [Details](docs/research/changelog-0.2.0-details.md#iphone-loopback)
+- **[may fail suites]** **AtalantaRunner needs a token**: one you start yourself needs `ATALANTA_RUNNER_TOKEN` (and `ios.runnerToken`); direct callers send `Authorization: Bearer` and no `Origin`. [Details](docs/research/changelog-0.2.0-details.md#runner-token)
+- **[may fail suites]** **Tree-server protocol changes**: an older Atalanta replaces a newer server with its own; third-party tools on `@atalanta_tree` must do the protocol 18 `HELLO`/`PROOF`/`AUTH` handshake. [Details](docs/research/changelog-0.2.0-details.md#tree-protocol)
 
 Most suites that turn red here were passing by mistake. Each item gives the fix, and the opt-out where there is one.
 
@@ -28,81 +28,81 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **[may fail suites]** **`assertNotVisible` is stricter**: it fails when the screen can't be read, the app crashed or another app is in front. Fix: `appInFront: false` on a step that leaves the app on purpose. [Details](docs/research/changelog-0.2.0-details.md#assert-not-visible)
 - **[may fail suites]** **App crashes fail the test.** In 0.1.0, a crash was noticed only when a later step failed. Now a test whose app crashed fails with "after the last step: App … crashed", even when the crash came after its last step. There is no opt-out; the crash is a real failure.
 - **[may fail suites]** **Actions wait for an actionable target** (enabled and still) and fail "not actionable" otherwise. Opt-out: `force: true`, or `actionability: lenient`. [Details](docs/research/changelog-0.2.0-details.md#actionable)
-- **[may fail suites]** **`inputText` checks where the focus went.** When the tap before typing leaves the focus on a different element, the step fails rather than typing into the wrong field. Opt-out: `VELOCITY_ANDROID_FOCUS_CHECK=off` or `VELOCITY_IOS_FOCUS_CHECK=off`.
-- **[may fail suites]** **iOS taps on covered elements fail** ("covered by …"); a partly covered one is tapped on its visible part. Opt-out: `VELOCITY_IOS_TAP_GUARD=off` or `VELOCITY_IOS_TAP_GUARD_STATUS_BAR=off`. [Details](docs/research/changelog-0.2.0-details.md#ios-covered)
+- **[may fail suites]** **`inputText` checks where the focus went.** When the tap before typing leaves the focus on a different element, the step fails rather than typing into the wrong field. Opt-out: `ATALANTA_ANDROID_FOCUS_CHECK=off` or `ATALANTA_IOS_FOCUS_CHECK=off`.
+- **[may fail suites]** **iOS taps on covered elements fail** ("covered by …"); a partly covered one is tapped on its visible part. Opt-out: `ATALANTA_IOS_TAP_GUARD=off` or `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off`. [Details](docs/research/changelog-0.2.0-details.md#ios-covered)
 - **[may fail suites]** **`assertVisible` no longer matches part of a merged label**; assert the full label, or use `textContains:`/`textMatches:`. [Details](docs/research/changelog-0.2.0-details.md#merged-label)
 - **[may fail suites]** **Empty selector values match nothing.** `text: ""`, `textContains: ""` and `accessibilityId: ""` used to match elements with empty text or labels (and, for `textContains`, every element). Fix: remove the step, or use a real value.
 - **[may fail suites]** **`textContains:` ignores case.** It can now match more elements, so a bare selector may pick a different element (with a warning). Fix: narrow the selector with `text:`, `index:` or `childOf:`.
-- **[may fail suites]** **`index:` counts in reading order.** In 0.1.0 it counted in tree order, so `index: N` may now pick a different element in grids and centred rows. Fix: check each `index:` with `velocity lint` or the console's element overlay.
-- **[may fail suites]** **Stricter suite parsing**: unknown keys, `runFlow` with `when:` and duplicate test names are errors. Fix: `velocity validate` names each one. [Details](docs/research/changelog-0.2.0-details.md#strict-parsing)
+- **[may fail suites]** **`index:` counts in reading order.** In 0.1.0 it counted in tree order, so `index: N` may now pick a different element in grids and centred rows. Fix: check each `index:` with `atalanta lint` or the console's element overlay.
+- **[may fail suites]** **Stricter suite parsing**: unknown keys, `runFlow` with `when:` and duplicate test names are errors. Fix: `atalanta validate` names each one. [Details](docs/research/changelog-0.2.0-details.md#strict-parsing)
 - **[may fail suites]** **Environment values are interpolated once.** A value that itself contains `${…}` (`BASE='${HOST}/api'`) is no longer expanded a second time. Fix: pass the final value. Use `$${` when you need a literal `${`.
 - **[may fail suites]** **`--env KEY` without a value exits 2.** In 0.1.0 the flag was silently dropped. A comma not followed by `KEY=` stays inside the value, and `A=1,B=2` in one flag still sets both. Fix: write `--env KEY=VALUE`.
 - **[may fail suites]** **Exit codes changed for CI scripts**: 2 config, 3 device, 5 internal, 129/130/143 signals (most were 1). [Details](docs/research/changelog-0.2.0-details.md#exit-codes-ci)
 - **[may fail suites]** **An empty selection exits 2**: `--tags`/`--filter` matching no test now fail and list the suite's tags. [Details](docs/research/changelog-0.2.0-details.md#empty-selection)
 - **[may fail suites]** **Sharding flags are checked.** `--shard-index` and `--shard-total` must be given together, the total must be at least 1, and an out-of-range index exits 2; in 0.1.0 it ran zero tests and exited 0. Fix: pass both flags, or switch to `--shard M/N` (1-based).
-- **[may fail suites]** **An unknown `--device` exits 3 at once.** 0.1.0 spent about 30 s per test in retries before failing. Fix: pass an id from `velocity device list`.
+- **[may fail suites]** **An unknown `--device` exits 3 at once.** 0.1.0 spent about 30 s per test in retries before failing. Fix: pass an id from `atalanta device list`.
 - **[may fail suites]** **Android typing is checked**: text that reads back different (including a `maxLength` cut) fails the step; the `adb input text` fallback refuses non-ASCII, passwords and secrets. [Details](docs/research/changelog-0.2.0-details.md#android-typing)
 - **[may fail suites]** **Android app ids are validated.** An `appId` that isn't at least two dot-separated segments of letters, digits and `_` is a configuration error (exit 2). Fix: use the real package name.
 - **[may fail suites]** **iOS `assertText` on an empty field reads `""`.** An empty text field, secure field, search field or text view no longer falls back to its placeholder or accessibility label. Fix: assert the placeholder with `assertVisible`, or assert `""`.
-- **[may fail suites]** **iOS simulator `clearState` fails when the app's data can't be wiped.** In 0.1.0 it warned and ran on the old state. Fix: check that the app is installed and the simulator is booted; `velocity doctor` reports both.
-- **[may fail suites]** **WebDriverAgent and VelocityRunner listen on loopback only on simulators.** A tool on another machine that reached a simulator's WDA over the LAN can no longer connect. Fix: run that tool on the Mac.
+- **[may fail suites]** **iOS simulator `clearState` fails when the app's data can't be wiped.** In 0.1.0 it warned and ran on the old state. Fix: check that the app is installed and the simulator is booted; `atalanta doctor` reports both.
+- **[may fail suites]** **WebDriverAgent and AtalantaRunner listen on loopback only on simulators.** A tool on another machine that reached a simulator's WDA over the LAN can no longer connect. Fix: run that tool on the Mac.
 - **[may fail suites]** **The inspector is local and token-protected**: it binds `127.0.0.1` and every API call needs the printed URL's token (401 otherwise). [Details](docs/research/changelog-0.2.0-details.md#inspector-token)
-- **[may fail suites]** **`velocity migrate maestro` writes only suites that load.** `inputRandom*`, and an `inputText` with no literal text, become required variables, so a migrated run stops until you set them with `--env`. Fix: set the variables the migration report lists.
-- **[may fail suites]** **A Wi-Fi-only iPhone needs a cable.** Running on a physical iPhone over Wi-Fi fails with "connect a cable" unless `ios.allowWifiRunner: true` (VelocityRunner with a runner token) is set.
+- **[may fail suites]** **`atalanta migrate maestro` writes only suites that load.** `inputRandom*`, and an `inputText` with no literal text, become required variables, so a migrated run stops until you set them with `--env`. Fix: set the variables the migration report lists.
+- **[may fail suites]** **A Wi-Fi-only iPhone needs a cable.** Running on a physical iPhone over Wi-Fi fails with "connect a cable" unless `ios.allowWifiRunner: true` (AtalantaRunner with a runner token) is set.
 - **[may fail suites]** **Android dialog auto-dismiss covers only system packages**; tap an app's own dialog buttons in the test. [Details](docs/research/changelog-0.2.0-details.md#android-dialogs)
 - **[may fail suites]** **Web `css:`, `id:` and `className:` with `index:` count only rendered, on-screen matches, in reading order**, as `explore` counted them when it wrote the test. A hidden or off-screen match no longer takes an index. Fix: re-check each such `index:`.
 - **[may fail suites]** **Web popups and new tabs are followed.** A click that opens a popup or tab drives it next; when it closes, the opener is driven again.
-- **[may fail suites]** **`velocity devices down` stops only the caller's devices.** The owner is `--owner`, else `VELOCITY_OWNER`, else the CI job id; `--all` stops every device. CI scripts that relied on `down` stopping everything must pass `--all`.
+- **[may fail suites]** **`atalanta devices down` stops only the caller's devices.** The owner is `--owner`, else `ATALANTA_OWNER`, else the CI job id; `--all` stops every device. CI scripts that relied on `down` stopping everything must pass `--all`.
 - **[may fail suites]** **MCP selectors take only the flat DSL form** (`{text: …}`, `{id: …}`); tagged serde selectors are refused.
-- **[may fail suites]** **Agent commands exit 3 for device failures.** `velocity tap` and the other agent commands exit 3 (was 1) when the reply's code is `DEVICE_*` or the new `SESSION_BUSY` (another command of the same session held it past `VELOCITY_LEASE_WAIT_MS`, 10 s, where it used to wait forever). Scripts that treated every failure as 1 should accept 3, or retry on it.
-- **[may fail suites]** **`--cache-results` runs more tests.** Tests with an `exec`, `http` or natural-language step are never served from the cache, the key includes the screen size and, in CI, the branch (`VELOCITY_CACHE_SCOPE` overrides it), and `VELOCITY_CACHE_MAX_AGE` (`6h`, `2d`) shortens the 30-day reuse. A suite that relied on those cached passes now runs them.
+- **[may fail suites]** **Agent commands exit 3 for device failures.** `atalanta tap` and the other agent commands exit 3 (was 1) when the reply's code is `DEVICE_*` or the new `SESSION_BUSY` (another command of the same session held it past `ATALANTA_LEASE_WAIT_MS`, 10 s, where it used to wait forever). Scripts that treated every failure as 1 should accept 3, or retry on it.
+- **[may fail suites]** **`--cache-results` runs more tests.** Tests with an `exec`, `http` or natural-language step are never served from the cache, the key includes the screen size and, in CI, the branch (`ATALANTA_CACHE_SCOPE` overrides it), and `ATALANTA_CACHE_MAX_AGE` (`6h`, `2d`) shortens the 30-day reuse. A suite that relied on those cached passes now runs them.
 
-- **[may fail suites]** **Web: Chrome refuses invalid TLS certificates.** A suite against a self-signed dev server now fails to load it. Fix: `config.settings: { web.insecureCerts: 1 }` (or `VELOCITY_WEB_INSECURE_CERTS=1`).
+- **[may fail suites]** **Web: Chrome refuses invalid TLS certificates.** A suite against a self-signed dev server now fails to load it. Fix: `config.settings: { web.insecureCerts: 1 }` (or `ATALANTA_WEB_INSECURE_CERTS=1`).
 - **[may fail suites]** **`http` steps with their own headers don't follow a redirect to another origin**, and no step follows `https` → `http`: the step sees the 3xx. Fix: request the final URL, or check the `location` header.
 
 ### Highlights
 
-- **`velocity explore "<goal>" --app-id <id>`**: an AI agent reaches a goal once and writes a YAML test that replays with no model calls ([EXPLORE.md](docs/EXPLORE.md)). [Details](docs/research/changelog-0.2.0-details.md#hl-explore)
-- **The console (`velocity inspect --open`)**: a live, clickable mirror of every booted device and browser, with selectors, suite runs, explore sessions and diagnostics. [Details](docs/research/changelog-0.2.0-details.md#hl-console)
-- **MCP server upgrade**: 14 → 32 tools (five by default), `@e` refs, background tasks, and `velocity mcp install` for seven clients. [Details](docs/research/changelog-0.2.0-details.md#hl-mcp)
+- **`atalanta explore "<goal>" --app-id <id>`**: an AI agent reaches a goal once and writes a YAML test that replays with no model calls ([EXPLORE.md](docs/EXPLORE.md)). [Details](docs/research/changelog-0.2.0-details.md#hl-explore)
+- **The console (`atalanta inspect --open`)**: a live, clickable mirror of every booted device and browser, with selectors, suite runs, explore sessions and diagnostics. [Details](docs/research/changelog-0.2.0-details.md#hl-console)
+- **MCP server upgrade**: 14 → 32 tools (five by default), `@e` refs, background tasks, and `atalanta mcp install` for seven clients. [Details](docs/research/changelog-0.2.0-details.md#hl-mcp)
 - **Failure evidence**: a failed test keeps `video.mp4`, logs and a self-contained `trace.html`; `--pause-on-failure` stops at the failing step. [Details](docs/research/changelog-0.2.0-details.md#hl-evidence)
 - **AI steps from 19 provider presets** for `do:`/`assert:`, `verify:` and `explore`; model output never becomes a selector or typed value ([AI-PROVIDERS.md](docs/AI-PROVIDERS.md)). [Details](docs/research/changelog-0.2.0-details.md#hl-providers)
-- **`velocity init` and `velocity doctor`**: `init` goes from a running app to a first passing test plus a GitHub Actions example. `doctor` checks adb, Xcode, devices, runner builds, Chrome, AI keys and your suites, and `--fix` applies the safe fixes.
-- **New platforms and drivers**: web testing in Chrome over CDP, a headless driver, a Flutter bridge, an on-device Android tree server (a dump takes about 3 ms; `uiautomator dump` takes about 2 s), and VelocityRunner, an alternative to WebDriverAgent on iOS.
+- **`atalanta init` and `atalanta doctor`**: `init` goes from a running app to a first passing test plus a GitHub Actions example. `doctor` checks adb, Xcode, devices, runner builds, Chrome, AI keys and your suites, and `--fix` applies the safe fixes.
+- **New platforms and drivers**: web testing in Chrome over CDP, a headless driver, a Flutter bridge, an on-device Android tree server (a dump takes about 3 ms; `uiautomator dump` takes about 2 s), and AtalantaRunner, an alternative to WebDriverAgent on iOS.
 - **CI**: real multi-device `--parallel`, `--shard M/N` balanced by past durations, `--changed-since` impact selection, history shared between jobs, flaky detection, quarantine, and HTML, GitHub, Allure, JUnit and JSON reports. Exit codes are documented and stable.
 
 ### Added
 
 #### Commands
 
-- `velocity init`, `velocity doctor [--fix] [--deep] [--json]`, `velocity explore`, `velocity nl-eval` (compares models on saved traces or a built-in task set).
-- `velocity run [PATH]` takes a suite file or a folder (`-c` still works).
-- `velocity lint`: finds fragile selectors and fixed waits. `velocity schema`: prints the suite JSON Schema for editor completion, or the DSL reference. `velocity settings`: lists the named settings.
-- `velocity shard-plan`, `velocity history merge`, `velocity history flaky` (rolling flakiness over a test's last N runs, retries plus pass/fail flips as `velocity run` reports it, CI-gated with `--max-rate`), `velocity trace view`, `velocity heal`, `velocity baselines review|accept|reject` (`review --serve` gives a side-by-side review page).
-- `velocity devices up|down` (boot or clone the devices a parallel run needs), `velocity repl`, `velocity daemon start|stop|status` (keeps drivers warm for `run --daemon`), and `velocity signing` (iOS signing with an App Store Connect API key).
-- `velocity mcp install|config|rules`, `velocity migrate waits` (removes redundant `wait:` steps).
-- `velocity gate <file> --goal "<text>"`: the trust gates for a one-test suite YAML that was never explored (hand-written, or exported from an agent session): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text. Exit 0 trusted, 1 not trusted ([CLI.md](docs/CLI.md#gate)). Over MCP, `run_task` with `gate: true` runs it as a background task (`summary.gates`), and `export_session_flow` says its test is not gated yet and gives the call that gates it.
+- `atalanta init`, `atalanta doctor [--fix] [--deep] [--json]`, `atalanta explore`, `atalanta nl-eval` (compares models on saved traces or a built-in task set).
+- `atalanta run [PATH]` takes a suite file or a folder (`-c` still works).
+- `atalanta lint`: finds fragile selectors and fixed waits. `atalanta schema`: prints the suite JSON Schema for editor completion, or the DSL reference. `atalanta settings`: lists the named settings.
+- `atalanta shard-plan`, `atalanta history merge`, `atalanta history flaky` (rolling flakiness over a test's last N runs, retries plus pass/fail flips as `atalanta run` reports it, CI-gated with `--max-rate`), `atalanta trace view`, `atalanta heal`, `atalanta baselines review|accept|reject` (`review --serve` gives a side-by-side review page).
+- `atalanta devices up|down` (boot or clone the devices a parallel run needs), `atalanta repl`, `atalanta daemon start|stop|status` (keeps drivers warm for `run --daemon`), and `atalanta signing` (iOS signing with an App Store Connect API key).
+- `atalanta mcp install|config|rules`, `atalanta migrate waits` (removes redundant `wait:` steps).
+- `atalanta gate <file> --goal "<text>"`: the trust gates for a one-test suite YAML that was never explored (hand-written, or exported from an agent session): burn-in replays, a wrong-path replay that must fail, and an assertion naming goal text. Exit 0 trusted, 1 not trusted ([CLI.md](docs/CLI.md#gate)). Over MCP, `run_task` with `gate: true` runs it as a background task (`summary.gates`), and `export_session_flow` says its test is not gated yet and gives the call that gates it.
 - The global `--color auto|always|never` flag. `NO_COLOR` and `CLICOLOR` are honoured.
 
 #### Suite DSL
 
-- `launchApp` takes `arguments` (Maestro's form): Android intent extras and iOS launch arguments; `velocity migrate maestro` carries them over. ([DSL.md](docs/DSL.md#launch-arguments)).
+- `launchApp` takes `arguments` (Maestro's form): Android intent extras and iOS launch arguments; `atalanta migrate maestro` carries them over. ([DSL.md](docs/DSL.md#launch-arguments)).
 - Actions: `assertScreenshot`, `saveState`/`restoreState`, `setConfig`, `assertSystemState`, `tapXY`, `inputRaw`, `openLink`. Web only: `goto`, `goBack`, `refresh`, `mockRequest`, `clearMocks`.
 - Natural-language steps: `do:`, `act:`, `assert:`, `expect:`, or a bare string, with `data:` and `waitUntil:`. AI verification with `verify: off|final|checkpoints|strict` and per-step `checkpoint:`.
 - Selectors: `role:`/`name:`, `textMatches:`/`idMatches:`, state filters, relations (`below`, `childOf`, …), and `css:`/`xpath:` on the web. [Details](docs/research/changelog-0.2.0-details.md#selectors)
 - Step modifiers: `timeoutMs`, `settle`, `optional`, `force` and `appInFront`. Test keys: `dependsOn`, `sideEffects` and `description`.
-- `runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow (and the flows it runs), filled in when the suite loads; a parameter the call doesn't pass comes from the environment. Decimals must be quoted (`"1.50"`), and `flow` and `flowId` together are an error. MCP `run_flow` takes the same `env`. `velocity migrate maestro` carries Maestro's `runFlow` `env` over. ([DSL.md](docs/DSL.md#parameters))
+- `runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow (and the flows it runs), filled in when the suite loads; a parameter the call doesn't pass comes from the environment. Decimals must be quoted (`"1.50"`), and `flow` and `flowId` together are an error. MCP `run_flow` takes the same `env`. `atalanta migrate maestro` carries Maestro's `runFlow` `env` over. ([DSL.md](docs/DSL.md#parameters))
 - `${VAR:-default}` and `${VAR:?message}`. `$${` writes a literal `${`.
 - Config: `healing.mode` (`auto | report | off`), `actionability`, `retry` (including `flakyResult: fail`), `artifacts.video`/`logs`/`videoSeconds`, `dialog`, `screenshots` (including `freezeStatusBar`), `web`, `headless`, `flutter`, `ai`, `nl` and `settings`.
-- Screenshot baselines are stored per platform and screen size (`velocity-baselines/<platform>/<W>x<H>/`), with `mask:`, `crop:`, `threshold`, `tolerance` and `comparator: strict | perceptual`.
+- Screenshot baselines are stored per platform and screen size (`atalanta-baselines/<platform>/<W>x<H>/`), with `mask:`, `crop:`, `threshold`, `tolerance` and `comparator: strict | perceptual`.
 
 #### Running and CI
 
 - `--parallel N` across devices, with cross-process device leases, so runs, the console and MCP agents never drive the same device at once. On the web, N browser contexts.
-- `--shard M/N` (1-based), `--shard-timings` (from a history file or JUnit XML), `--changed-since REF` with `velocity-impact.yaml`, `--fail-if-none`, `--last-failed`, `--failed-first`, and `--history-from`.
-- `velocity run` flags: `--retries`, `--fail-on-flaky`, `--detect-new-flakes`, `--shuffle`, `--hunt`, `--quarantine`, `--cache-results`, `--set`, `--provision`, `--app`, `--update-baselines`, `--junit-classname`, `--profile`. [Details](docs/research/changelog-0.2.0-details.md#run-flags)
+- `--shard M/N` (1-based), `--shard-timings` (from a history file or JUnit XML), `--changed-since REF` with `atalanta-impact.yaml`, `--fail-if-none`, `--last-failed`, `--failed-first`, and `--history-from`.
+- `atalanta run` flags: `--retries`, `--fail-on-flaky`, `--detect-new-flakes`, `--shuffle`, `--hunt`, `--quarantine`, `--cache-results`, `--set`, `--provision`, `--app`, `--update-baselines`, `--junit-classname`, `--profile`. [Details](docs/research/changelog-0.2.0-details.md#run-flags)
 - Reports: `html`, `github` (annotations and step summary; added automatically in GitHub Actions) and `allure`, alongside `junit` and `json`. Each links the failure evidence.
-- Self-healing of broken selectors, reported as `PASSED (healed n)`. `velocity heal` reviews, accepts or rejects heals.
+- Self-healing of broken selectors, reported as `PASSED (healed n)`. `atalanta heal` reviews, accepts or rejects heals.
 - Automatic handling of system permission prompts (`config.dialog`).
 - Opt-in GitHub workflows for device smoke tests, the Flutter bridge and probe builds.
 
@@ -117,7 +117,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - Web driver: Chrome over CDP, with 207 device profiles (`web.device`), cross-origin iframes, network mocks and touch swipes.
 - Headless driver for smoke runs without a device, and a Flutter bridge (semantics tree by default, Flutter 3.19 or newer).
 - Android: an embedded tree server for dumps, input and screenshots, Compose `testTag` reads, split-APK installs, emulator management, and an in-app sync probe that also tracks React Native.
-- iOS: VelocityRunner (`ios.runner: velocity`) as an alternative to WebDriverAgent; WebDriverAgent pinned to a checked tag; opt-in tap verification (`ios.verifyTap`); physical iPhones through `devicectl` and usbmux, with crash-log collection.
+- iOS: AtalantaRunner (`ios.runner: atalanta`) as an alternative to WebDriverAgent; WebDriverAgent pinned to a checked tag; opt-in tap verification (`ios.verifyTap`); physical iPhones through `devicectl` and usbmux, with crash-log collection.
 - React Native and Flutter apps run on the native device drivers. Set `framework:` for framework-aware sync.
 
 #### MCP and console
@@ -128,34 +128,34 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 #### Agents, API tests, CI and more
 
-- **Agent commands: drive a device from the shell, by ref** (`velocity snapshot`, `tap @e7`, `export`, …), with settle, deltas and `--json` ([CLI.md](docs/CLI.md#agent-commands)). [Details](docs/research/changelog-0.2.0-details.md#agent-commands)
-- **Web agent commands run in `velocity daemon`,** which keeps one Chrome between commands; the first web command starts the daemon if none answers, and `daemon stop` closes the browser. iOS agent commands leave WebDriverAgent running between commands (`snapshot` 3.7 s → 0.6 s on a simulator).
-- **An agent command holds the device for its whole length**; a second one waits, or gets `DEVICE_BUSY` after 10 s (`VELOCITY_LEASE_WAIT_MS`, which `velocity run` also uses). [Details](docs/research/changelog-0.2.0-details.md#agent-lease)
+- **Agent commands: drive a device from the shell, by ref** (`atalanta snapshot`, `tap @e7`, `export`, …), with settle, deltas and `--json` ([CLI.md](docs/CLI.md#agent-commands)). [Details](docs/research/changelog-0.2.0-details.md#agent-commands)
+- **Web agent commands run in `atalanta daemon`,** which keeps one Chrome between commands; the first web command starts the daemon if none answers, and `daemon stop` closes the browser. iOS agent commands leave WebDriverAgent running between commands (`snapshot` 3.7 s → 0.6 s on a simulator).
+- **An agent command holds the device for its whole length**; a second one waits, or gets `DEVICE_BUSY` after 10 s (`ATALANTA_LEASE_WAIT_MS`, which `atalanta run` also uses). [Details](docs/research/changelog-0.2.0-details.md#agent-lease)
 - Failures report `delivered: yes` when the call changed the screen before failing (a `scroll` that never found its target).
 - **Failure codes for agents**: `structuredContent.error` with `code`, `retry`, `delivered` and `next` ([MCP.md](docs/MCP.md#failures)). [Details](docs/research/changelog-0.2.0-details.md#agent-codes)
 - **`snapshot` narrows:** `within: "@e12"` (only what lies inside that element), `find` (lines containing a text) and `limit` (with an `incomplete` header). The core `observe` takes `within` and `find`.
-- **`velocity skills list|get <name>|stub`:** the agent guides compiled into the binary, so an agent reads the one matching the installed version.
+- **`atalanta skills list|get <name>|stub`:** the agent guides compiled into the binary, so an agent reads the one matching the installed version.
 - The core `act` waits for the screen to settle before it reports what changed.
 - `bench/killtest/`: the kill test's pre-registration (`PREREG.md`, `prereg.json` with the GO thresholds) and `score.py`, which scores the runs for S0, S7, S_rel, cost and login secrecy and says GO or NO-GO. The apps, goals and model are left for the owner to choose and freeze.
-- **MCP calls can't wedge the session**: a 55 s deadline per device call (`VELOCITY_MCP_CALL_TIMEOUT_MS`), then the session is rebuilt. [Details](docs/research/changelog-0.2.0-details.md#mcp-deadline)
+- **MCP calls can't wedge the session**: a 55 s deadline per device call (`ATALANTA_MCP_CALL_TIMEOUT_MS`), then the session is rebuilt. [Details](docs/research/changelog-0.2.0-details.md#mcp-deadline)
 - **`drag: { from, to, holdMs, moveMs }`** reorders lists on Android, iOS and the web ([DSL.md](docs/DSL.md#reordering-drag)). [Details](docs/research/changelog-0.2.0-details.md#drag)
 - **`exec` step**: run an allow-listed host program with no shell, check it, and `capture` its output ([DSL.md](docs/DSL.md#host-commands-exec)). [Details](docs/research/changelog-0.2.0-details.md#exec)
 - **`failures.md` on every run**: each failure with its step, `file:line`, log tail and evidence files, or "insufficient evidence". [Details](docs/research/changelog-0.2.0-details.md#failures-md)
-- **`velocity verify-change "<description>"`** (and MCP `verify_change`): replays a trusted saved test, or explores a new gated one, and leaves PR evidence in one folder. [Details](docs/research/changelog-0.2.0-details.md#verify-change)
-- **Logins an agent can call without seeing the password**: `velocity login`, `explore --after`, `${keychain:NAME}` and `${totp:NAME}` ([DSL.md](docs/DSL.md#logging-in)). [Details](docs/research/changelog-0.2.0-details.md#logins)
+- **`atalanta verify-change "<description>"`** (and MCP `verify_change`): replays a trusted saved test, or explores a new gated one, and leaves PR evidence in one folder. [Details](docs/research/changelog-0.2.0-details.md#verify-change)
+- **Logins an agent can call without seeing the password**: `atalanta login`, `explore --after`, `${keychain:NAME}` and `${totp:NAME}` ([DSL.md](docs/DSL.md#logging-in)). [Details](docs/research/changelog-0.2.0-details.md#logins)
 - **Docs site and `llms.txt`**: mdBook build and GitHub Pages deploy (`docs.yml`), `docs/llms.txt`, and [docs/AGENTS.md](docs/AGENTS.md). [Details](docs/research/changelog-0.2.0-details.md#docs-site)
-- **The Velocity GitHub Action** (`action.yml`) and **`velocity init --ci github`**; `install.sh --sha256` pins the archive ([CI.md](docs/CI.md#the-velocity-action)). [Details](docs/research/changelog-0.2.0-details.md#action)
+- **The Atalanta GitHub Action** (`action.yml`) and **`atalanta init --ci github`**; `install.sh --sha256` pins the archive ([CI.md](docs/CI.md#the-atalanta-action)). [Details](docs/research/changelog-0.2.0-details.md#action)
 - `device-smoke.yml` runs nightly (Android emulator and a new headless-Chrome smoke, `tests/smoke/web-smoke.yaml`) and weekly on the iOS simulator, then checks every job reported.
-- **`velocity migrate maestro <dir> --dry-run`** converts every flow and writes nothing: how many flows convert cleanly, with steps skipped or changed, or not at all, and the Maestro commands that don't convert, ranked by the flows they affect (`--report-json` for JSON).
-- **`velocity results check --expect-shards N <paths…>`**: run after a sharded CI matrix, it fails (exit 1) when a shard reported nothing, a shard number is missing or doubled, a shard ran no tests, or a `results.json` / `junit.xml` is damaged. See [docs/CI.md](docs/CI.md#no-silent-passes).
-- **The Velocity GitHub Action's `check-shards` mode**: the Action runs no tests and, after a sharded matrix, downloads every shard's `velocity-results-<platform>-shard-M-of-N` artifact and runs `velocity results check --expect-shards N`, so a shard that died or uploaded nothing fails the run. `velocity init --ci github` now uses it in the `results` job (no more download-artifact + curl|sh install).
+- **`atalanta migrate maestro <dir> --dry-run`** converts every flow and writes nothing: how many flows convert cleanly, with steps skipped or changed, or not at all, and the Maestro commands that don't convert, ranked by the flows they affect (`--report-json` for JSON).
+- **`atalanta results check --expect-shards N <paths…>`**: run after a sharded CI matrix, it fails (exit 1) when a shard reported nothing, a shard number is missing or doubled, a shard ran no tests, or a `results.json` / `junit.xml` is damaged. See [docs/CI.md](docs/CI.md#no-silent-passes).
+- **The Atalanta GitHub Action's `check-shards` mode**: the Action runs no tests and, after a sharded matrix, downloads every shard's `atalanta-results-<platform>-shard-M-of-N` artifact and runs `atalanta results check --expect-shards N`, so a shard that died or uploaded nothing fails the run. `atalanta init --ci github` now uses it in the `results` job (no more download-artifact + curl|sh install).
 - **API testing: the `http` step** (request, `expect:` checks with JSONPath, `capture:`); an `http`-only suite needs no device ([DSL.md](docs/DSL.md#http-and-api-tests)). [Details](docs/research/changelog-0.2.0-details.md#http)
-- `velocity` now names the `http` step when a migrated Maestro flow uses `runScript`/`evalScript`.
-- `velocity run --env-file PATH` (repeatable; also on `shard-plan`) reads `KEY=VALUE` files; `--env` wins over a file. [Details](docs/research/changelog-0.2.0-details.md#env-file)
-- **`velocity explore` shows the model up to two of the project's tests most like the goal** as demonstrations (`--no-demos`, `--demos-from`); prompt `goal-3`. [Details](docs/research/changelog-0.2.0-details.md#demos)
+- `atalanta` now names the `http` step when a migrated Maestro flow uses `runScript`/`evalScript`.
+- `atalanta run --env-file PATH` (repeatable; also on `shard-plan`) reads `KEY=VALUE` files; `--env` wins over a file. [Details](docs/research/changelog-0.2.0-details.md#env-file)
+- **`atalanta explore` shows the model up to two of the project's tests most like the goal** as demonstrations (`--no-demos`, `--demos-from`); prompt `goal-3`. [Details](docs/research/changelog-0.2.0-details.md#demos)
 - `explore` tells the model when its last action changed nothing on the screen list, or when it is back on a screen it saw in the last 4 turns.
 - **Flakiness per failure kind**: history format 3 records each failure's kind, and flaky tests are reported with the split. [Details](docs/research/changelog-0.2.0-details.md#failure-kinds)
-- `velocity migrate maestro`: `killApp`, `eraseText`, `clearState: { appId }` and absolute `tapOn` points convert; a point inside a selector is skipped with a warning. [Details](docs/research/changelog-0.2.0-details.md#migrate)
+- `atalanta migrate maestro`: `killApp`, `eraseText`, `clearState: { appId }` and absolute `tapOn` points convert; a point inside a selector is skipped with a warning. [Details](docs/research/changelog-0.2.0-details.md#migrate)
 - **Accessibility audit:** `config.accessibility: { audit: true }`. It checks each distinct screen a test reads once, with no extra device reads, for:
   - unnamed controls;
   - unlabeled image buttons;
@@ -164,7 +164,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - unlabeled or placeholder-only fields.
 
   Findings are test warnings in every report, at most 20 per test. `fail: true` fails a test on error findings; `density` sets Android px per dp (default: a 411 dp short side). [DSL.md](docs/DSL.md#accessibility-audit).
-- **`velocity explore` checks what the model expects.** With each action, the goal model may say what should follow: a text appears, an element is gone, a switch is on or off. Code checks this against the next screen.
+- **`atalanta explore` checks what the model expects.** With each action, the goal model may say what should follow: a text appears, an element is gone, a switch is on or off. Code checks this against the next screen.
   - **Not met:** the model is told, and the turn counts toward the stuck limit.
   - **Met:** an `assertVisible`/`assertNotVisible`/`checked:` assertion is written after the step, built from the real element and never from the model's text.
   - The counts are in the summary and the JSON report.
@@ -172,36 +172,36 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
   Source: Q-Reflector, arXiv 2608.05587.
 - **`--hunt` explains flakes**, ranking likely causes; `--suggest` tries the top fix in memory without editing the suite. [Details](docs/research/changelog-0.2.0-details.md#hunt)
-- **`velocity api scaffold openapi.yaml`** writes an API-only suite from an OpenAPI 3 document:
+- **`atalanta api scaffold openapi.yaml`** writes an API-only suite from an OpenAPI 3 document:
   - requests ordered so producers come first;
   - one operation's response linked to another's parameters through `capture:`;
   - bodies taken from the spec's examples;
   - checks mined from the response schemas (types, required fields, enums, ranges, lengths, formats).
 
   `--confirm` sends the safe operations (GET/HEAD only) to a running server and drops every check it violates, reporting each mismatch. Source: AutoRestTest, SATORI, RBCTest. [CLI.md](docs/CLI.md).
-- `velocity init` writes `velocity.schema.json`, puts the `yaml-language-server` schema line at the top of the suite, and adds the mapping to `.vscode/settings.json`. It merges only valid JSON, never overwrites a setting, and skips JSONC with a note.
-- `bench/head-to-head/`: a reproducible Velocity vs Maestro benchmark on one emulator, alternating runs and reporting medians and p90.
+- `atalanta init` writes `atalanta.schema.json`, puts the `yaml-language-server` schema line at the top of the suite, and adds the mapping to `.vscode/settings.json`. It merges only valid JSON, never overwrites a setting, and skips JSONC with a note.
+- `bench/head-to-head/`: a reproducible Atalanta vs Maestro benchmark on one emulator, alternating runs and reporting medians and p90.
 - `.github/workflows/install-smoke.yml`: after each release, installs it through install.sh, Homebrew, npm and cargo on Linux and macOS, then runs an API-only suite.
 - **Duration flags take units** (`500ms`, `30s`, `10m`, `1h`). A bare number keeps each flag's old unit (ms on `run`, `doctor` and the agent commands; s on `explore`), with a warning when it looks like the other unit.
-- `results.json` carries `format_version` (now 2) and the run's `shard_plan`; `velocity results check` fails when shards computed different partitions. Format 2 adds an integer `duration_ms` beside every `duration` and writes the resource keys in snake_case; the `{secs, nanos}` object stays for format-1 readers (deprecated), and `results check` and `trace view` read both formats.
-- `velocity run --test-timeout DURATION`: one attempt of one test that runs longer fails (and may be retried) while the rest of the run goes on; `--timeout` still ends the whole run.
+- `results.json` carries `format_version` (now 2) and the run's `shard_plan`; `atalanta results check` fails when shards computed different partitions. Format 2 adds an integer `duration_ms` beside every `duration` and writes the resource keys in snake_case; the `{secs, nanos}` object stays for format-1 readers (deprecated), and `results check` and `trace view` read both formats.
+- `atalanta run --test-timeout DURATION`: one attempt of one test that runs longer fails (and may be retried) while the rest of the run goes on; `--timeout` still ends the whole run.
 - `run-metrics.json` next to `results.json` (with `--report json`): per-device tests, busy time, utilisation, retries and infrastructure failures, and run totals.
-- `VELOCITY_LOG_FORMAT=json` writes log lines as JSON objects with the current test, device and attempt.
-- `VELOCITY_ARTIFACTS_MAX_BYTES` caps the evidence kept in the artifacts folder (oldest earlier runs go first, this run's stay); a run warns at start when the artifacts disk has under 3 GB free. Allure attachments are hard links when on the same disk instead of copies.
-- `velocity run --daemon` prints `=> queued: …` after 2 s when the daemon is busy with another run, instead of waiting silently.
-- A shared lease dir for several users of one host: in a group- or world-writable `VELOCITY_LEASE_DIR` (`chmod 2770` or `1777`), lock files are made group- or world-writable, so the users contend for one lock instead of the second failing. [GUIDE.md](docs/GUIDE.md) now says what a lease covers: one host and one lease dir, not hosts sharing an adb server.
-- `failures.md` gives a `Try:` line for not-found, not-actionable, unsettled-screen, test-timeout and infrastructure failures; the CLI's hint names `VELOCITY_ADB_PATH` when adb is missing.
+- `ATALANTA_LOG_FORMAT=json` writes log lines as JSON objects with the current test, device and attempt.
+- `ATALANTA_ARTIFACTS_MAX_BYTES` caps the evidence kept in the artifacts folder (oldest earlier runs go first, this run's stay); a run warns at start when the artifacts disk has under 3 GB free. Allure attachments are hard links when on the same disk instead of copies.
+- `atalanta run --daemon` prints `=> queued: …` after 2 s when the daemon is busy with another run, instead of waiting silently.
+- A shared lease dir for several users of one host: in a group- or world-writable `ATALANTA_LEASE_DIR` (`chmod 2770` or `1777`), lock files are made group- or world-writable, so the users contend for one lock instead of the second failing. [GUIDE.md](docs/GUIDE.md) now says what a lease covers: one host and one lease dir, not hosts sharing an adb server.
+- `failures.md` gives a `Try:` line for not-found, not-actionable, unsettled-screen, test-timeout and infrastructure failures; the CLI's hint names `ATALANTA_ADB_PATH` when adb is missing.
 - CLI errors print a `Try: …` hint under them where there is a known fix.
-- `velocity migrate maestro`: `setPermissions`, `addMedia`, `clearKeychain`, `setAirplaneMode` and `setOrientation` become `exec` steps (adb / `xcrun simctl`), and a flow's header `env:` becomes `${NAME:-value}` defaults.
-- `velocity migrate maestro`: `setLocation` becomes `exec` steps, `runFlow` with `when: visible/notVisible` becomes a guarded optional flow, and `copyTextFrom`, `runScript` and similar get more specific hints.
-- `velocity version` prints a second line with the commit, target and rustc of a release build (`unknown` for other builds); the first line is unchanged.
+- `atalanta migrate maestro`: `setPermissions`, `addMedia`, `clearKeychain`, `setAirplaneMode` and `setOrientation` become `exec` steps (adb / `xcrun simctl`), and a flow's header `env:` becomes `${NAME:-value}` defaults.
+- `atalanta migrate maestro`: `setLocation` becomes `exec` steps, `runFlow` with `when: visible/notVisible` becomes a guarded optional flow, and `copyTextFrom`, `runScript` and similar get more specific hints.
+- `atalanta version` prints a second line with the commit, target and rustc of a release build (`unknown` for other builds); the first line is unchanged.
 - [docs/GUIDE.md](docs/GUIDE.md#troubleshooting): a troubleshooting table for first-run failures, and the environment variables outside the settings table.
 
 ### Changed
 
-- `velocity-core` no longer depends on `velocity-nl` (and its HTTP clients): the executor runs natural steps through the `NaturalStepResolver` trait in `velocity-common`, which `NaturalResolver` implements. No behaviour change.
+- `atalanta-core` no longer depends on `atalanta-nl` (and its HTTP clients): the executor runs natural steps through the `NaturalStepResolver` trait in `atalanta-common`, which `NaturalResolver` implements. No behaviour change.
 - Closed-set flags are checked when the command line is parsed, and `--help` lists their values: `run --platform`, `--driver`, `--framework`, `--report`, `explore --verify`, `--screenshots`, `mcp --profile`. A typo fails before any device or model work.
-- `velocity init` no longer asks about `velocity-impact.yaml` before the first test exists; it is a next step instead, beside `velocity explore`. On iOS it says when the first run will build WebDriverAgent. The suite header points at docs/DSL.md, and the CI workflow's header says which release it is pinned to.
+- `atalanta init` no longer asks about `atalanta-impact.yaml` before the first test exists; it is a next step instead, beside `atalanta explore`. On iOS it says when the first run will build WebDriverAgent. The suite header points at docs/DSL.md, and the CI workflow's header says which release it is pinned to.
 - `--help` and docs say "saved test" for what `verify-change` and the console save, and "suite file" for what `run`, `validate` and `lint` read.
 - **Faster settles.**
   - A fresh read matching the screen that last settled counts as settled at any age. Before, that only held for 2 s, and any longer step paid the quiet window again.
@@ -209,7 +209,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - A configuration error from the driver fails a lookup or assertion at once instead of being retried until the step timeout (10.2 s on a headless suite without `launchApp`). `sync.mode: native` is unchanged.
 - **The headless and Flutter drivers report settled at once.** Their rendering is synchronous, so they no longer wait out the 300 ms reaction window: 20 headless taps went from 6.82 s to 0.022 s per test.
 - **Android `launchApp`** needs fewer adb round trips (9 → 7 first, 7 → 3 after another app). [Details](docs/research/changelog-0.2.0-details.md#launch-app)
-- **iOS `launchApp`** stops the app through the runner session when there is one instead of spawning `xcrun simctl terminate`. Typing polls for focus every 40 ms instead of sleeping (VelocityRunner, or with the focus check on); plain WebDriverAgent keeps its 100 ms wait. Not yet run on a simulator.
+- **iOS `launchApp`** stops the app through the runner session when there is one instead of spawning `xcrun simctl terminate`. Typing polls for focus every 40 ms instead of sleeping (AtalantaRunner, or with the focus check on); plain WebDriverAgent keeps its 100 ms wait. Not yet run on a simulator.
 - Selector matching prepares the selector once per lookup rather than once per element, and compares ASCII text without allocating: 2–3× faster per lookup on a 5,000-element tree (release build).
 - A test that history flags as flaky gets a warning with its per-kind score even when it passed, so it shows in the HTML, JUnit, GitHub and Allure reports.
 - **Internal:**
@@ -217,7 +217,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - 11 unused dependencies removed (`lru` from the workspace entirely); shared versions for `libc`, `tempfile`, `png`, `sha2` and `ring`.
   - The largest futures boxed (CLI dispatch 55 KB, executor steps 30 KB → under 5 KB).
   - Heavy file I/O moved off the async threads.
-  - `velocity run`'s 846-line `execute_file` split into named steps.
+  - `atalanta run`'s 846-line `execute_file` split into named steps.
   - The console's routing driver forwards every driver method.
   - CI no longer runs a duplicate `check` job, or the fat-LTO release build on pull requests.
 - **CI:**
@@ -227,7 +227,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - cargo-deny advisories pass, with the two unfixable "unmaintained" notices (serde_yaml, ttf-parser) ignored with reasons. Dependabot opens grouped weekly updates for cargo, npm and the actions.
   - Every third-party action is pinned to a commit SHA. CI checks that the committed tree-server jar rebuilds from source byte for byte, and that the third-party licence inventory (`scripts/third-party-rust.py --check`) is current.
 - **JUnit:** infrastructure and internal failures are `<error>`, not `<failure>`; the suite `timestamp` is the run's start.
-- **`velocity explore`:** screenshots sent to the model are downscaled to at most 1,000 px; the prompt is ordered for provider caching, and cost accounting counts cache reads and writes apart. An idle `wait` no longer counts as progress. Prompt version `goal-7`.
+- **`atalanta explore`:** screenshots sent to the model are downscaled to at most 1,000 px; the prompt is ordered for provider caching, and cost accounting counts cache reads and writes apart. An idle `wait` no longer counts as progress. Prompt version `goal-7`.
 - **Explore answers are tiered.** An answer part is accepted when found on a screen, as a number only for a quantity goal, as yes/no only for a yes/no goal, and as words only when they came from a screen; parts code could not verify are left to the final check.
 - **Explore's final check can hold by the log.** When the result is in another app or on an earlier screen, the check cites log turns instead of an element; such a pass writes no assertion from the final screen and the report says `finalBasis: log`. A pass that cites neither is still `unknown`.
 - **Explore asserts a screen answer the final screen still shows.** Outside `--benchmark`, each answer part code saw on a screen, still on the final screen as a stable text, becomes an `assertVisible`.
@@ -248,31 +248,31 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - An unknown `config:` key is a warning that names the closest known key.
 - Shards are balanced by test count unless every shard is given the same `--shard-timings` file, so tests may land in different shards than in 0.1.0.
 - Failure video and logs are captured by default and kept for failed tests. On an Android emulator this added about 15% to step time; `--video off --logs off` (or `artifacts.video: off` and `artifacts.logs: off`) turns them off.
-- `velocity inspect` listens on `127.0.0.1` and needs the per-session token printed in its URL. It shows every platform's devices unless `-p` is given.
-- `velocity mcp` picks its platform from the device id. Without one, it uses iOS.
+- `atalanta inspect` listens on `127.0.0.1` and needs the per-session token printed in its URL. It shows every platform's devices unless `-p` is given.
+- `atalanta mcp` picks its platform from the device id. Without one, it uses iOS.
 - MCP: an unknown tool is a JSON-RPC `-32602` error, not a tool result. `screenshot` returns an image content block, not base64 inside the text. `run_flow` and `run_test` interpolate `${VAR}`, and an unset variable fails the call.
 - Output written to a pipe contains no ANSI colour codes.
 - iOS: WebDriverAgent sessions use `snapshotMaxDepth: 60`, so more deeply nested elements are visible.
 - The in-app sync probes wait for short delayed work (Android `postDelayed`, iOS `performSelector:afterDelay:`, React Native timers and animations). Some steps can take longer, up to the settle cap.
 - TLS uses rustls, so nothing is linked against OpenSSL.
-- **Selectors in `steps.json` traces and the inspector API use the DSL's flat form** (`{"text": "Pay", "index": 1}`), not the enum's derived serde form (`velocity_core::selector_wire`). Older traces still load; a selector a later version can't read is dropped from that step instead of failing the trace.
+- **Selectors in `steps.json` traces and the inspector API use the DSL's flat form** (`{"text": "Pay", "index": 1}`), not the enum's derived serde form (`atalanta_core::selector_wire`). Older traces still load; a selector a later version can't read is dropped from that step instead of failing the trace.
 - **Recorded selectors and typed text are exported literally.** MCP `export_session_flow` and the console recorder write `${` in a selector or text as `$${`, so a label like `Pay ${amount}` matches itself and reads no variable; refs keep the raw form.
-- **MCP tool descriptions say what a tool changes, returns and whether to repeat it**; `act` lists `clear_state`, `until_visible` and `max_scrolls`, `idempotentHint` is set for `open_inspector`, `close_inspector`, `stop_app` and `task_stop`, `export_session_test` is an alias of `export_session_flow`, and `velocity skills get mcp-tools` has a per-tool table. `velocity skills get yaml` prints a guide to writing tests.
+- **MCP tool descriptions say what a tool changes, returns and whether to repeat it**; `act` lists `clear_state`, `until_visible` and `max_scrolls`, `idempotentHint` is set for `open_inspector`, `close_inspector`, `stop_app` and `task_stop`, `export_session_test` is an alias of `export_session_flow`, and `atalanta skills get mcp-tools` has a per-tool table. `atalanta skills get yaml` prints a guide to writing tests.
 - The console mirror acknowledges `pause`/`resume` with `paused`/`resumed` in H.264 mode. MCP failures to write its own files (a task folder, a screenshot, an inline suite) are internal errors, not `INVALID_ARGS`.
 
 ### Deprecated
 
 - **`results.json` `duration` as `{"secs", "nanos"}`.** Read the integer `duration_ms` (format 2); the object form will go in a later format.
-- **`velocity inspect --flows-dir`** is now `--tests-dir` (it saves tests, not `flows:`); the old name still works.
+- **`atalanta inspect --flows-dir`** is now `--tests-dir` (it saves tests, not `flows:`); the old name still works.
 
 - **Ambiguous action selectors** warn that they will be an error in 1.0; `selectors.strict` (`1` error now, `0` silence). [Details](docs/research/changelog-0.2.0-details.md#ambiguous)
-- **JUnit `classname`.** Every test currently has the classname `velocity`. At 1.0 the default becomes the suite file's name; `--junit-classname suite` switches now. The change resets test history in CI tools once.
+- **JUnit `classname`.** Every test currently has the classname `atalanta`. At 1.0 the default becomes the suite file's name; `--junit-classname suite` switches now. The change resets test history in CI tools once.
 - **Flutter `hierarchy: widgets`** (the widget tree in headless Flutter runs) still works with a warning. The semantics tree is the default.
 
 ### Removed
 
 - The experimental React Native headless sidecar, which was on `main` after 0.1.0 but never released, is gone. `--framework react_native --driver headless` is a configuration error (exit 2). React Native apps run on the device drivers, where the in-app sync probe has React Native support.
-- `build.rs` no longer runs npm. Release binaries embed the console UI. A source build without `crates/velocity-inspector/frontend/dist` serves the API and a page explaining how to build the UI.
+- `build.rs` no longer runs npm. Release binaries embed the console UI. A source build without `crates/atalanta-inspector/frontend/dist` serves the API and a page explaining how to build the UI.
 
 ### Fixed
 
@@ -282,7 +282,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **More credential shapes are masked:** AWS presigned-URL and SigV4 signatures and credentials, a secret first form field, numeric JSON secrets, and variables named `*_PW`, `*_CREDS` or `*_SEED` (`PWD` and `OLDPWD` themselves are not secret).
 - **`web.block` and mock rules no longer fail open.** If request interception can't start, a web launch with such rules fails (and is retried) instead of sending blocked requests to the network.
 - **`force: true` reaches the Android driver.** A forced `tap`, `doubleTap` or `longPress` touches the element's center without the covering-window check; before, the driver still refused it as covered. `inputText` and `clearText` keep the check. Not yet run on a device.
-- **`velocity api scaffold` names every placeholder taken from the spec under `API_`** (a parameter `storeId` becomes `${API_STORE_ID}`). A spec could name a parameter `aws_secret_access_key`, and `--confirm` read that variable from your environment and sent it to the spec's server.
+- **`atalanta api scaffold` names every placeholder taken from the spec under `API_`** (a parameter `storeId` becomes `${API_STORE_ID}`). A spec could name a parameter `aws_secret_access_key`, and `--confirm` read that variable from your environment and sent it to the spec's server.
 - **A missing element's report commits only as far as the evidence goes.** In this order:
   - **Earlier screen:** if the text was on an earlier step's screen, the report names that step.
   - **Typo:** if a near-spelling is on screen (two edits at most), the selector is most likely misspelled.
@@ -296,23 +296,23 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **`failures.md` explains failures with the evidence that shows the cause.** The "Why" quoted any line containing "error" from the whole app log (21 of 25 seeded failures). It now gives the closest element and what the screen shows for a missing element, the expected and actual values for a failed check, the configuration problem, or the error lines logged during the failed step. On 30 seeded failures the cited evidence held the cause in 22 of 25 reports, against 3 before.
 - Launching an app that isn't installed on an iOS simulator is a configuration error naming it; it was reported as "App … crashed: the app's process exited unexpectedly".
 - Real iPhones: `launchApp` is a cold start, as on simulators and Android: a running app was only brought to the front, so a test inherited the previous test's screen and its launch arguments never arrived. On the devicectl route, arguments follow `--` (devicectl read `-name` as its own options) and a filler word (devicectl hands the `--` to the app, where it swallowed the first argument). Checked on an iPhone 12 with a test app that shows its arguments.
-- Android: adb losing the device during a `launchApp` with arguments is a device error (retried, moved to another device), not a configuration error. A crash of an app Velocity didn't launch (a link cold-start) is reported again, dated from Velocity's first look.
+- Android: adb losing the device during a `launchApp` with arguments is a device error (retried, moved to another device), not a configuration error. A crash of an app Atalanta didn't launch (a link cold-start) is reported again, dated from Atalanta's first look.
 - iOS: under a sheet, rows a list loaded since the last visibility read no longer count as visible.
 - A locked iPhone no longer fails the runner start at once (xcodebuild may wait for the unlock); it is named if the start times out.
-- `velocity history flaky` refuses a `--window` under 5 or a `--max-rate` outside 0..1, which disabled its gate.
+- `atalanta history flaky` refuses a `--window` under 5 or a `--max-rate` outside 0..1, which disabled its gate.
 - MCP `observe {what: a11y}` gives one element's findings one ref; agent sessions notice a device switch even before their first snapshot.
 - GitHub masks secret-named `runFlow` parameters in the job log.
-- `velocity migrate maestro` drops a `launchApp` argument name Velocity rejects, with a warning, instead of failing the file.
-- `velocity settings` lists `nl.model`'s default as the provider's step model.
-- **`velocity devices up --ios N` counts only the caller's clones.** A `velocity-<type>-<n>` simulator another owner booted (another CI job's `--owner`) is no longer counted as up or booted again; two `up`s at once no longer pick the same clone or clone number.
+- `atalanta migrate maestro` drops a `launchApp` argument name Atalanta rejects, with a warning, instead of failing the file.
+- `atalanta settings` lists `nl.model`'s default as the provider's step model.
+- **`atalanta devices up --ios N` counts only the caller's clones.** A `atalanta-<type>-<n>` simulator another owner booted (another CI job's `--owner`) is no longer counted as up or booted again; two `up`s at once no longer pick the same clone or clone number.
 - **A cut-short `--parallel --stress` run reports on time.** After `--timeout` or a stop, the actors are stopped and every device's CPU stress turned off at once, under one 15 s limit, instead of one device after another with a 60 s limit each.
 - **Pure-YAML suites no longer build the AI client.** With a model key set, every parallel and sequential run built the planner, whose HTTP client loads the system's TLS roots (3–4 s from the macOS keychain, more under load), even with no natural-language step or `verify:`. It is now built only when the suite needs it. This made two parallel-runner timeout tests fail on loaded machines.
 - **Quarantine `expires:` dates are UTC**, so an entry expires at the same moment on a developer's machine and a CI runner.
 - A history file that can't be locked is an internal error (exit 5), not a configuration one.
 
 - **Android tree server protocol 19.** Another app's floating window (freeform, desktop windowing) no longer joins the dump as the app's popup, and the tap guard counts it as a cover; windows come from the active window's display; a resent request waits only as long as the host does. A step cancelled while the host reconnected or resent no longer kills the server or leaves an `adb forward` behind. Not run on a device.
-- **iOS: what is hidden behind a sheet no longer matches.** With a sheet, popover or in-app alert up, the step's lookup tree reads WebDriverAgent's `visible` (one more read; `VELOCITY_IOS_SHEET_VISIBILITY=off`). A row switch whose trailing-end tap changed nothing (an RTL row) is tapped at its leading end. The crash watcher no longer waits behind a slow request. Not run on a simulator.
-- **iOS picker wheels: a dead WebDriverAgent is a device error** (exit 3); under VelocityRunner a picker-wheel step is a config error. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#picker-wheels)
+- **iOS: what is hidden behind a sheet no longer matches.** With a sheet, popover or in-app alert up, the step's lookup tree reads WebDriverAgent's `visible` (one more read; `ATALANTA_IOS_SHEET_VISIBILITY=off`). A row switch whose trailing-end tap changed nothing (an RTL row) is tapped at its leading end. The crash watcher no longer waits behind a slow request. Not run on a simulator.
+- **iOS picker wheels: a dead WebDriverAgent is a device error** (exit 3); under AtalantaRunner a picker-wheel step is a config error. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#picker-wheels)
 - **Explore reads a swatch's colour** from the screenshot in code, for unlabeled single-colour elements. [Details](docs/research/changelog-0.2.0-details.md#swatch)
 - **Pixel changes are judged in colour, on a finer grid**, so a thin stroke counts as a change and a blinking cursor still doesn't. [Details](docs/research/changelog-0.2.0-details.md#pixel-grid)
 - **Repeated swipes inside one element take new lanes** (code picks the lane). [Details](docs/research/changelog-0.2.0-details.md#swipe-lanes)
@@ -353,12 +353,12 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - **A swipe inside a slider reaches its end.** `swipe: { within: … }` drew its 20%–80% stroke on a slider too, so "brightness to maximum" stopped at 80% of the track. On a slider (Android SeekBar or Slider, iOS Slider, the web's `role=slider`) the stroke now runs from a fifth in to past the far edge, where the slider clamps (brightness 100 → 255 and → 1 on the AndroidWorld emulator).
   - **Explore can drag**: `drag` moves one listed element onto another (the DSL's `drag: { from, to }`), for reordering lists, sliders and drop targets.
   - **Web icons are visible to agents.** A clickable element with no text, label or id (`<span class="trash">` drawn by CSS, `<i class="fa-star">`) got no entry in the agent's element list. It is now captured with a name from its title, alt, class words or image file (as `hint`), listed, and selected by its class (`Element.css_class`).
-  - **`className:` on the web also matches an HTML tag**, as Velocity's own tree matching does: the selector builder's fallback for a bare checkbox (`className: input`) found nothing in the page.
+  - **`className:` on the web also matches an HTML tag**, as Atalanta's own tree matching does: the selector builder's fallback for a bare checkbox (`className: input`) found nothing in the page.
   - **Explore: progress the tree can't see counts.** When a turn took a screenshot, an action that changed pixels but not the tree (a canvas stroke, a maze move) is progress, not a no-op. An action that seemed to change nothing is looked at again 0.6 s later (a chooser or another activity opening). Actions that changed the screen but missed the model's expectation (looking through menus) are allowed twice the stuck limit.
-  - **`velocity explore --values-from-screenshots`:** the model may type text it read from a screenshot sent in this run (a receipt, a gallery image, a video frame). Code can't check pixels, so it is a separate opt-in, and only after a screenshot was sent.
-  - **`VELOCITY_EXPLORE_SHOTS_DIR`** saves each turn's screenshot, for an outside judge (iOSWorld).
-  - **`--model openai-compatible:m` uses `VELOCITY_NL_API_URL`.** `--model` hid the environment's endpoint from every provider, so a provider with none of its own could never be used that way, and the error asked for the variable it ignored.
-  - **`velocity run` waits for a held device** (up to `VELOCITY_LEASE_WAIT_MS`, 10 s) instead of failing at once; agent commands wait as long.
+  - **`atalanta explore --values-from-screenshots`:** the model may type text it read from a screenshot sent in this run (a receipt, a gallery image, a video frame). Code can't check pixels, so it is a separate opt-in, and only after a screenshot was sent.
+  - **`ATALANTA_EXPLORE_SHOTS_DIR`** saves each turn's screenshot, for an outside judge (iOSWorld).
+  - **`--model openai-compatible:m` uses `ATALANTA_NL_API_URL`.** `--model` hid the environment's endpoint from every provider, so a provider with none of its own could never be used that way, and the error asked for the variable it ignored.
+  - **`atalanta run` waits for a held device** (up to `ATALANTA_LEASE_WAIT_MS`, 10 s) instead of failing at once; agent commands wait as long.
 - **Web elements keep their `id` attribute apart from their label**: written tests use `id:` (`Element.dom_id`). [Details](docs/research/changelog-0.2.0-details.md#dom-id)
 - **A replugged iPhone no longer stays unreachable**: the USB forward looks the device up again. Not yet checked on hardware. [Details](docs/research/changelog-0.2.0-details.md#replug)
 - **Corporate proxies and custom CAs**: HTTPS trusts the OS store, or `SSL_CERT_FILE`/`SSL_CERT_DIR` ([CLI.md](docs/CLI.md#proxies-and-certificates)). [Details](docs/research/changelog-0.2.0-details.md#proxies)
@@ -371,9 +371,9 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - A poisoned lock made the resilience layer's health check report healthy.
 - Every web run printed chromiumoxide's `WARN WS Invalid message … untagged enum Message` with current Chrome. `RUST_LOG` still shows it.
 - A WebDriverAgent reply with no element id is a device command failure, retried once, not a configuration error.
-- A run with `--device` prepared the driver before taking the device's lease. On a simulator another Velocity process was using, it stopped that process's WebDriverAgent and started a runner on its port. The lease is now taken first.
+- A run with `--device` prepared the driver before taking the device's lease. On a simulator another Atalanta process was using, it stopped that process's WebDriverAgent and started a runner on its port. The lease is now taken first.
 - An iOS runner is never launched into a taken port; one failing 3 times in 2 minutes stops with `RunnerFailing` (exit 3). [Details](docs/research/changelog-0.2.0-details.md#runner-port)
-- Tests no longer write `.velocity/healer-snapshots.json` into the source tree: `RuntimeConfig::state_dir` and `TestExecutor::with_state_dir` put the self-healing state elsewhere.
+- Tests no longer write `.atalanta/healer-snapshots.json` into the source tree: `RuntimeConfig::state_dir` and `TestExecutor::with_state_dir` put the self-healing state elsewhere.
 - `perf_budget` is no longer flaky: healing snapshot state is kept per test in a temp dir. [Details](docs/research/changelog-0.2.0-details.md#perf-budget)
 
 - A test whose app crashed after its last step passed.
@@ -412,30 +412,30 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - A banner over a same-origin iframe that takes the click now fails the tap (and it is retried), instead of reporting success.
   - `aria-hidden` text is left out of accessible names; a wrapper element no longer repeats its children's text in the tree.
   - A crashed renderer is `BrowserConnectionLost` at once.
-  - Printable ASCII is typed as real key events, so `keydown`/`keyup` listeners fire; other text goes in with `insertText`. `VELOCITY_WEB_TYPING=insert` restores insert-only typing.
+  - Printable ASCII is typed as real key events, so `keydown`/`keyup` listeners fire; other text goes in with `insertText`. `ATALANTA_WEB_TYPING=insert` restores insert-only typing.
   - An icon button's `hint` comes from what it holds (an svg `<title>`, an `<img alt>`, a child's `aria-label`, a sprite's `<use href="#icon-…">`, an icon font's class) before its own classes, and utility or hashed classes (`p-2`, `hover:bg-gray-100`, `Button_root__x3F9a`, `css-1x2y3z`) are no longer used as a name. An svg `<title>` outside `aria-hidden` also names its button for `accessibilityId:`.
-  - `confirm()` and `prompt()` can be accepted: `web.dialogs: accept` (setting, `VELOCITY_WEB_DIALOGS`), with `web.promptText` as the prompt's answer. The default is still to dismiss them.
+  - `confirm()` and `prompt()` can be accepted: `web.dialogs: accept` (setting, `ATALANTA_WEB_DIALOGS`), with `web.promptText` as the prompt's answer. The default is still to dismiss them.
   - On a touch profile, a tap whose point something else covers no longer runs the cover's touch handlers: the hit-target check blocks `touchstart`/`touchmove`/`touchend` too.
   - `inputText` on an `<input type=file>` (or its label) sets its files: the text is the paths, one per line. A missing file is a config error.
   - A `tap` on an `<option>` of a closed drop-down chooses it; it failed as "zero size".
-  - Downloads are refused with a warning naming the file; `web.downloads: <folder>` (`VELOCITY_WEB_DOWNLOADS`) saves them there. Before, they went into the temporary profile and were deleted.
-- `velocity daemon start` takes a lock, so a second daemon can't start; a daemon that goes away mid-run is a device error (exit 3).
-- `velocity devices up` picks ports and launches under a host lock, so two processes no longer take the same port.
+  - Downloads are refused with a warning naming the file; `web.downloads: <folder>` (`ATALANTA_WEB_DOWNLOADS`) saves them there. Before, they went into the temporary profile and were deleted.
+- `atalanta daemon start` takes a lock, so a second daemon can't start; a daemon that goes away mid-run is a device error (exit 3).
+- `atalanta devices up` picks ports and launches under a host lock, so two processes no longer take the same port.
 - A retry of a test that begins with `launchApp` cold-starts the app.
-- **`velocity explore`:** the written YAML keeps a swipe's `direction`, `from`, `to` and `within`, and `scrollUntilVisible` writes its `maxScrolls`.
+- **`atalanta explore`:** the written YAML keeps a swipe's `direction`, `from`, `to` and `within`, and `scrollUntilVisible` writes its `maxScrolls`.
 
 ### Security
 
 - **The Rule of Two for agent sessions**: the default and read-only MCP profiles list no tool that changes the machine ([SECURITY.md](docs/SECURITY.md#9-agents-the-rule-of-two)). [Details](docs/research/changelog-0.2.0-details.md#rule-of-two)
-- **An explore task's `out` stays the agent's suite.** Running it later (`run_task suite`, or as an `after`) gets the checks an agent-written suite gets, so its `${…}` can't read the server's environment; the list of such files lives in the tasks folder (`agent-written.txt`) and survives a restart. Outside `--profile full`, an explored test that types `${EMAIL}` now needs `EMAIL` in `VELOCITY_SECRETS`, as a suite in the tasks folder already did.
+- **An explore task's `out` stays the agent's suite.** Running it later (`run_task suite`, or as an `after`) gets the checks an agent-written suite gets, so its `${…}` can't read the server's environment; the list of such files lives in the tasks folder (`agent-written.txt`) and survives a restart. Outside `--profile full`, an explored test that types `${EMAIL}` now needs `EMAIL` in `ATALANTA_SECRETS`, as a suite in the tasks folder already did.
 - **MCP `run_task` keeps model-chosen `out`/`script` paths inside the project.** [Details](docs/research/changelog-0.2.0-details.md#run-task-paths)
-- **VelocityRunner refuses cross-site and unauthenticated requests**: a per-launch token, and 403 for an `Origin`, cross-site fetch or foreign `Host`. [Details](docs/research/changelog-0.2.0-details.md#runner-auth)
+- **AtalantaRunner refuses cross-site and unauthenticated requests**: a per-launch token, and 403 for an `Origin`, cross-site fetch or foreign `Host`. [Details](docs/research/changelog-0.2.0-details.md#runner-auth)
 - **A cabled iPhone's runner binds the phone's loopback (R-4)**, which the USB (usbmux) forward reaches, instead of every interface, Wi-Fi included.
 - **The Android tree server drops non-protocol input** and requires a per-start token (protocol 13). [Details](docs/research/changelog-0.2.0-details.md#tree-input)
 
 - The inspector no longer accepts requests from any website or LAN host. It binds `127.0.0.1` and checks a per-session token, `Host` and `Origin` on every request and WebSocket. It sends no CORS headers, and it serves artifacts only from the run's folder, under a Content-Security-Policy.
-- On simulators, WebDriverAgent, its MJPEG stream and VelocityRunner listen on loopback; cabled iPhones too, by default (`VELOCITY_IOS_DEVICE_LOOPBACK=0` opts out). [Details](docs/research/changelog-0.2.0-details.md#loopback)
-- Secrets come from environment variables, are masked everywhere, never sent to a model, and written into YAML only as `${NAME}`; MCP agents type only `VELOCITY_SECRETS`. [Details](docs/research/changelog-0.2.0-details.md#secrets)
+- On simulators, WebDriverAgent, its MJPEG stream and AtalantaRunner listen on loopback; cabled iPhones too, by default (`ATALANTA_IOS_DEVICE_LOOPBACK=0` opts out). [Details](docs/research/changelog-0.2.0-details.md#loopback)
+- Secrets come from environment variables, are masked everywhere, never sent to a model, and written into YAML only as `${NAME}`; MCP agents type only `ATALANTA_SECRETS`. [Details](docs/research/changelog-0.2.0-details.md#secrets)
 - Values are interpolated in one pass, so a variable's value can't inject another variable.
 - Device shell commands no longer interpolate unquoted app ids or typed text.
 - History, cache, lease and profile files are created `0600` (directories `0700`), and atomic writes replace a symlink instead of following it.
@@ -447,15 +447,15 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **Explore and prompt injection:** screen titles and names are flattened to one line and quoted in the prompt. `--values-from-screenshots` accepts text only after a screenshot of a screen with pixel-only content (an image, a canvas).
 - **MCP `run_task {suite}` in the tasks folder** (a file an agent's task wrote, such as the `task_inject` lines) gets the checks an inline `yaml` gets: no `exec`, no host secrets.
 - **Console:** the explore goal is passed after `--`, so a goal starting with `-` is never read as a flag (I-2), and the console UI is served with a Content-Security-Policy (`script-src 'self'`, I-3).
-- **Automated security checks** (`.github/workflows/security.yml`, `scripts/security-check.sh` locally): RustSec advisories, OSV-Scanner over every lockfile, `npm audit`, gitleaks over the whole history, zizmor on the workflows, Semgrep SAST, an `unsafe` inventory per crate, CycloneDX SBOMs and weekly cargo-fuzz runs of six parsers; OpenSSF Scorecard; every workflow job under harden-runner with credentials not persisted. Releases add the SBOMs, a signed `SHA256SUMS.sigstore.json`, and `cargo auditable` dependency data in the binaries. hyper 1.12 (drops the unmaintained `pin-utils`, RUSTSEC-2026-0441), `rand` 0.9.5 (RUSTSEC-2026-0097), `memmap2` 0.9.12 (RUSTSEC-2026-0186), `grid` 1.0.1 and the frontend's build tooling (vite, postcss, nanoid and others, via `npm audit fix`) are updated. The Velocity Action passes `platform` and `shard` to its scripts as variables and checks `shard` is `M/N`. [SECURITY.md](SECURITY.md#automated-security-checks)
+- **Automated security checks** (`.github/workflows/security.yml`, `scripts/security-check.sh` locally): RustSec advisories, OSV-Scanner over every lockfile, `npm audit`, gitleaks over the whole history, zizmor on the workflows, Semgrep SAST, an `unsafe` inventory per crate, CycloneDX SBOMs and weekly cargo-fuzz runs of six parsers; OpenSSF Scorecard; every workflow job under harden-runner with credentials not persisted. Releases add the SBOMs, a signed `SHA256SUMS.sigstore.json`, and `cargo auditable` dependency data in the binaries. hyper 1.12 (drops the unmaintained `pin-utils`, RUSTSEC-2026-0441), `rand` 0.9.5 (RUSTSEC-2026-0097), `memmap2` 0.9.12 (RUSTSEC-2026-0186), `grid` 1.0.1 and the frontend's build tooling (vite, postcss, nanoid and others, via `npm audit fix`) are updated. The Atalanta Action passes `platform` and `shard` to its scripts as variables and checks `shard` is `M/N`. [SECURITY.md](SECURITY.md#automated-security-checks)
 
 - **Security audit 2026-11** ([docs/research/security-audit-2026-11.md](docs/research/security-audit-2026-11.md)):
   - MCP (outside `--profile full`): explore's and `verify_change`'s `after` file in the tasks folder gets the inline-suite checks; an agent-written suite may not set the browser binary, its flags, a mock file, a non-http start page, `app`, the headless/Flutter/React Native sources, `ios.wdaRef` or a non-http(s) `appId`/`goto` URL, nor read `${…}` in `tags`; its `http` steps can't reach link-local or cloud-metadata addresses; a plain `launch_app` takes only http(s) web URLs and `type_text` can't name a host file outside the project; the explore goal and the `verify_change` description go after `--`.
-  - `velocity explore` writes screen text and goal literals with `${` escaped, so a page showing `${AWS_SECRET_ACCESS_KEY}` can't make the replay read it.
-  - The NL cache (`.velocity/nl-cache.json`) replays only actions grounding can produce (no `http`, `launchApp`, `setConfig` from an edited cache).
+  - `atalanta explore` writes screen text and goal literals with `${` escaped, so a page showing `${AWS_SECRET_ACCESS_KEY}` can't make the replay read it.
+  - The NL cache (`.atalanta/nl-cache.json`) replays only actions grounding can produce (no `http`, `launchApp`, `setConfig` from an edited cache).
   - `http` steps: a request with headers of its own follows redirects on its own origin only, an `https` → `http` redirect stops, and a response body over 32 MiB fails the step. AI provider clients follow no redirects; `http://127.attacker.example` is no longer taken for loopback.
   - Web: Chrome refuses invalid TLS certificates (`web.insecureCerts: 1` opts out); console lines are cut at 16 KiB and the log buffer at 64 MiB; a page nested deeper than 512 elements is flattened instead of overflowing the stack.
-  - Lease files, the daemon lock and log are opened without following symlinks; a lease file that is a link or special file is refused; the daemon and its clients refuse a peer of another uid; with `HOME` unset, `~/.velocity` is a private `velocity-home-<uid>` dir instead of the shared `/tmp/.velocity`.
+  - Lease files, the daemon lock and log are opened without following symlinks; a lease file that is a link or special file is refused; the daemon and its clients refuse a peer of another uid; with `HOME` unset, `~/.atalanta` is a private `atalanta-home-<uid>` dir instead of the shared `/tmp/.atalanta`.
   - `exec`: a line with `${…}` is split before it is filled, so a value is one argument; a relative program is resolved before `cwd` applies.
   - `results check` escapes control characters (no GitHub workflow-command injection from a `results.json`); `trace view` reads evidence files only inside the trace folder; the inspector's review-only server serves only the review routes.
   - Android: the tree/video server token file is created `0600` in one call and deleted on quit; a squatter's endless ping reply is capped; a secret's read-back is never quoted; `uiautomator dump` runs under `umask 077`; crash notes are capped. Not run on a device.
@@ -466,12 +466,12 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **Prebuilt binaries:** macOS arm64 and x86_64; Linux x86_64 and arm64. The Linux binaries are statically linked against musl. Release binaries include the console UI.
 - **Windows is not supported.**
 - **Install:**
-  - `curl -fsSL https://raw.githubusercontent.com/omkar-dev/velocity/main/install.sh | sh` (verifies the SHA-256; `VELOCITY_VERSION` pins a version, `--dir` picks where, never needs sudo)
-  - Homebrew: `brew install omkar-dev/velocity/velocity` (the prebuilt binary; `--HEAD` builds `main` from source, UI included)
-  - npm: `npx @velocity-test/cli --version`, or `npm install -D @velocity-test/cli`
-  - `cargo install velocity-cli --locked` (builds from source; the published crate carries the built console UI, so no npm is needed)
-- **Release assets:** `velocity-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, a `SHA256SUMS` file, and GitHub build provenance attestations (`gh attestation verify <file> --repo omkar-dev/velocity`).
-- **Rust crates:** the MCP server crate is published as `velocity-mcp-server` (the name `velocity-mcp` was taken); its library is still `velocity_mcp`. The minimum supported Rust version is 1.89.
+  - `curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh` (verifies the SHA-256; `ATALANTA_VERSION` pins a version, `--dir` picks where, never needs sudo)
+  - Homebrew: `brew install atalantahq/tap/atalanta` (the prebuilt binary; `--HEAD` builds `main` from source, UI included)
+  - npm: `npx @atalantahq/cli --version`, or `npm install -D @atalantahq/cli`
+  - `cargo install atalanta-cli --locked` (builds from source; the published crate carries the built console UI, so no npm is needed)
+- **Release assets:** `atalanta-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`, a `SHA256SUMS` file, and GitHub build provenance attestations (`gh attestation verify <file> --repo atalantahq/atalanta`).
+- **Rust crates:** the MCP server crate is published as `atalanta-mcp-server` (the name `atalanta-mcp` was taken); its library is still `atalanta_mcp`. The minimum supported Rust version is 1.89.
 - **Devices:**
   - Android emulators and devices need `adb`; Java is not needed.
   - iOS simulators and devices need macOS with Xcode.
@@ -480,9 +480,9 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Migrating from 0.1.0
 
-1. Install 0.2.0 and run `velocity doctor -p android,ios` (or the platforms you use). Apply what it suggests, or run `velocity doctor --fix`.
-2. Run `velocity validate <suite-or-folder>`. Fix every reported key: misspelt keys inside actions, `runFlow` with `when:`, duplicate test names.
-3. Run `velocity lint <suite-or-folder>` and review its output. Then search your suites for `id:` values that relied on substring matching, and replace each with the full short id or an `idMatches:` pattern.
+1. Install 0.2.0 and run `atalanta doctor -p android,ios` (or the platforms you use). Apply what it suggests, or run `atalanta doctor --fix`.
+2. Run `atalanta validate <suite-or-folder>`. Fix every reported key: misspelt keys inside actions, `runFlow` with `when:`, duplicate test names.
+3. Run `atalanta lint <suite-or-folder>` and review its output. Then search your suites for `id:` values that relied on substring matching, and replace each with the full short id or an `idMatches:` pattern.
 4. Run each suite once locally and fix what turns red, using the list above. Usual fixes:
    - `appInFront: false` on an `assertNotVisible` that runs while another app is in front;
    - `force: true` on an action whose target never becomes enabled or still (or `actionability: lenient` while you investigate);
@@ -492,10 +492,10 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
    - expect exit 2 for a tag or filter that matches nothing;
    - pass `--shard-index` and `--shard-total` together, or move to `--shard M/N`;
    - pass `--env` as `KEY=VALUE`.
-6. Upload `velocity-results/` as a CI artifact so failure videos, logs and `trace.html` are kept, or turn capture off with `--video off --logs off`. Add `velocity-results/` and `.velocity/healed-selectors.json` to `.gitignore`.
-7. Decide on self-healing in CI. Its default there is `report`: a test that passes only through a heal fails and prints the `velocity heal --accept` command. Set `healing.mode: auto` or `off` to choose otherwise.
+6. Upload `atalanta-results/` as a CI artifact so failure videos, logs and `trace.html` are kept, or turn capture off with `--video off --logs off`. Add `atalanta-results/` and `.atalanta/healed-selectors.json` to `.gitignore`.
+7. Decide on self-healing in CI. Its default there is `report`: a test that passes only through a heal fails and prints the `atalanta heal --accept` command. Set `healing.mode: auto` or `off` to choose otherwise.
 8. For the inspector, open the tokened URL it prints. Add `--host 0.0.0.0` only if you need LAN access.
-9. For MCP clients, run `velocity mcp install` to register the server and the agent rules. List the secrets agents may type in `VELOCITY_SECRETS`.
+9. For MCP clients, run `atalanta mcp install` to register the server and the agent rules. List the secrets agents may type in `ATALANTA_SECRETS`.
 
 ## [0.2.0] - unreleased
 
@@ -507,12 +507,12 @@ First public release.
 
 - A YAML test DSL (`appId`, `config`, `flows`, `tests`) with `launchApp`, `stopApp`, `tap`, `doubleTap`, `longPress`, `inputText`, `clearText`, `assertVisible`, `assertNotVisible`, `assertText`, `scrollUntilVisible`, `swipe`, `screenshot`, `pressKey`, `wait` and `runFlow`. Selectors: `id`, `text`, `textContains`, `accessibilityId`, `className` and `index`, and combinations of them. `${VAR}` environment interpolation.
 - An Android driver (adb and UIAutomator) and an iOS simulator driver (simctl and WebDriverAgent), behind retry policies and a circuit breaker.
-- `velocity run` with `--tags`, `--filter`, `--shard-index`/`--shard-total`, `--retries`, `--timeout`, `--fail-fast`, `--env`, and JUnit and JSON reports with test history.
-- `velocity validate`, `velocity device list|boot|shutdown|screenshot`, and `velocity migrate maestro`.
-- `velocity mcp`: an MCP server on stdio with 14 tools for driving a device and running flows and tests.
-- `velocity inspect`: an inspector web UI for the element tree and selectors.
+- `atalanta run` with `--tags`, `--filter`, `--shard-index`/`--shard-total`, `--retries`, `--timeout`, `--fail-fast`, `--env`, and JUnit and JSON reports with test history.
+- `atalanta validate`, `atalanta device list|boot|shutdown|screenshot`, and `atalanta migrate maestro`.
+- `atalanta mcp`: an MCP server on stdio with 14 tools for driving a device and running flows and tests.
+- `atalanta inspect`: an inspector web UI for the element tree and selectors.
 - An install script, a Homebrew formula, and CI and release workflows.
 
-[Unreleased]: https://github.com/omkar-dev/velocity/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/omkar-dev/velocity/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/omkar-dev/velocity/releases/tag/v0.1.0
+[Unreleased]: https://github.com/atalantahq/atalanta/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/atalantahq/atalanta/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/atalantahq/atalanta/releases/tag/v0.1.0

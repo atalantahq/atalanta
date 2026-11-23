@@ -1,6 +1,6 @@
+use atalanta_common::jsonline::JsonLineClient;
 use tokio::process::Child;
 use tokio::time::Duration;
-use velocity_common::jsonline::JsonLineClient;
 
 use crate::config::FlutterBridgeConfig;
 use crate::protocol::{FlutterCommand, FlutterResponse};
@@ -30,8 +30,8 @@ impl FlutterProcess {
             tracing::info!("No Flutter bridge to connect to: {e}");
             anyhow::bail!(
                 "Flutter bridge not running on port {} for project {}. \
-                 Add the velocity_bridge Dart package (crates/velocity-flutter-bridge/dart) \
-                 to the app and start it before tests — see the velocity-flutter-bridge README.",
+                 Add the atalanta_bridge Dart package (crates/atalanta-flutter-bridge/dart) \
+                 to the app and start it before tests — see the atalanta-flutter-bridge README.",
                 self.config.port,
                 self.config.project_path
             )

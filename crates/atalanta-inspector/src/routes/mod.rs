@@ -7,20 +7,20 @@ pub mod recording;
 pub mod screenshot;
 pub mod selector;
 
+use atalanta_common::AtalantaError;
 use axum::http::StatusCode;
-use velocity_common::VelocityError;
 
 /// The HTTP status a driver error is (VEL-256): an unknown device is 404, a
 /// missing element 404, a busy device or an element that can't take the
 /// action now (disabled, covered) 409, a lost connection 503; only the rest
 /// is 500.
-pub fn api_error(e: VelocityError) -> (StatusCode, String) {
+pub fn api_error(e: AtalantaError) -> (StatusCode, String) {
     let status = match e.exit_code() {
-        _ if matches!(e, VelocityError::DeviceNotFound { .. }) => StatusCode::NOT_FOUND,
-        _ if matches!(e, VelocityError::DeviceLocked { .. }) => StatusCode::CONFLICT,
-        1 if matches!(e, VelocityError::ElementNotFound { .. }) => StatusCode::NOT_FOUND,
+        _ if matches!(e, AtalantaError::DeviceNotFound { .. }) => StatusCode::NOT_FOUND,
+        _ if matches!(e, AtalantaError::DeviceLocked { .. }) => StatusCode::CONFLICT,
+        1 if matches!(e, AtalantaError::ElementNotFound { .. }) => StatusCode::NOT_FOUND,
         // A web tap on a disabled control read as a server fault (M-2).
-        1 if matches!(e, VelocityError::NotActionable { .. }) => StatusCode::CONFLICT,
+        1 if matches!(e, AtalantaError::NotActionable { .. }) => StatusCode::CONFLICT,
         2 => StatusCode::BAD_REQUEST,
         3 => StatusCode::SERVICE_UNAVAILABLE,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
@@ -36,14 +36,14 @@ mod tests {
     fn driver_errors_map_to_their_http_status() {
         let cases = [
             (
-                VelocityError::DeviceNotFound {
+                AtalantaError::DeviceNotFound {
                     id: "x".into(),
                     available: vec![],
                 },
                 StatusCode::NOT_FOUND,
             ),
             (
-                VelocityError::ElementNotFound {
+                AtalantaError::ElementNotFound {
                     selector: "s".into(),
                     timeout_ms: 0,
                     screenshot: None,
@@ -52,22 +52,22 @@ mod tests {
                 StatusCode::NOT_FOUND,
             ),
             (
-                VelocityError::ServiceUnavailable {
+                AtalantaError::ServiceUnavailable {
                     service: "wda".into(),
                     detail: "gone".into(),
                 },
                 StatusCode::SERVICE_UNAVAILABLE,
             ),
             (
-                VelocityError::NotActionable {
+                AtalantaError::NotActionable {
                     selector: "s".into(),
                     reason: "disabled".into(),
                 },
                 StatusCode::CONFLICT,
             ),
-            (VelocityError::Config("bad".into()), StatusCode::BAD_REQUEST),
+            (AtalantaError::Config("bad".into()), StatusCode::BAD_REQUEST),
             (
-                VelocityError::Internal(anyhow::anyhow!("boom")),
+                AtalantaError::Internal(anyhow::anyhow!("boom")),
                 StatusCode::INTERNAL_SERVER_ERROR,
             ),
         ];

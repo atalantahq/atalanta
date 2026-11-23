@@ -776,13 +776,13 @@ pub enum Action {
     /// Reload the current browser page (web only).
     Refresh,
     /// Send an HTTP request, check its response and capture values from it
-    /// for `${NAME}` in later steps (`velocity-api` runs it). Needs no
+    /// for `${NAME}` in later steps (`atalanta-api` runs it). Needs no
     /// device: a suite of only these runs without one.
     Http(Box<crate::http::HttpRequest>),
     /// Run an allowed program on the host (`exec`, row 3.2).
     Exec(Box<crate::exec::ExecStep>),
     /// A natural-language step (e.g. "tap the login button") resolved to a
-    /// concrete action at run time by an LLM planner (see the `velocity-nl`
+    /// concrete action at run time by an LLM planner (see the `atalanta-nl`
     /// crate). The first resolution is cached against the screen fingerprint so
     /// reruns replay instantly without another model call.
     Natural {

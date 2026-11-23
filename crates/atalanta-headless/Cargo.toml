@@ -1,5 +1,5 @@
 [package]
-name = "velocity-headless"
+name = "atalanta-headless"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,10 +10,10 @@ readme.workspace = true
 authors.workspace = true
 keywords = ["testing", "headless", "rendering", "android", "ios"]
 categories = ["development-tools::testing", "rendering"]
-description = "Headless rendering engine for Velocity — CPU-only layout and pixel rendering for Android XML and iOS XIB"
+description = "Headless rendering engine for Atalanta — CPU-only layout and pixel rendering for Android XML and iOS XIB"
 
 [dependencies]
-velocity-common = { workspace = true }
+atalanta-common = { workspace = true }
 
 # Graphics & layout
 tiny-skia = "0.11.4"
@@ -44,7 +44,7 @@ tempfile = { workspace = true }
 # Decodes rendered screenshots in tests/scrolling.rs.
 png = { workspace = true }
 # Drives `scrollUntilVisible` through the real executor in tests/scrolling.rs.
-velocity-core = { workspace = true }
+atalanta-core = { workspace = true }
 
 [lints]
 workspace = true

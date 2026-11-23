@@ -1,9 +1,9 @@
-//! A suite run (`velocity run`) or an exploration (`velocity explore`) as
+//! A suite run (`atalanta run`) or an exploration (`atalanta explore`) as
 //! a child process (see the module docs of [`super`] for why a child).
 //!
 //! The child writes its output to the task's `run.log`, its reports and
 //! traces under the task's `artifacts/`, and live events (one JSON line per
-//! test and step, and per explore turn: `velocity_common::live_events`) to
+//! test and step, and per explore turn: `atalanta_common::live_events`) to
 //! `events.jsonl`, which this side reads while it runs. Stopping it is a
 //! Ctrl-C to its process group: the run stops its test and writes its
 //! reports, as a Ctrl-C in a terminal does; one that doesn't exit within a
@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use velocity_common::{Platform, SuiteResult};
+use atalanta_common::{Platform, SuiteResult};
 
 use super::{Failure, Progress, Summary, TaskBody, TaskContext, TaskKind, TaskOutcome, TaskState};
 
@@ -45,7 +45,7 @@ pub struct RunRequest {
 }
 
 impl RunRequest {
-    /// `velocity run` arguments writing into `artifacts`.
+    /// `atalanta run` arguments writing into `artifacts`.
     pub fn args(&self, artifacts: &Path) -> Vec<String> {
         let mut a = vec![
             "run".to_string(),
@@ -84,7 +84,7 @@ impl RunRequest {
     }
 }
 
-/// What to explore (`velocity explore` arguments).
+/// What to explore (`atalanta explore` arguments).
 #[derive(Debug, Clone, Default)]
 pub struct ExploreRequest {
     pub goal: String,
@@ -111,7 +111,7 @@ pub struct ExploreRequest {
 }
 
 impl ExploreRequest {
-    /// `velocity explore` arguments reading instructions from `inject`.
+    /// `atalanta explore` arguments reading instructions from `inject`.
     pub fn args(&self, inject: &Path) -> Vec<String> {
         let mut a = vec![
             "explore".to_string(),
@@ -160,9 +160,9 @@ impl ExploreRequest {
     }
 }
 
-/// A `velocity` child: what both task bodies share.
+/// A `atalanta` child: what both task bodies share.
 pub struct Child {
-    /// The `velocity` binary (the server's own, normally).
+    /// The `atalanta` binary (the server's own, normally).
     pub program: PathBuf,
     pub args: Vec<String>,
     /// The child's working directory (relative paths resolve here).
@@ -206,7 +206,7 @@ impl Child {
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::from(out))
             .stderr(std::process::Stdio::from(log))
-            .env(velocity_common::live_events::EVENTS_FILE_ENV, events)
+            .env(atalanta_common::live_events::EVENTS_FILE_ENV, events)
             .env("NO_COLOR", "1");
         if let Some(cwd) = &self.cwd {
             cmd.current_dir(cwd);
@@ -223,7 +223,7 @@ impl Child {
                 Ok(())
             });
         }
-        let mut child = velocity_common::process::spawn_group(&mut cmd)
+        let mut child = atalanta_common::process::spawn_group(&mut cmd)
             .map_err(|e| format!("could not start {}: {e}", self.program.display()))?;
         let pid = child.id();
         let mut stopped = false;
@@ -298,7 +298,7 @@ fn error_outcome(e: String) -> TaskOutcome {
     }
 }
 
-/// A `velocity run` child.
+/// A `atalanta run` child.
 pub struct SuiteRun {
     pub child: Child,
     pub artifacts: PathBuf,
@@ -328,7 +328,7 @@ impl TaskBody for SuiteRun {
             }
         };
         let error =
-            (state == TaskState::Error).then(|| self.child.failure("velocity run", exit.code));
+            (state == TaskState::Error).then(|| self.child.failure("atalanta run", exit.code));
         TaskOutcome {
             state,
             summary,
@@ -338,7 +338,7 @@ impl TaskBody for SuiteRun {
     }
 }
 
-/// A `velocity explore … --json` child. Its stdout (the JSON result) goes to
+/// A `atalanta explore … --json` child. Its stdout (the JSON result) goes to
 /// `<task>/result.json`, its live lines to the log.
 pub struct ExploreRun {
     pub child: Child,
@@ -383,7 +383,7 @@ impl TaskBody for ExploreRun {
             }
         };
         let error = match state {
-            TaskState::Error => Some(self.child.failure("velocity explore", exit.code)),
+            TaskState::Error => Some(self.child.failure("atalanta explore", exit.code)),
             TaskState::Failed => result
                 .as_ref()
                 .and_then(|r| r.pointer("/report/reason"))
@@ -400,7 +400,7 @@ impl TaskBody for ExploreRun {
     }
 }
 
-/// A `velocity verify-change` child (row 1.4). Its verdict and evidence
+/// A `atalanta verify-change` child (row 1.4). Its verdict and evidence
 /// are in `<bundle>/manifest.json`.
 pub struct VerifyRun {
     pub child: Child,
@@ -440,7 +440,7 @@ impl TaskBody for VerifyRun {
             }
         };
         let error = match state {
-            TaskState::Error => Some(self.child.failure("velocity verify-change", exit.code)),
+            TaskState::Error => Some(self.child.failure("atalanta verify-change", exit.code)),
             TaskState::Failed => std::fs::read_to_string(self.bundle.join("failures.md")).ok(),
             _ => None,
         };
@@ -453,7 +453,7 @@ impl TaskBody for VerifyRun {
     }
 }
 
-/// `velocity gate --json` as a task: the trust gates on a written test.
+/// `atalanta gate --json` as a task: the trust gates on a written test.
 pub struct GateRun {
     pub child: Child,
 }
@@ -490,7 +490,7 @@ impl TaskBody for GateRun {
             }
         };
         let error = match state {
-            TaskState::Error => Some(self.child.failure("velocity gate", exit.code)),
+            TaskState::Error => Some(self.child.failure("atalanta gate", exit.code)),
             TaskState::Failed => result.as_ref().map(|r| {
                 let reasons: Vec<&str> = r["gates"]["reasons"]
                     .as_array()
@@ -509,7 +509,7 @@ impl TaskBody for GateRun {
     }
 }
 
-/// The summary of `velocity gate --json` output: the burn-in replays as the
+/// The summary of `atalanta gate --json` output: the burn-in replays as the
 /// counts, failed replays as failures, and the gates' verdict.
 pub fn gate_summary(r: &serde_json::Value) -> Summary {
     use serde_json::json;
@@ -524,7 +524,7 @@ pub fn gate_summary(r: &serde_json::Value) -> Summary {
             step: x["failedStep"].as_u64().map(|s| format!("{}", s + 1)),
             error: x["error"]
                 .as_str()
-                .map(|e| velocity_common::redact::redact(e).into_owned()),
+                .map(|e| atalanta_common::redact::redact(e).into_owned()),
             screenshot: None,
             trace: None,
         })
@@ -544,7 +544,7 @@ pub fn gate_summary(r: &serde_json::Value) -> Summary {
     }
 }
 
-/// The summary of `velocity explore --json` output: the test written, the
+/// The summary of `atalanta explore --json` output: the test written, the
 /// replays, and what the model cost.
 pub fn explore_summary(r: &serde_json::Value) -> Summary {
     use serde_json::{json, Value};
@@ -560,7 +560,7 @@ pub fn explore_summary(r: &serde_json::Value) -> Summary {
             step: x["failedStep"].as_u64().map(|s| format!("{}", s + 1)),
             error: x["error"]
                 .as_str()
-                .map(|e| velocity_common::redact::redact(e).into_owned()),
+                .map(|e| atalanta_common::redact::redact(e).into_owned()),
             screenshot: None,
             trace: None,
         })
@@ -586,13 +586,13 @@ pub fn explore_summary(r: &serde_json::Value) -> Summary {
         })),
         "repair": r["repair"],
         "next": files.first().and_then(Value::as_str).map(|f| format!(
-            "review {f}, then run it with `velocity run {f}` (run_task suite={f}); commit it for CI"
+            "review {f}, then run it with `atalanta run {f}` (run_task suite={f}); commit it for CI"
         )),
     });
     // The summary goes to task.json and the notifiers as well as the MCP
     // reply: a secret the model quoted in `reason` (or a repair note) must
     // be masked here too (second-pass review).
-    velocity_common::redact::redact_value(&mut explore);
+    atalanta_common::redact::redact_value(&mut explore);
     Summary {
         total: runs.len(),
         passed,
@@ -626,7 +626,7 @@ fn interrupt(pid: Option<u32>) {
 }
 
 /// SIGKILL to the child's whole process group: what it started (Chrome
-/// runs in `velocity`'s own group) must not outlive it. Killing only the
+/// runs in `atalanta`'s own group) must not outlive it. Killing only the
 /// leader orphaned them, and once the leader is reaped nothing else will.
 fn kill_group(pid: Option<u32>) {
     #[cfg(unix)]
@@ -725,8 +725,8 @@ fn apply_event(p: &mut Progress, line: &str) {
             p.tests_finished += 1;
             // The writer's own type decides what a failure is (review 02
             // M4): a status this reader doesn't know counts as failed.
-            let failed = match velocity_common::live_events::LiveEvent::parse(line) {
-                Some(velocity_common::live_events::LiveEvent::TestFinished { status, .. }) => {
+            let failed = match atalanta_common::live_events::LiveEvent::parse(line) {
+                Some(atalanta_common::live_events::LiveEvent::TestFinished { status, .. }) => {
                     status.is_failure()
                 }
                 _ => true,
@@ -777,7 +777,7 @@ fn log_tail(log: &Path, n: usize) -> String {
         lines.remove(0);
     }
     let tail = lines[lines.len().saturating_sub(n)..].join("\n");
-    velocity_common::redact::redact(&tail).into_owned()
+    atalanta_common::redact::redact(&tail).into_owned()
 }
 
 #[cfg(all(test, unix))]
@@ -785,13 +785,13 @@ mod tests {
     use super::*;
     use crate::tasks::{TaskManager, TaskMeta};
 
-    /// A stand-in for `velocity` (run through /bin/sh): writes progress
+    /// A stand-in for `atalanta` (run through /bin/sh): writes progress
     /// and results.json like a run, sleeps `$FAKE_SLEEP` seconds, then exits
     /// with `$FAKE_EXIT`; on Ctrl-C it writes its results and exits 130.
-    fn fake_velocity() -> PathBuf {
+    fn fake_atalanta() -> PathBuf {
         let results = r#"{"total":2,"passed":1,"failed":1,"skipped":0,"retried":0,"duration":{"secs":1,"nanos":0},"tests":[{"test_name":"ok","status":"passed","duration":{"secs":1,"nanos":0},"steps":[],"retries":0,"error_message":null,"screenshots":[]},{"test_name":"pay","status":"failed","duration":{"secs":1,"nanos":0},"steps":[{"step_index":2,"action_name":"tap","status":"failed","duration":{"secs":0,"nanos":0},"screenshot":"/tmp/x.png","error_message":"Element not found: id=pay"}],"retries":0,"error_message":"Element not found: id=pay","screenshots":[]}],"shard_index":null,"shard_total":null}"#;
         crate::test_util::script(
-            "fake-velocity",
+            "fake-atalanta",
             &format!(
                 r#"#!/bin/sh
 all="$@"
@@ -804,12 +804,12 @@ mkdir -p "$art"
 echo "$all" > "$art/../argv.txt"
 finish() {{ printf '%s' '{results}' > "$art/results.json"; exit $1; }}
 trap 'finish 130' INT
-echo '{{"event":"testStarted","test":"ok","steps":3}}' >> "$VELOCITY_EVENTS_FILE"
-echo '{{"event":"stepStarted","test":"ok","index":1,"total":3,"step":"tap"}}' >> "$VELOCITY_EVENTS_FILE"
+echo '{{"event":"testStarted","test":"ok","steps":3}}' >> "$ATALANTA_EVENTS_FILE"
+echo '{{"event":"stepStarted","test":"ok","index":1,"total":3,"step":"tap"}}' >> "$ATALANTA_EVENTS_FILE"
 echo "running on stdout"
 i=0
 while [ $i -lt "$FAKE_SLEEP" ]; do sleep 1; i=$((i+1)); done
-echo '{{"event":"testFinished","test":"ok","status":"passed"}}' >> "$VELOCITY_EVENTS_FILE"
+echo '{{"event":"testFinished","test":"ok","status":"passed"}}' >> "$ATALANTA_EVENTS_FILE"
 finish "$FAKE_EXIT"
 "#
             ),
@@ -833,7 +833,7 @@ finish "$FAKE_EXIT"
             format!("FAKE_EXIT={exit}"),
             format!("FAKE_SLEEP={sleep_s}"),
             "/bin/sh".to_string(),
-            fake_velocity().to_string_lossy().into_owned(),
+            fake_atalanta().to_string_lossy().into_owned(),
         ];
         args.extend(req.args(&artifacts));
         let body = SuiteRun {
@@ -926,7 +926,7 @@ finish "$FAKE_EXIT"
         let done = m.wait(&info.id, Duration::from_secs(30)).await.unwrap();
         let log = std::fs::read_to_string(&done.log).unwrap();
         assert!(log.contains("VEL_MCP_KEPT=kept"), "{log}");
-        assert!(log.contains("VELOCITY_EVENTS_FILE="), "{log}");
+        assert!(log.contains("ATALANTA_EVENTS_FILE="), "{log}");
         assert!(!log.contains(&format!("{parent_only}=")), "{log}");
     }
 
@@ -1039,7 +1039,7 @@ finish "$FAKE_EXIT"
         let (id, dir) = m.new_task_dir().unwrap();
         let pid_file = tmp.path().join("helper.pid");
         let script = crate::test_util::script(
-            "fake-velocity-stubborn",
+            "fake-atalanta-stubborn",
             "#!/bin/sh\ntrap '' INT\nsleep 300 &\necho $! > \"$HELPER_PID_FILE\"\nwait\n",
         );
         let body = SuiteRun {
@@ -1130,7 +1130,7 @@ finish "$FAKE_EXIT"
         let (id, dir) = m.new_task_dir().unwrap();
         let body = SuiteRun {
             child: Child {
-                program: tmp.path().join("no-such-velocity"),
+                program: tmp.path().join("no-such-atalanta"),
                 args: vec![],
                 cwd: None,
                 log: dir.join("run.log"),
@@ -1152,12 +1152,12 @@ finish "$FAKE_EXIT"
         assert!(done.error.unwrap().contains("could not start"));
     }
 
-    /// A stand-in for `velocity explore --json`: reports two turns, waits
+    /// A stand-in for `atalanta explore --json`: reports two turns, waits
     /// for an injected line (echoing it as an `injected` event), writes the
     /// YAML and prints the result; on Ctrl-C it prints a stopped result.
     fn fake_explore() -> PathBuf {
         crate::test_util::script(
-            "fake-velocity-explore",
+            "fake-atalanta-explore",
             r#"#!/bin/sh
 out=""; inject=""
 while [ $# -gt 0 ]; do
@@ -1167,7 +1167,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-E="$VELOCITY_EVENTS_FILE"
+E="$ATALANTA_EVENTS_FILE"
 stopped() { printf '%s' '{"report":{"outcome":"stopped","reason":"stopped","turns":1,"steps":[],"modelCalls":1,"inputTokens":10,"outputTokens":2},"yaml":null,"replay":null,"repair":null,"files":[]}'; exit 1; }
 trap stopped INT
 echo '{"event":"observed","turn":1,"title":"Settings","elements":20}' >> "$E"
@@ -1294,7 +1294,7 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
         );
         assert_eq!(e["replay"]["passed"], 1);
         assert_eq!(e["model_calls"], 0);
-        assert!(e["next"].as_str().unwrap().contains("velocity run"), "{e}");
+        assert!(e["next"].as_str().unwrap().contains("atalanta run"), "{e}");
         assert_eq!(done.progress.phase.as_deref(), Some("replaying"));
     }
 
@@ -1316,7 +1316,7 @@ printf '{"report":{"outcome":"success","reason":"the page is open","turns":2,"st
     /// handed to notifiers; a registered secret in its `reason` was kept.
     #[test]
     fn the_explore_summary_masks_registered_secrets() {
-        velocity_common::redact::register_secret("hunter2-second-pass-value");
+        atalanta_common::redact::register_secret("hunter2-second-pass-value");
         let r = serde_json::json!({
             "report": {"outcome": "failed", "reason": "login failed with hunter2-second-pass-value"},
             "files": ["a.yaml"],

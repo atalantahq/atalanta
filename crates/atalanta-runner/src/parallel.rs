@@ -2,12 +2,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
-use velocity_common::{
+use atalanta_common::{
     PlatformDriver, Result, RuntimeConfig, SuiteResult, TestCase, TestResult, TestStatus,
 };
-use velocity_core::TestExecutor;
+use atalanta_core::TestExecutor;
+use tokio::sync::mpsc;
+use tracing::{debug, info, warn};
 
 use crate::copies::{CopyKind, CopyOutcome, CopyTag};
 use crate::farm::DeviceFarm;
@@ -130,23 +130,23 @@ fn retry_where(healthy: &[String], device: &str, failed_on: &HashSet<String>) ->
 struct Shared {
     farm: Arc<DeviceFarm>,
     driver: Arc<dyn PlatformDriver>,
-    suite_config: velocity_common::SuiteConfig,
+    suite_config: atalanta_common::SuiteConfig,
     app_id: String,
     /// `app:` build every actor installs (by hash) once it has its device.
     app_build: Option<String>,
     retry_count: u32,
     /// `--test-timeout`, per attempt.
     test_timeout: Option<std::time::Duration>,
-    resolver: Option<Arc<velocity_nl::NaturalResolver>>,
+    resolver: Option<Arc<atalanta_nl::NaturalResolver>>,
     jitter: Option<(u64, u64)>,
     /// `--stress`: each actor loads its device's CPU while it holds it.
     stress: bool,
-    update_baselines: velocity_common::BaselineUpdate,
+    update_baselines: atalanta_common::BaselineUpdate,
     /// `--verify`, over the tests' and the suite's levels.
-    verify: Option<velocity_common::VerifyLevel>,
+    verify: Option<atalanta_common::VerifyLevel>,
     /// The run's created baselines, shared by every device (D-V1).
-    created_baselines: velocity_common::CreatedBaselines,
-    trace: velocity_common::TraceMode,
+    created_baselines: atalanta_common::CreatedBaselines,
+    trace: atalanta_common::TraceMode,
     /// The run's start, shared by every device's executor (VEL-205).
     run_started: std::time::SystemTime,
     /// `RuntimeConfig::state_dir`: where self-healing keeps its files.
@@ -204,7 +204,7 @@ struct RunFlags {
 
 impl ParallelRunner {
     pub async fn run(
-        suite: velocity_common::TestSuite,
+        suite: atalanta_common::TestSuite,
         config: RuntimeConfig,
         driver: Arc<dyn PlatformDriver>,
         concurrency: usize,
@@ -217,7 +217,7 @@ impl ParallelRunner {
     /// [`run`](Self::run), but a run cut short by `--timeout` or a stop
     /// request still returns its results (see `SuiteRunner::run_outcome`).
     pub async fn run_outcome(
-        suite: velocity_common::TestSuite,
+        suite: atalanta_common::TestSuite,
         config: RuntimeConfig,
         driver: Arc<dyn PlatformDriver>,
         concurrency: usize,
@@ -235,7 +235,7 @@ impl ParallelRunner {
     /// copies of one test spread over different devices. Returns the
     /// latest round's result per test, and every copy's outcome.
     pub async fn hunt(
-        suite: velocity_common::TestSuite,
+        suite: atalanta_common::TestSuite,
         config: RuntimeConfig,
         driver: Arc<dyn PlatformDriver>,
         concurrency: usize,
@@ -264,7 +264,7 @@ impl ParallelRunner {
     }
 
     async fn run_planned(
-        suite: velocity_common::TestSuite,
+        suite: atalanta_common::TestSuite,
         config: RuntimeConfig,
         driver: Arc<dyn PlatformDriver>,
         concurrency: usize,
@@ -321,7 +321,7 @@ impl ParallelRunner {
             groups.sort_by_key(|g| std::cmp::Reverse(group_ms(g)));
         }
 
-        println!("\n  Velocity v{} (parallel)", env!("CARGO_PKG_VERSION"));
+        println!("\n  Atalanta v{} (parallel)", env!("CARGO_PKG_VERSION"));
         println!("  Tests: {total_tests}, Devices: {device_count}");
         if let Some(seed) = config.shuffle_seed {
             println!("  Order: shuffled (seed {seed}; rerun with --shuffle --seed {seed})");
@@ -635,7 +635,7 @@ struct Supervisor {
     /// `--timeout`: when the run must stop.
     deadline: Option<tokio::time::Instant>,
     /// A stop request (Ctrl-C / SIGTERM) ends the run like the deadline.
-    stop: velocity_common::StopHandle,
+    stop: atalanta_common::StopHandle,
     timeout_ms: u64,
     /// What cut the run short, if anything did.
     cut: Option<Cut>,
@@ -982,7 +982,7 @@ impl Supervisor {
                     Duration::ZERO,
                 );
                 // Kept out of history and device health like a device
-                // failure, but it is Velocity's own bug: exit 5 (D-19).
+                // failure, but it is Atalanta's own bug: exit 5 (D-19).
                 r.infrastructure_failure = true;
                 r.internal_error = true;
                 print_result(&r, a.device.as_deref());
@@ -1237,7 +1237,7 @@ async fn reattach(driver: &dyn PlatformDriver, device: &str, window: Duration) -
             Ok(Ok(list)) => {
                 if list
                     .iter()
-                    .any(|d| d.id == device && d.state == velocity_common::DeviceState::Booted)
+                    .any(|d| d.id == device && d.state == atalanta_common::DeviceState::Booted)
                 {
                     return true;
                 }
@@ -1254,11 +1254,11 @@ async fn reattach(driver: &dyn PlatformDriver, device: &str, window: Duration) -
 
 /// Whether `test` starts by launching the suite's app (a plain or
 /// `clearState` `launchApp` with no other app id).
-fn launches_suite_app(test: &velocity_common::TestCase, app_id: &str) -> bool {
+fn launches_suite_app(test: &atalanta_common::TestCase, app_id: &str) -> bool {
     !app_id.is_empty()
         && matches!(
             test.steps.first().map(|s| &s.action),
-            Some(velocity_common::Action::LaunchApp { app_id: a, .. }) if a.is_empty() || a == app_id
+            Some(atalanta_common::Action::LaunchApp { app_id: a, .. }) if a.is_empty() || a == app_id
         )
 }
 
@@ -1520,8 +1520,8 @@ async fn run_group(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use velocity_common::VelocityError;
-    use velocity_common::{
+    use atalanta_common::AtalantaError;
+    use atalanta_common::{
         DeviceInfo, DeviceState, Direction, Element, Key, Platform, Rect, Selector,
     };
 
@@ -1543,7 +1543,7 @@ mod tests {
             resolver: None,
             jitter: None,
             stress: false,
-            update_baselines: velocity_common::BaselineUpdate::Off,
+            update_baselines: atalanta_common::BaselineUpdate::Off,
             verify: None,
             created_baselines: Default::default(),
             trace: Default::default(),
@@ -1771,7 +1771,7 @@ mod tests {
     }
 
     fn failed_item(on: &[&str]) -> Item {
-        let suite = velocity_core::parser::parse_suite_from_str(
+        let suite = atalanta_core::parser::parse_suite_from_str(
             "appId: a\ntests:\n  - name: t\n    steps:\n      - wait: { ms: 1 }\n",
         )
         .unwrap();
@@ -1906,8 +1906,8 @@ mod tests {
         }
     }
 
-    fn not_found() -> VelocityError {
-        VelocityError::ElementNotFound {
+    fn not_found() -> AtalantaError {
+        AtalantaError::ElementNotFound {
             selector: "text=Go".into(),
             timeout_ms: 0,
             screenshot: None,
@@ -1969,13 +1969,13 @@ mod tests {
             // The device named `…-gone` drops off the bus mid-test, for good.
             if d.ends_with("-gone") {
                 GONE.lock().unwrap().insert(d.to_string());
-                return Err(VelocityError::AdbConnectionLost {
+                return Err(AtalantaError::AdbConnectionLost {
                     device_id: d.into(),
                     reason: "device not found".into(),
                 });
             }
             if d == self.bad && self.infra {
-                Err(VelocityError::AdbConnectionLost {
+                Err(AtalantaError::AdbConnectionLost {
                     device_id: d.into(),
                     reason: "device offline".into(),
                 })
@@ -2051,7 +2051,7 @@ mod tests {
     static STRESS_LOG: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
 
     /// Two quick tests, then four that wait 3 s.
-    fn quick_then_slow() -> velocity_common::TestSuite {
+    fn quick_then_slow() -> atalanta_common::TestSuite {
         let mut yaml = String::from(
             "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\ntests:\n",
         );
@@ -2065,7 +2065,7 @@ mod tests {
                 "  - name: s{i}\n    steps:\n      - wait: {{ ms: 3000 }}\n"
             ));
         }
-        velocity_core::parser::parse_suite_from_str(&yaml).unwrap()
+        atalanta_core::parser::parse_suite_from_str(&yaml).unwrap()
     }
 
     // VEL-043/044 and R-m2: a timed-out parallel run returns what ran,
@@ -2135,7 +2135,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    fn suite(tests: usize, retries: u32) -> velocity_common::TestSuite {
+    fn suite(tests: usize, retries: u32) -> atalanta_common::TestSuite {
         let mut yaml = format!(
             "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\n  retry:\n    count: {retries}\ntests:\n"
         );
@@ -2144,20 +2144,20 @@ mod tests {
                 "  - name: t{i}\n    steps:\n      - assertVisible: {{ text: \"Go\" }}\n"
             ));
         }
-        velocity_core::parser::parse_suite_from_str(&yaml).unwrap()
+        atalanta_core::parser::parse_suite_from_str(&yaml).unwrap()
     }
 
     fn config(dir: &std::path::Path) -> RuntimeConfig {
         RuntimeConfig {
             artifacts_dir: dir.to_string_lossy().into_owned(),
-            // Healing state in the scratch dir, not this crate's `.velocity/`.
-            state_dir: Some(dir.join(".velocity")),
+            // Healing state in the scratch dir, not this crate's `.atalanta/`.
+            state_dir: Some(dir.join(".atalanta")),
             ..Default::default()
         }
     }
 
     fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("velocity-par-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("atalanta-par-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -2243,7 +2243,7 @@ mod tests {
             infra: false,
         });
         let yaml = "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\n  retry:\n    count: 1\ntests:\n  - name: t0\n    steps:\n      - launchApp\n      - assertVisible: { text: \"Go\" }\n  - name: t1\n    steps:\n      - launchApp\n      - assertVisible: { text: \"Go\" }\n";
-        let s = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let s = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
         let result = ParallelRunner::run(s, config(&dir), driver, 2)
             .await
             .unwrap();
@@ -2288,7 +2288,7 @@ mod tests {
             .error_message
             .as_deref()
             .is_some_and(|m| m.contains("panicked"))));
-        // D-19: Velocity's own bug, exit 5 (it was 1).
+        // D-19: Atalanta's own bug, exit 5 (it was 1).
         assert!(result.tests.iter().all(|t| t.internal_error));
         assert_eq!(result.exit_code(), 5);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2347,7 +2347,7 @@ mod tests {
             .expect("the run hung after its actors died")
             .unwrap();
         assert_eq!(result.failed, 2, "{:#?}", result.tests);
-        // D-19: an actor dying is Velocity's bug: exit 5 (it was 3).
+        // D-19: an actor dying is Atalanta's bug: exit 5 (it was 3).
         assert_eq!(result.exit_code(), 5, "{:#?}", result.tests);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2368,7 +2368,7 @@ mod tests {
                 "  - name: t{i}\n    steps:\n      - wait: {{ ms: 2000 }}\n"
             ));
         }
-        let suite = velocity_core::parser::parse_suite_from_str(&yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(&yaml).unwrap();
         let cfg = RuntimeConfig {
             suite_timeout_ms: Some(300),
             ..config(&dir)
@@ -2417,7 +2417,7 @@ mod tests {
             infra: false,
         });
         let cfg = RuntimeConfig {
-            trace: velocity_common::TraceMode::Always,
+            trace: atalanta_common::TraceMode::Always,
             ..config(&dir)
         };
         let mut s = suite(1, 2);
@@ -2582,7 +2582,7 @@ mod tests {
             infra: false,
         });
         let yaml = "appId: com.example\nconfig:\n  batch: true\n  sync:\n    timeoutMs: 200\ntests:\n  - name: a\n    steps:\n      - launchApp: {}\n      - assertVisible: { text: \"Go\" }\n  - name: b\n    steps:\n      - launchApp: {}\n      - assertVisible: { text: \"Go\" }\n";
-        let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
         let result = ParallelRunner::run(suite, config(&dir), driver, 1)
             .await
             .unwrap();
@@ -2621,15 +2621,15 @@ mod tests {
             _: &str,
             _: &str,
             hash: &str,
-        ) -> Result<velocity_common::InstallOutcome> {
-            assert!(velocity_common::install::is_sha256(hash));
+        ) -> Result<atalanta_common::InstallOutcome> {
+            assert!(atalanta_common::install::is_sha256(hash));
             if d == self.broken_install {
-                return Err(VelocityError::Config(
+                return Err(AtalantaError::Config(
                     "INSTALL_FAILED_INSUFFICIENT_STORAGE".into(),
                 ));
             }
             self.note(format!("install {d}"));
-            Ok(velocity_common::InstallOutcome::Installed)
+            Ok(atalanta_common::InstallOutcome::Installed)
         }
         async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
             self.inner.list_devices().await
@@ -2699,11 +2699,11 @@ mod tests {
         }
     }
 
-    fn suite_with_app(tests: usize, dir: &std::path::Path) -> velocity_common::TestSuite {
+    fn suite_with_app(tests: usize, dir: &std::path::Path) -> atalanta_common::TestSuite {
         let apk = dir.join("app.apk");
         std::fs::write(&apk, b"build").unwrap();
         let mut s = suite(tests, 0);
-        s.config.app = Some(velocity_common::AppSource::Path(
+        s.config.app = Some(atalanta_common::AppSource::Path(
             apk.to_string_lossy().into_owned(),
         ));
         s
@@ -2849,7 +2849,7 @@ mod tests {
             );
         }
         assert!(
-            !dir.join("velocity-history.json").exists()
+            !dir.join("atalanta-history.json").exists()
                 || history::load(dir.to_str().unwrap())
                     .unwrap()
                     .outcomes
@@ -2878,7 +2878,7 @@ mod tests {
             infra: false,
         });
         let yaml = "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 200\ntests:\n  - name: t0\n    steps:\n      - assertVisible: { text: \"Go\" }\n  - name: t1\n    steps:\n      - assertVisible: { text: \"Go\" }\n";
-        let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
         let cfg = RuntimeConfig {
             flaky_confidence: Some(0.99),
             ..config(&dir)
@@ -2923,7 +2923,7 @@ mod tests {
             infra: false,
         });
         let yaml = "appId: com.example\nconfig:\n  artifacts:\n    onFailure: false\n  sync:\n    timeoutMs: 100\ntests:\n  - name: t0\n    steps:\n      - assertText: { selector: { text: \"Go\" }, expected: \"Stop\" }\n";
-        let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
         let cfg = RuntimeConfig {
             flaky_confidence: Some(0.9),
             ..config(&dir)

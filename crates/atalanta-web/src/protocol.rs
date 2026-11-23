@@ -5,7 +5,7 @@
 //! hit-target retry, typing with the focus check, reading an element's
 //! live state, cross-origin frames) talks to the page only through this
 //! trait. The Chrome DevTools Protocol implementation is [`crate::cdp::Tab`]:
-//! Velocity's in-page library (`injected.js`) run through
+//! Atalanta's in-page library (`injected.js`) run through
 //! `Runtime.callFunctionOn` in an isolated world, input through
 //! `Input.dispatch*Event`. Launching the browser, its contexts, the network
 //! (request tracking, mocks) and navigation stay CDP-specific in
@@ -21,8 +21,8 @@
 
 use std::time::Duration;
 
+use atalanta_common::Result;
 use serde_json::Value;
-use velocity_common::Result;
 
 use crate::cdp::{self, Tab, CDP_TIMEOUT};
 
@@ -112,7 +112,7 @@ pub trait BrowserProtocol: Send + Sync {
     /// its `<label>`) the files at `paths` (review 10 #11).
     async fn set_files(&self, id: &str, paths: Vec<String>) -> Result<()> {
         let _ = (id, paths);
-        Err(velocity_common::VelocityError::Internal(anyhow::anyhow!(
+        Err(atalanta_common::AtalantaError::Internal(anyhow::anyhow!(
             "setting a file input's files is not supported over {}",
             self.protocol()
         )))

@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use velocity_common::{TestResult, TestStatus};
+use atalanta_common::{TestResult, TestStatus};
 
 /// Failures that share one normalized error.
 #[derive(Debug, Clone, PartialEq)]

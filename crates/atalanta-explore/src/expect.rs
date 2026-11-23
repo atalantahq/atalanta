@@ -9,9 +9,9 @@
 //! assertion. The model's text is never a selector: a text that matches no
 //! element is "not met", and nothing is written for it.
 
+use atalanta_common::{Element, Selector};
+use atalanta_nl::Expectation;
 use serde::Serialize;
-use velocity_common::{Element, Selector};
-use velocity_nl::Expectation;
 
 use crate::screen::{assertable, clip, content_selectors, element_name, Observation};
 
@@ -26,7 +26,7 @@ pub enum ExpectOutcome {
     NotCheckable,
 }
 
-impl From<ExpectOutcome> for velocity_common::VerifyOutcome {
+impl From<ExpectOutcome> for atalanta_common::VerifyOutcome {
     /// The same three-valued "did it hold" as an AI check's verdict:
     /// met holds, not met fails, not checkable is unknown (review 06 #10).
     fn from(o: ExpectOutcome) -> Self {

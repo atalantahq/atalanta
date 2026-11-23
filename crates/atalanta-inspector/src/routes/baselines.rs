@@ -12,12 +12,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use atalanta_core::baselines::{self, PendingBaseline};
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::Json;
 use serde::Deserialize;
-use velocity_core::baselines::{self, PendingBaseline};
 
 use crate::state::AppState;
 
@@ -330,7 +330,7 @@ mod tests {
             crate::security::new_token()
         ));
         let diffs = root.join("results/diffs");
-        let base = root.join("suite/velocity-baselines/ios/1x1/home.png");
+        let base = root.join("suite/atalanta-baselines/ios/1x1/home.png");
         std::fs::create_dir_all(&diffs).unwrap();
         std::fs::create_dir_all(base.parent().unwrap()).unwrap();
         let png = b"\x89PNG\r\n\x1a\nrest".to_vec();

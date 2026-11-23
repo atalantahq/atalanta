@@ -56,7 +56,7 @@ impl ErrorKind {
 
 #[derive(thiserror::Error, Debug)]
 #[non_exhaustive]
-pub enum VelocityError {
+pub enum AtalantaError {
     // Configuration Errors (exit code 2)
     #[error("{}", yaml_parse_message(file, *line, *col, message))]
     YamlParse {
@@ -113,7 +113,7 @@ pub enum VelocityError {
     DeviceBootFailed { id: String, reason: String },
 
     /// The lock screen needs a PIN, pattern or password: nothing launched
-    /// behind it can be seen, and Velocity won't enter a credential.
+    /// behind it can be seen, and Atalanta won't enter a credential.
     #[error("Device '{id}' is locked with a PIN, pattern or password; unlock it (or set the lock screen to None/Swipe) and run again")]
     DeviceLocked { id: String },
 
@@ -121,7 +121,7 @@ pub enum VelocityError {
     WdaUnhealthy { device_id: String, timeout_s: u64 },
 
     /// The iOS runner can't be started on the device: its port is held by
-    /// a process Velocity won't stop, or it failed to come up several
+    /// a process Atalanta won't stop, or it failed to come up several
     /// times in a row (a crash loop). Relaunching won't help: fail fast.
     #[error("The iOS runner can't start on device '{device_id}': {detail}")]
     RunnerFailing { device_id: String, detail: String },
@@ -284,11 +284,11 @@ pub enum VelocityError {
     AtSource {
         pos: crate::SourcePos,
         step: String,
-        inner: Box<VelocityError>,
+        inner: Box<AtalantaError>,
     },
 }
 
-impl VelocityError {
+impl AtalantaError {
     pub fn exit_code(&self) -> i32 {
         match self {
             Self::AtSource { inner, .. } => inner.exit_code(),
@@ -340,7 +340,7 @@ impl VelocityError {
     }
 }
 
-impl VelocityError {
+impl AtalantaError {
     pub fn kind(&self) -> ErrorKind {
         match self {
             Self::AtSource { inner, .. } => inner.kind(),
@@ -396,7 +396,7 @@ impl VelocityError {
         self.kind().is_transient()
     }
 
-    /// Velocity couldn't read or write its own files (reports, baselines,
+    /// Atalanta couldn't read or write its own files (reports, baselines,
     /// healed mappings, history) or serialize its own data: an internal
     /// error (exit 5), never `Config` (exit 2), which tells the user their
     /// YAML or flags are wrong (review 03 M2).
@@ -414,7 +414,7 @@ fn on_device(device_id: &str) -> String {
     }
 }
 
-pub type Result<T> = std::result::Result<T, VelocityError>;
+pub type Result<T> = std::result::Result<T, AtalantaError>;
 
 /// `POST https://x.dev/orders answered 500: 2 checks failed: …; body: …`.
 fn http_check_message(request: &str, status: u16, failures: &[String], body: &str) -> String {

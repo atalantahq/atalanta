@@ -4,8 +4,8 @@
 
 mod common;
 
+use atalanta_common::PlatformDriver;
 use common::{driver, find, serve};
-use velocity_common::PlatformDriver;
 
 const CARD_FIELD: &str = r#"<!doctype html><html><body style="margin:0">
 <input id="n" style="width:300px;height:60px"></body></html>"#;
@@ -15,7 +15,7 @@ const CARD_FIELD: &str = r#"<!doctype html><html><body style="margin:0">
 /// but tells the page's renderer a moment later (on a loaded machine, a
 /// long moment): a step that asks "which frame holds the focus" before
 /// that sees none, and has nothing to refuse.
-async fn wait_page_sees_frame_focus(d: &velocity_web::WebDriver) {
+async fn wait_page_sees_frame_focus(d: &atalanta_web::WebDriver) {
     assert!(
         common::eventually(|| async {
             d.debug_eval_main("document.activeElement && document.activeElement.tagName")

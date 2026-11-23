@@ -1,8 +1,8 @@
-//! `velocity settings`: every named setting, its variable, default and values.
+//! `atalanta settings`: every named setting, its variable, default and values.
 
+use atalanta_common::settings::SETTINGS;
 use clap::Args;
 use colored::Colorize;
-use velocity_common::settings::SETTINGS;
 
 #[derive(Args)]
 pub struct SettingsArgs {
@@ -14,7 +14,7 @@ pub fn execute(args: SettingsArgs) -> anyhow::Result<i32> {
     let filter = args.filter.unwrap_or_default().to_lowercase();
     println!(
         "{} Set in a suite (`config: settings: {{ android: {{ scroll: semantic }} }}`) or per run \
-         (`velocity run --set android.scroll=semantic`). `--set` also takes any suite config key \
+         (`atalanta run --set android.scroll=semantic`). `--set` also takes any suite config key \
          (`--set sync.reactionMs=150`).\n",
         "=>".cyan().bold()
     );
@@ -25,8 +25,8 @@ pub fn execute(args: SettingsArgs) -> anyhow::Result<i32> {
         // A secret's value (`ios.runnerToken`) is never printed: only that
         // it is set. The page can end up in a CI log or a bug report.
         // (`secrets` holds variable names, which are not secret.)
-        let current = velocity_common::env::var(s.env).ok().map(|v| {
-            if s.key != "secrets" && velocity_common::redact::is_secret_name(s.env) {
+        let current = atalanta_common::env::var(s.env).ok().map(|v| {
+            if s.key != "secrets" && atalanta_common::redact::is_secret_name(s.env) {
                 "set".to_string()
             } else {
                 v

@@ -1,40 +1,40 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/velocity-common",
-    "crates/velocity-android",
-    "crates/velocity-ios",
-    "crates/velocity-core",
-    "crates/velocity-runner",
-    "crates/velocity-mcp",
-    "crates/velocity-migrate",
-    "crates/velocity-headless",
-    "crates/velocity-inspector",
-    "crates/velocity-flutter-bridge",
-    "crates/velocity-web",
-    "crates/velocity-nl",
-    "crates/velocity-doctor",
-    "crates/velocity-explore",
-    "crates/velocity-api",
-    "velocity-cli",
+    "crates/atalanta-common",
+    "crates/atalanta-android",
+    "crates/atalanta-ios",
+    "crates/atalanta-core",
+    "crates/atalanta-runner",
+    "crates/atalanta-mcp",
+    "crates/atalanta-migrate",
+    "crates/atalanta-headless",
+    "crates/atalanta-inspector",
+    "crates/atalanta-flutter-bridge",
+    "crates/atalanta-web",
+    "crates/atalanta-nl",
+    "crates/atalanta-doctor",
+    "crates/atalanta-explore",
+    "crates/atalanta-api",
+    "atalanta-cli",
 ]
 # cargo-fuzz targets: their own workspace and lockfile, built with nightly
 # (fuzz/Cargo.toml), never by `cargo build` here.
-# `crates/velocity-adapter` is a parked prototype of the adapter plugin
+# `crates/atalanta-adapter` is a parked prototype of the adapter plugin
 # system (docs/research/v4/PLAN-v5-ship-adapters-worlds.md §4). It does not
 # build yet and stays out of the workspace until plan v5's §3.10 gate is met.
-exclude = ["fuzz", "crates/velocity-adapter"]
+exclude = ["fuzz", "crates/atalanta-adapter"]
 
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
-# The oldest toolchain Velocity builds with (`File::lock` needs 1.89; clippy's
+# The oldest toolchain Atalanta builds with (`File::lock` needs 1.89; clippy's
 # incompatible_msrv lint flags newer std APIs);
 # `cargo install` on an older one fails with a clear message.
 rust-version = "1.89"
 license = "Apache-2.0"
-repository = "https://github.com/omkar-dev/velocity"
-homepage = "https://github.com/omkar-dev/velocity"
+repository = "https://github.com/atalantahq/atalanta"
+homepage = "https://github.com/atalantahq/atalanta"
 readme = "README.md"
 authors = ["omkar-dev"]
 
@@ -76,23 +76,23 @@ ring = "0.17"
 
 # The workspace's own crates. Published together (`cargo publish --workspace`),
 # so each path dependency also carries the version crates.io resolves it to.
-# `velocity-mcp` is taken on crates.io: that crate is published as
-# `velocity-mcp-server` and keeps its `velocity_mcp` library name.
-velocity-common = { path = "crates/velocity-common", version = "=0.2.0" }
-velocity-android = { path = "crates/velocity-android", version = "=0.2.0" }
-velocity-ios = { path = "crates/velocity-ios", version = "=0.2.0" }
-velocity-core = { path = "crates/velocity-core", version = "=0.2.0" }
-velocity-runner = { path = "crates/velocity-runner", version = "=0.2.0" }
-velocity-mcp = { package = "velocity-mcp-server", path = "crates/velocity-mcp", version = "=0.2.0" }
-velocity-migrate = { path = "crates/velocity-migrate", version = "=0.2.0" }
-velocity-headless = { path = "crates/velocity-headless", version = "=0.2.0" }
-velocity-inspector = { path = "crates/velocity-inspector", version = "=0.2.0" }
-velocity-flutter-bridge = { path = "crates/velocity-flutter-bridge", version = "=0.2.0" }
-velocity-web = { path = "crates/velocity-web", version = "=0.2.0" }
-velocity-nl = { path = "crates/velocity-nl", version = "=0.2.0" }
-velocity-doctor = { path = "crates/velocity-doctor", version = "=0.2.0" }
-velocity-explore = { path = "crates/velocity-explore", version = "=0.2.0" }
-velocity-api = { path = "crates/velocity-api", version = "=0.2.0" }
+# `atalanta-mcp` is taken on crates.io: that crate is published as
+# `atalanta-mcp-server` and keeps its `atalanta_mcp` library name.
+atalanta-common = { path = "crates/atalanta-common", version = "=0.2.0" }
+atalanta-android = { path = "crates/atalanta-android", version = "=0.2.0" }
+atalanta-ios = { path = "crates/atalanta-ios", version = "=0.2.0" }
+atalanta-core = { path = "crates/atalanta-core", version = "=0.2.0" }
+atalanta-runner = { path = "crates/atalanta-runner", version = "=0.2.0" }
+atalanta-mcp = { package = "atalanta-mcp-server", path = "crates/atalanta-mcp", version = "=0.2.0" }
+atalanta-migrate = { path = "crates/atalanta-migrate", version = "=0.2.0" }
+atalanta-headless = { path = "crates/atalanta-headless", version = "=0.2.0" }
+atalanta-inspector = { path = "crates/atalanta-inspector", version = "=0.2.0" }
+atalanta-flutter-bridge = { path = "crates/atalanta-flutter-bridge", version = "=0.2.0" }
+atalanta-web = { path = "crates/atalanta-web", version = "=0.2.0" }
+atalanta-nl = { path = "crates/atalanta-nl", version = "=0.2.0" }
+atalanta-doctor = { path = "crates/atalanta-doctor", version = "=0.2.0" }
+atalanta-explore = { path = "crates/atalanta-explore", version = "=0.2.0" }
+atalanta-api = { path = "crates/atalanta-api", version = "=0.2.0" }
 
 # Every crate opts in with `[lints] workspace = true`. Only lints with no
 # false positives here: CI runs clippy with `-D warnings`.

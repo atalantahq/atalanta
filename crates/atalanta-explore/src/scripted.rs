@@ -1,6 +1,6 @@
 //! A scripted planner and checker: no model, a fixed plan.
 //!
-//! For tests, demos and device checks without API keys (`velocity explore
+//! For tests, demos and device checks without API keys (`atalanta explore
 //! --script plan.json`). The script names targets by their text or label;
 //! each turn the planner reads the numbered screen list exactly as a model
 //! would and answers with the element's number, so observing, grounding,
@@ -28,11 +28,11 @@
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, Result};
+use atalanta_nl::checker::{CheckAnswer, CheckRequest, ScreenChecker};
+use atalanta_nl::planner::{NaturalPlanner, PlanRequest, PlannedStep, Usage, UsageMeter};
+use atalanta_nl::{Expectation, GoalOp, GoalOutcome, GoalRequest, GoalStep};
 use serde::Deserialize;
-use velocity_common::{Result, VelocityError};
-use velocity_nl::checker::{CheckAnswer, CheckRequest, ScreenChecker};
-use velocity_nl::planner::{NaturalPlanner, PlanRequest, PlannedStep, Usage, UsageMeter};
-use velocity_nl::{Expectation, GoalOp, GoalOutcome, GoalRequest, GoalStep};
 
 /// One scripted turn.
 #[derive(Debug, Clone, Deserialize)]
@@ -129,7 +129,7 @@ pub struct Script {
 impl Script {
     pub fn from_json(text: &str) -> Result<Self> {
         serde_json::from_str(text)
-            .map_err(|e| VelocityError::Config(format!("explore script: {e}")))
+            .map_err(|e| AtalantaError::Config(format!("explore script: {e}")))
     }
 }
 
@@ -192,7 +192,7 @@ pub fn find_in_list(screen: &str, target: &str) -> Option<usize> {
 #[async_trait]
 impl NaturalPlanner for ScriptedPlanner {
     async fn plan(&self, _req: &PlanRequest<'_>) -> Result<PlannedStep> {
-        Err(VelocityError::Config(
+        Err(AtalantaError::Config(
             "the scripted planner only plays explore scripts".into(),
         ))
     }

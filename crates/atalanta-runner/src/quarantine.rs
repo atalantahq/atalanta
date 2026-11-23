@@ -1,6 +1,6 @@
 //! A checked-in quarantine list: known failures that don't fail the build.
 //!
-//! `velocity-quarantine.yaml` next to the suite:
+//! `atalanta-quarantine.yaml` next to the suite:
 //!
 //! ```yaml
 //! quarantine:
@@ -19,10 +19,10 @@
 //! - the run's exit code is forgiven only when *every* failure is
 //!   quarantined. Reports still show quarantined tests as failed.
 
+use atalanta_common::{AtalantaError, Result, SuiteResult, TestResult, TestStatus};
 use serde::Deserialize;
-use velocity_common::{Result, SuiteResult, TestResult, TestStatus, VelocityError};
 
-pub const FILE_NAME: &str = "velocity-quarantine.yaml";
+pub const FILE_NAME: &str = "atalanta-quarantine.yaml";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Entry {
@@ -81,11 +81,11 @@ impl Quarantine {
             return Ok(None);
         }
         let text = std::fs::read_to_string(path)
-            .map_err(|e| VelocityError::Config(format!("{}: {e}", path.display())))?;
+            .map_err(|e| AtalantaError::Config(format!("{}: {e}", path.display())))?;
         let q: Quarantine = serde_yaml::from_str(&text)
-            .map_err(|e| VelocityError::Config(format!("{}: {e}", path.display())))?;
+            .map_err(|e| AtalantaError::Config(format!("{}: {e}", path.display())))?;
         if let Some(bad) = q.quarantine.iter().find(|e| e.signature.trim().is_empty()) {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "{}: entry for '{}' needs a non-empty signature (a quarantine forgives a known failure, not a test)",
                 path.display(),
                 bad.test
@@ -100,7 +100,7 @@ impl Quarantine {
     }
 
     fn entry_on(&self, t: &TestResult, today: chrono::NaiveDate) -> Option<&Entry> {
-        // Velocity's own bug (a panic) is never a known app failure (D-19).
+        // Atalanta's own bug (a panic) is never a known app failure (D-19).
         if t.internal_error {
             return None;
         }

@@ -15,8 +15,8 @@ use crate::state::AppState;
 const SKIP_DIRS: &[&str] = &[
     "node_modules",
     "target",
-    "velocity-results",
-    "velocity-baselines",
+    "atalanta-results",
+    "atalanta-baselines",
     "build",
     "dist",
     "Pods",
@@ -57,11 +57,11 @@ fn is_suite_name(name: &str) -> bool {
         && !lower.starts_with('.')
         && !matches!(
             lower.as_str(),
-            "velocity-quarantine.yaml" | "velocity-impact.yaml" | "pubspec.yaml"
+            "atalanta-quarantine.yaml" | "atalanta-impact.yaml" | "pubspec.yaml"
         )
 }
 
-/// Whether a YAML file looks like a Velocity suite: a top-level `tests:`.
+/// Whether a YAML file looks like a Atalanta suite: a top-level `tests:`.
 fn looks_like_suite(text: &str) -> bool {
     text.lines().any(|l| l.trim_end() == "tests:")
 }
@@ -96,7 +96,7 @@ pub fn find_suites(base: &Path) -> Vec<Suite> {
                 if !looks_like_suite(&text) {
                     continue;
                 }
-                let tests = velocity_core::streaming::parse_headers(&text)
+                let tests = atalanta_core::streaming::parse_headers(&text)
                     .map(|h| h.into_iter().map(|h| h.name).collect())
                     .unwrap_or_default();
                 let rel = path
@@ -180,14 +180,14 @@ mod tests {
         std::fs::create_dir_all(base.join("node_modules/x")).unwrap();
         std::fs::create_dir_all(base.join(".git")).unwrap();
         let suite = "appId: a\ntests:\n  - name: login\n    steps:\n      - launchApp\n";
-        std::fs::write(base.join("velocity.yaml"), suite).unwrap();
+        std::fs::write(base.join("atalanta.yaml"), suite).unwrap();
         std::fs::write(base.join("flows/sub/b.yml"), suite).unwrap();
         std::fs::write(base.join("node_modules/x/c.yaml"), suite).unwrap();
         std::fs::write(base.join(".git/d.yaml"), suite).unwrap();
         std::fs::write(base.join("other.yaml"), "key: value\n").unwrap();
         let found = find_suites(&base);
         let paths: Vec<_> = found.iter().map(|s| s.path.as_str()).collect();
-        assert_eq!(paths, ["flows/sub/b.yml", "velocity.yaml"]);
+        assert_eq!(paths, ["flows/sub/b.yml", "atalanta.yaml"]);
         assert_eq!(found[1].tests, ["login"]);
         let _ = std::fs::remove_dir_all(&base);
     }

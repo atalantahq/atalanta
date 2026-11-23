@@ -1,7 +1,7 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
-import static com.velocity.sync.HostChecks.check;
-import static com.velocity.sync.TrackerChecks.byName;
+import static com.atalanta.sync.HostChecks.check;
+import static com.atalanta.sync.TrackerChecks.byName;
 
 import com.facebook.react.ReactApplication;
 import com.facebook.react.ReactHost;

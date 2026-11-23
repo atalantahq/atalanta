@@ -1,6 +1,6 @@
-# Checks that Velocity's launchApp arguments reach an iOS app as launch arguments.
+# Checks that Atalanta's launchApp arguments reach an iOS app as launch arguments.
 # Build: ./build.sh, then install the .app on the booted simulator (see README.md).
-appId: dev.velocity.echo
+appId: dev.atalanta.echo
 
 config:
   platform: ios
@@ -9,7 +9,7 @@ tests:
   - name: launch_arguments_reach_the_app
     steps:
       - launchApp:
-          appId: dev.velocity.echo
+          appId: dev.atalanta.echo
           clearState: false
           arguments:
             isE2E: true

@@ -1,19 +1,19 @@
 //! The agent commands: drive a device one shell command at a time.
 //!
-//! `velocity snapshot`, `velocity tap @e7`, `velocity type @e3 "…"`, … are
+//! `atalanta snapshot`, `atalanta tap @e7`, `atalanta type @e3 "…"`, … are
 //! for coding agents that run shell commands (and for people at a
 //! terminal). Each command runs one MCP tool in process (`McpServer::call`),
 //! so leases, refs, the recording, secret masking and the read-only rules
 //! are exactly the MCP server's. Between commands the session (its device,
-//! refs and recording) is saved under `~/.velocity/agent/`, keyed by
+//! refs and recording) is saved under `~/.atalanta/agent/`, keyed by
 //! `--session` or by the git worktree, so `@e7` from one command means the
-//! same element in the next and `velocity export` writes everything done
+//! same element in the next and `atalanta export` writes everything done
 //! since the session started as a test.
 //!
 //! An action waits for the screen to settle and prints what changed (a
 //! delta snapshot), so its refs are current without another snapshot.
 //! Failures print a stable code, whether a retry is safe and what to do
-//! next (`velocity_mcp::agent_error`); `--json` prints one envelope
+//! next (`atalanta_mcp::agent_error`); `--json` prints one envelope
 //! instead: `{"v":1,"ok":…,"command":…,"session":…,"device":…,"data"|"error":…}`.
 //! Exit status: 0 ok, 1 a failure the reply describes, 2 a malformed command
 //! line (clap's), 3 the device or the session is the problem (`DEVICE_*`,
@@ -23,10 +23,10 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use atalanta_common::{DeviceState, Platform, PlatformDriver};
+use atalanta_mcp::{skills, McpServer};
 use clap::{Args, Subcommand};
 use serde_json::{json, Value};
-use velocity_common::{DeviceState, Platform, PlatformDriver};
-use velocity_mcp::{skills, McpServer};
 
 /// Flags every agent command takes.
 #[derive(Args, Clone, Debug, Default)]
@@ -36,13 +36,13 @@ pub struct Common {
     device: Option<String>,
 
     /// android, ios or web (default: from the device id or the session).
-    /// Web commands run in `velocity daemon`, started if none is running,
+    /// Web commands run in `atalanta daemon`, started if none is running,
     /// so the browser outlives each command
     #[arg(short, long)]
     platform: Option<String>,
 
     /// Session name: refs and the recording belong to it (default: this git
-    /// worktree, else this directory). Also VELOCITY_SESSION
+    /// worktree, else this directory). Also ATALANTA_SESSION
     #[arg(long)]
     session: Option<String>,
 
@@ -83,7 +83,7 @@ pub enum AgentCommand {
     },
     /// Agent: tap an element (a ref like @e7, "text", id=…, or JSON)
     Tap {
-        /// The element: a ref from `velocity snapshot` (@e7), visible text
+        /// The element: a ref from `atalanta snapshot` (@e7), visible text
         /// ("Sign in"), a field=value selector (id=login_button,
         /// accessibilityId=Submit), or a JSON selector ('{"text":"OK","index":1}')
         #[arg(value_name = "TARGET")]
@@ -93,7 +93,7 @@ pub enum AgentCommand {
     },
     /// Agent: type into an element (text, --secret NAME, or --stdin)
     Type {
-        /// The element: a ref from `velocity snapshot` (@e7), visible text
+        /// The element: a ref from `atalanta snapshot` (@e7), visible text
         /// ("Sign in"), a field=value selector (id=login_button,
         /// accessibilityId=Submit), or a JSON selector ('{"text":"OK","index":1}')
         #[arg(value_name = "TARGET")]
@@ -101,7 +101,7 @@ pub enum AgentCommand {
         /// The text (or use --secret / --stdin)
         text: Option<String>,
         /// Type the value of this environment variable (listed in
-        /// VELOCITY_SECRETS); masked everywhere, exported as ${NAME}
+        /// ATALANTA_SECRETS); masked everywhere, exported as ${NAME}
         #[arg(long, value_name = "NAME", conflicts_with_all = ["text", "stdin"])]
         secret: Option<String>,
         /// Read the text from stdin, so it is not on the command line
@@ -153,7 +153,7 @@ pub enum AgentCommand {
     },
     /// Agent: check an element is visible (or, with --not, that it is not)
     Assert {
-        /// The element: a ref from `velocity snapshot` (@e7), visible text
+        /// The element: a ref from `atalanta snapshot` (@e7), visible text
         /// ("Sign in"), a field=value selector (id=login_button,
         /// accessibilityId=Submit), or a JSON selector ('{"text":"OK","index":1}')
         #[arg(value_name = "TARGET")]
@@ -169,7 +169,7 @@ pub enum AgentCommand {
     },
     /// Agent: wait for an element to appear
     Wait {
-        /// The element: a ref from `velocity snapshot` (@e7), visible text
+        /// The element: a ref from `atalanta snapshot` (@e7), visible text
         /// ("Sign in"), a field=value selector (id=login_button,
         /// accessibilityId=Submit), or a JSON selector ('{"text":"OK","index":1}')
         #[arg(value_name = "TARGET")]
@@ -212,7 +212,7 @@ pub enum AgentCommand {
         #[command(flatten)]
         common: Common,
     },
-    /// Agent guides that match this binary: `velocity skills get cli`
+    /// Agent guides that match this binary: `atalanta skills get cli`
     Skills {
         #[arg(value_parser = ["list", "get", "stub"], default_value = "list")]
         action: String,
@@ -246,7 +246,7 @@ static FORWARDED_STDIN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new
 
 /// The daemon's browser for web agent commands: one Chrome for the
 /// daemon's life, so a page opened by `launch` is still there for the next
-/// `tap`. Kept apart from `velocity run --daemon`'s pool, whose drivers are
+/// `tap`. Kept apart from `atalanta run --daemon`'s pool, whose drivers are
 /// replaced when a suite's `web:` configuration differs.
 static WEB_DRIVER: tokio::sync::Mutex<Option<Arc<dyn PlatformDriver>>> =
     tokio::sync::Mutex::const_new(None);
@@ -259,11 +259,11 @@ pub async fn cleanup_daemon_drivers() {
 }
 
 /// Run one agent command inside the daemon: `argv` as typed after
-/// `velocity`, and the client's stdin when it used `--stdin`.
+/// `atalanta`, and the client's stdin when it used `--stdin`.
 pub async fn execute_in_daemon(argv: &[String], stdin: Option<String>) -> i32 {
     use clap::Parser;
     #[derive(Parser)]
-    #[command(name = "velocity", no_binary_name = true)]
+    #[command(name = "atalanta", no_binary_name = true)]
     struct AgentOnly {
         #[command(subcommand)]
         cmd: AgentCommand,
@@ -307,7 +307,7 @@ fn targets_web(common: &Common) -> bool {
         .is_some_and(|v| v["platform"] == "web")
 }
 
-/// Hand this command to `velocity daemon`, starting one if none answers.
+/// Hand this command to `atalanta daemon`, starting one if none answers.
 fn forward_to_daemon(stdin: Option<String>) -> anyhow::Result<i32> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let argv = crate::without_color_flag(argv);
@@ -318,7 +318,7 @@ fn forward_to_daemon(stdin: Option<String>) -> anyhow::Result<i32> {
     match super::daemon::client_agent(argv, stdin)? {
         Some(code) => Ok(code),
         None => anyhow::bail!(
-            "started `velocity daemon` but it does not answer; see ~/.velocity/daemon.log"
+            "started `atalanta daemon` but it does not answer; see ~/.atalanta/daemon.log"
         ),
     }
 }
@@ -562,7 +562,7 @@ fn target_args(target: &str) -> anyhow::Result<Value> {
     let t = target.trim();
     if t.is_empty() {
         usage_bail!(
-            "the target is empty: give a ref from `velocity snapshot` (@e7), visible text, \
+            "the target is empty: give a ref from `atalanta snapshot` (@e7), visible text, \
              id=…, or a JSON selector"
         );
     }
@@ -690,12 +690,12 @@ async fn run_call(call: Call, common: &Common) -> anyhow::Result<Reply> {
 
 /// Leave WebDriverAgent running when this command exits, so the next one
 /// reattaches instead of relaunching it (about 2 s a command on a
-/// simulator). `VELOCITY_KEEP_WDA=0` set by the user still wins.
+/// simulator). `ATALANTA_KEEP_WDA=0` set by the user still wins.
 fn keep_runner_between_commands() {
-    if velocity_common::env::var("VELOCITY_KEEP_WDA").is_err() {
-        let mut settings = velocity_common::env::settings_snapshot();
-        settings.insert("VELOCITY_KEEP_WDA".into(), "1".into());
-        velocity_common::env::set_settings(settings);
+    if atalanta_common::env::var("ATALANTA_KEEP_WDA").is_err() {
+        let mut settings = atalanta_common::env::settings_snapshot();
+        settings.insert("ATALANTA_KEEP_WDA".into(), "1".into());
+        atalanta_common::env::set_settings(settings);
     }
 }
 
@@ -838,11 +838,11 @@ struct Session {
 }
 
 fn sessions_dir() -> PathBuf {
-    let root = velocity_common::env::var("VELOCITY_AGENT_DIR")
+    let root = atalanta_common::env::var("ATALANTA_AGENT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            velocity_common::host::home_dir()
-                .join(".velocity")
+            atalanta_common::host::home_dir()
+                .join(".atalanta")
                 .join("agent")
         });
     root.join("sessions")
@@ -850,7 +850,7 @@ fn sessions_dir() -> PathBuf {
 
 /// `--session`, else `wt-<hash of the git worktree, else the directory>`.
 fn session_key(common: &Common) -> String {
-    let from_env = velocity_common::env::var("VELOCITY_SESSION").ok();
+    let from_env = atalanta_common::env::var("ATALANTA_SESSION").ok();
     if let Some(name) = common
         .session
         .as_deref()
@@ -911,12 +911,12 @@ impl SessionBusy {
 }
 
 impl Session {
-    /// [`Session::try_open`], waiting up to `VELOCITY_LEASE_WAIT_MS`
+    /// [`Session::try_open`], waiting up to `ATALANTA_LEASE_WAIT_MS`
     /// (default 10 s, like the device lease) for another command of the
     /// session to finish. A blocking lock here held a runtime thread, and a
     /// hung command held every later one with no reply (review 12 #11).
     async fn open_waiting(common: &Common) -> anyhow::Result<Result<Self, SessionBusy>> {
-        let wait = velocity_common::env::var("VELOCITY_LEASE_WAIT_MS")
+        let wait = atalanta_common::env::var("ATALANTA_LEASE_WAIT_MS")
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
             .unwrap_or(10_000);
@@ -937,7 +937,7 @@ impl Session {
     fn try_open(common: &Common) -> anyhow::Result<Result<Self, SessionBusy>> {
         use std::io::{Read, Seek, Write};
         let dir = sessions_dir();
-        velocity_common::fsutil::create_private_dir(&dir)?;
+        atalanta_common::fsutil::create_private_dir(&dir)?;
         let key = session_key(common);
         let mut lock = std::fs::OpenOptions::new()
             .create(true)
@@ -979,7 +979,7 @@ impl Session {
     fn save(&self) -> anyhow::Result<()> {
         // Owner-only, through a temp file and a rename: the state holds the
         // last screen's text and what was typed.
-        velocity_common::fsutil::write_private(&self.path, &serde_json::to_vec(&self.state)?)?;
+        atalanta_common::fsutil::write_private(&self.path, &serde_json::to_vec(&self.state)?)?;
         Ok(())
     }
 }
@@ -1091,19 +1091,19 @@ fn skills_command(action: &str, name: Option<&str>) -> i32 {
                 0
             }
             None => {
-                eprintln!("no guide named {n:?}; `velocity skills list` shows them");
+                eprintln!("no guide named {n:?}; `atalanta skills list` shows them");
                 2
             }
         },
         ("get", None) => {
-            eprintln!("name a guide: `velocity skills get cli`");
+            eprintln!("name a guide: `atalanta skills get cli`");
             2
         }
         _ => {
             for (n, summary, _) in skills::SKILLS {
                 println!("{n:<6} {summary}");
             }
-            println!("\nPrint one with `velocity skills get <name>`.");
+            println!("\nPrint one with `atalanta skills get <name>`.");
             0
         }
     }
@@ -1167,7 +1167,7 @@ async fn pick_device(common: &Common, session: &Session) -> anyhow::Result<(Plat
         }
     }
     Err(super::no_device(
-        "No booted device found. Boot one (velocity device boot <name>) or pass --device",
+        "No booted device found. Boot one (atalanta device boot <name>) or pass --device",
         seen,
     ))
 }
@@ -1178,11 +1178,11 @@ async fn build_driver(
     device: &str,
 ) -> anyhow::Result<Arc<dyn PlatformDriver>> {
     if let Some(layout) = &common.headless_layout {
-        let config = velocity_headless::HeadlessConfig {
+        let config = atalanta_headless::HeadlessConfig {
             app_path: Some(layout.to_string_lossy().into_owned()),
             ..Default::default()
         };
-        let driver: Arc<dyn PlatformDriver> = Arc::new(velocity_headless::HeadlessDriver::new(
+        let driver: Arc<dyn PlatformDriver> = Arc::new(atalanta_headless::HeadlessDriver::new(
             Platform::Android,
             config,
         ));
@@ -1311,7 +1311,7 @@ mod tests {
     }
 
     /// One test for every `targets_web` case: the session-file case
-    /// installs an environment (VELOCITY_AGENT_DIR), which is process-wide.
+    /// installs an environment (ATALANTA_AGENT_DIR), which is process-wide.
     #[test]
     fn web_commands_are_recognised_by_flag_device_or_session() {
         let with = |platform: Option<&str>, device: Option<&str>| Common {
@@ -1338,10 +1338,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut env: std::collections::HashMap<String, String> = std::env::vars().collect();
         env.insert(
-            "VELOCITY_AGENT_DIR".into(),
+            "ATALANTA_AGENT_DIR".into(),
             dir.path().to_string_lossy().into_owned(),
         );
-        velocity_common::env::install(env);
+        atalanta_common::env::install(env);
         let plain = with(None, None);
         let missing = targets_web(&plain);
         let sessions = dir.path().join("sessions");
@@ -1358,7 +1358,7 @@ mod tests {
         )
         .unwrap();
         let saved_android = targets_web(&plain);
-        velocity_common::env::clear();
+        atalanta_common::env::clear();
         assert!(!missing, "no session file: not the web");
         assert!(
             saved_web,

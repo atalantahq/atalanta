@@ -8,12 +8,12 @@
 //! screen before repeating; `no` means repeating the same call fails the
 //! same way, so change it (a new snapshot, other arguments).
 //!
-//! MCP results carry them as `structuredContent.error`; `velocity agent`
+//! MCP results carry them as `structuredContent.error`; `atalanta agent`
 //! prints them in its JSON envelope. Codes are part of the agent interface:
 //! add new ones, never rename one.
 
+use atalanta_common::{AtalantaError, ErrorKind};
 use serde_json::{json, Value};
-use velocity_common::{ErrorKind, VelocityError};
 
 /// Whether a failed call can be sent again as it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,7 +96,7 @@ impl Failure {
     pub fn to_json(&self) -> Value {
         let mut v = json!({
             "code": self.code,
-            "message": velocity_common::redact::redact(&self.message),
+            "message": atalanta_common::redact::redact(&self.message),
             "retry": self.retry.as_str(),
             "delivered": self.delivered(),
         });
@@ -111,60 +111,60 @@ pub const NEXT_SNAPSHOT: &str = "take a new snapshot and use a current ref";
 const NEXT_LOOK: &str = "take a snapshot; scroll if the element may be off screen";
 const NEXT_OBSERVE: &str = "take a snapshot to see whether it happened before repeating it";
 const NEXT_ARGS: &str = "fix the arguments; the message says which";
-const NEXT_DOCTOR: &str = "run `velocity doctor` (MCP: diagnose)";
+const NEXT_DOCTOR: &str = "run `atalanta doctor` (MCP: diagnose)";
 const NEXT_WAIT: &str = "wait for the element to be enabled and still, then repeat";
 
 /// The code, retry and next step for `e`.
-pub fn classify(e: &VelocityError) -> Failure {
+pub fn classify(e: &AtalantaError) -> Failure {
     let message = e.to_string();
     let inner = match e {
-        VelocityError::AtSource { inner, .. } => inner.as_ref(),
+        AtalantaError::AtSource { inner, .. } => inner.as_ref(),
         other => other,
     };
     let (code, retry, next) = match inner {
-        VelocityError::StaleRef(_) => ("STALE_REF", Retry::No, Some(NEXT_SNAPSHOT)),
-        VelocityError::ElementNotFound { .. } => ("NOT_FOUND", Retry::No, Some(NEXT_LOOK)),
-        VelocityError::NotActionable { .. } => ("NOT_ACTIONABLE", Retry::Safe, Some(NEXT_WAIT)),
-        VelocityError::AssertionFailed { .. } | VelocityError::HttpCheckFailed { .. } => {
+        AtalantaError::StaleRef(_) => ("STALE_REF", Retry::No, Some(NEXT_SNAPSHOT)),
+        AtalantaError::ElementNotFound { .. } => ("NOT_FOUND", Retry::No, Some(NEXT_LOOK)),
+        AtalantaError::NotActionable { .. } => ("NOT_ACTIONABLE", Retry::Safe, Some(NEXT_WAIT)),
+        AtalantaError::AssertionFailed { .. } | AtalantaError::HttpCheckFailed { .. } => {
             ("ASSERTION_FAILED", Retry::No, None)
         }
-        VelocityError::AppCrashed { .. } => (
+        AtalantaError::AppCrashed { .. } => (
             "APP_CRASHED",
             Retry::No,
             Some("relaunch the app; the crash log path is in the message"),
         ),
-        VelocityError::YamlParse { .. }
-        | VelocityError::UnknownFlowRef { .. }
-        | VelocityError::InvalidSelector { .. }
-        | VelocityError::MissingEnvVars { .. }
-        | VelocityError::Config(_) => ("INVALID_ARGS", Retry::No, Some(NEXT_ARGS)),
-        VelocityError::DeviceNotFound { .. } => (
+        AtalantaError::YamlParse { .. }
+        | AtalantaError::UnknownFlowRef { .. }
+        | AtalantaError::InvalidSelector { .. }
+        | AtalantaError::MissingEnvVars { .. }
+        | AtalantaError::Config(_) => ("INVALID_ARGS", Retry::No, Some(NEXT_ARGS)),
+        AtalantaError::DeviceNotFound { .. } => (
             "DEVICE_NOT_FOUND",
             Retry::No,
-            Some("list devices (`velocity devices`) and pass one with --device"),
+            Some("list devices (`atalanta devices`) and pass one with --device"),
         ),
-        VelocityError::DeviceLocked { .. } => {
+        AtalantaError::DeviceLocked { .. } => {
             ("DEVICE_LOCKED", Retry::No, Some("unlock the device"))
         }
-        VelocityError::CircuitOpen { .. } | VelocityError::RunnerFailing { .. } => {
+        AtalantaError::CircuitOpen { .. } | AtalantaError::RunnerFailing { .. } => {
             ("DEVICE_UNRESPONSIVE", Retry::No, Some(NEXT_DOCTOR))
         }
-        VelocityError::SyncTimeout { .. }
-        | VelocityError::StepTimeout { .. }
-        | VelocityError::SuiteTimeout { .. } => {
+        AtalantaError::SyncTimeout { .. }
+        | AtalantaError::StepTimeout { .. }
+        | AtalantaError::SuiteTimeout { .. } => {
             ("TIMEOUT", Retry::ObserveFirst, Some(NEXT_OBSERVE))
         }
-        VelocityError::HttpUnreachable { .. } => ("HTTP_UNREACHABLE", Retry::Safe, None),
-        VelocityError::CommandFailed { .. } => {
+        AtalantaError::HttpUnreachable { .. } => ("HTTP_UNREACHABLE", Retry::Safe, None),
+        AtalantaError::CommandFailed { .. } => {
             ("COMMAND_FAILED", Retry::ObserveFirst, Some(NEXT_OBSERVE))
         }
-        VelocityError::Internal(_) => ("INTERNAL", Retry::No, None),
-        VelocityError::StepFailed { crashed: true, .. } => (
+        AtalantaError::Internal(_) => ("INTERNAL", Retry::No, None),
+        AtalantaError::StepFailed { crashed: true, .. } => (
             "APP_CRASHED",
             Retry::No,
             Some("relaunch the app; the crash log path is in the message"),
         ),
-        VelocityError::StepFailed { kind, .. } => match kind {
+        AtalantaError::StepFailed { kind, .. } => match kind {
             ErrorKind::ElementNotFound => ("NOT_FOUND", Retry::No, Some(NEXT_LOOK)),
             ErrorKind::AssertionFailed => ("ASSERTION_FAILED", Retry::No, None),
             ErrorKind::InvalidSelector | ErrorKind::ConfigError => {
@@ -194,7 +194,7 @@ pub fn classify(e: &VelocityError) -> Failure {
     Failure::new(code, retry, next, message)
 }
 
-/// Failures the server decides itself, not from a [`VelocityError`].
+/// Failures the server decides itself, not from a [`AtalantaError`].
 pub fn read_only(message: impl Into<String>) -> Failure {
     Failure::new("READ_ONLY", Retry::No, None, message)
 }
@@ -235,14 +235,14 @@ mod tests {
 
     #[test]
     fn stale_refs_say_take_a_snapshot_and_never_retry() {
-        let f = classify(&VelocityError::StaleRef("ref @e3 is stale".into()));
+        let f = classify(&AtalantaError::StaleRef("ref @e3 is stale".into()));
         assert_eq!((f.code, f.retry), ("STALE_REF", Retry::No));
         assert_eq!(f.next, Some(NEXT_SNAPSHOT));
     }
 
     #[test]
     fn a_lost_device_is_observe_first_for_actions_and_safe_for_reads() {
-        let e = VelocityError::AdbConnectionLost {
+        let e = AtalantaError::AdbConnectionLost {
             device_id: "emulator-5554".into(),
             reason: "closed".into(),
         };
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_failed_step_keeps_the_kind_of_its_error() {
-        let step = |kind, crashed| VelocityError::StepFailed {
+        let step = |kind, crashed| AtalantaError::StepFailed {
             kind,
             crashed,
             message: "Element not found: text=\"Privacy\" (12 scrolls Down)".into(),
@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn config_errors_are_invalid_args() {
-        let f = classify(&VelocityError::Config(
+        let f = classify(&AtalantaError::Config(
             "'mode' must be one of full, delta".into(),
         ));
         assert_eq!((f.code, f.retry), ("INVALID_ARGS", Retry::No));

@@ -1,7 +1,7 @@
 # Web smoke (row 0.2): headless Chrome on a self-contained data: page, so it
 # needs no network and runs on ubuntu-latest and macOS alike (Chrome is found
 # on PATH or in its usual places). Run nightly by .github/workflows/device-smoke.yml.
-appId: "data:text/html,%3Ctitle%3ESmoke%3C%2Ftitle%3E%3Ch1%3EVelocity%20smoke%3C%2Fh1%3E%3Cinput%20id%3D%22q%22%20aria-label%3D%22Search%22%3E%3Cbutton%20onclick%3D%22document.getElementById('out').textContent%3D'Hello%20'%2Bdocument.getElementById('q').value%22%3EGreet%3C%2Fbutton%3E%3Cp%20id%3D%22out%22%3E%3C%2Fp%3E"
+appId: "data:text/html,%3Ctitle%3ESmoke%3C%2Ftitle%3E%3Ch1%3EAtalanta%20smoke%3C%2Fh1%3E%3Cinput%20id%3D%22q%22%20aria-label%3D%22Search%22%3E%3Cbutton%20onclick%3D%22document.getElementById('out').textContent%3D'Hello%20'%2Bdocument.getElementById('q').value%22%3EGreet%3C%2Fbutton%3E%3Cp%20id%3D%22out%22%3E%3C%2Fp%3E"
 config:
   platform: web
   web:
@@ -11,8 +11,8 @@ tests:
   - name: web smoke - type, tap and read back
     steps:
       - launchApp: {}
-      - assertVisible: { text: "Velocity smoke" }
-      - inputText: { selector: { id: q }, text: "velocity" }
+      - assertVisible: { text: "Atalanta smoke" }
+      - inputText: { selector: { id: q }, text: "atalanta" }
       - tap: { text: "Greet" }
-      - assertVisible: { text: "Hello velocity" }
+      - assertVisible: { text: "Hello atalanta" }
       - assertNotVisible: { text: "Goodbye" }

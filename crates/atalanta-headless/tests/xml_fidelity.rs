@@ -1,12 +1,12 @@
 //! XML entities, XIB colours and button titles (VEL-104, VEL-105).
 
-use velocity_headless::android::resources::ResourceTable;
-use velocity_headless::android::AndroidInflater;
-use velocity_headless::ios::resources::IosResourceLoader;
-use velocity_headless::ios::storyboard::StoryboardParser;
-use velocity_headless::ios::{IosInflater, XibParser};
-use velocity_headless::render_tree::Dimension;
-use velocity_headless::RenderNode;
+use atalanta_headless::android::resources::ResourceTable;
+use atalanta_headless::android::AndroidInflater;
+use atalanta_headless::ios::resources::IosResourceLoader;
+use atalanta_headless::ios::storyboard::StoryboardParser;
+use atalanta_headless::ios::{IosInflater, XibParser};
+use atalanta_headless::render_tree::Dimension;
+use atalanta_headless::RenderNode;
 
 fn find<'a>(n: &'a RenderNode, pred: &dyn Fn(&RenderNode) -> bool) -> Option<&'a RenderNode> {
     if pred(n) {

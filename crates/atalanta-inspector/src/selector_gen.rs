@@ -10,8 +10,8 @@
 //! an `index`. Ids that look generated (long digit or hex runs, UUIDs) are
 //! skipped: they change between builds.
 
-use velocity_common::selector_match::{find_all_ref, match_count};
-use velocity_common::types::{Element, Rect, Relation, Selector};
+use atalanta_common::selector_match::{find_all_ref, match_count};
+use atalanta_common::types::{Element, Rect, Relation, Selector};
 
 /// The best selector for `element` without a tree to check uniqueness.
 pub fn generate_selector(element: &Element) -> Selector {
@@ -94,7 +94,7 @@ fn candidates(element: &Element) -> Vec<Selector> {
     let mut out = Vec::new();
     if !element.platform_id.is_empty()
         && !looks_generated(&element.platform_id)
-        && !velocity_common::selector_build::synthetic_id(&element.platform_id)
+        && !atalanta_common::selector_build::synthetic_id(&element.platform_id)
     {
         // Android ids match by their short form (`login` for `pkg:id/login`).
         let id = element
@@ -126,8 +126,8 @@ fn candidates(element: &Element) -> Vec<Selector> {
             }
         }
         // S4: role + accessible name, where the element has a role.
-        if let Some(role) = velocity_common::role::role_of(element) {
-            if let Some(name) = velocity_common::role::accessible_name(element) {
+        if let Some(role) = atalanta_common::role::role_of(element) {
+            if let Some(name) = atalanta_common::role::accessible_name(element) {
                 if name.chars().count() <= 60 {
                     let named = if name.bytes().any(|b| b.is_ascii_digit())
                         && strip_numbers(&name).chars().count() >= 3
@@ -338,7 +338,7 @@ mod tests {
         let sel = generate_selector_in(&tree, &target);
         assert_eq!(sel.to_string(), r#"text="Add" childOf(id="row_coffee")"#);
         // It resolves to the right button.
-        let found = velocity_common::selector_match::find_in_tree(&tree, &sel, None).unwrap();
+        let found = atalanta_common::selector_match::find_in_tree(&tree, &sel, None).unwrap();
         assert_eq!(found.bounds.y, 101);
     }
 
@@ -372,10 +372,10 @@ mod tests {
             let tree = screen(vec![target.clone()]);
             let sel = generate_selector_in(&tree, &target);
             assert_eq!(sel, Selector::TextMatches(pattern.into()), "{text}");
-            assert!(velocity_common::selector_match::check_patterns(&sel).is_ok());
+            assert!(atalanta_common::selector_match::check_patterns(&sel).is_ok());
             let moved = screen(vec![el("", later, "TextView", 100, vec![])]);
             assert!(
-                velocity_common::selector_match::find_in_tree(&moved, &sel, None).is_some(),
+                atalanta_common::selector_match::find_in_tree(&moved, &sel, None).is_some(),
                 "{text} -> {later}"
             );
         }

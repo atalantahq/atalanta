@@ -13,23 +13,23 @@ import 'screenshot_capture.dart';
 
 /// Wire protocol version, returned by `init`. 2 = request ids, flat
 /// hierarchies, targeted actions and error codes.
-const int kVelocityBridgeProtocol = 2;
+const int kAtalantaBridgeProtocol = 2;
 
-/// TCP bridge server that accepts commands from Velocity's Rust bridge.
+/// TCP bridge server that accepts commands from Atalanta's Rust bridge.
 ///
 /// Start it from a `flutter test` entry point and let it run for the whole
 /// session:
 ///
 /// ```dart
-/// testWidgets('velocity', (tester) =>
-///     VelocityBridgeServer(port: 19600, appBuilder: () => const MyApp()).run(tester),
+/// testWidgets('atalanta', (tester) =>
+///     AtalantaBridgeServer(port: 19600, appBuilder: () => const MyApp()).run(tester),
 ///     timeout: Timeout.none);
 /// ```
 ///
 /// Do not wrap [run] in `tester.runAsync`: it does its own socket I/O inside
 /// `runAsync` and handles every command, one at a time, in the test body, where
 /// `pump` and virtual time work.
-class VelocityBridgeServer {
+class AtalantaBridgeServer {
   final int port;
   final Widget Function() appBuilder;
 
@@ -52,7 +52,7 @@ class VelocityBridgeServer {
   final List<_Request> _inbox = <_Request>[];
   Completer<void>? _arrived;
 
-  VelocityBridgeServer({
+  AtalantaBridgeServer({
     required this.port,
     required this.appBuilder,
     this.onReset,
@@ -76,7 +76,7 @@ class VelocityBridgeServer {
       }))!;
       _server = server;
       // ignore: avoid_print
-      print('[velocity] Bridge server listening on port ${server.port}');
+      print('[atalanta] Bridge server listening on port ${server.port}');
 
       while (!_stopped) {
         final req = await tester.runAsync(_next);
@@ -165,7 +165,7 @@ class VelocityBridgeServer {
         final view = t.view;
         final logical = view.physicalSize / view.devicePixelRatio;
         return _ok({
-          'protocol': kVelocityBridgeProtocol,
+          'protocol': kAtalantaBridgeProtocol,
           'settled': settled,
           // The surface actions and hierarchies use (logical px).
           'size': {'width': logical.width.round(), 'height': logical.height.round()},

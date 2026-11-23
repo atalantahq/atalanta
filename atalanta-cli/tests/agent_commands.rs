@@ -1,4 +1,4 @@
-//! The agent commands (`velocity snapshot`, `tap`, `type`, `export`, …),
+//! The agent commands (`atalanta snapshot`, `tap`, `type`, `export`, …),
 //! one process per command as an agent's shell runs them, against a
 //! headless render of an Android layout. Refs and the recording must carry
 //! over between processes; failures must print a code and a retry rule.
@@ -15,9 +15,9 @@ const FORM: &str = r#"<LinearLayout xmlns:android="http://schemas.android.com/ap
   <Button android:id="@+id/go" android:layout_width="200dp" android:layout_height="48dp" android:text="Continue"/>
 </LinearLayout>"#;
 
-fn velocity(dir: &Path, args: &[&str]) -> (i32, String) {
+fn atalanta(dir: &Path, args: &[&str]) -> (i32, String) {
     let layout = dir.join("form.xml");
-    let out = Command::new(env!("CARGO_BIN_EXE_velocity"))
+    let out = Command::new(env!("CARGO_BIN_EXE_atalanta"))
         .args(args)
         .args([
             "--headless-layout",
@@ -25,8 +25,8 @@ fn velocity(dir: &Path, args: &[&str]) -> (i32, String) {
             "--session",
             "t",
         ])
-        .env("VELOCITY_AGENT_DIR", dir.join("state"))
-        .env_remove("VELOCITY_SESSION")
+        .env("ATALANTA_AGENT_DIR", dir.join("state"))
+        .env_remove("ATALANTA_SESSION")
         .current_dir(dir)
         .output()
         .unwrap();
@@ -39,7 +39,7 @@ fn velocity(dir: &Path, args: &[&str]) -> (i32, String) {
 fn json(dir: &Path, args: &[&str]) -> (i32, Value) {
     let mut a = args.to_vec();
     a.push("--json");
-    let (code, out) = velocity(dir, &a);
+    let (code, out) = atalanta(dir, &a);
     let v = serde_json::from_str(out.trim()).unwrap_or_else(|e| panic!("{e}: {out}"));
     (code, v)
 }
@@ -50,7 +50,7 @@ fn an_agent_drives_by_ref_across_processes_and_exports_a_test() {
     std::fs::write(dir.path().join("form.xml"), FORM).unwrap();
     let d = dir.path();
 
-    let (code, shot) = velocity(d, &["snapshot"]);
+    let (code, shot) = atalanta(d, &["snapshot"]);
     assert_eq!(code, 0, "{shot}");
     let email = shot
         .lines()
@@ -60,21 +60,18 @@ fn an_agent_drives_by_ref_across_processes_and_exports_a_test() {
         .to_string();
 
     // A ref from the previous process, and what changed comes back.
-    let (code, typed) = json(d, &["type", &email, "qa@velocity.dev"]);
+    let (code, typed) = json(d, &["type", &email, "qa@atalanta.sh"]);
     assert_eq!(code, 0, "{typed}");
     assert_eq!(typed["ok"], true);
     assert_eq!(typed["v"], 1);
     assert_eq!(typed["session"], "t");
     assert!(
-        typed["screen"]
-            .as_str()
-            .unwrap()
-            .contains("qa@velocity.dev"),
+        typed["screen"].as_str().unwrap().contains("qa@atalanta.sh"),
         "{typed}"
     );
     assert!(typed["settle"]["settled"].is_boolean(), "{typed}");
 
-    let (code, tapped) = velocity(d, &["tap", "id=go"]);
+    let (code, tapped) = atalanta(d, &["tap", "id=go"]);
     assert_eq!(code, 0, "{tapped}");
     assert!(tapped.starts_with("ok tap"), "{tapped}");
 
@@ -85,14 +82,14 @@ fn an_agent_drives_by_ref_across_processes_and_exports_a_test() {
     assert_eq!(stale["error"]["code"], "STALE_REF");
     assert_eq!(stale["error"]["retry"], "no");
     assert_eq!(stale["error"]["delivered"], "no");
-    let (code, text) = velocity(d, &["tap", "@e99"]);
+    let (code, text) = atalanta(d, &["tap", "@e99"]);
     assert_eq!(code, 1);
     assert!(
         text.starts_with("error STALE_REF:") && text.contains("retry: no"),
         "{text}"
     );
 
-    let (_, found) = velocity(d, &["snapshot", "--find", "CONT"]);
+    let (_, found) = atalanta(d, &["snapshot", "--find", "CONT"]);
     assert!(
         found.contains("1 shown") && found.contains("Continue"),
         "{found}"
@@ -102,7 +99,7 @@ fn an_agent_drives_by_ref_across_processes_and_exports_a_test() {
     assert_eq!(code, 0);
     assert_eq!(session["data"]["recorded_steps"], 2, "{session}");
 
-    let out = d.join("velocity/login.yaml");
+    let out = d.join("atalanta/login.yaml");
     let (code, exported) = json(
         d,
         &[
@@ -118,11 +115,11 @@ fn an_agent_drives_by_ref_across_processes_and_exports_a_test() {
     let yaml = std::fs::read_to_string(&out).unwrap();
     assert!(!yaml.contains("@e"), "refs are never exported: {yaml}");
     assert!(
-        yaml.contains("qa@velocity.dev") && yaml.contains("id: go"),
+        yaml.contains("qa@atalanta.sh") && yaml.contains("id: go"),
         "{yaml}"
     );
 
-    let (code, _) = velocity(d, &["session", "reset"]);
+    let (code, _) = atalanta(d, &["session", "reset"]);
     assert_eq!(code, 0);
     let (_, fresh) = json(d, &["tap", &email]);
     assert_eq!(
@@ -140,7 +137,7 @@ fn text_starting_with_at_e_is_tapped_as_text() {
         FORM.replace("Sign in", "@everyone"),
     )
     .unwrap();
-    let (code, out) = velocity(dir.path(), &["tap", "@everyone"]);
+    let (code, out) = atalanta(dir.path(), &["tap", "@everyone"]);
     assert_eq!(code, 0, "{out}");
     assert!(out.starts_with("ok tap"), "{out}");
 }
@@ -152,7 +149,7 @@ fn session_files_are_private() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("form.xml"), FORM).unwrap();
-    let (code, out) = velocity(dir.path(), &["snapshot"]);
+    let (code, out) = atalanta(dir.path(), &["snapshot"]);
     assert_eq!(code, 0, "{out}");
     let mode = |p: std::path::PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
     let sessions = dir.path().join("state/sessions");
@@ -181,14 +178,14 @@ fn resetting_a_busy_session_exits_3() {
     assert_eq!(code, 3, "{out}");
     assert_eq!(out["error"]["code"], "SESSION_BUSY", "{out}");
     drop(held);
-    let (code, _) = velocity(dir.path(), &["session", "reset"]);
+    let (code, _) = atalanta(dir.path(), &["session", "reset"]);
     assert_eq!(code, 0, "free again");
 }
 
 #[test]
 fn skills_print_the_guides_in_the_binary() {
     let run = |args: &[&str]| {
-        let out = Command::new(env!("CARGO_BIN_EXE_velocity"))
+        let out = Command::new(env!("CARGO_BIN_EXE_atalanta"))
             .args(args)
             .output()
             .unwrap();
@@ -203,12 +200,12 @@ fn skills_print_the_guides_in_the_binary() {
     let (code, cli) = run(&["skills", "get", "cli"]);
     assert_eq!(code, Some(0));
     assert!(
-        cli.contains("velocity snapshot") && cli.contains("STALE_REF"),
+        cli.contains("atalanta snapshot") && cli.contains("STALE_REF"),
         "{cli}"
     );
     let (code, stub) = run(&["skills", "stub"]);
     assert_eq!(code, Some(0));
-    assert!(stub.starts_with("---\nname: velocity"), "{stub}");
+    assert!(stub.starts_with("---\nname: atalanta"), "{stub}");
     assert_eq!(run(&["skills", "get", "nope"]).0, Some(2));
 }
 
@@ -234,12 +231,12 @@ struct DaemonGuard {
 }
 
 impl DaemonGuard {
-    fn velocity(&self, dir: &Path, args: &[&str]) -> (i32, String) {
-        let out = Command::new(env!("CARGO_BIN_EXE_velocity"))
+    fn atalanta(&self, dir: &Path, args: &[&str]) -> (i32, String) {
+        let out = Command::new(env!("CARGO_BIN_EXE_atalanta"))
             .args(args)
-            .env("VELOCITY_DAEMON_SOCKET", &self.socket)
-            .env("VELOCITY_AGENT_DIR", &self.state)
-            .env_remove("VELOCITY_SESSION")
+            .env("ATALANTA_DAEMON_SOCKET", &self.socket)
+            .env("ATALANTA_AGENT_DIR", &self.state)
+            .env_remove("ATALANTA_SESSION")
             .current_dir(dir)
             .output()
             .unwrap();
@@ -252,9 +249,9 @@ impl DaemonGuard {
 
 impl Drop for DaemonGuard {
     fn drop(&mut self) {
-        let _ = Command::new(env!("CARGO_BIN_EXE_velocity"))
+        let _ = Command::new(env!("CARGO_BIN_EXE_atalanta"))
             .args(["daemon", "stop"])
-            .env("VELOCITY_DAEMON_SOCKET", &self.socket)
+            .env("ATALANTA_DAEMON_SOCKET", &self.socket)
             .output();
     }
 }
@@ -265,7 +262,7 @@ const PAGE: &str = r#"<!doctype html><html><head><title>Login</title></head><bod
 <button id="go" onclick="document.getElementById('out').textContent='Welcome '+document.getElementById('email').value">Continue</button>
 <p id="out"></p></body></html>"#;
 
-/// Web agent commands go through `velocity daemon` (started by the first
+/// Web agent commands go through `atalanta daemon` (started by the first
 /// one), so the page a `launch` opened is still there for the next command.
 #[test]
 fn web_commands_keep_one_browser_through_the_daemon() {
@@ -285,7 +282,7 @@ fn web_commands_keep_one_browser_through_the_daemon() {
     let json_of = |args: &[&str]| -> (i32, Value) {
         let mut a = args.to_vec();
         a.extend(["--session", "t", "--json"]);
-        let (code, out) = guard.velocity(d, &a);
+        let (code, out) = guard.atalanta(d, &a);
         let line = out.lines().last().unwrap_or("").to_string();
         let v = serde_json::from_str(&line).unwrap_or_else(|e| panic!("{e}: {out}"));
         (code, v)
@@ -296,7 +293,7 @@ fn web_commands_keep_one_browser_through_the_daemon() {
     assert_eq!(launched["device"], "web", "{launched}");
 
     // No -p from here on: the session remembers it drives the web.
-    let (code, typed) = json_of(&["type", "id=email", "qa@velocity.dev"]);
+    let (code, typed) = json_of(&["type", "id=email", "qa@atalanta.sh"]);
     assert_eq!(code, 0, "{typed}");
     let (code, tapped) = json_of(&["tap", "Continue"]);
     assert_eq!(code, 0, "{tapped}");
@@ -304,16 +301,16 @@ fn web_commands_keep_one_browser_through_the_daemon() {
         tapped["screen"]
             .as_str()
             .unwrap_or("")
-            .contains("Welcome qa@velocity.dev"),
+            .contains("Welcome qa@atalanta.sh"),
         "the delta shows what the tap did: {tapped}"
     );
-    let (code, seen) = json_of(&["assert", "Welcome qa@velocity.dev"]);
+    let (code, seen) = json_of(&["assert", "Welcome qa@atalanta.sh"]);
     assert_eq!(code, 0, "{seen}");
 
     let (code, stale) = json_of(&["tap", "@e99"]);
     assert_eq!(code, 1);
     assert_eq!(stale["error"]["code"], "STALE_REF", "{stale}");
 
-    let (code, status) = guard.velocity(d, &["daemon", "status"]);
+    let (code, status) = guard.atalanta(d, &["daemon", "status"]);
     assert_eq!(code, 0, "the first web command started a daemon: {status}");
 }

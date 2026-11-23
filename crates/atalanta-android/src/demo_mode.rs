@@ -93,7 +93,7 @@ mod tests {
     use crate::adb::Adb;
     use crate::driver::AndroidDriver;
     use crate::test_support::FakeAdb;
-    use velocity_common::PlatformDriver;
+    use atalanta_common::PlatformDriver;
 
     #[tokio::test]
     async fn freeze_status_bar_enters_demo_mode_once_and_cleanup_exits_it() {

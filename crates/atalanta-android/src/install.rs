@@ -1,21 +1,21 @@
-//! Install-by-hash on Android (see `velocity_common::install`).
+//! Install-by-hash on Android (see `atalanta_common::install`).
 //!
 //! The marker lives on the device, in
-//! `/data/local/tmp/velocity-installed/<package>.sha`: it travels with the
+//! `/data/local/tmp/atalanta-installed/<package>.sha`: it travels with the
 //! device whichever host drives it, and a read-only emulator drops it on
 //! exit together with the app it describes. It holds the build's hash and
 //! the package's `lastUpdateTime` right after the install; a skip needs the
 //! hash to match, `pm path` to find the package, and `lastUpdateTime` to be
 //! unchanged (anything else that installed the package moves it).
 
+use atalanta_common::install::{fingerprint as hash_fingerprint, Marker};
+use atalanta_common::{AtalantaError, InstallOutcome, Result};
 use tracing::debug;
-use velocity_common::install::{fingerprint as hash_fingerprint, Marker};
-use velocity_common::{InstallOutcome, Result, VelocityError};
 
 use crate::adb_backend::AdbBackend;
 
-const MARKER_DIR: &str = "/data/local/tmp/velocity-installed";
-const SEP: &str = "---velocity---";
+const MARKER_DIR: &str = "/data/local/tmp/atalanta-installed";
+const SEP: &str = "---atalanta---";
 
 /// What the device says about `package`, in one `adb shell`.
 #[derive(Debug, Default, PartialEq)]
@@ -99,7 +99,7 @@ pub(crate) async fn install_if_changed(
     }
     let after = query(adb, device_id, package).await?;
     if !after.present {
-        return Err(VelocityError::Config(format!(
+        return Err(AtalantaError::Config(format!(
             "installed {apk} on {device_id}, but package {package} isn't there: \
              does appId match the APK's package name?"
         )));

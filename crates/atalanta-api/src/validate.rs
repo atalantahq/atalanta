@@ -1,7 +1,7 @@
 //! What can be checked in an `http` step before anything runs. A part
 //! with a `${…}` in it is checked when it runs, with the value in.
 
-use velocity_common::{Capture, HttpRequest};
+use atalanta_common::{Capture, HttpRequest};
 
 use crate::check;
 use crate::path::Path;

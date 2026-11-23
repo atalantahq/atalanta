@@ -1,8 +1,8 @@
 //! An OpenAPI 3 document read into JSON, its local `$ref`s followed, and
 //! its operations in the order they are written.
 
+use atalanta_common::StatusCheck;
 use serde_json::{Map, Value};
-use velocity_common::StatusCheck;
 
 static NOTHING: Value = Value::Null;
 

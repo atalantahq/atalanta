@@ -2,15 +2,15 @@
 //!
 //! Window, transition and animator scales go to 0 the first time a device
 //! launches an app, which shortens every screen change the settle has to
-//! wait for. The restore can't depend on Velocity exiting cleanly (Ctrl-C,
+//! wait for. The restore can't depend on Atalanta exiting cleanly (Ctrl-C,
 //! a panic, `kill -9`), so it runs *on the device* (scrcpy's pattern): one
 //! `adb shell` saves the old values, sets 0, then blocks reading its stdin.
-//! However Velocity ends, that stdin closes, `read` returns, and the same
+//! However Atalanta ends, that stdin closes, `read` returns, and the same
 //! shell puts the old values back (an unset value is deleted again). `HUP`
 //! is ignored so the shell outlives its adb session. Checked on an API 35
 //! emulator with the host adb client killed with SIGKILL.
 //!
-//! `VELOCITY_KEEP_ANIMATIONS=1` leaves animations alone.
+//! `ATALANTA_KEEP_ANIMATIONS=1` leaves animations alone.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -21,20 +21,20 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
-const OFF: &str = "VELOCITY_ANIM_OFF";
-const RESTORED: &str = "VELOCITY_ANIM_RESTORED";
+const OFF: &str = "ATALANTA_ANIM_OFF";
+const RESTORED: &str = "ATALANTA_ANIM_RESTORED";
 
 const SCRIPT: &str = concat!(
     "trap '' HUP; ",
     "k='window_animation_scale transition_animation_scale animator_duration_scale'; ",
     "for s in $k; do eval \"old_$s=\\\"$(settings get global $s)\\\"\"; done; ",
     "for s in $k; do settings put global $s 0; done; ",
-    "echo VELOCITY_ANIM_OFF; ",
+    "echo ATALANTA_ANIM_OFF; ",
     "read _; ",
     "for s in $k; do eval \"v=\\$old_$s\"; ",
     "if [ \"$v\" = null ] || [ -z \"$v\" ]; then settings delete global $s >/dev/null; ",
     "else settings put global $s \"$v\"; fi; done; ",
-    "echo VELOCITY_ANIM_RESTORED"
+    "echo ATALANTA_ANIM_RESTORED"
 );
 
 struct Held {
@@ -57,7 +57,7 @@ pub struct AnimationGuard {
 
 fn wanted() -> bool {
     !matches!(
-        velocity_common::env::var("VELOCITY_KEEP_ANIMATIONS").as_deref(),
+        atalanta_common::env::var("ATALANTA_KEEP_ANIMATIONS").as_deref(),
         Ok("1") | Ok("true")
     )
 }
@@ -94,7 +94,7 @@ impl AnimationGuard {
             return;
         }
         let adb =
-            velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".to_string());
+            atalanta_common::env::var("ATALANTA_ADB_PATH").unwrap_or_else(|_| "adb".to_string());
         let spawned = Command::new(adb)
             .args(crate::adb::target_args(device_id))
             .args(["shell", SCRIPT])
@@ -218,7 +218,7 @@ mod tests {
         assert!(off < read && read < restored);
     }
 
-    /// Needs a device: `VELOCITY_TEST_ANDROID=<serial>`.
+    /// Needs a device: `ATALANTA_TEST_ANDROID=<serial>`.
     #[tokio::test]
     async fn animations_come_back_after_the_run() {
         let Some(device) = crate::test_support::device_under_test() else {

@@ -15,22 +15,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
-use velocity_common::{
-    Action, Direction, Key, LaunchArgs, Platform, PlatformDriver, Rect, Result, Selector, Step,
-    StepStatus, SuiteConfig, VelocityError, VerifyCheck, VerifyLevel, VerifyOutcome,
+use atalanta_common::{
+    Action, AtalantaError, Direction, Key, LaunchArgs, Platform, PlatformDriver, Rect, Result,
+    Selector, Step, StepStatus, SuiteConfig, VerifyCheck, VerifyLevel, VerifyOutcome,
 };
-use velocity_core::TestExecutor;
-use velocity_nl::{
+use atalanta_core::TestExecutor;
+use atalanta_nl::{
     GoalOp, GoalOutcome, GoalRequest, GoalStep, NaturalPlanner, ScreenChecker, Usage,
 };
+use serde::Serialize;
 
 use crate::events::{EventSink, ExploreEvent, InstructionSource};
 use crate::expect::{ExpectCheck, ExpectOutcome, ExpectationCounts, PostAssertion};
 use crate::notes::{NoEffect, TurnNote};
 use crate::screen::{assertable, assertable_for, clip, element_name, Observation};
 use crate::values::{self, Seen};
-use velocity_nl::checker::HoldBasis;
+use atalanta_nl::checker::HoldBasis;
 
 /// When a screenshot goes with the screen list (and only if the provider
 /// takes images).
@@ -167,7 +167,7 @@ pub struct ExploreOptions {
     pub max_tokens: Option<u64>,
     /// Dollars per million tokens (input, output, and the cache rates),
     /// for the estimate.
-    pub price: Option<velocity_nl::Price>,
+    pub price: Option<atalanta_nl::Price>,
     pub verify: VerifyLevel,
     /// `--data NAME=value`.
     pub data: Vec<(String, String)>,
@@ -462,7 +462,7 @@ pub struct ExploreReport {
     /// the final check).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub answer_sources: Vec<String>,
-    /// The goal prompt's version ([`velocity_nl::goal::GOAL_PROMPT_VERSION`]).
+    /// The goal prompt's version ([`atalanta_nl::goal::GOAL_PROMPT_VERSION`]).
     pub prompt_version: &'static str,
     /// The project tests shown to the model as demonstrations, as
     /// `file: test name`.
@@ -566,7 +566,7 @@ fn pixel_only(obs: &Observation) -> bool {
 }
 
 /// Whether the tree holds a web view (Chrome's page, an app's WebView).
-fn has_web_view(e: &velocity_common::Element) -> bool {
+fn has_web_view(e: &atalanta_common::Element) -> bool {
     e.element_type.ends_with("WebView") || e.children.iter().any(has_web_view)
 }
 /// The values-list line that allows copied text (`--values-from-goal`,
@@ -670,13 +670,13 @@ impl ExploreSession {
     pub async fn run(mut self) -> Result<ExploreReport> {
         let opts = self.opts.clone();
         if opts.verify != VerifyLevel::Off && self.checker.is_none() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "--verify {} needs a checker model; configure one or pass --verify off",
                 opts.verify
             )));
         }
         for (_, v) in &opts.secrets {
-            velocity_common::redact::register_secret(v);
+            atalanta_common::redact::register_secret(v);
         }
         // Read before the first turn, off the async workers: a project
         // folder of suites is a few hundred small files at most.
@@ -1027,7 +1027,7 @@ impl<'a> Run<'a> {
         action: &Action,
         force: bool,
     ) -> Result<(bool, u64, Option<u64>, Option<String>)> {
-        let modifiers = velocity_common::StepModifiers {
+        let modifiers = atalanta_common::StepModifiers {
             force,
             ..Default::default()
         };
@@ -1351,7 +1351,7 @@ impl<'a> Run<'a> {
                 // this turn (review 03 M3).
                 let note = format!(
                     "screenshot failed, planning from the screen list only: {}",
-                    velocity_common::redact::redact(&e.to_string())
+                    atalanta_common::redact::redact(&e.to_string())
                 );
                 self.note_event(turn, note);
                 return None;
@@ -1364,7 +1364,7 @@ impl<'a> Run<'a> {
         }
         // An outside harness's judge (iOSWorld) grades the run from a
         // screenshot per step: keep each one the model saw.
-        if let Ok(dir) = velocity_common::env::var("VELOCITY_EXPLORE_SHOTS_DIR") {
+        if let Ok(dir) = atalanta_common::env::var("ATALANTA_EXPLORE_SHOTS_DIR") {
             let dir = PathBuf::from(dir);
             if std::fs::create_dir_all(&dir).is_ok() {
                 let _ = std::fs::write(dir.join(format!("turn-{turn:02}.png")), &png);
@@ -1403,8 +1403,8 @@ impl<'a> Run<'a> {
             .map(|(name, _)| format!("- {name}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let memo_text = velocity_common::redact::redact(&st.memo).into_owned();
-        let mut screen_text = velocity_common::redact::redact(&obs.rendered).into_owned();
+        let memo_text = atalanta_common::redact::redact(&st.memo).into_owned();
+        let mut screen_text = atalanta_common::redact::redact(&obs.rendered).into_owned();
         if let Some(image) = shot.and_then(|s| s.image.as_deref()) {
             screen_text = with_swatch_colors(&screen_text, obs, image);
         }
@@ -1445,7 +1445,7 @@ impl<'a> Run<'a> {
         let spent = self.planner.usage().since(before);
         let step = match answer {
             Ok(s) => s,
-            Err(e) if velocity_nl::planner::is_model_failure(&e) => {
+            Err(e) if atalanta_nl::planner::is_model_failure(&e) => {
                 let why = format!("the answer could not be used: {e}");
                 return Ok(self.refuse(st, None, &why));
             }
@@ -1454,7 +1454,7 @@ impl<'a> Run<'a> {
                     ExploreOutcome::Failed,
                     format!(
                         "the model service failed: {}",
-                        velocity_common::redact::redact(&e.to_string())
+                        atalanta_common::redact::redact(&e.to_string())
                     ),
                 ))
             }
@@ -1471,7 +1471,7 @@ impl<'a> Run<'a> {
             .and_then(|n| obs.index.get(n))
             .map(|el| element_name(el, opts.platform));
         let at = self.at();
-        let memo = velocity_common::redact::redact(&st.memo).into_owned();
+        let memo = atalanta_common::redact::redact(&st.memo).into_owned();
         self.emit(ExploreEvent::Planned {
             at_ms: at,
             turn,
@@ -1605,7 +1605,7 @@ impl<'a> Run<'a> {
                 self.emit(ExploreEvent::Answered {
                     at_ms: at,
                     turn,
-                    answer: velocity_common::redact::redact(&answer).into_owned(),
+                    answer: atalanta_common::redact::redact(&answer).into_owned(),
                     sources: grounding
                         .parts
                         .iter()
@@ -1736,7 +1736,7 @@ impl<'a> Run<'a> {
             changed,
             error: err
                 .as_ref()
-                .map(|e| velocity_common::redact::redact(e).into_owned()),
+                .map(|e| atalanta_common::redact::redact(e).into_owned()),
             expectation: expectation.clone(),
             typed_source,
         });
@@ -1744,7 +1744,7 @@ impl<'a> Run<'a> {
             // A driver error can quote screen text: one line, so it can't
             // forge a "Notes:" or "Earlier turns:" line (audit 2026-11).
             st.notes.push(TurnNote::ActionFailed {
-                error: crate::screen::one_line(&velocity_common::redact::redact(
+                error: crate::screen::one_line(&atalanta_common::redact::redact(
                     &err.unwrap_or_default(),
                 )),
             });
@@ -2133,11 +2133,11 @@ impl<'a> Run<'a> {
     /// `${EMAIL}`) is a name, not something the screen shows.
     fn check_expectation(
         &self,
-        e: &velocity_nl::Expectation,
+        e: &atalanta_nl::Expectation,
         before: &Observation,
         after: &Observation,
     ) -> ExpectCheck {
-        if let velocity_nl::Expectation::Appears { text } = e {
+        if let atalanta_nl::Expectation::Appears { text } = e {
             let t = text.trim().trim_start_matches("${").trim_end_matches('}');
             if self.values.iter().any(|v| v.name.eq_ignore_ascii_case(t)) {
                 return crate::expect::not_checkable(e, before, "it names a value, not a text");
@@ -2548,7 +2548,7 @@ impl<'a> Run<'a> {
                     turn: 0,
                     note: format!(
                         "screenshot failed, the check sees the screen list only: {}",
-                        velocity_common::redact::redact(&e.to_string())
+                        atalanta_common::redact::redact(&e.to_string())
                     ),
                 });
                 None
@@ -2591,7 +2591,7 @@ impl<'a> Run<'a> {
         // element when the result isn't on this screen.
         let turns: Vec<usize> = history.iter().filter_map(|l| line_turn(l)).collect();
         // Indexed with the goal, as `obs` was: cited lines map back to it.
-        let (check, basis) = velocity_nl::checker::verify_end_state(
+        let (check, basis) = atalanta_nl::checker::verify_end_state(
             &*checker,
             "final",
             &claim,
@@ -2609,7 +2609,7 @@ impl<'a> Run<'a> {
 
     async fn checkpoint(&mut self, obs: &Observation, claim: &str, turn: usize) -> VerifyCheck {
         let checker = self.checker.clone().expect("checked at start");
-        let check = velocity_nl::verify_claim(
+        let check = atalanta_nl::verify_claim(
             &*checker,
             &format!("turn {turn}"),
             claim,
@@ -2638,7 +2638,7 @@ impl<'a> Run<'a> {
         let u = self.usage();
         let cost = self.cost();
         let at = self.at();
-        let reason = velocity_common::redact::redact(&reason).into_owned();
+        let reason = atalanta_common::redact::redact(&reason).into_owned();
         let actions = self.report_steps.len();
         self.emit(ExploreEvent::Finished {
             at_ms: at,
@@ -2692,7 +2692,7 @@ impl<'a> Run<'a> {
                 .as_ref()
                 .map(|g| g.parts.iter().map(|(_, s)| s.name().to_string()).collect())
                 .unwrap_or_default(),
-            prompt_version: velocity_nl::goal::GOAL_PROMPT_VERSION,
+            prompt_version: atalanta_nl::goal::GOAL_PROMPT_VERSION,
             demos: std::mem::take(&mut self.demo_names),
             expectations: self.expectations,
             revisit_turns: self.revisit_turns,
@@ -2726,7 +2726,7 @@ fn is_text_field(element_type: &str) -> bool {
 /// what code verified of it. The log and the answer are app and model text,
 /// so each goes in its own hash-tagged block the checker's instructions
 /// call data; the rules for judging an end state live in those
-/// instructions ([`velocity_nl::checker::CHECK_SYSTEM_PROMPT`]), byte-stable
+/// instructions ([`atalanta_nl::checker::CHECK_SYSTEM_PROMPT`]), byte-stable
 /// and out of reach of the data.
 ///
 /// Answer parts code saw on a screen count as seen; the others (a computed
@@ -2738,7 +2738,7 @@ fn end_state_claim(
     history: &[String],
     answer: Option<(&str, Option<&values::AnswerGrounding>)>,
 ) -> String {
-    use velocity_nl::checker::data_block;
+    use atalanta_nl::checker::data_block;
     // The whole run, not the planner's last 12 lines: a 44-action run's
     // first parts were invisible to the check, which then passed a goal
     // half done (iOSWorld, 2026-11-08).
@@ -2748,9 +2748,9 @@ fn end_state_claim(
         data_block("log", &log)
     );
     if let Some((text, grounding)) = answer {
-        let mut facts = format!("answer: {:?}\n", velocity_common::redact::redact(text));
+        let mut facts = format!("answer: {:?}\n", atalanta_common::redact::redact(text));
         for (part, source) in grounding.map(|g| g.parts.as_slice()).unwrap_or_default() {
-            let part = velocity_common::redact::redact(&clip(part, 80)).into_owned();
+            let part = atalanta_common::redact::redact(&clip(part, 80)).into_owned();
             if source.verified() {
                 facts.push_str(&format!("shown on a screen (verified by code): {part:?}\n"));
             } else {
@@ -2801,7 +2801,7 @@ fn log_for_check(lines: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    velocity_common::redact::redact(&out).into_owned()
+    atalanta_common::redact::redact(&out).into_owned()
 }
 
 /// How many turns ago the current screen (the last of `screens`) was last
@@ -2968,13 +2968,13 @@ fn with_swatch_colors(screen: &str, obs: &Observation, img: &crate::pixels::Imag
 /// holds a secret's value).
 fn text_changes(before: &Observation, after: &Observation, secrets: &[&str]) -> Vec<String> {
     let platform = before.index.platform();
-    let a: Vec<&velocity_common::Element> = before.elements().collect();
-    let b: Vec<&velocity_common::Element> = after.elements().collect();
+    let a: Vec<&atalanta_common::Element> = before.elements().collect();
+    let b: Vec<&atalanta_common::Element> = after.elements().collect();
     if a.len() != b.len() {
         return vec![];
     }
-    let shown = |el: &velocity_common::Element| {
-        velocity_common::redact::redact(&element_name(el, platform)).into_owned()
+    let shown = |el: &atalanta_common::Element| {
+        atalanta_common::redact::redact(&element_name(el, platform)).into_owned()
     };
     a.iter()
         .zip(&b)
@@ -3015,7 +3015,7 @@ fn trim_history(lines: &[String]) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    velocity_common::redact::redact(&out).into_owned()
+    atalanta_common::redact::redact(&out).into_owned()
 }
 
 /// A stable element of `after` that `before` didn't have: what the test
@@ -3085,7 +3085,7 @@ fn evidence_selectors(
     let lines: Vec<String> = obs
         .rendered
         .lines()
-        .map(|l| velocity_common::redact::redact(l).into_owned())
+        .map(|l| atalanta_common::redact::redact(l).into_owned())
         .collect();
     let mut out: Vec<Selector> = Vec::new();
     for ev in &check.evidence {
@@ -3139,7 +3139,7 @@ mod tests {
 
     #[test]
     fn unlabeled_swatches_get_their_colour_from_the_screenshot() {
-        use velocity_common::{Element, Rect};
+        use atalanta_common::{Element, Rect};
         let button = |x: i32, id: &str| Element {
             element_type: "android.widget.Button".into(),
             platform_id: id.into(),

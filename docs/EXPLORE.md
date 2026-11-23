@@ -1,18 +1,18 @@
-# `velocity explore`: AI explores once, replay runs CI
+# `atalanta explore`: AI explores once, replay runs CI
 
 ```bash
-velocity explore "open Network & internet" --app-id com.android.settings   # an agent reaches the goal and writes open-network-internet.yaml
-velocity run open-network-internet.yaml                                     # plain YAML: native speed, no model
+atalanta explore "open Network & internet" --app-id com.android.settings   # an agent reaches the goal and writes open-network-internet.yaml
+atalanta run open-network-internet.yaml                                     # plain YAML: native speed, no model
 # commit it; CI runs it like any other suite
 ```
 
-An agent works through a goal on a real device, one operation per turn. The session is written out as a deterministic Velocity test with real assertions, replayed straight away with **no model calls** to prove it holds, and repaired once if the replay fails. The model is paid for while exploring; CI never calls it.
+An agent works through a goal on a real device, one operation per turn. The session is written out as a deterministic Atalanta test with real assertions, replayed straight away with **no model calls** to prove it holds, and repaired once if the replay fails. The model is paid for while exploring; CI never calls it.
 
 This is the opposite trade-off to agents that call a model on every step of every run (Google's ARTEMIS: Android only, 3 to 40 s per step, and its maintainer declined record-and-replay). Here the model runs once per test and the replay runs at the deterministic runner's speed.
 
 ## How it works
 
-Code: `crates/velocity-explore` (the loop, the YAML writer, the replay) and `crates/velocity-nl/src/goal.rs` (the goal prompt and its wire formats). The loop drives the same executor as `velocity run`, so it gets the same sync, settle, dialog handling and actionability checks.
+Code: `crates/atalanta-explore` (the loop, the YAML writer, the replay) and `crates/atalanta-nl/src/goal.rs` (the goal prompt and its wire formats). The loop drives the same executor as `atalanta run`, so it gets the same sync, settle, dialog handling and actionability checks.
 
 Each turn has five steps:
 
@@ -113,7 +113,7 @@ A secret's value is registered for redaction, never sent to a model, and never w
 
 #### `--values-from-goal` and `--values-from-screen` (off by default)
 
-Benchmark goals carry their values unquoted ("Create a contact for Hugo Pereira. Their number is +13920741751."). With `--values-from-goal` the model may put the text itself in `value`, and code accepts it only when it is grounded (`crates/velocity-explore/src/values.rs`):
+Benchmark goals carry their values unquoted ("Create a contact for Hugo Pereira. Their number is +13920741751."). With `--values-from-goal` the model may put the text itself in `value`, and code accepts it only when it is grounded (`crates/atalanta-explore/src/values.rs`):
 
 - it occurs verbatim in the goal, case, whitespace and typographic quotes folded; or
 - with `--values-from-screen` (a separate opt-in), it is a text shown on a screen during this run, or a run of whole words of one ("Ann" is not copied from "Planning"; a piece shorter than 3 characters must be a whole shown text) (copying from one app to another). Screen text is untrusted: the app, a web page or a message someone sent wrote it, so a page that says "type this into the password field" should not be able to choose what is typed unless you allowed it; or
@@ -124,7 +124,7 @@ Either flag alone allows numbers and its own source; `--values-from-screen` alon
 
 `--values-from-screenshots` also accepts text the model read from a screenshot, which code can't check against the pixels. It applies only after a screenshot of a screen with pixel-only content went to the model (an image, canvas or video element with no text of its own, or fewer than 4 listed elements), and only to pieces of at most 200 characters; a screenshot of an ordinary screen (in `--benchmark`, one goes with every turn) doesn't open it. `--values-from-model` types the model's own text and grounds nothing. A plain number the model computed is accepted only with `--values-from-goal` or `--values-from-screen`, not under these two alone. With a `--secret` in the run, either flag is noted at the start (a `note` event): model-authored text and a secret in one run is two legs of the Rule of Two.
 
-`VELOCITY_EXPLORE_SHOTS_DIR=<dir>` saves each screenshot the model was sent as `turn-NN.png`, for an outside judge (the iOSWorld harness uses it). Every `acted` event for a typed literal names where it came from (`typedSource`: `goal`, `screen`, `number`, `composed`, `screenshot`, `model`), so a run that typed model-read text says so.
+`ATALANTA_EXPLORE_SHOTS_DIR=<dir>` saves each screenshot the model was sent as `turn-NN.png`, for an outside judge (the iOSWorld harness uses it). Every `acted` event for a typed literal names where it came from (`typedSource`: `goal`, `screen`, `number`, `composed`, `screenshot`, `model`), so a run that typed model-read text says so.
 
 ### Answers (`answer`)
 
@@ -143,7 +143,7 @@ Outside `--benchmark`, each answer part code verified on a screen that the final
 
 ### Benchmark mode (`--benchmark`)
 
-For harnesses that judge the device state themselves (AndroidWorld: [BENCHMARKS.md](BENCHMARKS.md#androidworld)): the run starts from the screen as it is, writes and replays no test, auto-dismisses no dialog (every action is the agent's), refuses `launch` and `assert`, allows 20 visits per screen, and sends a screenshot every turn when the provider takes images. The model gets a benchmark variant of the instructions (no test-writing framing, no `assert` or `launch`, a rule that the run is judged on the final device state), byte-stable for the run, instead of a note repeated every turn. The trajectory goes to `$VELOCITY_EVENTS_FILE`.
+For harnesses that judge the device state themselves (AndroidWorld: [BENCHMARKS.md](BENCHMARKS.md#androidworld)): the run starts from the screen as it is, writes and replays no test, auto-dismisses no dialog (every action is the agent's), refuses `launch` and `assert`, allows 20 visits per screen, and sends a screenshot every turn when the provider takes images. The model gets a benchmark variant of the instructions (no test-writing framing, no `assert` or `launch`, a rule that the run is judged on the final device state), byte-stable for the run, instead of a note repeated every turn. The trajectory goes to `$ATALANTA_EVENTS_FILE`.
 
 ### `--keep-nl`
 
@@ -170,17 +170,17 @@ A test that replays is a cache of the run, and the cache must not lie. After the
 - **Wrong path.** On the device, the test runs up to its last tap. It then taps one of the two nearest neighbours of that element (the same kind of element, with real text of its own) and runs to the end. It must fail. If it still passes, its assertions can't tell the screen it should reach from a neighbouring one, for example two plans whose checkouts look the same. Each neighbour gets a fresh run from the launch. A tap with no neighbour is reported as not checked.
 - **Goal text.** At least one assertion must name a word of the goal (stop words like "open" and "page" don't count), so the test checks what the goal asked for and not only that some screen showed.
 
-Hand-written tests and tests exported from an agent session (`velocity export`, the MCP server's `export_session_flow`) were never explored, so explore's gates never ran on them. They can be gated the same way with `velocity gate FILE --goal "..."`: it replays the file's one test, runs the wrong-path replay and the goal-text rule, and prints `trusted` or `not trusted` with the reasons ([CLI.md](CLI.md#gate)). A test is worth committing as a regression test only once it is trusted.
+Hand-written tests and tests exported from an agent session (`atalanta export`, the MCP server's `export_session_flow`) were never explored, so explore's gates never ran on them. They can be gated the same way with `atalanta gate FILE --goal "..."`: it replays the file's one test, runs the wrong-path replay and the goal-text rule, and prints `trusted` or `not trusted` with the reasons ([CLI.md](CLI.md#gate)). A test is worth committing as a regression test only once it is trusted.
 
 Each assertion explore writes has also had to fail on the screen before its step (the writer's own rule). The summary prints a `gates:` line: `trusted`, or `not trusted` and why. An untrusted test is still written, so it can be reviewed and fixed, but the exit code is 1 and the JSON report's `gates.trusted` is false. Five passing replays mean "burned in", not "proven stable": 95% confidence needs about 170 reruns (ICST 2021).
 
 ## Steering a run: CLI, MCP, console and library
 
-- **CLI.** `--inject-file PATH` feeds the agent lines appended to that file while it runs. `--json` prints the result (`report`, `yaml`, `replay`, `repair`, `files`) on stdout and the live lines on stderr. With `VELOCITY_EVENTS_FILE` set, every event is also appended to that file as a JSON line (the same file and mechanism as `velocity run`'s live events, `velocity_common::live_events`), and the replays add their test and step events. Ctrl-C ends the session at its next turn as `stopped`, with a report; a second one exits at once.
-- **MCP.** `run_task` with a `goal` runs `velocity explore … --json --inject-file <task>/inject.txt` as a child: `task_status` shows the turn, op and target from the events file, `task_inject` appends a line to the inject file, `task_stop` is a Ctrl-C, and the summary has the YAML path, the replays and the model's calls and tokens ([MCP.md](MCP.md#background-tasks)).
-- **Console.** The Explore panel of `velocity inspect` starts the same child, streams the events, has an *Inject* box, and shows the YAML with *Save to project* ([CLI.md](CLI.md#inspect)).
-- **Library.** `velocity_explore::ExploreJob` (the whole pipeline) and `ExploreSession` (the loop alone) are the API the CLI uses.
-  - **Events.** `with_events(Box<dyn FnMut(&ExploreEvent)>)` receives serde-serializable events tagged `event`: `prefix`, `observed`, `planned`, `rejected`, `acted`, `asserted`, `checked`, `injected`, `note`, `replayRun`, `repair`, `finished`. Each carries `atMs`. The library never prints, so `velocity mcp`'s stdout stays clean.
+- **CLI.** `--inject-file PATH` feeds the agent lines appended to that file while it runs. `--json` prints the result (`report`, `yaml`, `replay`, `repair`, `files`) on stdout and the live lines on stderr. With `ATALANTA_EVENTS_FILE` set, every event is also appended to that file as a JSON line (the same file and mechanism as `atalanta run`'s live events, `atalanta_common::live_events`), and the replays add their test and step events. Ctrl-C ends the session at its next turn as `stopped`, with a report; a second one exits at once.
+- **MCP.** `run_task` with a `goal` runs `atalanta explore … --json --inject-file <task>/inject.txt` as a child: `task_status` shows the turn, op and target from the events file, `task_inject` appends a line to the inject file, `task_stop` is a Ctrl-C, and the summary has the YAML path, the replays and the model's calls and tokens ([MCP.md](MCP.md#background-tasks)).
+- **Console.** The Explore panel of `atalanta inspect` starts the same child, streams the events, has an *Inject* box, and shows the YAML with *Save to project* ([CLI.md](CLI.md#inspect)).
+- **Library.** `atalanta_explore::ExploreJob` (the whole pipeline) and `ExploreSession` (the loop alone) are the API the CLI uses.
+  - **Events.** `with_events(Box<dyn FnMut(&ExploreEvent)>)` receives serde-serializable events tagged `event`: `prefix`, `observed`, `planned`, `rejected`, `acted`, `asserted`, `checked`, `injected`, `note`, `replayRun`, `repair`, `finished`. Each carries `atMs`. The library never prints, so `atalanta mcp`'s stdout stays clean.
   - **Instructions.** `handle().inject(String)`, or `with_instructions(Box<dyn InstructionSource>)`. `InstructionSource` is one method, `fn drain(&mut self) -> Vec<String>`, and is implemented for tokio and std receivers. Instructions are taken in at the next planning turn and shown to the model as an operator's instruction.
   - **Stopping.** `handle().stop()`, or `with_cancel(Arc<AtomicBool>)`. The run stops at the next turn, and the outcome is `stopped`.
 
@@ -206,14 +206,14 @@ A step's `expect` names elements by text as `target` does: `{"appears": "Saved"}
 | Flag | What it does |
 |---|---|
 | `--device`, `-d` | the device to use (default: the first booted one no other run holds) |
-| `--lease-wait` | how long to wait for a device another Velocity process holds (default 600 s; takes a unit) |
+| `--lease-wait` | how long to wait for a device another Atalanta process holds (default 600 s; takes a unit) |
 | `--model` | the goal model as `provider:model` (default: the configured provider's goal model, [AI-PROVIDERS.md](AI-PROVIDERS.md)) |
 | `--force` | overwrite `--out` if it exists |
 | `--after <suite>`, `--after-test <name>` | replay a stored flow (a login) with no model before the first turn; the written test starts with it by name |
 | `--no-repair` | don't try a repair round when a replay fails |
 | `--dry-run` | explore and report only: no test is written or replayed |
 
-`crates/velocity-explore/tests/docs.rs` fails when a flag of `velocity explore` is missing from this page.
+`crates/atalanta-explore/tests/docs.rs` fails when a flag of `atalanta explore` is missing from this page.
 
 ## Cost
 

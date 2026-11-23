@@ -1,15 +1,15 @@
 //! A driver with no device, for an inspector that only serves the
-//! screenshot review page (`velocity baselines review --serve`): listing
+//! screenshot review page (`atalanta baselines review --serve`): listing
 //! devices returns none and every device action is a config error.
 
-use velocity_common::types::{DeviceInfo, Direction, Element, Key, Selector};
-use velocity_common::{PlatformDriver, Result, VelocityError};
+use atalanta_common::types::{DeviceInfo, Direction, Element, Key, Selector};
+use atalanta_common::{AtalantaError, PlatformDriver, Result};
 
 pub struct NoDevice;
 
 fn none<T>() -> Result<T> {
-    Err(VelocityError::Config(
-        "this inspector serves screenshot review only; start `velocity inspect` to drive a device"
+    Err(AtalantaError::Config(
+        "this inspector serves screenshot review only; start `atalanta inspect` to drive a device"
             .into(),
     ))
 }

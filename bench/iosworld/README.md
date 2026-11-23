@@ -5,7 +5,7 @@
 - 133 tasks (`tasks.json`): 27 single-app, 60 multi-app, 46 memory/personalisation;
 - macOS, Xcode 26 and an iOS 26 simulator.
 
-It is cloned at `ext/iOSWorld` (commit `c59287b6`). `run.py` here is the adapter that runs each task through `velocity explore --benchmark -p ios` and writes iOSWorld's `task.json`/`trajectory.json`; iOSWorld's own `scripts/judge_trajectories.py` then scores them.
+It is cloned at `ext/iOSWorld` (commit `c59287b6`). `run.py` here is the adapter that runs each task through `atalanta explore --benchmark -p ios` and writes iOSWorld's `task.json`/`trajectory.json`; iOSWorld's own `scripts/judge_trajectories.py` then scores them.
 
 ## Results so far
 
@@ -31,5 +31,5 @@ The paper's best "vision + XML" configuration reports 51% overall and 36% on mul
 ## What an official run needs
 
 - An OpenAI key for the judge, as in the paper. Any other judge must be labelled as a deviation.
-- The adapter in (2). Run the task's goal with `velocity explore --benchmark -p ios -d <udid> --screenshots always`, against a provider that takes images.
-- Report against the paper's "vision + XML" setting, which is how Velocity sees the screen: its best configuration scored 51% overall and 36% on multi-app tasks.
+- The adapter in (2). Run the task's goal with `atalanta explore --benchmark -p ios -d <udid> --screenshots always`, against a provider that takes images.
+- Report against the paper's "vision + XML" setting, which is how Atalanta sees the screen: its best configuration scored 51% overall and 36% on multi-app tasks.

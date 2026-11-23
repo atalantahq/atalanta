@@ -1,7 +1,7 @@
 //! The interface between the executor and the natural-language resolver.
 //!
-//! `velocity-core` runs `do:`/`assert:` and bare-string steps through a
-//! [`NaturalStepResolver`]; `velocity-nl` implements it (`NaturalResolver`:
+//! `atalanta-core` runs `do:`/`assert:` and bare-string steps through a
+//! [`NaturalStepResolver`]; `atalanta-nl` implements it (`NaturalResolver`:
 //! the planner, grounding and the disk cache). Keeping the trait and its
 //! plain data here lets the deterministic executor build without the model
 //! clients and their HTTP stack (review 06, finding 5).
@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use crate::{Action, Element, NaturalKind, Platform, Rect, Result, VerifyCheck};
 
 /// Whether `action` is one grounding can produce for a step of `kind`:
-/// what a cached resolution (`.velocity/nl-cache.json`, a committed file)
+/// what a cached resolution (`.atalanta/nl-cache.json`, a committed file)
 /// may replay. The cache stores a whole `Action`, so an entry a pull
 /// request adds could otherwise be an `http` request posting the step's
 /// `data` (a password) anywhere, a `launchApp` that wipes another app, or a
@@ -19,7 +19,7 @@ use crate::{Action, Element, NaturalKind, Platform, Rect, Result, VerifyCheck};
 /// if a cached answer is held to what the grounder emits (audit 2026-11
 /// NL-1).
 pub fn cacheable(kind: NaturalKind, action: &Action) -> bool {
-    /// Grounding's own limits (`velocity-nl/src/grounding.rs`).
+    /// Grounding's own limits (`atalanta-nl/src/grounding.rs`).
     const MAX_WAIT_MS: u64 = 30_000;
     const MAX_LONG_PRESS_MS: u64 = 10_000;
     match kind {
@@ -224,7 +224,7 @@ impl PendingPlan {
 }
 
 /// Resolves natural-language steps to concrete [`Action`]s for the
-/// executor. Implemented by `velocity_nl::NaturalResolver`.
+/// executor. Implemented by `atalanta_nl::NaturalResolver`.
 #[async_trait]
 pub trait NaturalStepResolver: Send + Sync {
     /// The cached resolution for `step`, if any: the fast path, no model
@@ -273,7 +273,7 @@ pub trait NaturalStepResolver: Send + Sync {
 }
 
 /// Every AI provider preset name (`ai.provider`), for the schema and the
-/// validator. `velocity_nl::provider::PRESETS` holds the presets; a test
+/// validator. `atalanta_nl::provider::PRESETS` holds the presets; a test
 /// there keeps the two in step.
 pub const AI_PROVIDER_PRESETS: &[&str] = &[
     "anthropic",

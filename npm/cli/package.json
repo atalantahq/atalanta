@@ -1,29 +1,29 @@
 {
-  "name": "@velocity-test/cli",
+  "name": "@atalantahq/cli",
   "version": "0.0.0-dev",
-  "description": "Velocity: fast, reliable mobile UI testing (Android, iOS, web) from YAML. Installs the prebuilt `velocity` binary.",
+  "description": "Atalanta: fast, reliable mobile UI testing (Android, iOS, web) from YAML. Installs the prebuilt `atalanta` binary.",
   "keywords": ["testing", "mobile", "android", "ios", "e2e", "mcp"],
-  "homepage": "https://github.com/omkar-dev/velocity",
-  "bugs": "https://github.com/omkar-dev/velocity/issues",
+  "homepage": "https://github.com/atalantahq/atalanta",
+  "bugs": "https://github.com/atalantahq/atalanta/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/omkar-dev/velocity.git",
+    "url": "git+https://github.com/atalantahq/atalanta.git",
     "directory": "npm/cli"
   },
   "license": "Apache-2.0",
   "bin": {
-    "velocity": "bin/velocity.js"
+    "atalanta": "bin/atalanta.js"
   },
   "files": [
-    "bin/velocity.js"
+    "bin/atalanta.js"
   ],
   "engines": {
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@velocity-test/cli-darwin-arm64": "0.0.0-dev",
-    "@velocity-test/cli-darwin-x64": "0.0.0-dev",
-    "@velocity-test/cli-linux-arm64": "0.0.0-dev",
-    "@velocity-test/cli-linux-x64": "0.0.0-dev"
+    "@atalantahq/cli-darwin-arm64": "0.0.0-dev",
+    "@atalantahq/cli-darwin-x64": "0.0.0-dev",
+    "@atalantahq/cli-linux-arm64": "0.0.0-dev",
+    "@atalantahq/cli-linux-x64": "0.0.0-dev"
   }
 }

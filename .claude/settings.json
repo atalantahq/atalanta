@@ -6,8 +6,8 @@
       "Bash(adb *)",
       "Bash(xcrun simctl *)",
       "Bash(xcodebuild *)",
-      "Bash(target/release/velocity *)",
-      "Bash(./target/release/velocity *)"
+      "Bash(target/release/atalanta *)",
+      "Bash(./target/release/atalanta *)"
     ]
   },
   "hooks": {

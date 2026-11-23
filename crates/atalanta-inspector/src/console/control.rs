@@ -3,24 +3,24 @@
 //! Watching a device (the mirror, the tree) needs nothing: it doesn't
 //! change the device. Driving it (input on the mirror, the toolbar's tap,
 //! type, swipe and key) takes the device's cross-process lease, the same
-//! `flock` `velocity run` and the MCP server take, and holds it until it is
+//! `flock` `atalanta run` and the MCP server take, and holds it until it is
 //! released or the inspector exits. While another process holds it, input
 //! is refused with 409 and the holder (`busy: pid=… cmd=run`), and the page
 //! says so. A console run of a suite releases the console's lease first:
-//! its `velocity run` child takes it.
+//! its `atalanta run` child takes it.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
+use atalanta_common::types::{Element, Key, Rect};
+use atalanta_common::Platform;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::Mutex;
-use velocity_common::types::{Element, Key, Rect};
-use velocity_common::Platform;
 
 use crate::state::AppState;
 
@@ -33,13 +33,13 @@ pub enum LeaseFail {
     Io(String),
 }
 
-/// Cross-process device leases (`velocity_runner::lease` in the CLI).
+/// Cross-process device leases (`atalanta_runner::lease` in the CLI).
 pub trait Leases: Send + Sync {
     /// Take `device_id`'s lease without waiting; the guard releases it.
     fn try_lock(&self, device_id: &str) -> Result<Box<dyn std::any::Any + Send + Sync>, LeaseFail>;
 }
 
-/// No cross-process leasing (tests, `VELOCITY_LEASES=off`).
+/// No cross-process leasing (tests, `ATALANTA_LEASES=off`).
 pub struct NoLeases;
 impl Leases for NoLeases {
     fn try_lock(&self, _: &str) -> Result<Box<dyn std::any::Any + Send + Sync>, LeaseFail> {
@@ -280,7 +280,7 @@ pub async fn input(
     let id = device_id.as_str();
     let r = match input {
         Input::Tap { x, y } => match d.tap_xy(id, x, y).await {
-            Err(velocity_common::VelocityError::Config(_)) => d.tap(id, &point(x, y)).await,
+            Err(atalanta_common::AtalantaError::Config(_)) => d.tap(id, &point(x, y)).await,
             other => other,
         },
         Input::LongPress { x, y, ms } => {

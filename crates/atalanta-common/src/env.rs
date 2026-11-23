@@ -1,10 +1,10 @@
 //! Environment reads that a daemon run can redirect without `set_var`.
 //!
-//! `velocity daemon` serves each `velocity run` with the client's
+//! `atalanta daemon` serves each `atalanta run` with the client's
 //! environment. Changing the process environment for that (`set_var`) races
 //! with every other thread reading it (`getenv` is not thread-safe on macOS
 //! or glibc), and the daemon's runtime has many. Instead the daemon installs
-//! the client's variables here for the run, and Velocity reads its variables
+//! the client's variables here for the run, and Atalanta reads its variables
 //! through [`var`].
 
 use std::collections::HashMap;
@@ -106,7 +106,7 @@ pub fn in_ci_with(var: impl Fn(&str) -> Option<String>) -> bool {
     CI_VARS.iter().any(|k| var(k).is_some_and(|v| ci_flag(&v)))
 }
 
-/// Whether this run is on a CI server, through [`var`]: under `velocity
+/// Whether this run is on a CI server, through [`var`]: under `atalanta
 /// daemon` that is the client's environment, not the daemon's (review
 /// MINOR 9). The one detector healing and the result cache share.
 pub fn in_ci() -> bool {
@@ -125,8 +125,8 @@ mod tests {
     // other test in this process reads.
     #[test]
     fn an_installed_environment_is_the_whole_environment() {
-        let env = HashMap::from([("VELOCITY_X".to_string(), "client".to_string())]);
-        assert_eq!(lookup(Some(&env), "VELOCITY_X").as_deref(), Ok("client"));
+        let env = HashMap::from([("ATALANTA_X".to_string(), "client".to_string())]);
+        assert_eq!(lookup(Some(&env), "ATALANTA_X").as_deref(), Ok("client"));
         // Set in this process, absent from the client's: unset.
         assert!(lookup(Some(&env), "PATH").is_err());
         assert!(lookup(None, "PATH").is_ok());

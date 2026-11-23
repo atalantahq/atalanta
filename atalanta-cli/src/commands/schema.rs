@@ -1,4 +1,4 @@
-//! `velocity schema`: the JSON Schema for suite YAML, for editors.
+//! `atalanta schema`: the JSON Schema for suite YAML, for editors.
 
 use clap::Args;
 
@@ -15,14 +15,14 @@ pub struct SchemaArgs {
 
 pub fn execute(args: SchemaArgs) -> anyhow::Result<i32> {
     if args.markdown {
-        let md = velocity_core::reference::dsl_reference();
+        let md = atalanta_core::reference::dsl_reference();
         match args.output {
             Some(path) => std::fs::write(&path, md)?,
             None => print!("{md}"),
         }
         return Ok(0);
     }
-    let json = serde_json::to_string_pretty(&velocity_core::schema::suite_schema())?;
+    let json = serde_json::to_string_pretty(&atalanta_core::schema::suite_schema())?;
     match args.output {
         Some(path) => {
             std::fs::write(&path, json + "\n")?;

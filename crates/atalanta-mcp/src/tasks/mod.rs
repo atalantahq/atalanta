@@ -4,17 +4,17 @@
 //! once with the task's id, folder and log, and the agent polls
 //! `task_status`. What a task does is a [`TaskBody`]:
 //!
-//! - [`process::SuiteRun`]: a `velocity run` child process. A child, not the
+//! - [`process::SuiteRun`]: a `atalanta run` child process. A child, not the
 //!   runner in this process, because the runner prints to stdout, which here
 //!   carries the protocol, and so the run takes and releases its device
 //!   lease like any other run, and a stop is the Ctrl-C a run already
 //!   handles (it writes its reports).
-//! - [`process::ExploreRun`]: a `velocity explore … --json` child
+//! - [`process::ExploreRun`]: a `atalanta explore … --json` child
 //!   ([`TaskKind::Explore`]), for the same reasons. `task_inject`
 //!   instructions arrive on [`TaskContext::instructions`] and are appended
 //!   to the child's `--inject-file`.
 //!
-//! Both children write live events (`velocity_common::live_events`) to the
+//! Both children write live events (`atalanta_common::live_events`) to the
 //! task's `events.jsonl`, which becomes [`Progress`].
 //!
 //! On shutdown every running task is stopped and waited for, so each writes
@@ -29,9 +29,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use atalanta_common::{AtalantaError, Result};
 use serde::Serialize;
 use tokio::sync::watch;
-use velocity_common::{Result, VelocityError};
 
 pub use inject::{instruction_channel, Instruction, InstructionReceiver, InstructionSender};
 pub use notify::Notifier;
@@ -42,11 +42,11 @@ pub use notify::Notifier;
 pub enum TaskKind {
     /// A suite run.
     Run,
-    /// An exploring agent (`velocity explore`): takes injected instructions.
+    /// An exploring agent (`atalanta explore`): takes injected instructions.
     Explore,
-    /// `velocity verify-change`: a saved flow replayed, or explored and saved.
+    /// `atalanta verify-change`: a saved flow replayed, or explored and saved.
     Verify,
-    /// `velocity gate`: the trust gates on a written test.
+    /// `atalanta gate`: the trust gates on a written test.
     Gate,
 }
 
@@ -142,7 +142,7 @@ pub struct Summary {
     /// tokens (the counts above are then the replay runs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub explore: Option<serde_json::Value>,
-    /// Gate tasks: `{trusted, gates, file, goal}` from `velocity gate --json`
+    /// Gate tasks: `{trusted, gates, file, goal}` from `atalanta gate --json`
     /// (the counts above are then the burn-in replays).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gates: Option<serde_json::Value>,
@@ -150,8 +150,8 @@ pub struct Summary {
 
 impl Summary {
     /// From a suite result (`results.json`).
-    pub fn of(result: &velocity_common::SuiteResult) -> Self {
-        use velocity_common::{StepStatus, TestStatus};
+    pub fn of(result: &atalanta_common::SuiteResult) -> Self {
+        use atalanta_common::{StepStatus, TestStatus};
         let mut s = Summary {
             total: result.tests.len(),
             ..Default::default()
@@ -171,7 +171,7 @@ impl Summary {
                             .error_message
                             .clone()
                             .or_else(|| step.and_then(|st| st.error_message.clone()))
-                            .map(|e| velocity_common::redact::redact(&e).into_owned()),
+                            .map(|e| atalanta_common::redact::redact(&e).into_owned()),
                         screenshot: step
                             .and_then(|st| st.screenshot.clone())
                             .or_else(|| t.screenshots.last().cloned()),
@@ -311,19 +311,19 @@ impl TaskManager {
         }
     }
 
-    /// The default root: `./velocity-results/tasks`, or
-    /// `~/.velocity/mcp-tasks` when the server runs in `/` or `$HOME` (as
+    /// The default root: `./atalanta-results/tasks`, or
+    /// `~/.atalanta/mcp-tasks` when the server runs in `/` or `$HOME` (as
     /// desktop clients start it).
     pub fn default_root() -> PathBuf {
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let cwd = std::env::current_dir().ok();
         match cwd {
             Some(c) if c.parent().is_some() && Some(&c) != home.as_ref() => {
-                c.join("velocity-results").join("tasks")
+                c.join("atalanta-results").join("tasks")
             }
             _ => home
                 .unwrap_or_else(std::env::temp_dir)
-                .join(".velocity")
+                .join(".atalanta")
                 .join("mcp-tasks"),
         }
     }
@@ -339,7 +339,7 @@ impl TaskManager {
     pub fn mark_agent_written(&self, path: &Path) -> Result<()> {
         use std::io::Write;
         std::fs::create_dir_all(&self.root)
-            .map_err(|e| VelocityError::io(format!("task folder {}", self.root.display()), e))?;
+            .map_err(|e| AtalantaError::io(format!("task folder {}", self.root.display()), e))?;
         let list = self.root.join(AGENT_WRITTEN);
         let line = path.to_string_lossy().replace('\n', "");
         std::fs::OpenOptions::new()
@@ -347,7 +347,7 @@ impl TaskManager {
             .append(true)
             .open(&list)
             .and_then(|mut f| writeln!(f, "{line}"))
-            .map_err(|e| VelocityError::io(list.display(), e))
+            .map_err(|e| AtalantaError::io(list.display(), e))
     }
 
     /// Whether an agent's task wrote `path`: it is under the tasks folder,
@@ -372,7 +372,7 @@ impl TaskManager {
     /// so an id whose folder exists is taken, and the next number is tried.
     pub fn new_task_dir(&self) -> Result<(String, PathBuf)> {
         std::fs::create_dir_all(&self.root)
-            .map_err(|e| VelocityError::io(format!("task folder {}", self.root.display()), e))?;
+            .map_err(|e| AtalantaError::io(format!("task folder {}", self.root.display()), e))?;
         loop {
             let id = {
                 let mut inner = lock(&self.shared);
@@ -384,7 +384,7 @@ impl TaskManager {
                 Ok(()) => return Ok((id, dir)),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(e) => {
-                    return Err(VelocityError::io(
+                    return Err(AtalantaError::io(
                         format!("task folder {}", dir.display()),
                         e,
                     ))
@@ -453,7 +453,7 @@ impl TaskManager {
                     state: TaskState::Error,
                     summary: None,
                     error: Some(if e.is_panic() {
-                        format!("the task crashed (a Velocity bug): {}", panic_text(e))
+                        format!("the task crashed (a Atalanta bug): {}", panic_text(e))
                     } else {
                         "the task was cancelled".to_string()
                     }),
@@ -470,7 +470,7 @@ impl TaskManager {
                 i.summary = outcome.summary;
                 i.error = outcome
                     .error
-                    .map(|e| velocity_common::redact::redact(&e).into_owned());
+                    .map(|e| atalanta_common::redact::redact(&e).into_owned());
                 i.exit_code = outcome.exit_code;
                 i.finished_at_ms = Some(now_ms());
                 i.progress.test = None;
@@ -520,9 +520,9 @@ impl TaskManager {
 }
 
 /// No task `id` (called with the lock held).
-fn unknown(inner: &Inner, id: &str) -> VelocityError {
+fn unknown(inner: &Inner, id: &str) -> AtalantaError {
     let known: Vec<String> = inner.tasks.keys().cloned().collect();
-    VelocityError::Config(if known.is_empty() {
+    AtalantaError::Config(if known.is_empty() {
         format!("no task '{id}': none was started in this session")
     } else {
         format!("no task '{id}'; tasks: {}", known.join(", "))
@@ -560,7 +560,7 @@ impl TaskManager {
         }
         let e = inner.tasks.get_mut(id).expect("checked");
         if !e.info.kind.takes_instructions() {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "task {id} is a {} task: instructions are not supported for this task kind \
                  (they steer explore tasks); stop it with task_stop and start another instead",
                 serde_json::to_value(e.info.kind)
@@ -575,7 +575,7 @@ impl TaskManager {
             .as_ref()
             .is_some_and(|tx| tx.send(instruction.clone()));
         if !sent {
-            return Err(VelocityError::Config(format!(
+            return Err(AtalantaError::Config(format!(
                 "task {id} has ended ({:?}); it takes no more instructions",
                 e.info.state
             )));
@@ -627,7 +627,7 @@ fn write_task_file(info: &TaskInfo) -> PathBuf {
     if let Ok(json) = serde_json::to_vec_pretty(info) {
         // Best-effort, but said: a notifier is handed this path, and
         // task_status still answers from memory (review 03 L4).
-        if let Err(e) = velocity_common::fsutil::write_atomic(&path, &json) {
+        if let Err(e) = atalanta_common::fsutil::write_atomic(&path, &json) {
             tracing::warn!("task {}: writing {}: {e}", info.id, path.display());
         }
     }

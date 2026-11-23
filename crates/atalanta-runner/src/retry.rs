@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use velocity_common::{TestCase, TestResult, TestStatus};
+use atalanta_common::{TestCase, TestResult, TestStatus};
 
 /// The first of `test`'s dependencies that ran in this session and did not
 /// pass (passed-on-retry counts as passed).
@@ -17,7 +17,7 @@ pub(crate) fn unmet_dependency<'a>(test: &'a TestCase, results: &[TestResult]) -
         })
         .map(String::as_str)
 }
-use velocity_core::TestExecutor;
+use atalanta_core::TestExecutor;
 
 /// Most retries one test gets, whatever `--retries` or `retry.count` say
 /// (Bazel bounds `--flaky_test_attempts` to 10 the same way).
@@ -100,7 +100,7 @@ pub(crate) async fn run_test_with_retries_from(
     let mut warnings = Vec::new();
     // A flaky pass keeps the trace of the attempt that failed.
     let mut failed_trace = None;
-    // D-19: the first attempt that panicked. A panic is Velocity's own bug;
+    // D-19: the first attempt that panicked. A panic is Atalanta's own bug;
     // a later attempt passing doesn't make it go away, so the test still
     // ends as an internal error (exit 5). It is still retried, so the
     // report shows whether the app itself works.
@@ -128,13 +128,13 @@ pub(crate) async fn run_test_with_retries_from(
             ),
             Some(Ok(Ok(r))) => r,
             Some(Ok(Err(e))) => TestResult::failed(&test.name, e.to_string(), test_start.elapsed()),
-            // A bug in Velocity, not the app: exit 5 (D-19).
+            // A bug in Atalanta, not the app: exit 5 (D-19).
             Some(Err(panic)) => TestResult {
                 internal_error: true,
                 ..TestResult::failed(
                     &test.name,
                     format!(
-                        "internal error: Velocity panicked: {}",
+                        "internal error: Atalanta panicked: {}",
                         panic_message(&*panic)
                     ),
                     test_start.elapsed(),
@@ -195,7 +195,7 @@ pub(crate) async fn run_test_with_retries_from(
 /// pass that healed nothing).
 pub(crate) fn retire_heal_notes(warnings: &mut [String], attempt: u32) {
     for w in warnings.iter_mut() {
-        if velocity_common::result::is_heal_note(w) {
+        if atalanta_common::result::is_heal_note(w) {
             *w = format!("attempt {} (failed): {w}", attempt + 1);
         }
     }
@@ -220,7 +220,7 @@ pub(crate) fn keep_internal_error(
     if matches!(result.status, TestStatus::Passed | TestStatus::Retried) {
         warnings.insert(
             0,
-            "a retry passed, but an earlier attempt hit an internal error (a Velocity bug)"
+            "a retry passed, but an earlier attempt hit an internal error (a Atalanta bug)"
                 .to_string(),
         );
     }
@@ -266,13 +266,13 @@ pub(crate) fn print_result(result: &TestResult, device: Option<&str>) {
     );
     if matches!(result.status, TestStatus::Failed | TestStatus::Skipped) {
         if let Some(ref msg) = result.error_message {
-            println!("    └ {}", velocity_common::redact::redact(msg));
+            println!("    └ {}", atalanta_common::redact::redact(msg));
         }
     }
     for w in &result.warnings {
         cprintln!(
             "    \x1b[33m⚠ {}\x1b[0m",
-            velocity_common::redact::redact(w)
+            atalanta_common::redact::redact(w)
         );
     }
 }

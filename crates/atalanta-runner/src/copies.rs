@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use velocity_common::{TestResult, TestStatus};
+use atalanta_common::{TestResult, TestStatus};
 
 /// Most copies of one test a run schedules, whatever the formula says: a
 /// test that fails this often needs fixing, not more device time.
@@ -226,7 +226,7 @@ mod tests {
         }
     }
 
-    // V4 (D-19): a copy that panicked is Velocity's own bug; another copy
+    // V4 (D-19): a copy that panicked is Atalanta's own bug; another copy
     // passing must not turn the test back into a pass or a plain flake.
     #[test]
     fn a_copy_that_panicked_keeps_the_merged_test_an_internal_error() {

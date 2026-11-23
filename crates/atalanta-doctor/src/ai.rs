@@ -4,7 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use velocity_nl::provider::{AiSettings, PRESETS};
+use atalanta_nl::provider::{AiSettings, PRESETS};
 
 use crate::{timed, Area, AreaResult, Check, Ctx, Fix};
 
@@ -20,13 +20,13 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
         .collect();
     set.dedup();
     let lookup = |k: &str| env.var(k);
-    let cache = ctx.opts.cwd.join(".velocity").join("nl-cache.json");
+    let cache = ctx.opts.cwd.join(".atalanta").join("nl-cache.json");
     let settings = match AiSettings::resolve_with(None, &lookup) {
         Ok(s) => s,
         Err(e) => {
             out.push(
                 Check::fail("ai.keys", A, format!("AI settings: {e}")).with_fix(Fix::guidance(
-                    "fix VELOCITY_NL_PROVIDER / VELOCITY_NL_MODEL (see docs/AI-PROVIDERS.md)",
+                    "fix ATALANTA_NL_PROVIDER / ATALANTA_NL_MODEL (see docs/AI-PROVIDERS.md)",
                 )),
             );
             return (out, false);
@@ -40,9 +40,9 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
                 format!(
                     "no provider key set: natural-language steps run only from {}",
                     if cache.exists() {
-                        "the committed .velocity/nl-cache.json"
+                        "the committed .atalanta/nl-cache.json"
                     } else {
-                        "a .velocity/nl-cache.json (none here)"
+                        "a .atalanta/nl-cache.json (none here)"
                     }
                 ),
             )
@@ -75,8 +75,8 @@ pub(crate) async fn checks(ctx: &Ctx) -> AreaResult {
             "{} (explore: {}){}",
             settings.label(),
             settings.explore_model,
-            if env.is_set("VELOCITY_NL_MODEL") {
-                " (VELOCITY_NL_MODEL)"
+            if env.is_set("ATALANTA_NL_MODEL") {
+                " (ATALANTA_NL_MODEL)"
             } else {
                 ""
             }
@@ -147,7 +147,7 @@ async fn reachable(url: &str, timeout: Duration) -> Check {
             ),
         ),
         Ok(Err(e)) => Check::warn("ai.network", A, format!("{host}:{port}: {e}")).with_fix(
-            Fix::guidance("check the network, proxy, or VELOCITY_NL_API_URL"),
+            Fix::guidance("check the network, proxy, or ATALANTA_NL_API_URL"),
         ),
         Err(_) => Check::warn(
             "ai.network",
@@ -158,7 +158,7 @@ async fn reachable(url: &str, timeout: Duration) -> Check {
             ),
         )
         .with_fix(Fix::guidance(
-            "check the network, proxy, or VELOCITY_NL_API_URL",
+            "check the network, proxy, or ATALANTA_NL_API_URL",
         )),
     }
 }
@@ -187,7 +187,7 @@ mod tests {
         let mut t = Tools::new();
         t.set("ANTHROPIC_API_KEY", "sk-ant-SECRET-VALUE");
         t.set("OPENAI_API_KEY", "sk-OTHER-SECRET");
-        t.set("VELOCITY_NL_MODEL", "claude-test");
+        t.set("ATALANTA_NL_MODEL", "claude-test");
         let (checks, _) = checks(&ctx(&t, false)).await;
         let json = serde_json::to_string(&checks).unwrap();
         assert!(!json.contains("SECRET"), "{json}");
@@ -216,9 +216,9 @@ mod tests {
         assert_eq!(none[0].status, Status::Skip);
         assert_eq!(none.len(), 1);
         let mut t = Tools::new();
-        t.set("VELOCITY_NL_PROVIDER", "ollama");
+        t.set("ATALANTA_NL_PROVIDER", "ollama");
         t.set(
-            "VELOCITY_NL_API_URL",
+            "ATALANTA_NL_API_URL",
             &format!("http://127.0.0.1:{port}/v1"),
         );
         let (local, _) = checks(&ctx(&t, true)).await;

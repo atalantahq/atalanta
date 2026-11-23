@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
+use atalanta_common::{
+    AtalantaError, DriverMode, Framework, Platform, PlatformDriver, ReportFormat, ResilientDriver,
+    RuntimeConfig,
+};
+use atalanta_core::{parse_suite_with_positions, resolve_flows};
+use atalanta_runner::SuiteRunner;
 use clap::Args;
 use colored::Colorize;
-use velocity_common::{
-    DriverMode, Framework, Platform, PlatformDriver, ReportFormat, ResilientDriver, RuntimeConfig,
-    VelocityError,
-};
-use velocity_core::{parse_suite_with_positions, resolve_flows};
-use velocity_runner::SuiteRunner;
 
 fn parse_driver_mode(value: &str) -> anyhow::Result<DriverMode> {
     match value {
@@ -18,9 +18,9 @@ fn parse_driver_mode(value: &str) -> anyhow::Result<DriverMode> {
 }
 
 /// `--update-baselines[=missing|changed|all]`.
-fn parse_update_baselines(value: &str) -> Result<velocity_common::BaselineUpdate, String> {
-    match velocity_common::BaselineUpdate::parse(value) {
-        Some(velocity_common::BaselineUpdate::Off) | None => Err(format!(
+fn parse_update_baselines(value: &str) -> Result<atalanta_common::BaselineUpdate, String> {
+    match atalanta_common::BaselineUpdate::parse(value) {
+        Some(atalanta_common::BaselineUpdate::Off) | None => Err(format!(
             "expected `missing` or `changed` (or nothing), got `{value}`"
         )),
         Some(mode) => Ok(mode),
@@ -40,7 +40,7 @@ fn parse_framework(value: &str) -> anyhow::Result<Framework> {
 
 /// Auto-detect app framework from the app path.
 fn detect_framework(app_path: Option<&str>, platform: Platform) -> Framework {
-    // Web platform has no app binary; framework is always Native from Velocity's perspective.
+    // Web platform has no app binary; framework is always Native from Atalanta's perspective.
     if platform == Platform::Web {
         return Framework::Native;
     }
@@ -92,7 +92,7 @@ pub struct RunArgs {
     path: Option<String>,
 
     /// The suite file to run (same as the PATH argument)
-    #[arg(short, long, default_value = "velocity.yaml")]
+    #[arg(short, long, default_value = "atalanta.yaml")]
     config: String,
 
     /// Set by a folder run for each suite in it: `--tags` / `--filter` that
@@ -133,13 +133,13 @@ pub struct RunArgs {
     shard_total: Option<usize>,
 
     /// Balance shards by duration using this history file (or folder holding
-    /// velocity-history.json). Every shard must be given the same file;
+    /// atalanta-history.json). Every shard must be given the same file;
     /// without it shards balance the number of tests
     #[arg(long, value_name = "FILE", requires = "sharding")]
     shard_timings: Option<String>,
 
     /// Merge history other CI jobs uploaded into this run's history first
-    /// (a file, a folder holding velocity-history.json, or a glob such as
+    /// (a file, a folder holding atalanta-history.json, or a glob such as
     /// `history/*`; repeatable). Flaky flags, durations, --last-failed and
     /// --changed-since then see every job's runs. A pattern matching
     /// nothing is a warning; a file that can't be read is exit 2
@@ -157,7 +157,7 @@ pub struct RunArgs {
     report: String,
 
     /// JUnit `classname` of every test: `test` (default) keeps today's
-    /// constant `velocity`; `suite` uses the suite file's stem
+    /// constant `atalanta`; `suite` uses the suite file's stem
     /// (`checkout` for `checkout.yaml`), so CI groups tests by suite. Changing it resets
     /// CI test history once; `suite` becomes the default at 1.0
     #[arg(long, value_name = "MODE", default_value = "test")]
@@ -184,11 +184,11 @@ pub struct RunArgs {
     #[arg(long)]
     detect_new_flakes: bool,
 
-    /// Quarantine list [default: velocity-quarantine.yaml next to the suite]
+    /// Quarantine list [default: atalanta-quarantine.yaml next to the suite]
     #[arg(long)]
     quarantine: Option<String>,
 
-    /// Hand the run to `velocity daemon` (warm devices); runs here if none is up
+    /// Hand the run to `atalanta daemon` (warm devices); runs here if none is up
     #[arg(long)]
     daemon: bool,
 
@@ -203,7 +203,7 @@ pub struct RunArgs {
     profile_steps: bool,
 
     /// Output directory for artifacts
-    #[arg(long, default_value = "./velocity-results")]
+    #[arg(long, default_value = "./atalanta-results")]
     artifacts_dir: String,
 
     /// Suite timeout; exceeding it exits 4. Takes a unit (30s, 10m, 500ms);
@@ -227,7 +227,7 @@ pub struct RunArgs {
     #[arg(long)]
     fail_on_flaky: bool,
 
-    /// Run the tests that failed last run first (uses velocity-history.json)
+    /// Run the tests that failed last run first (uses atalanta-history.json)
     #[arg(long)]
     failed_first: bool,
 
@@ -260,18 +260,18 @@ pub struct RunArgs {
     /// When to keep a test's trace (steps, bounds, settle reads, screen trees) under
     /// <artifacts>/traces/: off, on-failure, always
     #[arg(long, value_name = "MODE", default_value = "on-failure")]
-    trace: velocity_common::TraceMode,
+    trace: atalanta_common::TraceMode,
 
     /// Record each test's screen: off, on-failure (kept for failed tests; the
     /// default, or `artifacts.video`), always. Android keeps the last
     /// `artifacts.videoSeconds` in memory; written to <artifacts>/traces/<test>/
     #[arg(long, value_name = "MODE")]
-    video: Option<velocity_common::CaptureMode>,
+    video: Option<atalanta_common::CaptureMode>,
 
     /// Capture each test's device logs (logcat, simulator `log stream`, browser
     /// console): off, on-failure (default, or `artifacts.logs`), always
     #[arg(long, value_name = "MODE")]
-    logs: Option<velocity_common::CaptureMode>,
+    logs: Option<atalanta_common::CaptureMode>,
 
     /// Stop at the first failing step with the device as it is, print where the
     /// screenshot, trace and video are, and wait: Enter continues, r retries the
@@ -298,9 +298,9 @@ pub struct RunArgs {
     #[arg(long, value_name = "PATH")]
     app: Option<String>,
 
-    /// Boot the devices the run needs first (see `velocity devices up`): enough for
-    /// --parallel N, or one. VELOCITY_AVD / VELOCITY_DEVICE_TYPE pick what to boot,
-    /// VELOCITY_EMULATOR_PORT the first emulator port
+    /// Boot the devices the run needs first (see `atalanta devices up`): enough for
+    /// --parallel N, or one. ATALANTA_AVD / ATALANTA_DEVICE_TYPE pick what to boot,
+    /// ATALANTA_EMULATOR_PORT the first emulator port
     #[arg(long)]
     provision: bool,
 
@@ -309,7 +309,7 @@ pub struct RunArgs {
     #[arg(long, value_name = "GIT_REF")]
     changed_since: Option<String>,
 
-    /// Impact map (tests/flows -> source patterns) [default: velocity-impact.yaml next to the suite]
+    /// Impact map (tests/flows -> source patterns) [default: atalanta-impact.yaml next to the suite]
     #[arg(long)]
     impact_map: Option<String>,
 
@@ -333,7 +333,7 @@ pub struct RunArgs {
     env_files: Vec<String>,
 
     /// Change a setting for this run (repeatable): a named setting
-    /// (`velocity settings`: `android.scroll=semantic`, `ios.launch=wda`) or
+    /// (`atalanta settings`: `android.scroll=semantic`, `ios.launch=wda`) or
     /// any suite config key (`sync.reactionMs=150`, `retry.count=2`)
     #[arg(long = "set", value_name = "KEY=VALUE")]
     set: Vec<String>,
@@ -362,7 +362,7 @@ pub struct RunArgs {
         value_name = "missing|changed",
         value_parser = parse_update_baselines
     )]
-    update_baselines: Option<velocity_common::BaselineUpdate>,
+    update_baselines: Option<atalanta_common::BaselineUpdate>,
 
     /// AI verification for every test, over the suite's and the tests'
     /// `verify:`: off (deterministic assertions only), final (the test's
@@ -370,18 +370,18 @@ pub struct RunArgs {
     /// checkpoint: steps; failures reported at the end), strict (the first
     /// failed check fails the test). Needs a model key unless off
     #[arg(long, value_name = "off|final|checkpoints|strict", value_parser = parse_verify)]
-    verify: Option<velocity_common::VerifyLevel>,
+    verify: Option<atalanta_common::VerifyLevel>,
 }
 
 /// `--verify`.
-fn parse_verify(value: &str) -> Result<velocity_common::VerifyLevel, String> {
+fn parse_verify(value: &str) -> Result<atalanta_common::VerifyLevel, String> {
     value.parse()
 }
 
 /// `--junit-classname`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum JunitClassname {
-    /// `velocity` for every test (the default).
+    /// `atalanta` for every test (the default).
     Test,
     /// The suite file's stem.
     Suite,
@@ -423,7 +423,7 @@ pub async fn execute(args: RunArgs) -> anyhow::Result<i32> {
             .map(|e| e.path())
             // Not the impact map or quarantine list next to the suites, and
             // not a folder that happens to be named `x.yaml` (as `validate`).
-            .filter(|p| p.is_file() && velocity_core::is_suite_file(p))
+            .filter(|p| p.is_file() && atalanta_core::is_suite_file(p))
             .collect();
         files.sort();
         if files.is_empty() {
@@ -501,29 +501,29 @@ pub(crate) fn load_suite(
     set: &[String],
     env_overrides: &[(String, String)],
 ) -> anyhow::Result<(
-    velocity_common::TestSuite,
-    std::collections::HashMap<String, velocity_common::SourcePos>,
+    atalanta_common::TestSuite,
+    std::collections::HashMap<String, atalanta_common::SourcePos>,
 )> {
     let (mut suite, test_positions) = parse_suite_with_positions(path)?;
     apply_settings(&mut suite, set)?;
     let overrides: std::collections::HashMap<String, String> =
         env_overrides.iter().cloned().collect();
-    velocity_core::env::interpolate_suite(&mut suite, &overrides)?;
+    atalanta_core::env::interpolate_suite(&mut suite, &overrides)?;
     // `tags: [${TEAM}]` too, or `--tags` can never match it (VEL-175).
     for test in &mut suite.tests {
         for tag in &mut test.tags {
             if tag.contains("${") {
-                *tag = velocity_core::env::interpolate(tag, &overrides)?;
+                *tag = atalanta_core::env::interpolate(tag, &overrides)?;
             }
         }
     }
     // Capabilities are checked once --platform/--driver are applied.
-    velocity_core::validate_structure_at(&suite, &test_positions)?;
+    atalanta_core::validate_structure_at(&suite, &test_positions)?;
     Ok((suite, test_positions))
 }
 
-fn apply_settings(suite: &mut velocity_common::TestSuite, set: &[String]) -> anyhow::Result<()> {
-    apply_settings_with(suite, set, velocity_common::env::set_settings)
+fn apply_settings(suite: &mut atalanta_common::TestSuite, set: &[String]) -> anyhow::Result<()> {
+    apply_settings_with(suite, set, atalanta_common::env::set_settings)
 }
 
 /// [`apply_settings`], handing the settings to `install` instead of the
@@ -531,11 +531,11 @@ fn apply_settings(suite: &mut velocity_common::TestSuite, set: &[String]) -> any
 /// sharing that store with every other test running at the same time,
 /// which made the VEL-041 test flaky (C7).
 fn apply_settings_with(
-    suite: &mut velocity_common::TestSuite,
+    suite: &mut atalanta_common::TestSuite,
     set: &[String],
     install: impl FnOnce(std::collections::HashMap<String, String>),
 ) -> anyhow::Result<()> {
-    use velocity_common::settings;
+    use atalanta_common::settings;
     let mut named = suite
         .config
         .settings
@@ -611,7 +611,7 @@ fn set_config_path(config: &mut serde_json::Value, path: &str, value: &str) -> a
         if i + 1 == parts.len() {
             let old = obj.get(&name).ok_or_else(|| {
                 usage_err!(
-                    "--set {path}: not a setting or config key (`velocity settings` lists settings)"
+                    "--set {path}: not a setting or config key (`atalanta settings` lists settings)"
                 )
             })?;
             let new = match old {
@@ -650,7 +650,7 @@ fn set_config_path(config: &mut serde_json::Value, path: &str, value: &str) -> a
 
 /// The `--profile-steps` table: time per action across the run, slowest
 /// first, with how much of it was the post-action settle.
-fn step_profile(result: &velocity_common::SuiteResult) -> String {
+fn step_profile(result: &atalanta_common::SuiteResult) -> String {
     use std::collections::HashMap;
     // action → (count, total ms, settle ms, slowest ms, slowest "test #step")
     let mut by: HashMap<&str, (usize, u128, u128, u128, String)> = HashMap::new();
@@ -725,13 +725,13 @@ pub(crate) fn shard_of(
 }
 
 /// The `--device` filter matches a device `list_devices` reports, under
-/// (for a `--parallel` pool) the farm's own rule (`velocity_runner::farm::device_filter_matches`:
+/// (for a `--parallel` pool) the farm's own rule (`atalanta_runner::farm::device_filter_matches`:
 /// ignoring case, a single value is a substring or `*` glob of a name or
 /// id, a list names exact ids); else exit 3 at once, listing the devices
 /// there are. A listing that fails or takes over 15 s skips the check with
 /// a warning (the run's own device errors say more than a guess would),
 /// and so does a remote adb id (`host:port/serial`) when
-/// `VELOCITY_ADB_SERVERS` doesn't list remote servers.
+/// `ATALANTA_ADB_SERVERS` doesn't list remote servers.
 ///
 /// Only a `--parallel` pool takes the farm's rule. A sequential run uses
 /// `--device` as the device itself, so there each part must be a device's
@@ -757,7 +757,7 @@ async fn check_devices_exist(
 /// several devices, which lists their ids.
 fn resolve_exact_device(
     wanted: &str,
-    devices: &[velocity_common::DeviceInfo],
+    devices: &[atalanta_common::DeviceInfo],
 ) -> Result<Option<String>, String> {
     let w = wanted.trim();
     if w.contains(',') {
@@ -769,7 +769,7 @@ fn resolve_exact_device(
     if let Some(d) = devices.iter().find(|d| d.id.eq_ignore_ascii_case(w)) {
         return Ok(Some(d.id.clone()));
     }
-    let named: Vec<&velocity_common::DeviceInfo> = devices
+    let named: Vec<&atalanta_common::DeviceInfo> = devices
         .iter()
         .filter(|d| d.name.eq_ignore_ascii_case(w))
         .collect();
@@ -791,7 +791,7 @@ fn resolve_exact_device(
 /// (ignoring case), if any. Parts `skip` accepts aren't checked.
 fn unmatched_exact_device(
     wanted: &str,
-    devices: &[velocity_common::DeviceInfo],
+    devices: &[atalanta_common::DeviceInfo],
     skip: impl Fn(&str) -> bool,
 ) -> Option<String> {
     wanted
@@ -836,10 +836,10 @@ async fn check_devices_exist_within(
         }
     };
     let remote_listed =
-        velocity_common::env::var("VELOCITY_ADB_SERVERS").is_ok_and(|v| !v.trim().is_empty());
+        atalanta_common::env::var("ATALANTA_ADB_SERVERS").is_ok_and(|v| !v.trim().is_empty());
     let skip = |id: &str| id.contains('/') && !remote_listed;
     let missing = if pool {
-        velocity_runner::farm::unmatched_device_filter(wanted, &devices, skip)
+        atalanta_runner::farm::unmatched_device_filter(wanted, &devices, skip)
     } else {
         unmatched_exact_device(wanted, &devices, skip)
     };
@@ -878,7 +878,7 @@ fn first_device(device: &str) -> &str {
 /// executor reads `config.platform` (a web run with no `platform:` got the
 /// device status-bar mask over the page's own header).
 fn resolve_platform(
-    suite: &mut velocity_common::TestSuite,
+    suite: &mut atalanta_common::TestSuite,
     cli: Option<Platform>,
     device: Option<&str>,
 ) -> Platform {
@@ -895,7 +895,7 @@ fn resolve_platform(
 /// Android run keyed on the suite's `web:` / `headless:` sections got a
 /// second driver (and WDA session) for the same simulator (R-m3).
 fn driver_config(
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     platform: Platform,
     mode: DriverMode,
     framework: Framework,
@@ -968,12 +968,12 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
     // GitHub masks the run's secrets in its own log too, and in later
     // steps' (the step summary, an upload step printing a path). After the
     // flows: a secret-named runFlow parameter is registered as they inline.
-    if velocity_runner::reporter::github::in_github_actions() {
-        velocity_runner::reporter::github::mask_secrets();
+    if atalanta_runner::reporter::github::in_github_actions() {
+        atalanta_runner::reporter::github::mask_secrets();
     }
     // App text printed during the run can't execute workflow commands;
     // the github report (or this guard's drop) resumes them (R-3).
-    let _commands = velocity_runner::reporter::github::suspend_commands();
+    let _commands = atalanta_runner::reporter::github::suspend_commands();
     if let Err(e) = check_selection(&suite.tests, &args.tags, args.filter.as_deref()) {
         if !args.folder_member {
             return Err(e);
@@ -982,7 +982,7 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
         return Ok(NOTHING_SELECTED);
     }
     let shard_plan = print_shard_plan(&suite.tests, &runtime_config);
-    if let Some(why) = velocity_runner::scheduler::empty_shard(&suite.tests, &runtime_config) {
+    if let Some(why) = atalanta_runner::scheduler::empty_shard(&suite.tests, &runtime_config) {
         usage_bail!("{why}");
     }
 
@@ -996,7 +996,7 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
     let _ = std::fs::create_dir_all(&artifacts_dir);
     let run_began = std::time::SystemTime::now();
     if let Some(w) =
-        velocity_runner::artifacts::low_disk_warning(std::path::Path::new(&artifacts_dir))
+        atalanta_runner::artifacts::low_disk_warning(std::path::Path::new(&artifacts_dir))
     {
         eprintln!("{} {w}", "warning:".yellow().bold());
     }
@@ -1011,7 +1011,7 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
     // Report properties, taken before the config moves into the run.
     let mut properties = report_properties(&runtime_config);
     let fail_on_flaky = args.fail_on_flaky
-        || suite.config.retry.flaky_result == velocity_common::test_types::FlakyResult::Fail;
+        || suite.config.retry.flaky_result == atalanta_common::test_types::FlakyResult::Fail;
     let Finished {
         outcome,
         hunt_code,
@@ -1022,7 +1022,7 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
         runtime_config,
         &driver,
         args.parallel,
-        velocity_runner::hunt::HuntOptions {
+        atalanta_runner::hunt::HuntOptions {
             suggest: args.suggest,
             test_sources: test_positions.clone(),
         },
@@ -1038,32 +1038,32 @@ async fn execute_file(mut args: RunArgs) -> anyhow::Result<i32> {
     };
 
     let mut result = outcome.result;
-    velocity_core::parser::stamp_sources(&mut result, &test_positions);
-    // No report, trace or summary keeps a secret (see velocity_common::redact).
-    velocity_common::redact::redact_serde(&mut result);
+    atalanta_core::parser::stamp_sources(&mut result, &test_positions);
+    // No report, trace or summary keeps a secret (see atalanta_common::redact).
+    atalanta_common::redact::redact_serde(&mut result);
     if args.profile_steps {
         print!("{}", step_profile(&result));
     }
     let exit = match &outcome.termination {
-        velocity_runner::runner::Termination::Completed => result.exit_code_with(fail_on_flaky),
-        velocity_runner::runner::Termination::TimedOut(e) => e.exit_code(),
-        velocity_runner::runner::Termination::Stopped(_) => crate::signals::exit_code(),
+        atalanta_runner::runner::Termination::Completed => result.exit_code_with(fail_on_flaky),
+        atalanta_runner::runner::Termination::TimedOut(e) => e.exit_code(),
+        atalanta_runner::runner::Termination::Stopped(_) => crate::signals::exit_code(),
     };
     let termination = termination_label(&outcome.termination);
-    properties.insert(0, ("velocity.termination".into(), termination.clone()));
+    properties.insert(0, ("atalanta.termination".into(), termination.clone()));
     let report_ctx = ReportContext {
         termination,
         partial,
         hunt,
         shard_plan,
-        junit: velocity_runner::reporter::junit::JunitOptions {
+        junit: atalanta_runner::reporter::junit::JunitOptions {
             properties,
             classname: junit_classname(args.junit_classname, &args.config),
         },
     };
     let completed = matches!(
         outcome.termination,
-        velocity_runner::runner::Termination::Completed
+        atalanta_runner::runner::Termination::Completed
     );
     let exit = apply_quarantine(&args, &mut result, exit, completed, fail_on_flaky)?;
     let exit = write_reports(&reports, &args, &result, &artifacts_dir, &report_ctx, exit);
@@ -1104,7 +1104,7 @@ fn run_setup(args: &RunArgs) -> anyhow::Result<RunSetup> {
             usage_bail!("--flaky-confidence must be between 0 and 1 (e.g. 0.99), got {p}");
         }
     }
-    velocity_runner::scheduler::check_shard(&RuntimeConfig {
+    atalanta_runner::scheduler::check_shard(&RuntimeConfig {
         shard_index,
         shard_total,
         ..Default::default()
@@ -1114,8 +1114,8 @@ fn run_setup(args: &RunArgs) -> anyhow::Result<RunSetup> {
     // use timings (D-23).
     let shard_timings_ms = match &args.shard_timings {
         Some(path) => Some(Arc::new(
-            velocity_runner::history::load_timings(std::path::Path::new(path))
-                .map_err(|e| VelocityError::Config(format!("--shard-timings: {e}")))?
+            atalanta_runner::history::load_timings(std::path::Path::new(path))
+                .map_err(|e| AtalantaError::Config(format!("--shard-timings: {e}")))?
                 .durations,
         )),
         None => None,
@@ -1131,8 +1131,8 @@ fn run_setup(args: &RunArgs) -> anyhow::Result<RunSetup> {
     let update_baselines = match args.update_baselines {
         Some(mode) => mode,
         // Empty is off, as before D-V1 (review-d5 M-2).
-        None => velocity_common::BaselineUpdate::from_env(
-            velocity_common::env::var("VELOCITY_UPDATE_BASELINES")
+        None => atalanta_common::BaselineUpdate::from_env(
+            atalanta_common::env::var("ATALANTA_UPDATE_BASELINES")
                 .ok()
                 .as_deref(),
         )
@@ -1235,7 +1235,7 @@ fn parse_reports(value: &str) -> anyhow::Result<Vec<String>> {
             ),
         }
     }
-    if velocity_runner::reporter::github::in_github_actions()
+    if atalanta_runner::reporter::github::in_github_actions()
         && !reports.iter().any(|r| r == "github")
     {
         reports.push("github".into());
@@ -1247,7 +1247,7 @@ fn parse_reports(value: &str) -> anyhow::Result<Vec<String>> {
 /// run's artifacts folder, which this returns.
 fn apply_output_flags(
     args: &RunArgs,
-    suite: &mut velocity_common::TestSuite,
+    suite: &mut atalanta_common::TestSuite,
     runtime_config: &mut RuntimeConfig,
 ) -> String {
     if let Some(v) = args.video {
@@ -1264,7 +1264,7 @@ fn apply_output_flags(
                 "warning:".yellow().bold()
             );
         } else if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
-            velocity_core::executor::set_pause_on_failure(true);
+            atalanta_core::executor::set_pause_on_failure(true);
         } else {
             println!(
                 "{} --pause-on-failure needs an interactive terminal; ignored",
@@ -1277,7 +1277,7 @@ fn apply_output_flags(
     // the suite's `artifacts.outputDir`, so a run was split across two
     // folders. An explicit flag wins; otherwise a folder the suite names is
     // used for everything.
-    let default_dir = "./velocity-results";
+    let default_dir = "./atalanta-results";
     if args.artifacts_dir != default_dir {
         suite.config.artifacts.output_dir = args.artifacts_dir.clone();
     } else if suite.config.artifacts.output_dir != default_dir {
@@ -1294,7 +1294,7 @@ fn merge_shared_history(history_from: &[String], artifacts_dir: &str) -> anyhow:
     if history_from.is_empty() {
         return Ok(());
     }
-    let (files, unmatched) = velocity_runner::shared_history::seed(artifacts_dir, history_from)
+    let (files, unmatched) = atalanta_runner::shared_history::seed(artifacts_dir, history_from)
         .map_err(|e| usage_err!("--history-from: {e}"))?;
     for p in &unmatched {
         println!(
@@ -1317,7 +1317,7 @@ fn merge_shared_history(history_from: &[String], artifacts_dir: &str) -> anyhow:
 /// applied after it (R-1).
 async fn select_from_history(
     args: &RunArgs,
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     runtime_config: &mut RuntimeConfig,
     artifacts_dir: &str,
 ) -> anyhow::Result<()> {
@@ -1328,7 +1328,7 @@ async fn select_from_history(
         post_shard = Some(picked.history.into_iter().collect());
     }
     if args.last_failed {
-        let hist = velocity_runner::history::load(artifacts_dir).unwrap_or_default();
+        let hist = atalanta_runner::history::load(artifacts_dir).unwrap_or_default();
         let failed: Vec<String> = suite
             .tests
             .iter()
@@ -1360,19 +1360,19 @@ async fn select_from_history(
 /// Every shard prints the same `plan=` when they agree on the partition
 /// (the same tests, filters and timings): CI can compare them (D-23). The
 /// same plan goes into `results.json` (`shard_plan`), where
-/// `velocity results check` compares every shard's.
+/// `atalanta results check` compares every shard's.
 fn print_shard_plan(
-    tests: &[velocity_common::TestCase],
+    tests: &[atalanta_common::TestCase],
     runtime_config: &RuntimeConfig,
-) -> Option<velocity_runner::reporter::json::ShardPlanRecord> {
+) -> Option<atalanta_runner::reporter::json::ShardPlanRecord> {
     let (Some(i), Some(n)) = (runtime_config.shard_index, runtime_config.shard_total) else {
         return None;
     };
-    let plan = velocity_runner::scheduler::shard_plan(tests, runtime_config);
-    let mine = velocity_runner::scheduler::plan_tests(
+    let plan = atalanta_runner::scheduler::shard_plan(tests, runtime_config);
+    let mine = atalanta_runner::scheduler::plan_tests(
         tests,
         runtime_config,
-        &velocity_runner::TestHistory::default(),
+        &atalanta_runner::TestHistory::default(),
     )
     .len();
     let planned: usize = plan.shards.iter().map(Vec::len).sum();
@@ -1387,7 +1387,7 @@ fn print_shard_plan(
             "balanced by test count"
         }
     );
-    Some(velocity_runner::reporter::json::ShardPlanRecord {
+    Some(atalanta_runner::reporter::json::ShardPlanRecord {
         fingerprint: plan.fingerprint.clone(),
         tests: plan.shards.get(i).cloned().unwrap_or_default(),
         planned_total: planned,
@@ -1411,14 +1411,14 @@ struct Target {
 /// `--device`.
 fn resolve_target(
     args: &mut RunArgs,
-    suite: &mut velocity_common::TestSuite,
+    suite: &mut atalanta_common::TestSuite,
     runtime_config: &mut RuntimeConfig,
     cli_driver_mode: Option<DriverMode>,
 ) -> anyhow::Result<Target> {
-    let http_only = velocity_core::http_only_tests(&velocity_runner::scheduler::plan_tests(
+    let http_only = atalanta_core::http_only_tests(&atalanta_runner::scheduler::plan_tests(
         &suite.tests,
         runtime_config,
-        &velocity_runner::TestHistory::default(),
+        &atalanta_runner::TestHistory::default(),
     ));
     if http_only && args.device.is_some() {
         println!(
@@ -1445,7 +1445,7 @@ fn resolve_target(
             effective_platform.to_string().green()
         );
     }
-    velocity_core::validator::check_platform_selectors(suite, effective_platform)?;
+    atalanta_core::validator::check_platform_selectors(suite, effective_platform)?;
 
     let effective_driver_mode = match cli_driver_mode {
         Some(mode) => mode,
@@ -1453,7 +1453,7 @@ fn resolve_target(
     };
     suite.config.driver = Some(effective_driver_mode);
     // VEL-219 with the platform and driver this run uses (review-s9 M2).
-    velocity_core::check_capabilities(suite)?;
+    atalanta_core::check_capabilities(suite)?;
 
     // `app:` / `--app`: the build the runners install on each device.
     if http_only {
@@ -1497,18 +1497,18 @@ fn resolve_target(
     })
 }
 
-fn print_baseline_mode(mode: velocity_common::BaselineUpdate) {
+fn print_baseline_mode(mode: atalanta_common::BaselineUpdate) {
     match mode {
-        velocity_common::BaselineUpdate::Changed => println!(
+        atalanta_common::BaselineUpdate::Changed => println!(
             "{} {} Baseline update mode — missing and changed snapshots will be overwritten",
             "=>".cyan().bold(),
             "WARNING:".yellow().bold()
         ),
-        velocity_common::BaselineUpdate::Missing => println!(
+        atalanta_common::BaselineUpdate::Missing => println!(
             "{} Baseline update mode — missing snapshots will be written",
             "=>".cyan().bold()
         ),
-        velocity_common::BaselineUpdate::Off => {}
+        atalanta_common::BaselineUpdate::Off => {}
     }
 }
 
@@ -1516,7 +1516,7 @@ fn print_baseline_mode(mode: velocity_common::BaselineUpdate) {
 /// resilience layer.
 fn build_driver(
     target: Target,
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     parallel: Option<usize>,
 ) -> anyhow::Result<Arc<dyn PlatformDriver>> {
     if target.mode == DriverMode::Headless && target.platform == Platform::Web {
@@ -1526,7 +1526,7 @@ fn build_driver(
         );
     }
     if target.http_only {
-        return Ok(Arc::new(velocity_api::NoDeviceDriver::new(
+        return Ok(Arc::new(atalanta_api::NoDeviceDriver::new(
             parallel.unwrap_or(1),
             target.platform,
         )));
@@ -1534,31 +1534,31 @@ fn build_driver(
     Ok(match target.mode {
         DriverMode::Headless => headless_driver(target, suite)?,
         DriverMode::Device => match target.platform {
-            Platform::Ios => Arc::new(velocity_ios::IosDriver::new()),
-            Platform::Android => Arc::new(velocity_android::AndroidDriver::new()),
+            Platform::Ios => Arc::new(atalanta_ios::IosDriver::new()),
+            Platform::Android => Arc::new(atalanta_android::AndroidDriver::new()),
             Platform::Web => web_driver(suite, parallel)?,
         },
     })
 }
 
-/// `--driver headless`: the Flutter bridge, or Velocity's own renderer.
+/// `--driver headless`: the Flutter bridge, or Atalanta's own renderer.
 fn headless_driver(
     target: Target,
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
 ) -> anyhow::Result<Arc<dyn PlatformDriver>> {
     Ok(match target.framework {
         // D-44/45: the RN headless sidecar (a stub) was removed.
         // Reached when `--framework`/auto-detection picks RN after
         // `check_capabilities` ran on the YAML.
         Framework::ReactNative => {
-            usage_bail!("{}", velocity_core::validator::RN_NO_HEADLESS)
+            usage_bail!("{}", atalanta_core::validator::RN_NO_HEADLESS)
         }
         Framework::Flutter => {
             // headless.width/height/devicePixelRatio, the flutter:
             // block, semantics by default (D-15) and the 3.19 SDK
             // floor (D-41): a config error, exit 2.
             let (flutter_config, warnings) =
-                velocity_flutter_bridge::FlutterBridgeConfig::from_suite(&suite.config)
+                atalanta_flutter_bridge::FlutterBridgeConfig::from_suite(&suite.config)
                     .map_err(|e| usage_err!("{e}"))?;
             for w in warnings {
                 eprintln!("{} {w}", "warning:".yellow().bold());
@@ -1571,7 +1571,7 @@ fn headless_driver(
                 flutter_config.height,
                 flutter_config.port,
             );
-            Arc::new(velocity_flutter_bridge::FlutterDriver::new(
+            Arc::new(atalanta_flutter_bridge::FlutterDriver::new(
                 target.platform,
                 flutter_config,
             ))
@@ -1580,7 +1580,7 @@ fn headless_driver(
             // headless.width/height/density (or devicePixelRatio,
             // D-46)/fontScale (D-47)/appPath/initialLayout.
             let headless_config =
-                velocity_headless::HeadlessConfig::from_yaml(suite.config.headless.as_ref())
+                atalanta_headless::HeadlessConfig::from_yaml(suite.config.headless.as_ref())
                     .map_err(|e| usage_err!("{e}"))?;
             println!(
                 "{} Driver: {} ({}x{})",
@@ -1589,7 +1589,7 @@ fn headless_driver(
                 headless_config.width,
                 headless_config.height
             );
-            Arc::new(velocity_headless::HeadlessDriver::new(
+            Arc::new(atalanta_headless::HeadlessDriver::new(
                 target.platform,
                 headless_config,
             ))
@@ -1599,10 +1599,10 @@ fn headless_driver(
 
 /// Chrome over CDP, set up from the suite's `web:` section.
 fn web_driver(
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     parallel: Option<usize>,
 ) -> anyhow::Result<Arc<dyn PlatformDriver>> {
-    let mut web_config = velocity_web::WebDriverConfig {
+    let mut web_config = atalanta_web::WebDriverConfig {
         // `--parallel N`: N browsers, `web-0` … `web-{N-1}` (D-48).
         instances: web_instances(parallel),
         ..Default::default()
@@ -1611,7 +1611,7 @@ fn web_driver(
         // A device profile first: `width`/`height` override its
         // viewport (D-W3).
         if let Some(ref name) = wc.device {
-            web_config.apply_device(velocity_common::web_devices::lookup(name)?);
+            web_config.apply_device(atalanta_common::web_devices::lookup(name)?);
         }
         if let Some(ref url) = wc.start_url {
             web_config.start_url = Some(url.clone());
@@ -1635,7 +1635,7 @@ fn web_driver(
         web_config.mocks = wc.mocks.clone();
         web_config
             .mocks
-            .extend(wc.block.iter().map(|url| velocity_common::MockRule {
+            .extend(wc.block.iter().map(|url| atalanta_common::MockRule {
                 url: url.clone(),
                 block: true,
                 ..Default::default()
@@ -1650,10 +1650,10 @@ fn web_driver(
         web_config.headless,
         match (web_config.instances, web_config.parallel_mode) {
             (1, _) => String::new(),
-            (n, velocity_web::driver::ParallelMode::Processes) => {
+            (n, atalanta_web::driver::ParallelMode::Processes) => {
                 format!(", {n} browsers")
             }
-            (n, velocity_web::driver::ParallelMode::Contexts) => {
+            (n, atalanta_web::driver::ParallelMode::Contexts) => {
                 format!(", {n} browsers (contexts of one Chrome)")
             }
         } + &web_config
@@ -1661,17 +1661,17 @@ fn web_driver(
             .map(|d| format!(", device={}", d.name))
             .unwrap_or_default(),
     );
-    Ok(Arc::new(velocity_web::WebDriver::new(web_config)))
+    Ok(Arc::new(atalanta_web::WebDriver::new(web_config)))
 }
 
 /// `raw_driver` in the resilience layer: automatic retries on transient
-/// failures, circuit breaking on sustained ones. Inside `velocity daemon`
+/// failures, circuit breaking on sustained ones. Inside `atalanta daemon`
 /// the driver (and its warm sessions) outlives the run; a no-device one has
 /// nothing to keep warm.
 async fn share_driver(
     raw_driver: Arc<dyn PlatformDriver>,
     target: Target,
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     parallel: Option<usize>,
 ) -> Arc<ResilientDriver> {
     if target.http_only {
@@ -1700,7 +1700,7 @@ async fn share_driver(
 async fn prepare_devices(
     args: &RunArgs,
     target: Target,
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     driver: &dyn PlatformDriver,
     runtime_config: &mut RuntimeConfig,
 ) -> anyhow::Result<()> {
@@ -1710,7 +1710,7 @@ async fn prepare_devices(
         target.platform,
         args.parallel.unwrap_or(1).max(1),
         driver,
-        velocity_runner::install::build_for(suite, Some(target.platform)),
+        atalanta_runner::install::build_for(suite, Some(target.platform)),
     )
     .await?;
 
@@ -1755,10 +1755,10 @@ async fn boot_device(device: Option<&str>, driver: &dyn PlatformDriver) -> anyho
         Some(id) => first_device(id).to_string(),
         None => {
             let mut devices = driver.list_devices().await?;
-            devices.sort_by_key(|d| d.state != velocity_common::DeviceState::Booted);
+            devices.sort_by_key(|d| d.state != atalanta_common::DeviceState::Booted);
             devices
                 .iter()
-                .find(|d| velocity_runner::lease::try_lock(&d.id).is_ok())
+                .find(|d| atalanta_runner::lease::try_lock(&d.id).is_ok())
                 .or(devices.first())
                 .map(|d| d.id.clone())
                 .unwrap_or_default()
@@ -1767,7 +1767,7 @@ async fn boot_device(device: Option<&str>, driver: &dyn PlatformDriver) -> anyho
 }
 
 /// Bootstrap the platform (e.g. auto-start WDA on iOS), under the device's
-/// lease: preparing a device another Velocity process holds stopped its
+/// lease: preparing a device another Atalanta process holds stopped its
 /// WebDriverAgent and started another runner on its port. The runner
 /// takes the lease again for the run itself.
 async fn prepare_under_lease(
@@ -1775,20 +1775,20 @@ async fn prepare_under_lease(
     boot_device_id: &str,
     target: Target,
 ) -> anyhow::Result<()> {
-    let prepare_lease = match velocity_runner::lease::lock_waiting(boot_device_id).await {
+    let prepare_lease = match atalanta_runner::lease::lock_waiting(boot_device_id).await {
         Ok(lock) => lock,
-        Err(velocity_runner::lease::LeaseError::Held(holder)) => {
-            return Err(velocity_common::VelocityError::ServiceUnavailable {
+        Err(atalanta_runner::lease::LeaseError::Held(holder)) => {
+            return Err(atalanta_common::AtalantaError::ServiceUnavailable {
                 service: format!("Device {boot_device_id}"),
                 detail: format!(
-                    "in use by another Velocity process ({holder}). \
+                    "in use by another Atalanta process ({holder}). \
                      Wait for it to finish or pick another device with --device."
                 ),
             }
             .into());
         }
-        Err(velocity_runner::lease::LeaseError::Io(e)) => {
-            return Err(velocity_common::VelocityError::ServiceUnavailable {
+        Err(atalanta_runner::lease::LeaseError::Io(e)) => {
+            return Err(atalanta_common::AtalantaError::ServiceUnavailable {
                 service: format!("Device {boot_device_id}"),
                 detail: e,
             }
@@ -1811,17 +1811,17 @@ async fn prepare_under_lease(
 fn report_properties(runtime_config: &RuntimeConfig) -> Vec<(String, String)> {
     let mut properties: Vec<(String, String)> = Vec::new();
     if let (Some(i), Some(n)) = (runtime_config.shard_index, runtime_config.shard_total) {
-        properties.push(("velocity.shard".into(), format!("{}/{n}", i + 1)));
+        properties.push(("atalanta.shard".into(), format!("{}/{n}", i + 1)));
     }
     if let Some(seed) = runtime_config.shuffle_seed {
-        properties.push(("velocity.seed".into(), seed.to_string()));
+        properties.push(("atalanta.seed".into(), seed.to_string()));
     }
     properties
 }
 
 /// How [`run_suite`] ended.
 struct Finished {
-    outcome: velocity_runner::runner::RunOutcome,
+    outcome: atalanta_runner::runner::RunOutcome,
     /// A hunt's verdict; 0 for any other run.
     hunt_code: i32,
     /// A hunt's flaky tests and their divergence, for the JSON report.
@@ -1835,12 +1835,12 @@ struct Finished {
 /// Ctrl-C / SIGTERM stop the run but still clean up devices (tree server,
 /// WDA, CPU stress, animation settings) before exiting.
 async fn run_suite(
-    suite: velocity_common::TestSuite,
+    suite: atalanta_common::TestSuite,
     runtime_config: RuntimeConfig,
     driver: &Arc<ResilientDriver>,
     parallel: Option<usize>,
-    hunt_options: velocity_runner::hunt::HuntOptions,
-) -> Result<Finished, VelocityError> {
+    hunt_options: atalanta_runner::hunt::HuntOptions,
+) -> Result<Finished, AtalantaError> {
     let stop = runtime_config.stop.clone();
     let runtime_shard = (runtime_config.shard_index, runtime_config.shard_total);
     let run = async {
@@ -1848,7 +1848,7 @@ async fn run_suite(
             let report = match parallel.filter(|&n| n > 1) {
                 Some(n) => {
                     let shared: Arc<dyn PlatformDriver> = driver.clone();
-                    velocity_runner::hunt::hunt_parallel_with(
+                    atalanta_runner::hunt::hunt_parallel_with(
                         suite,
                         runtime_config,
                         shared,
@@ -1858,7 +1858,7 @@ async fn run_suite(
                     .await?
                 }
                 None => {
-                    Box::pin(velocity_runner::hunt::hunt_with(
+                    Box::pin(atalanta_runner::hunt::hunt_with(
                         suite,
                         runtime_config,
                         &**driver,
@@ -1869,12 +1869,12 @@ async fn run_suite(
             };
             let code = report.exit_code();
             let hunt = Some(report.json());
-            Ok::<_, velocity_common::VelocityError>((
-                velocity_runner::runner::RunOutcome {
+            Ok::<_, atalanta_common::AtalantaError>((
+                atalanta_runner::runner::RunOutcome {
                     result: report.last,
                     termination: match stop.reason() {
-                        Some(r) => velocity_runner::runner::Termination::Stopped(r.to_string()),
-                        None => velocity_runner::runner::Termination::Completed,
+                        Some(r) => atalanta_runner::runner::Termination::Stopped(r.to_string()),
+                        None => atalanta_runner::runner::Termination::Completed,
                     },
                 },
                 code,
@@ -1882,7 +1882,7 @@ async fn run_suite(
             ))
         } else if let Some(n) = parallel.filter(|&n| n > 1) {
             let shared: Arc<dyn PlatformDriver> = driver.clone();
-            velocity_runner::ParallelRunner::run_outcome(suite, runtime_config, shared, n)
+            atalanta_runner::ParallelRunner::run_outcome(suite, runtime_config, shared, n)
                 .await
                 .map(|o| (o, 0, None))
         } else {
@@ -1891,7 +1891,7 @@ async fn run_suite(
                 .map(|o| (o, 0, None))
         }
     };
-    velocity_runner::live::reset();
+    atalanta_runner::live::reset();
     tokio::pin!(run);
     let seen = crate::signals::count();
     let mut partial = false;
@@ -1921,13 +1921,13 @@ async fn run_suite(
                         STOP_GRACE.as_secs()
                     );
                     partial = true;
-                    let mut result = velocity_runner::live::partial(&why);
+                    let mut result = atalanta_runner::live::partial(&why);
                     result.shard_index = runtime_shard.0;
                     result.shard_total = runtime_shard.1;
                     Ok((
-                        velocity_runner::runner::RunOutcome {
+                        atalanta_runner::runner::RunOutcome {
                             result,
-                            termination: velocity_runner::runner::Termination::Stopped(why),
+                            termination: atalanta_runner::runner::Termination::Stopped(why),
                         },
                         0,
                         None,
@@ -1947,11 +1947,11 @@ async fn run_suite(
 
 /// How the run ended, in the reports (D-20): `completed`, `timeout`,
 /// `interrupted:SIGTERM`.
-fn termination_label(termination: &velocity_runner::runner::Termination) -> String {
+fn termination_label(termination: &atalanta_runner::runner::Termination) -> String {
     match termination {
-        velocity_runner::runner::Termination::Completed => "completed".to_string(),
-        velocity_runner::runner::Termination::TimedOut(_) => "timeout".to_string(),
-        velocity_runner::runner::Termination::Stopped(_) => match crate::signals::first() {
+        atalanta_runner::runner::Termination::Completed => "completed".to_string(),
+        atalanta_runner::runner::Termination::TimedOut(_) => "timeout".to_string(),
+        atalanta_runner::runner::Termination::Stopped(_) => match crate::signals::first() {
             Some(sig) => format!("interrupted:{}", sig.sig_name()),
             None => "interrupted".to_string(),
         },
@@ -1962,7 +1962,7 @@ fn termination_label(termination: &velocity_runner::runner::Termination) -> Stri
 /// when every failure is one of them. The run's exit code after the list.
 fn apply_quarantine(
     args: &RunArgs,
-    result: &mut velocity_common::SuiteResult,
+    result: &mut atalanta_common::SuiteResult,
     exit: i32,
     completed: bool,
     fail_on_flaky: bool,
@@ -1975,9 +1975,9 @@ fn apply_quarantine(
             std::path::Path::new(&args.config)
                 .parent()
                 .unwrap_or(std::path::Path::new("."))
-                .join(velocity_runner::quarantine::FILE_NAME)
+                .join(atalanta_runner::quarantine::FILE_NAME)
         });
-    let Some(q) = velocity_runner::quarantine::Quarantine::load(&quarantine_path)? else {
+    let Some(q) = atalanta_runner::quarantine::Quarantine::load(&quarantine_path)? else {
         return Ok(exit);
     };
     let verdict = q.apply(result);
@@ -2014,20 +2014,20 @@ fn apply_quarantine(
 /// Write every report in `reports`: one that can't be written no longer
 /// skips the others and the device cleanup (VEL-034). `exit` combined with
 /// 5 for each that failed.
-/// `VELOCITY_ARTIFACTS_MAX_BYTES`: drop the oldest evidence of earlier
+/// `ATALANTA_ARTIFACTS_MAX_BYTES`: drop the oldest evidence of earlier
 /// runs (traces, screenshots) once the artifacts dir is over the cap.
 fn prune_old_evidence(artifacts_dir: &str, run_began: std::time::SystemTime) {
-    let Some(max) = velocity_runner::artifacts::max_evidence_bytes() else {
+    let Some(max) = atalanta_runner::artifacts::max_evidence_bytes() else {
         return;
     };
-    let pruned = velocity_runner::artifacts::prune_evidence(
+    let pruned = atalanta_runner::artifacts::prune_evidence(
         std::path::Path::new(artifacts_dir),
         max,
         run_began,
     );
     if pruned.removed > 0 {
         println!(
-            "{} Removed {} old evidence item(s) ({:.1} MB) to keep {artifacts_dir} under VELOCITY_ARTIFACTS_MAX_BYTES",
+            "{} Removed {} old evidence item(s) ({:.1} MB) to keep {artifacts_dir} under ATALANTA_ARTIFACTS_MAX_BYTES",
             "=>".cyan().bold(),
             pruned.removed,
             pruned.freed as f64 / (1u64 << 20) as f64
@@ -2038,7 +2038,7 @@ fn prune_old_evidence(artifacts_dir: &str, run_began: std::time::SystemTime) {
 fn write_reports(
     reports: &[String],
     args: &RunArgs,
-    result: &velocity_common::SuiteResult,
+    result: &atalanta_common::SuiteResult,
     artifacts_dir: &str,
     report_ctx: &ReportContext,
     exit: i32,
@@ -2046,7 +2046,7 @@ fn write_reports(
     let mut report_codes = vec![exit];
     for format in reports {
         if format == "allure" && args.clean_allure {
-            velocity_runner::reporter::allure::clean_dir(&format!(
+            atalanta_runner::reporter::allure::clean_dir(&format!(
                 "{artifacts_dir}/allure-results"
             ));
         }
@@ -2059,9 +2059,9 @@ fn write_reports(
                 eprintln!(
                     "{} {format} report: {}",
                     "error:".red().bold(),
-                    velocity_common::redact::redact(&e.to_string())
+                    atalanta_common::redact::redact(&e.to_string())
                 );
-                // Velocity couldn't write its output (a full disk, a bad
+                // Atalanta couldn't write its output (a full disk, a bad
                 // path): an internal error, 5, never "config" (D-20).
                 report_codes.push(5);
             }
@@ -2069,12 +2069,12 @@ fn write_reports(
     }
     // Row 2.2: failures.md on every run, whatever --report says: each
     // failure with its step, error, log tail and the files that show it.
-    match velocity_runner::reporter::failures::write(result, artifacts_dir) {
+    match atalanta_runner::reporter::failures::write(result, artifacts_dir) {
         Ok(path)
             if result
                 .tests
                 .iter()
-                .any(|t| t.status == velocity_common::TestStatus::Failed) =>
+                .any(|t| t.status == atalanta_common::TestStatus::Failed) =>
         {
             println!("{} Failures: {}", "=>".cyan().bold(), path.underline())
         }
@@ -2087,10 +2087,10 @@ fn write_reports(
     combined_exit(&report_codes)
 }
 
-/// The end of a run: clean the devices up, or under `velocity daemon`
+/// The end of a run: clean the devices up, or under `atalanta daemon`
 /// (which keeps its drivers and services for the next run) only undo
 /// what must not outlive the run: the frozen status bar (review-d5 m-4).
-async fn end_of_run(driver: &dyn velocity_common::PlatformDriver, daemon: bool) {
+async fn end_of_run(driver: &dyn atalanta_common::PlatformDriver, daemon: bool) {
     if daemon {
         driver.unfreeze_status_bar().await;
     } else {
@@ -2108,8 +2108,8 @@ struct ReportContext {
     /// A hunt's verdicts: the JSON report's `hunt` field.
     hunt: Option<serde_json::Value>,
     /// A sharded run's partition: the JSON report's `shard_plan` field.
-    shard_plan: Option<velocity_runner::reporter::json::ShardPlanRecord>,
-    junit: velocity_runner::reporter::junit::JunitOptions,
+    shard_plan: Option<atalanta_runner::reporter::json::ShardPlanRecord>,
+    junit: atalanta_runner::reporter::junit::JunitOptions,
 }
 
 /// The exit code of a run whose failures are all forgiven.
@@ -2117,13 +2117,13 @@ trait SuiteResultExt {
     fn flaky_exit(&self, fail_on_flaky: bool) -> i32;
 }
 
-impl SuiteResultExt for velocity_common::SuiteResult {
+impl SuiteResultExt for atalanta_common::SuiteResult {
     fn flaky_exit(&self, fail_on_flaky: bool) -> i32 {
         // A flaky test the quarantine list knows doesn't count (A-11).
         let flaky = self
             .tests
             .iter()
-            .any(|t| t.status == velocity_common::TestStatus::Retried && t.quarantined.is_none());
+            .any(|t| t.status == atalanta_common::TestStatus::Retried && t.quarantined.is_none());
         i32::from(fail_on_flaky && flaky)
     }
 }
@@ -2131,23 +2131,23 @@ impl SuiteResultExt for velocity_common::SuiteResult {
 /// Write one report; the path written, if it is a file.
 fn write_report(
     format: &str,
-    result: &velocity_common::SuiteResult,
+    result: &atalanta_common::SuiteResult,
     artifacts_dir: &str,
     suite_file: &str,
     ctx: &ReportContext,
-) -> velocity_common::Result<Option<String>> {
+) -> atalanta_common::Result<Option<String>> {
     let path = match format {
         "junit" => {
             let path = format!("{artifacts_dir}/junit.xml");
-            velocity_runner::reporter::junit::write_junit_with(result, &path, &ctx.junit)?;
+            atalanta_runner::reporter::junit::write_junit_with(result, &path, &ctx.junit)?;
             path
         }
         "json" => {
             let path = format!("{artifacts_dir}/results.json");
-            velocity_runner::reporter::json::write_json_report(
+            atalanta_runner::reporter::json::write_json_report(
                 result,
                 &path,
-                &velocity_runner::reporter::json::JsonExtras {
+                &atalanta_runner::reporter::json::JsonExtras {
                     termination: Some(&ctx.termination),
                     hunt: ctx.hunt.as_ref(),
                     shard_plan: ctx.shard_plan.as_ref(),
@@ -2157,7 +2157,7 @@ fn write_report(
             // Best effort: the results above are what CI depends on.
             let metrics = format!("{artifacts_dir}/run-metrics.json");
             if let Err(e) =
-                velocity_runner::reporter::metrics::write(result, result.duration, &metrics)
+                atalanta_runner::reporter::metrics::write(result, result.duration, &metrics)
             {
                 tracing::warn!("{e}");
             }
@@ -2165,14 +2165,14 @@ fn write_report(
         }
         "html" => {
             let path = format!("{artifacts_dir}/report.html");
-            velocity_runner::write_html(result, &path)?;
+            atalanta_runner::write_html(result, &path)?;
             path
         }
         "github" => {
-            velocity_runner::reporter::github::report_with(
+            atalanta_runner::reporter::github::report_with(
                 result,
                 suite_file,
-                &velocity_runner::reporter::github::RunEnd {
+                &atalanta_runner::reporter::github::RunEnd {
                     termination: ctx.termination.clone(),
                     partial: ctx.partial,
                 },
@@ -2184,8 +2184,8 @@ fn write_report(
             let suite = std::path::Path::new(suite_file)
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "velocity".into());
-            velocity_runner::reporter::allure::write_allure(result, &path, &suite)?;
+                .unwrap_or_else(|| "atalanta".into());
+            atalanta_runner::reporter::allure::write_allure(result, &path, &suite)?;
             path
         }
         _ => return Ok(None),
@@ -2200,16 +2200,16 @@ const STOP_GRACE: std::time::Duration = std::time::Duration::from_secs(20);
 /// `--tags` / `--filter` that match no test are a usage error (exit 2): a
 /// typo used to run nothing and pass. The message lists the suite's tags.
 fn check_selection(
-    tests: &[velocity_common::TestCase],
+    tests: &[atalanta_common::TestCase],
     tags: &[String],
     filter: Option<&str>,
 ) -> anyhow::Result<()> {
     if tags.is_empty() && filter.is_none() {
         return Ok(());
     }
-    let mut picked = velocity_runner::filter_by_tags(tests, tags);
+    let mut picked = atalanta_runner::filter_by_tags(tests, tags);
     if let Some(pattern) = filter {
-        picked = velocity_runner::filter_by_name(&picked, pattern);
+        picked = atalanta_runner::filter_by_name(&picked, pattern);
     }
     if !picked.is_empty() || tests.is_empty() {
         return Ok(());
@@ -2238,10 +2238,10 @@ fn check_selection(
     )
 }
 
-/// Whether `path` (from the repository root) is Velocity's own output: its
-/// `.velocity/` state or the run's artifacts directory.
-fn is_velocity_output(path: &str, artifacts_prefix: &str) -> bool {
-    path.split('/').any(|part| part == ".velocity") || path.starts_with(artifacts_prefix)
+/// Whether `path` (from the repository root) is Atalanta's own output: its
+/// `.atalanta/` state or the run's artifacts directory.
+fn is_atalanta_output(path: &str, artifacts_prefix: &str) -> bool {
+    path.split('/').any(|part| part == ".atalanta") || path.starts_with(artifacts_prefix)
 }
 
 /// Run `git` with `args` (under a deadline: a wedged fsmonitor hook or
@@ -2251,7 +2251,7 @@ async fn git_z(args: &[&str]) -> anyhow::Result<Vec<String>> {
     let mut cmd = tokio::process::Command::new("git");
     cmd.args(["-c", "core.quotePath=false"]).args(args);
     let out =
-        velocity_common::process::output_with_timeout(&mut cmd, std::time::Duration::from_secs(60))
+        atalanta_common::process::output_with_timeout(&mut cmd, std::time::Duration::from_secs(60))
             .await
             .map_err(|e| usage_err!("git {}: {e}", args.join(" ")))?;
     if !out.status.success() {
@@ -2354,9 +2354,9 @@ async fn diff_names(from: &str) -> anyhow::Result<Vec<String>> {
     }
 }
 
-/// Pick the tests to run for changes since `base` (see `velocity_runner::impact`).
+/// Pick the tests to run for changes since `base` (see `atalanta_runner::impact`).
 async fn select_impacted(
-    suite: &velocity_common::TestSuite,
+    suite: &atalanta_common::TestSuite,
     base: &str,
     args: &RunArgs,
     artifacts_dir: &str,
@@ -2369,11 +2369,11 @@ async fn select_impacted(
         .impact_map
         .clone()
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| suite_dir.join("velocity-impact.yaml"));
+        .unwrap_or_else(|| suite_dir.join("atalanta-impact.yaml"));
     let mapping = if map_path.exists() {
-        velocity_core::impact::ImpactMapping::load(&map_path)?
+        atalanta_core::impact::ImpactMapping::load(&map_path)?
     } else {
-        velocity_core::impact::ImpactMapping::empty()
+        atalanta_core::impact::ImpactMapping::empty()
     };
 
     check_base(base)?;
@@ -2408,7 +2408,7 @@ async fn select_impacted(
         ])
         .await?,
     );
-    // What Velocity itself writes (healing snapshots, reports, history) is
+    // What Atalanta itself writes (healing snapshots, reports, history) is
     // not a change to the app.
     let prefix = git_z(&["rev-parse", "--show-prefix"])
         .await?
@@ -2419,14 +2419,14 @@ async fn select_impacted(
         "{prefix}{}/",
         artifacts_dir.trim_start_matches("./").trim_end_matches('/')
     );
-    changed.retain(|p| !is_velocity_output(p, &artifacts));
+    changed.retain(|p| !is_atalanta_output(p, &artifacts));
     changed.sort();
     changed.dedup();
 
     // A mapping that matches no file in the repository is a typo or a
     // moved folder: its tests would never be selected by a change.
     if let Ok(tracked) = git_z(&["ls-files", "-z", "--full-name", ":/"]).await {
-        for (owner, pattern) in velocity_runner::impact::dead_patterns(&mapping, &tracked) {
+        for (owner, pattern) in atalanta_runner::impact::dead_patterns(&mapping, &tracked) {
             println!(
                 "{} impact map: {owner} pattern `{pattern}` matches no file in the repository",
                 "warning:".yellow().bold()
@@ -2434,10 +2434,10 @@ async fn select_impacted(
         }
     }
 
-    let history = velocity_runner::history::load(artifacts_dir).unwrap_or_default();
-    let sel = velocity_runner::impact::select(
+    let history = atalanta_runner::history::load(artifacts_dir).unwrap_or_default();
+    let sel = atalanta_runner::impact::select(
         &suite.tests,
-        &velocity_runner::impact::flows_used_in(&suite.tests, &suite.flows),
+        &atalanta_runner::impact::flows_used_in(&suite.tests, &suite.flows),
         &mapping,
         &changed,
         &args.config,
@@ -2487,7 +2487,7 @@ async fn select_impacted(
     }
     if sel.unmapped > 0 {
         println!(
-            "{} {} unmapped test(s) selected (map them in velocity-impact.yaml, or set `impact: {{ unmapped: skip }}`, to skip them safely)",
+            "{} {} unmapped test(s) selected (map them in atalanta-impact.yaml, or set `impact: {{ unmapped: skip }}`, to skip them safely)",
             "=>".cyan().bold(),
             sel.unmapped
         );
@@ -2505,7 +2505,7 @@ async fn select_impacted(
 /// every `--env`. They are collected into one map where a later pair wins,
 /// so `--env` outranks the files and a later file an earlier one; any of
 /// them outranks the process environment, and a secret-looking name is
-/// masked whichever it came from (`velocity_core::env`).
+/// masked whichever it came from (`atalanta_core::env`).
 pub(crate) fn env_overrides(
     files: &[String],
     flags: &[String],
@@ -2553,7 +2553,7 @@ mod tests {
     /// the status-bar freeze at its end; a plain run cleans up as before.
     #[tokio::test]
     async fn the_end_of_a_daemon_run_unfreezes_the_status_bar() {
-        use velocity_common::{
+        use atalanta_common::{
             DeviceInfo, Direction, Element, Key, PlatformDriver, Result, Selector,
         };
         /// Records the two calls the end of a run makes; nothing else is
@@ -2668,7 +2668,7 @@ mod tests {
     /// `=missing` writes only missing ones.
     #[test]
     fn verify_takes_a_level() {
-        use velocity_common::VerifyLevel;
+        use atalanta_common::VerifyLevel;
         #[derive(clap::Parser)]
         struct Cli {
             #[command(flatten)]
@@ -2690,7 +2690,7 @@ mod tests {
 
     #[test]
     fn update_baselines_takes_an_optional_mode() {
-        use velocity_common::BaselineUpdate;
+        use atalanta_common::BaselineUpdate;
         #[derive(clap::Parser)]
         struct Cli {
             #[command(flatten)]
@@ -2792,16 +2792,16 @@ mod tests {
         );
     }
 
-    use super::is_velocity_output;
+    use super::is_atalanta_output;
 
     #[test]
     fn the_effective_platform_is_written_into_the_suite() {
         // M-3: a suite without `platform:` run on device `web` reached the
         // executor with no platform, which then masked a device status bar
         // over the page's header.
-        use velocity_common::Platform;
+        use atalanta_common::Platform;
         let yaml = "appId: x\ntests:\n  - name: t\n    steps:\n      - wait: { ms: 1 }\n";
-        let mut suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let mut suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
         assert_eq!(suite.config.platform, None);
         let p = super::resolve_platform(&mut suite, None, Some("web"));
         assert_eq!(p, Platform::Web);
@@ -2824,14 +2824,14 @@ mod tests {
         let a = "appId: x\nconfig:\n  settings:\n    android:\n      scroll: semantic\ntests:\n  - name: t\n    steps:\n      - wait: { ms: 1 }\n";
         let b = "appId: x\ntests:\n  - name: t\n    steps:\n      - wait: { ms: 1 }\n";
         let mut installed: Vec<std::collections::HashMap<String, String>> = Vec::new();
-        let mut suite = velocity_core::parser::parse_suite_from_str(a).unwrap();
+        let mut suite = atalanta_core::parser::parse_suite_from_str(a).unwrap();
         super::apply_settings_with(&mut suite, &[], |env| installed.push(env)).unwrap();
-        let mut suite = velocity_core::parser::parse_suite_from_str(b).unwrap();
+        let mut suite = atalanta_core::parser::parse_suite_from_str(b).unwrap();
         super::apply_settings_with(&mut suite, &[], |env| installed.push(env)).unwrap();
         assert_eq!(installed.len(), 2, "every suite installs its settings");
         assert_eq!(
             installed[0]
-                .get("VELOCITY_ANDROID_SCROLL")
+                .get("ATALANTA_ANDROID_SCROLL")
                 .map(String::as_str),
             Some("semantic")
         );
@@ -2840,19 +2840,19 @@ mod tests {
     }
 
     #[test]
-    fn velocity_state_and_artifacts_are_not_app_changes() {
-        let artifacts = "e2e/velocity-results/";
-        assert!(is_velocity_output(".velocity/snapshots.json", artifacts));
-        assert!(is_velocity_output(
-            "e2e/.velocity/healed-selectors.json",
+    fn atalanta_state_and_artifacts_are_not_app_changes() {
+        let artifacts = "e2e/atalanta-results/";
+        assert!(is_atalanta_output(".atalanta/snapshots.json", artifacts));
+        assert!(is_atalanta_output(
+            "e2e/.atalanta/healed-selectors.json",
             artifacts
         ));
-        assert!(is_velocity_output(
-            "e2e/velocity-results/junit.xml",
+        assert!(is_atalanta_output(
+            "e2e/atalanta-results/junit.xml",
             artifacts
         ));
-        assert!(!is_velocity_output("src/net/wifi.ts", artifacts));
-        assert!(!is_velocity_output("velocity-results/x", artifacts));
+        assert!(!is_atalanta_output("src/net/wifi.ts", artifacts));
+        assert!(!is_atalanta_output("atalanta-results/x", artifacts));
     }
 }
 
@@ -2862,8 +2862,8 @@ mod folder_tests {
 
     #[test]
     fn the_step_profile_ranks_actions_by_time() {
+        use atalanta_common::{StepResult, StepStatus, SuiteResult, TestResult, TestStatus};
         use std::time::Duration;
-        use velocity_common::{StepResult, StepStatus, SuiteResult, TestResult, TestStatus};
         let step = |i: usize, name: &str, ms: u64, settle: u64| StepResult {
             step_index: i,
             action_name: name.into(),
@@ -2942,7 +2942,7 @@ mod folder_tests {
     /// now takes the id the driver knows the device by.
     #[test]
     fn a_sequential_device_name_resolves_to_its_id() {
-        use velocity_common::{DeviceInfo, DeviceState, DeviceType, Platform};
+        use atalanta_common::{DeviceInfo, DeviceState, DeviceType, Platform};
         let dev = |id: &str, name: &str| DeviceInfo {
             id: id.into(),
             name: name.into(),
@@ -2972,7 +2972,7 @@ mod folder_tests {
     }
 
     // A-10: `--junit-classname suite` names the suite file's stem; the
-    // default keeps `velocity`.
+    // default keeps `atalanta`.
     #[test]
     fn junit_classname_is_opt_in() {
         use clap::Parser;
@@ -3003,12 +3003,12 @@ mod folder_tests {
                 .fail_on_flaky
         );
         let yaml = "appId: x\nconfig:\n  retry:\n    count: 2\n    flakyResult: fail\ntests:\n  - name: t\n    steps:\n      - wait: { ms: 1 }\n";
-        let suite = velocity_core::parser::parse_suite_from_str(yaml).unwrap();
+        let suite = atalanta_core::parser::parse_suite_from_str(yaml).unwrap();
         assert_eq!(
             suite.config.retry.flaky_result,
-            velocity_common::test_types::FlakyResult::Fail
+            atalanta_common::test_types::FlakyResult::Fail
         );
-        assert!(velocity_core::config_keys::unknown_config_keys(yaml).is_empty());
+        assert!(atalanta_core::config_keys::unknown_config_keys(yaml).is_empty());
         let mut c = serde_json::to_value(&suite.config).unwrap();
         super::set_config_path(&mut c, "retry.flakyResult", "pass").unwrap();
         assert_eq!(c["retry"]["flakyResult"], "pass");
@@ -3111,7 +3111,7 @@ mod folder_tests {
     // VEL-175: a --tags / --filter typo that selects nothing is exit 2.
     #[test]
     fn a_selection_that_matches_nothing_is_a_usage_error() {
-        let t = |name: &str, tags: &[&str]| velocity_common::TestCase {
+        let t = |name: &str, tags: &[&str]| atalanta_common::TestCase {
             name: name.into(),
             tags: tags.iter().map(|s| s.to_string()).collect(),
             isolated: false,

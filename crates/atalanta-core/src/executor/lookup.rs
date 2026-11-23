@@ -43,7 +43,7 @@ impl<'a> TestExecutor<'a> {
                 crash_checked = Instant::now();
                 let app_id = self.app_id.clone();
                 if let Some(detail) = self.driver.crash_report(device_id, &app_id).await {
-                    return Err(VelocityError::AppCrashed { app_id, detail });
+                    return Err(AtalantaError::AppCrashed { app_id, detail });
                 }
             }
             if attempt > 0 {
@@ -96,7 +96,7 @@ impl<'a> TestExecutor<'a> {
                                 // `healing.mode: report` (D-7): the heal is
                                 // proposed, not used.
                                 if did_heal
-                                    && self.heal_mode == velocity_common::HealingMode::Report
+                                    && self.heal_mode == atalanta_common::HealingMode::Report
                                 {
                                     let err = self.heal_proposed(selector, timeout_ms);
                                     self.selector_engine.unuse_last_heal();
@@ -116,7 +116,7 @@ impl<'a> TestExecutor<'a> {
 
     /// The failure for a heal that `healing.mode: report` doesn't use: the
     /// patch it proposes and the command that applies it (D-7).
-    pub(super) fn heal_proposed(&self, selector: &Selector, timeout_ms: u64) -> VelocityError {
+    pub(super) fn heal_proposed(&self, selector: &Selector, timeout_ms: u64) -> AtalantaError {
         let suite = self.suite_file.as_deref().unwrap_or("<suite.yaml>");
         // This step's heal (M1): the last mapping from this selector to the
         // one it just healed to, never another step's or test's.
@@ -145,12 +145,12 @@ impl<'a> TestExecutor<'a> {
             },
             None => "the healed selector".to_string(),
         };
-        let patch = velocity_common::redact::redact(&patch).into_owned();
+        let patch = atalanta_common::redact::redact(&patch).into_owned();
         let reject = reject_hint(&from, suite);
-        VelocityError::ElementNotFound {
+        AtalantaError::ElementNotFound {
             selector: format!(
                 "{selector} (healing.mode is report: the heal was not used. Proposed patch: \
-                 {patch}. Accept it with `velocity heal --accept --config {suite}`, or {reject})"
+                 {patch}. Accept it with `atalanta heal --accept --config {suite}`, or {reject})"
             ),
             timeout_ms,
             screenshot: None,
@@ -166,7 +166,7 @@ impl<'a> TestExecutor<'a> {
         device_id: &str,
         selector: &Selector,
     ) -> Result<Option<Element>> {
-        use velocity_common::selector_match::{ceiling, with_ceiling, Tier};
+        use atalanta_common::selector_match::{ceiling, with_ceiling, Tier};
         if ceiling() >= Tier::Loose {
             return Ok(None);
         }
@@ -199,11 +199,11 @@ impl<'a> TestExecutor<'a> {
 
     /// The actionability rule for the running step (D-3): `force: true`
     /// turns the checks off, `actionability: lenient` makes them warn.
-    pub(super) fn act_mode(&self) -> velocity_common::actionability::ActMode {
-        use velocity_common::actionability::ActMode;
+    pub(super) fn act_mode(&self) -> atalanta_common::actionability::ActMode {
+        use atalanta_common::actionability::ActMode;
         if self.step_force {
             ActMode::Force
-        } else if self.config.actionability == velocity_common::Actionability::Lenient {
+        } else if self.config.actionability == atalanta_common::Actionability::Lenient {
             ActMode::Lenient
         } else {
             ActMode::Strict
@@ -246,7 +246,7 @@ impl<'a> TestExecutor<'a> {
         timeout_ms: u64,
         must_be_enabled: bool,
     ) -> Result<Element> {
-        use velocity_common::actionability::ActMode;
+        use atalanta_common::actionability::ActMode;
         self.loose_found = false;
         // Only the step's first lookup may lean on its settle.
         let settled = std::mem::take(&mut self.settled_for_lookup);
@@ -296,11 +296,11 @@ impl<'a> TestExecutor<'a> {
             self.driver.invalidate_hierarchy_cache().await;
             // A target found in the widest tier is re-read in it.
             let max = if self.loose_found {
-                velocity_common::selector_match::Tier::Loose
+                atalanta_common::selector_match::Tier::Loose
             } else {
-                velocity_common::selector_match::ceiling()
+                atalanta_common::selector_match::ceiling()
             };
-            let vanished = match velocity_common::selector_match::with_ceiling(
+            let vanished = match atalanta_common::selector_match::with_ceiling(
                 max,
                 self.selector_engine
                     .find_element_no_heal(self.driver, device_id, selector),
@@ -331,7 +331,7 @@ impl<'a> TestExecutor<'a> {
                 // Never act on an element that is no longer on screen: its
                 // old bounds now hold something else.
                 if vanished {
-                    return Err(VelocityError::ElementNotFound {
+                    return Err(AtalantaError::ElementNotFound {
                         selector: format!(
                             "{selector} (gone or hidden, e.g. behind a sheet, while waiting \
                              for it to be actionable)"
@@ -368,7 +368,7 @@ impl<'a> TestExecutor<'a> {
                             waited.as_millis()
                         )
                     };
-                    return Err(VelocityError::NotActionable {
+                    return Err(AtalantaError::NotActionable {
                         selector: selector.to_string(),
                         reason,
                     });
@@ -432,7 +432,7 @@ impl<'a> TestExecutor<'a> {
                     )
                 })
                 .collect();
-            return Err(VelocityError::AssertionFailed {
+            return Err(AtalantaError::AssertionFailed {
                 expected: format!("{selector} to match one element (selectors.strict)"),
                 actual: format!("{n} match: {}. {pick_hint}", listed.join("; ")),
                 selector: selector.to_string(),
@@ -441,7 +441,7 @@ impl<'a> TestExecutor<'a> {
         }
         let mut note = format!(
             "{selector} matched {n} elements on screen; used {}. {pick_hint}",
-            velocity_common::selector_match::BARE_PICK_RULE
+            atalanta_common::selector_match::BARE_PICK_RULE
         );
         if self.strict_selectors_unset() {
             note.push_str(&format!(" {STRICT_STAGING}"));
@@ -460,7 +460,7 @@ impl<'a> TestExecutor<'a> {
         selector: &Selector,
         found: &Element,
     ) -> Option<(usize, Vec<Element>, Vec<Selector>)> {
-        use velocity_common::{selector_match as sm, Relation};
+        use atalanta_common::{selector_match as sm, Relation};
         let web = self.config.platform == Some(Platform::Web);
         let wda_hit = found.bounds.is_empty();
         if web || wda_hit || !self.driver.has_hierarchy_cache() {
@@ -515,7 +515,7 @@ impl<'a> TestExecutor<'a> {
         }
         let tree = self.driver.get_hierarchy_cached(device_id).await.ok()?;
         let (w, h) = self.driver.screen_size(device_id).await.ok()?;
-        let screen = velocity_common::Rect {
+        let screen = atalanta_common::Rect {
             x: 0,
             y: 0,
             width: w,
@@ -533,12 +533,12 @@ impl<'a> TestExecutor<'a> {
         Some((n, matches, picks))
     }
 
-    pub(super) async fn screen_rect(&mut self, device_id: &str) -> Option<velocity_common::Rect> {
+    pub(super) async fn screen_rect(&mut self, device_id: &str) -> Option<atalanta_common::Rect> {
         self.driver
             .screen_size(device_id)
             .await
             .ok()
-            .map(|(w, h)| velocity_common::Rect {
+            .map(|(w, h)| atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: w,
@@ -555,7 +555,7 @@ impl<'a> TestExecutor<'a> {
     pub(super) async fn keyboard_aware_screen_rect(
         &mut self,
         device_id: &str,
-    ) -> Option<velocity_common::Rect> {
+    ) -> Option<atalanta_common::Rect> {
         let screen = self.screen_rect(device_id).await?;
         let Some(kb) = self.driver.keyboard_frame(device_id).await.ok().flatten() else {
             return Some(screen);
@@ -564,7 +564,7 @@ impl<'a> TestExecutor<'a> {
         if kb_top <= screen.y {
             return None;
         }
-        Some(velocity_common::Rect {
+        Some(atalanta_common::Rect {
             x: screen.x,
             y: screen.y,
             width: screen.width,
@@ -582,7 +582,7 @@ impl<'a> TestExecutor<'a> {
         &mut self,
         device_id: &str,
         container: &Selector,
-    ) -> Result<velocity_common::Rect> {
+    ) -> Result<atalanta_common::Rect> {
         let timeout = self.element_timeout_ms();
         let found = self.find_container(device_id, container, timeout).await?;
         // Drivers that can scroll an element into view do it first (web,
@@ -645,7 +645,7 @@ impl<'a> TestExecutor<'a> {
                 .await;
         }
         // Never stroke off the screen (VEL-069): what shows of it, or fail.
-        intersection(&screen, &bounds).ok_or_else(|| VelocityError::NotActionable {
+        intersection(&screen, &bounds).ok_or_else(|| AtalantaError::NotActionable {
             selector: container.to_string(),
             reason: "the within: container is off screen and dragging didn't bring it in".into(),
         })
@@ -681,9 +681,9 @@ impl<'a> TestExecutor<'a> {
 /// The part of `b` on `screen`, when enough of it shows to stroke across:
 /// on each axis, at least a quarter of the screen or the whole of `b`.
 pub(super) fn shown_part(
-    screen: &velocity_common::Rect,
-    b: &velocity_common::Rect,
-) -> Option<velocity_common::Rect> {
+    screen: &atalanta_common::Rect,
+    b: &atalanta_common::Rect,
+) -> Option<atalanta_common::Rect> {
     let x0 = b.x.max(screen.x);
     let y0 = b.y.max(screen.y);
     let x1 =
@@ -695,7 +695,7 @@ pub(super) fn shown_part(
     let (w, h) = (x1.saturating_sub(x0), y1.saturating_sub(y0));
     let enough = |shown: i32, whole: i32, len: i32| shown >= whole.min(len / 4).max(1);
     (enough(w, b.width, screen.width) && enough(h, b.height, screen.height)).then_some(
-        velocity_common::Rect {
+        atalanta_common::Rect {
             x: x0,
             y: y0,
             width: w,
@@ -709,8 +709,8 @@ pub(super) fn shown_part(
 /// the stroke stays inside it; a longer gap takes several drags). `None`
 /// when the target is empty or already inside the area on that axis.
 pub(super) fn aim_at(
-    area: &velocity_common::Rect,
-    target: &velocity_common::Rect,
+    area: &atalanta_common::Rect,
+    target: &atalanta_common::Rect,
     scroll: Direction,
     on_screen: bool,
 ) -> Option<((i32, i32), (i32, i32))> {
@@ -752,9 +752,9 @@ pub(super) fn aim_at(
 
 /// The part of `b` on `screen`, if any.
 pub(super) fn intersection(
-    screen: &velocity_common::Rect,
-    b: &velocity_common::Rect,
-) -> Option<velocity_common::Rect> {
+    screen: &atalanta_common::Rect,
+    b: &atalanta_common::Rect,
+) -> Option<atalanta_common::Rect> {
     let x0 = b.x.max(screen.x);
     let y0 = b.y.max(screen.y);
     let x1 =
@@ -763,7 +763,7 @@ pub(super) fn intersection(
     let y1 =
         b.y.saturating_add(b.height)
             .min(screen.y.saturating_add(screen.height));
-    (x1 > x0 && y1 > y0).then(|| velocity_common::Rect {
+    (x1 > x0 && y1 > y0).then(|| atalanta_common::Rect {
         x: x0,
         y: y0,
         width: x1 - x0,
@@ -779,8 +779,8 @@ pub(super) const CONTAINER_DRAGS: usize = 5;
 
 /// A tap the driver refused because a bar at the bottom of the screen (a
 /// toolbar or tab bar) covers the target.
-pub(super) fn under_bottom_bar(e: &VelocityError) -> bool {
-    matches!(e, VelocityError::AssertionFailed { actual, .. }
+pub(super) fn under_bottom_bar(e: &AtalantaError) -> bool {
+    matches!(e, AtalantaError::AssertionFailed { actual, .. }
         if actual.starts_with("covered by the toolbar")
             || actual.starts_with("covered by the tab bar"))
 }

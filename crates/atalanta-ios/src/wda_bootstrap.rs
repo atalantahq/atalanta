@@ -4,28 +4,28 @@
 //!   weeks of Sept 2026) and v16.12.11+ adds `lib_TestingInterop.dylib`, which
 //!   Xcode 26.0.x simulators don't ship, so tracking `master` broke iOS here.
 //!   The ref is picked from what the installed Xcode supports
-//!   (`pick_wda_ref`) and can be overridden with `VELOCITY_WDA_REF`.
-//! - **Built once per (ref, Xcode build, arch)** into `~/.velocity/wda/build/…`
+//!   (`pick_wda_ref`) and can be overridden with `ATALANTA_WDA_REF`.
+//! - **Built once per (ref, Xcode build, arch)** into `~/.atalanta/wda/build/…`
 //!   for the generic simulator destination, so the `.xctestrun` serves every
 //!   simulator of that SDK. A later run only launches it (~17 s instead of a
 //!   31 s build + 4 s `git pull` + launch).
 //! - **One WDA per simulator**, each on its own port ([`pick_port`]). A WDA
 //!   already listening is reused only if it belongs to the same simulator
-//!   ([`port_owner`]); with `VELOCITY_KEEP_WDA=1` it is left running at exit
+//!   ([`port_owner`]); with `ATALANTA_KEEP_WDA=1` it is left running at exit
 //!   so the next run reattaches instead of paying ~17 s to launch it.
 //! - **Pipes are always drained.** xcodebuild logs constantly; an undrained
 //!   pipe fills (~64 KB) and blocks it, which freezes WDA mid-run. Output goes
-//!   to `~/.velocity/wda/logs/<device>.log`.
+//!   to `~/.atalanta/wda/logs/<device>.log`.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use atalanta_common::{AtalantaError, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
-use velocity_common::{Result, VelocityError};
 
 const WDA_REPO: &str = "https://github.com/appium/WebDriverAgent.git";
 const WDA_PORT: u16 = 8100;
@@ -47,7 +47,7 @@ const WDA_REF_TESTING_INTEROP: &str = "v16.14.1";
 /// this commit: a tag moved upstream (or a tampered mirror) fails the
 /// bootstrap instead of building unknown code. WDA is cloned with git, not
 /// downloaded as an archive, so the commit id is the checksum. A tag set
-/// with `VELOCITY_WDA_REF` that isn't listed here is the user's choice and
+/// with `ATALANTA_WDA_REF` that isn't listed here is the user's choice and
 /// isn't checked.
 const WDA_PINNED_COMMITS: &[(&str, &str)] = &[
     (WDA_REF_LEGACY, "00c38220c3e84906c965b996ffc4c12d09fef62f"),
@@ -69,9 +69,9 @@ fn pinned_commit(wda_ref: &str) -> Option<&'static str> {
 fn check_pinned_commit(wda_ref: &str, head: &str) -> Result<()> {
     match pinned_commit(wda_ref) {
         Some(want) if !head.trim().eq_ignore_ascii_case(want) => Err(config(format!(
-            "WebDriverAgent {wda_ref} resolved to commit {} but Velocity pins it to {want}: \
+            "WebDriverAgent {wda_ref} resolved to commit {} but Atalanta pins it to {want}: \
              the tag moved upstream or the clone was tampered with. Refusing to build it \
-             (set VELOCITY_WDA_REF to another tag to override)",
+             (set ATALANTA_WDA_REF to another tag to override)",
             head.trim()
         ))),
         _ => Ok(()),
@@ -80,7 +80,7 @@ fn check_pinned_commit(wda_ref: &str, head: &str) -> Result<()> {
 
 /// The file next to a cached build naming what it was built from:
 /// `<ref> <commit>` (the commit empty when git couldn't say).
-const BUILT_FROM: &str = "velocity-wda-ref";
+const BUILT_FROM: &str = "atalanta-wda-ref";
 
 /// `git rev-parse HEAD` in `dir`, "" when git can't say.
 async fn git_head(dir: &Path) -> String {
@@ -158,7 +158,7 @@ fn build_matches_pin(derived: &Path, wda_ref: &str) -> bool {
 const MJPEG_LISTENER: &str =
     "initWithPort:(uint16_t)FBConfiguration.sharedInstance.mjpegServerPort];";
 const MJPEG_BIND: &str =
-    "\n  // Velocity: listen where USE_IP says (loopback on a simulator), as the HTTP server does.\n  self.screenshotsBroadcaster.interface = FBConfiguration.sharedInstance.bindingIPAddress;";
+    "\n  // Atalanta: listen where USE_IP says (loopback on a simulator), as the HTTP server does.\n  self.screenshotsBroadcaster.interface = FBConfiguration.sharedInstance.bindingIPAddress;";
 
 /// WDA's MJPEG screen stream (`MJPEG_SERVER_PORT`) ignores `USE_IP` and
 /// listens on every interface, unauthenticated: on a simulator, which
@@ -209,7 +209,7 @@ pub struct WdaBootstrap {
     token: Option<Option<String>>,
     /// R-1: the random token this device's runner was launched with, when
     /// `ios.runnerToken` isn't set. Kept in [`Self::token_file`] (0600) so
-    /// a later Velocity process can reattach to the same runner.
+    /// a later Atalanta process can reattach to the same runner.
     session_token: Option<String>,
     /// When launches on this device failed, and why the last one did: past
     /// [`CRASH_LOOP_MAX`] within [`CRASH_LOOP_WINDOW`] no more are tried
@@ -219,8 +219,8 @@ pub struct WdaBootstrap {
     last_failure: Option<String>,
     /// The WebDriverAgent ref the runner on this device was built from,
     /// when known: set by a bootstrap, and on reattach read from the
-    /// marker the launching run left (`VELOCITY_KEEP_WDA`). `None`: not
-    /// WebDriverAgent (VelocityRunner) or one Velocity didn't start.
+    /// marker the launching run left (`ATALANTA_KEEP_WDA`). `None`: not
+    /// WebDriverAgent (AtalantaRunner) or one Atalanta didn't start.
     wda_ref: Option<String>,
 }
 
@@ -235,7 +235,7 @@ impl Default for WdaBootstrap {
 
 impl WdaBootstrap {
     pub fn new() -> Self {
-        let cache_dir = dirs_home().join(".velocity").join("wda");
+        let cache_dir = dirs_home().join(".atalanta").join("wda");
         Self {
             cache_dir,
             wda_process: None,
@@ -291,7 +291,7 @@ impl WdaBootstrap {
         let path = self.token_file(device_id);
         write_private(&path, &token)
             .map_err(|e| config(format!("write runner token {}: {e}", path.display())))?;
-        velocity_common::redact::register_secret(&token);
+        atalanta_common::redact::register_secret(&token);
         self.session_token = Some(token.clone());
         Ok(token)
     }
@@ -307,7 +307,7 @@ impl WdaBootstrap {
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty());
         if let Some(t) = &token {
-            velocity_common::redact::register_secret(t);
+            atalanta_common::redact::register_secret(t);
         }
         self.session_token = token;
     }
@@ -329,7 +329,7 @@ impl WdaBootstrap {
         }
     }
 
-    /// Cache WDA under `dir` instead of `~/.velocity/wda` (tests).
+    /// Cache WDA under `dir` instead of `~/.atalanta/wda` (tests).
     #[cfg(test)]
     fn with_cache_dir(mut self, dir: PathBuf) -> Self {
         self.cache_dir = dir;
@@ -345,7 +345,7 @@ impl WdaBootstrap {
     /// The runner's token: `ios.runnerToken` when set, else the random
     /// one this device's runner was launched with (R-1). Sent as a bearer
     /// token on every probe this bootstrap makes (`/status` readiness,
-    /// reattach, stop): VelocityRunner answers 401 to anything without it.
+    /// reattach, stop): AtalantaRunner answers 401 to anything without it.
     fn token(&self) -> Option<String> {
         self.token
             .clone()
@@ -382,12 +382,12 @@ impl WdaBootstrap {
         udid: &str,
         usb: Option<bool>,
         allow: bool,
-        velocity_runner: bool,
+        atalanta_runner: bool,
     ) -> Result<()> {
         if usb != Some(false) {
             return Ok(());
         }
-        wifi_policy(udid, usb, allow, self.token().as_deref(), velocity_runner)?;
+        wifi_policy(udid, usb, allow, self.token().as_deref(), atalanta_runner)?;
         let bare = crate::wda::runner_client()
             .build()
             .unwrap_or_default()
@@ -407,7 +407,7 @@ impl WdaBootstrap {
         Err(config(format!(
             "iPhone {udid} is connected over Wi-Fi only, and the runner already on it \
              answers without the bearer token (it was started without ios.runnerToken, \
-             e.g. while cabled with VELOCITY_KEEP_WDA): refusing to reuse it. Connect \
+             e.g. while cabled with ATALANTA_KEEP_WDA): refusing to reuse it. Connect \
              the cable, or stop the runner on the phone so it restarts with the token"
         )))
     }
@@ -443,8 +443,8 @@ impl WdaBootstrap {
         }
     }
 
-    /// Which runner answers on the port, if any: VelocityRunner says so in
-    /// its `/status` (`build.version` = `velocity-runner-…`).
+    /// Which runner answers on the port, if any: AtalantaRunner says so in
+    /// its `/status` (`build.version` = `atalanta-runner-…`).
     ///
     /// `Some((kind, version, false))` when the port answers 200 but not as a
     /// runner: something else holds it (VEL-S30).
@@ -452,10 +452,10 @@ impl WdaBootstrap {
         let url = format!("{}/status", self.base_url());
         let resp = self.probe_get(&url).send().await.ok()?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            // Only VelocityRunner checks a token: one started with a token
+            // Only AtalantaRunner checks a token: one started with a token
             // this process doesn't have (its token file is gone) can't be
             // used, only replaced (R-1). No version, so it never matches.
-            return Some((RunnerKind::Velocity, String::new(), true));
+            return Some((RunnerKind::Atalanta, String::new(), true));
         }
         let resp = Some(resp).filter(|r| r.status().is_success())?;
         let body: serde_json::Value = resp.json().await.unwrap_or_default();
@@ -483,7 +483,7 @@ impl WdaBootstrap {
     }
 
     /// [`Self::stop_runner`] through `simctl` (tests pass a stub rather than
-    /// set `VELOCITY_XCRUN_PATH` while other tests read the env).
+    /// set `ATALANTA_XCRUN_PATH` while other tests read the env).
     async fn stop_runner_via(
         &self,
         simctl: &crate::simctl::Simctl,
@@ -491,7 +491,7 @@ impl WdaBootstrap {
         device_id: &str,
         kind: RunnerKind,
     ) {
-        // Bounded, and through `VELOCITY_XCRUN_PATH` like every other simctl
+        // Bounded, and through `ATALANTA_XCRUN_PATH` like every other simctl
         // call: a hung simctl kept the run from ever exiting (VEL-350).
         if let Err(e) = simctl
             .terminate_within(device_id, kind.bundle_id(), timeout)
@@ -523,13 +523,13 @@ impl WdaBootstrap {
         }
         if self.physical && self.is_running().await {
             // review-fixes #2: a runner kept from a cabled run
-            // (`VELOCITY_KEEP_WDA`) may have started without a token; once
+            // (`ATALANTA_KEEP_WDA`) may have started without a token; once
             // the phone is reachable only over Wi-Fi it must pass the same
             // policy as a fresh launch, and prove it checks the token.
             let usb = crate::usbmux::connection(device_id).await;
-            self.check_reattach(device_id, usb, allow_wifi_runner(), velocity_runner())
+            self.check_reattach(device_id, usb, allow_wifi_runner(), atalanta_runner())
                 .await?;
-            self.wda_ref = if velocity_runner() {
+            self.wda_ref = if atalanta_runner() {
                 None
             } else {
                 self.marked_ref(device_id)
@@ -541,15 +541,15 @@ impl WdaBootstrap {
             return Ok(());
         }
         if let Some((running, version, runner_like)) = self.running_kind().await {
-            // A VelocityRunner from older source keeps answering until stopped.
+            // A AtalantaRunner from older source keeps answering until stopped.
             let version_ok = running == RunnerKind::Wda || version == RunnerKind::current_build();
             let owner = port_owner(self.port).await;
             if !runner_like && owner.is_none() {
                 // Any HTTP 200 used to pass as WebDriverAgent, and every
                 // command then failed against the wrong server (VEL-S30).
                 return Err(config(format!(
-                    "port {} answers HTTP but not as WebDriverAgent or VelocityRunner: \
-                     another program holds it; stop it or set VELOCITY_WDA_URL",
+                    "port {} answers HTTP but not as WebDriverAgent or AtalantaRunner: \
+                     another program holds it; stop it or set ATALANTA_WDA_URL",
                     self.port
                 )));
             }
@@ -563,14 +563,14 @@ impl WdaBootstrap {
                 _ if running == RunnerKind::requested() && version_ok => {
                     info!("{} already running on port {}", running.name(), self.port);
                     // Reattached: the ref is what the launching run
-                    // recorded, if a Velocity run launched it.
+                    // recorded, if a Atalanta run launched it.
                     self.wda_ref = (running == RunnerKind::Wda)
                         .then(|| self.marked_ref(device_id))
                         .flatten();
                     return Ok(());
                 }
                 _ => {
-                    // The other runner holds the port: `VELOCITY_IOS_RUNNER`
+                    // The other runner holds the port: `ATALANTA_IOS_RUNNER`
                     // picks the runner, so stop it and start the right one.
                     info!(
                         "{} ({version}) is running on port {}; stopping it for {} ({})",
@@ -591,26 +591,26 @@ impl WdaBootstrap {
         // One process at a time fetches and builds a given runner: two
         // runs bootstrapping at once raced on the same temp and build dirs
         // (VEL-149). The second waits, then finds the cache filled.
-        let wda_ref = if velocity_runner() {
+        let wda_ref = if atalanta_runner() {
             RunnerKind::current_build()
         } else {
-            velocity_common::env::var("VELOCITY_WDA_REF")
+            atalanta_common::env::var("ATALANTA_WDA_REF")
                 .unwrap_or_else(|_| pick_wda_ref(&xcode.developer_dir).to_string())
         };
-        if !velocity_runner() && pinned_commit(&wda_ref).is_none() {
+        if !atalanta_runner() && pinned_commit(&wda_ref).is_none() {
             // `ios.wdaRef` can come from a suite's `config.settings`: say
-            // that what gets built is not a commit Velocity checked
+            // that what gets built is not a commit Atalanta checked
             // (security review #12).
             warn!(
                 wda_ref,
-                "WebDriverAgent {wda_ref} is not one of Velocity's pinned tags: its commit is \
-                 not checked before it is built and run (unset ios.wdaRef / VELOCITY_WDA_REF \
+                "WebDriverAgent {wda_ref} is not one of Atalanta's pinned tags: its commit is \
+                 not checked before it is built and run (unset ios.wdaRef / ATALANTA_WDA_REF \
                  to use the pinned one)"
             );
         }
         let lock = cache_lock(&self.cache_dir, &wda_ref).await?;
-        let src = if velocity_runner() {
-            info!(runner = %wda_ref, xcode = %xcode.build, "Velocity runner not running — bootstrapping");
+        let src = if atalanta_runner() {
+            info!(runner = %wda_ref, xcode = %xcode.build, "Atalanta runner not running — bootstrapping");
             self.ensure_runner_source(&wda_ref)?
         } else {
             info!(wda_ref, xcode = %xcode.build, "WDA not running — bootstrapping");
@@ -629,7 +629,7 @@ impl WdaBootstrap {
             return Err(e);
         }
         self.launch_failures.clear();
-        if !velocity_runner() {
+        if !atalanta_runner() {
             self.wda_ref = Some(wda_ref.clone());
             let marker = self.launch_marker(device_id);
             if let Some(dir) = marker.parent() {
@@ -651,7 +651,7 @@ impl WdaBootstrap {
         if self.launch_failures.len() < CRASH_LOOP_MAX {
             return Ok(());
         }
-        Err(VelocityError::RunnerFailing {
+        Err(AtalantaError::RunnerFailing {
             device_id: device_id.to_string(),
             detail: format!(
                 "it failed to come up {} times within {} s; not relaunching it. Last failure: {}",
@@ -673,7 +673,7 @@ impl WdaBootstrap {
             return Ok(());
         }
         if owner_of(&pids).await.as_deref() == Some(device_id) {
-            for kind in [RunnerKind::Wda, RunnerKind::Velocity] {
+            for kind in [RunnerKind::Wda, RunnerKind::Atalanta] {
                 self.stop_runner(device_id, kind).await;
             }
             pids = listening_pids(self.port).await;
@@ -682,16 +682,16 @@ impl WdaBootstrap {
             }
         }
         let holders = describe_pids(&pids).await;
-        Err(VelocityError::RunnerFailing {
+        Err(AtalantaError::RunnerFailing {
             device_id: device_id.to_string(),
             detail: format!(
-                "port {} is held by {holders}; stop it, or set VELOCITY_WDA_URL",
+                "port {} is held by {holders}; stop it, or set ATALANTA_WDA_URL",
                 self.port
             ),
         })
     }
 
-    /// Write the embedded Velocity runner into `~/.velocity/wda/src/<name>`.
+    /// Write the embedded Atalanta runner into `~/.atalanta/wda/src/<name>`.
     ///
     /// Written into a per-process temp dir and renamed into place, and a
     /// cached copy counts only when every file is there: a write cut short
@@ -729,7 +729,7 @@ impl WdaBootstrap {
         Ok(dir)
     }
 
-    /// Clone `wda_ref` (shallow) into `~/.velocity/wda/src/<ref>` unless it's
+    /// Clone `wda_ref` (shallow) into `~/.atalanta/wda/src/<ref>` unless it's
     /// already there. A pinned tag never changes, so there's nothing to pull.
     async fn ensure_source(&self, wda_ref: &str) -> Result<PathBuf> {
         let dir = self.cache_dir.join("src").join(sanitize(wda_ref));
@@ -747,9 +747,9 @@ impl WdaBootstrap {
         git.args(["clone", "--depth", "1", "--branch", wda_ref, WDA_REPO])
             .arg(&tmp)
             .stdin(Stdio::null());
-        let output = velocity_common::process::output_with_timeout(
+        let output = atalanta_common::process::output_with_timeout(
             &mut git,
-            velocity_common::process::LONG_TIMEOUT,
+            atalanta_common::process::LONG_TIMEOUT,
         )
         .await
         .map_err(|e| config(format!("Failed to run git clone: {e}")))?;
@@ -803,7 +803,7 @@ impl WdaBootstrap {
         let derived = self.cache_dir.join("build").join(&key);
         // A pinned ref's build counts only when it says it was built from
         // the pinned commit (one from before the pins is rebuilt once).
-        let trusted = velocity_runner() || build_matches_pin(&derived, wda_ref);
+        let trusted = atalanta_runner() || build_matches_pin(&derived, wda_ref);
         if let (true, Some(xctestrun)) = (trusted, find_xctestrun(&derived)) {
             debug!("WDA build cached: {}", xctestrun.display());
             return Ok(xctestrun);
@@ -812,13 +812,13 @@ impl WdaBootstrap {
         // cleaned Products folder) was trusted forever (VEL-289): rebuild.
         let _ = tokio::fs::remove_dir_all(&derived).await;
         info!("Building {wda_ref} for Xcode {} (once)...", xcode.build);
-        let mjpeg = if velocity_runner() || !patch_mjpeg_bind(src) {
+        let mjpeg = if atalanta_runner() || !patch_mjpeg_bind(src) {
             MJPEG_ALL
         } else {
             MJPEG_USE_IP
         };
-        let (project, scheme) = if velocity_runner() {
-            ("VelocityRunner.xcodeproj", "VelocityRunner")
+        let (project, scheme) = if atalanta_runner() {
+            ("AtalantaRunner.xcodeproj", "AtalantaRunner")
         } else {
             ("WebDriverAgent.xcodeproj", "WebDriverAgentRunner")
         };
@@ -863,9 +863,9 @@ impl WdaBootstrap {
             .arg(&derived)
             .current_dir(src)
             .stdin(Stdio::null());
-        let output = velocity_common::process::output_with_timeout(
+        let output = atalanta_common::process::output_with_timeout(
             &mut build,
-            velocity_common::process::LONG_TIMEOUT,
+            atalanta_common::process::LONG_TIMEOUT,
         )
         .await
         .map_err(|e| config(format!("Failed to run xcodebuild: {e}")))?;
@@ -877,14 +877,14 @@ impl WdaBootstrap {
                 .take(5)
                 .collect();
             return Err(config(format!(
-                "WDA {wda_ref} failed to build with Xcode {} (set VELOCITY_WDA_REF to another tag):\n{}",
+                "WDA {wda_ref} failed to build with Xcode {} (set ATALANTA_WDA_REF to another tag):\n{}",
                 xcode.build,
                 if detail.is_empty() { stderr.trim().to_string() } else { detail.join("\n") }
             )));
         }
         let xctestrun = find_xctestrun(&derived)
             .ok_or_else(|| config("WDA build produced no .xctestrun file".to_string()))?;
-        let commit = if velocity_runner() {
+        let commit = if atalanta_runner() {
             String::new()
         } else {
             git_head(src).await
@@ -898,7 +898,7 @@ impl WdaBootstrap {
             derived.join(BUILT_FROM),
             format!("{wda_ref} {commit} {mjpeg}\n"),
         );
-        if velocity_runner() {
+        if atalanta_runner() {
             // ~100 MB a build: off the async workers.
             let (cache, current) = (self.cache_dir.clone(), wda_ref.to_string());
             let _ =
@@ -912,8 +912,8 @@ impl WdaBootstrap {
     async fn launch_and_wait_ready(&mut self, xctestrun: &Path, device_id: &str) -> Result<()> {
         info!(
             "Launching {} on device {device_id} (port {})...",
-            if velocity_runner() {
-                "the Velocity runner"
+            if atalanta_runner() {
+                "the Atalanta runner"
             } else {
                 "WebDriverAgent"
             },
@@ -942,7 +942,7 @@ impl WdaBootstrap {
             None
         };
         // R-4: a cabled device's runner binds the phone's loopback, which
-        // the usbmux forward reaches; `VELOCITY_IOS_DEVICE_LOOPBACK=0`
+        // the usbmux forward reaches; `ATALANTA_IOS_DEVICE_LOOPBACK=0`
         // binds every interface instead. Only a Wi-Fi-only phone (behind
         // `ios.allowWifiRunner`) must listen on its Wi-Fi address.
         let loopback = !self.physical || (usb != Some(false) && device_loopback());
@@ -954,11 +954,11 @@ impl WdaBootstrap {
                 usb,
                 allow_wifi_runner(),
                 self.token().as_deref(),
-                velocity_runner(),
+                atalanta_runner(),
             )?;
             let wifi = usb == Some(false);
             if let Some(w) =
-                open_runner_warning(wifi, loopback, self.token().is_some(), velocity_runner())
+                open_runner_warning(wifi, loopback, self.token().is_some(), atalanta_runner())
             {
                 tracing::warn!("{w}");
             }
@@ -1025,7 +1025,7 @@ impl WdaBootstrap {
             // iOS automation timeout.
             let fatal = cause_rx.borrow().clone().filter(|c| *c != LOCKED);
             if let Some(cause) = fatal {
-                return Err(VelocityError::RunnerFailing {
+                return Err(AtalantaError::RunnerFailing {
                     device_id: device_id.to_string(),
                     detail: format!("{cause}; see {}", log_path.display()),
                 });
@@ -1049,14 +1049,14 @@ impl WdaBootstrap {
                             log_path.display()
                         ),
                     };
-                    return Err(VelocityError::RunnerFailing {
+                    return Err(AtalantaError::RunnerFailing {
                         device_id: device_id.to_string(),
                         detail,
                     });
                 }
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err(VelocityError::RunnerFailing {
+                return Err(AtalantaError::RunnerFailing {
                     device_id: device_id.to_string(),
                     detail: format!(
                         "failed to start within {}s on port {}{}; see {}",
@@ -1168,10 +1168,10 @@ impl Drop for WdaBootstrap {
 /// runner process.
 ///
 /// On a simulator the runner shares the Mac's network stack, so without
-/// `USE_IP` WDA (and VelocityRunner) listened on every interface of the Mac,
+/// `USE_IP` WDA (and AtalantaRunner) listened on every interface of the Mac,
 /// unauthenticated (VEL-152, IOS-N2). A real device binds its loopback
 /// when `loopback` (cabled, the default since R-4), else every interface of
-/// the iPhone, Wi-Fi included (`VELOCITY_IOS_DEVICE_LOOPBACK=0`, or a
+/// the iPhone, Wi-Fi included (`ATALANTA_IOS_DEVICE_LOOPBACK=0`, or a
 /// Wi-Fi-only phone under `ios.allowWifiRunner`).
 fn launch_env(port: u16, loopback: bool) -> Vec<(&'static str, String)> {
     let mut env = vec![
@@ -1185,7 +1185,7 @@ fn launch_env(port: u16, loopback: bool) -> Vec<(&'static str, String)> {
             mjpeg_port(port).to_string(),
         ),
         (
-            "TEST_RUNNER_VELOCITY_RUNNER_BUILD",
+            "TEST_RUNNER_ATALANTA_RUNNER_BUILD",
             RunnerKind::current_build(),
         ),
     ];
@@ -1202,11 +1202,11 @@ pub fn mjpeg_port(wda_port: u16) -> u16 {
     wda_port.saturating_add(1100)
 }
 
-/// `ios.allowWifiRunner: true` (`VELOCITY_IOS_ALLOW_WIFI_RUNNER=1`): run
+/// `ios.allowWifiRunner: true` (`ATALANTA_IOS_ALLOW_WIFI_RUNNER=1`): run
 /// the runner on an iPhone usbmuxd lists over Wi-Fi only.
 fn allow_wifi_runner() -> bool {
     matches!(
-        velocity_common::env::var("VELOCITY_IOS_ALLOW_WIFI_RUNNER")
+        atalanta_common::env::var("ATALANTA_IOS_ALLOW_WIFI_RUNNER")
             .as_deref()
             .map(str::trim),
         Ok("1" | "true" | "on" | "yes")
@@ -1216,17 +1216,17 @@ fn allow_wifi_runner() -> bool {
 /// Shortest bearer token accepted for a Wi-Fi runner.
 pub(crate) const MIN_TOKEN_LEN: usize = 16;
 
-/// `ios.runnerToken` (`VELOCITY_IOS_RUNNER_TOKEN`): a fixed bearer token
-/// in place of the random per-launch one (a runner at `VELOCITY_WDA_URL`
-/// started by hand needs the same value as its `VELOCITY_RUNNER_TOKEN`).
+/// `ios.runnerToken` (`ATALANTA_IOS_RUNNER_TOKEN`): a fixed bearer token
+/// in place of the random per-launch one (a runner at `ATALANTA_WDA_URL`
+/// started by hand needs the same value as its `ATALANTA_RUNNER_TOKEN`).
 /// Masked in every log and report once read.
 pub(crate) fn runner_token() -> Option<String> {
-    let t = velocity_common::env::var("VELOCITY_IOS_RUNNER_TOKEN").ok()?;
+    let t = atalanta_common::env::var("ATALANTA_IOS_RUNNER_TOKEN").ok()?;
     let t = t.trim().to_string();
     if t.is_empty() {
         return None;
     }
-    velocity_common::redact::register_secret(&t);
+    atalanta_common::redact::register_secret(&t);
     Some(t)
 }
 
@@ -1234,7 +1234,7 @@ pub(crate) fn runner_token() -> Option<String> {
 /// to the runner without the prefix).
 fn token_env(token: Option<String>) -> Vec<(&'static str, String)> {
     token
-        .map(|t| vec![("TEST_RUNNER_VELOCITY_RUNNER_TOKEN", t)])
+        .map(|t| vec![("TEST_RUNNER_ATALANTA_RUNNER_TOKEN", t)])
         .unwrap_or_default()
 }
 
@@ -1277,15 +1277,15 @@ fn runner_env(port: u16, loopback: bool, token: Option<String>) -> Vec<(&'static
 }
 
 /// The warning for a cabled iPhone whose runner listens on every interface
-/// (`VELOCITY_IOS_DEVICE_LOOPBACK=0`) and checks no token (WebDriverAgent):
+/// (`ATALANTA_IOS_DEVICE_LOOPBACK=0`) and checks no token (WebDriverAgent):
 /// anyone on the phone's Wi-Fi network can drive it while it runs.
 fn open_runner_warning(
     wifi: bool,
     loopback: bool,
     token: bool,
-    velocity_runner: bool,
+    atalanta_runner: bool,
 ) -> Option<String> {
-    if wifi || loopback || (token && velocity_runner) {
+    if wifi || loopback || (token && atalanta_runner) {
         return None;
     }
     let why = if token {
@@ -1295,9 +1295,9 @@ fn open_runner_warning(
     };
     Some(format!(
         "the runner on this cabled iPhone listens on all of its interfaces, Wi-Fi \
-         included (VELOCITY_IOS_DEVICE_LOOPBACK=0), and {why}: anyone on that network \
-         can drive the phone while it runs. Unset VELOCITY_IOS_DEVICE_LOOPBACK to bind \
-         loopback only, or use ios.runner: velocity"
+         included (ATALANTA_IOS_DEVICE_LOOPBACK=0), and {why}: anyone on that network \
+         can drive the phone while it runs. Unset ATALANTA_IOS_DEVICE_LOOPBACK to bind \
+         loopback only, or use ios.runner: atalanta"
     ))
 }
 
@@ -1305,7 +1305,7 @@ fn open_runner_warning(
 /// usbmuxd; on a Wi-Fi-only one it listens on the phone's Wi-Fi address,
 /// where anyone on the network can drive the phone. That needs
 /// `ios.allowWifiRunner: true` and a bearer token, which only
-/// VelocityRunner checks (WebDriverAgent has no authentication): the
+/// AtalantaRunner checks (WebDriverAgent has no authentication): the
 /// per-launch one, or an `ios.runnerToken` of at least [`MIN_TOKEN_LEN`].
 /// `usb` is [`crate::usbmux::connection`]: `None` (not listed) is left to
 /// the forward's own error.
@@ -1314,7 +1314,7 @@ fn wifi_policy(
     usb: Option<bool>,
     allow: bool,
     token: Option<&str>,
-    velocity_runner: bool,
+    atalanta_runner: bool,
 ) -> Result<()> {
     if usb != Some(false) {
         return Ok(());
@@ -1324,19 +1324,19 @@ fn wifi_policy(
             "iPhone {udid} is connected over Wi-Fi only: connect a cable. The runner \
              would listen on the phone's Wi-Fi address, where anyone on the network \
              could drive it (to allow it anyway: ios.allowWifiRunner: true, with \
-             ios.runner: velocity and an ios.runnerToken)"
+             ios.runner: atalanta and an ios.runnerToken)"
         )));
     }
-    if !velocity_runner {
+    if !atalanta_runner {
         return Err(config(
-            "ios.allowWifiRunner needs ios.runner: velocity: WebDriverAgent has no \
+            "ios.allowWifiRunner needs ios.runner: atalanta: WebDriverAgent has no \
              authentication, so its runner can't be reached safely over Wi-Fi"
                 .into(),
         ));
     }
     if token.is_none_or(|t| t.chars().count() < MIN_TOKEN_LEN) {
         return Err(config(format!(
-            "ios.allowWifiRunner needs ios.runnerToken (VELOCITY_IOS_RUNNER_TOKEN), a \
+            "ios.allowWifiRunner needs ios.runnerToken (ATALANTA_IOS_RUNNER_TOKEN), a \
              bearer token of {MIN_TOKEN_LEN}+ characters the runner requires on every request"
         )));
     }
@@ -1345,11 +1345,11 @@ fn wifi_policy(
 
 /// Whether the runner on a USB-connected iPhone binds its loopback (the
 /// default since R-4: the usbmux forward reaches it there).
-/// `VELOCITY_IOS_DEVICE_LOOPBACK=0` binds every interface instead, for a
+/// `ATALANTA_IOS_DEVICE_LOOPBACK=0` binds every interface instead, for a
 /// phone whose usbmuxd doesn't deliver to loopback.
 fn device_loopback() -> bool {
     loopback_setting(
-        velocity_common::env::var("VELOCITY_IOS_DEVICE_LOOPBACK")
+        atalanta_common::env::var("ATALANTA_IOS_DEVICE_LOOPBACK")
             .ok()
             .as_deref(),
     )
@@ -1361,28 +1361,28 @@ fn loopback_setting(value: Option<&str>) -> bool {
     !matches!(value.map(str::trim), Some("0" | "false" | "off" | "no"))
 }
 
-/// How long stopping a runner app may take (`VELOCITY_IOS_STOP_TIMEOUT_MS`).
+/// How long stopping a runner app may take (`ATALANTA_IOS_STOP_TIMEOUT_MS`).
 fn stop_timeout() -> Duration {
-    velocity_common::settings::ms("VELOCITY_IOS_STOP_TIMEOUT_MS", 10_000)
+    atalanta_common::settings::ms("ATALANTA_IOS_STOP_TIMEOUT_MS", 10_000)
 }
 
-/// `VELOCITY_IOS_RUNNER=velocity`: Velocity's own runner instead of WDA.
-pub(crate) fn velocity_runner() -> bool {
-    velocity_common::env::var("VELOCITY_IOS_RUNNER").as_deref() == Ok("velocity")
+/// `ATALANTA_IOS_RUNNER=atalanta`: Atalanta's own runner instead of WDA.
+pub(crate) fn atalanta_runner() -> bool {
+    atalanta_common::env::var("ATALANTA_IOS_RUNNER").as_deref() == Ok("atalanta")
 }
 
-/// The two runners Velocity drives iOS with.
+/// The two runners Atalanta drives iOS with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunnerKind {
     Wda,
-    Velocity,
+    Atalanta,
 }
 
 impl RunnerKind {
-    /// The one `VELOCITY_IOS_RUNNER` asks for.
+    /// The one `ATALANTA_IOS_RUNNER` asks for.
     fn requested() -> Self {
-        if velocity_runner() {
-            Self::Velocity
+        if atalanta_runner() {
+            Self::Atalanta
         } else {
             Self::Wda
         }
@@ -1391,22 +1391,22 @@ impl RunnerKind {
     fn from_status(status: &serde_json::Value) -> Self {
         // (Only meaningful for a body `is_runner_status` accepts.)
         let version = status["value"]["build"]["version"].as_str().unwrap_or("");
-        if version.starts_with("velocity-runner") {
-            Self::Velocity
+        if version.starts_with("atalanta-runner") {
+            Self::Atalanta
         } else {
             Self::Wda
         }
     }
 
-    /// The VelocityRunner build this Velocity embeds.
+    /// The AtalantaRunner build this Atalanta embeds.
     fn current_build() -> String {
-        format!("velocity-runner-{}", crate::runner_src::hash())
+        format!("atalanta-runner-{}", crate::runner_src::hash())
     }
 
     fn name(self) -> &'static str {
         match self {
             Self::Wda => "WebDriverAgent",
-            Self::Velocity => "VelocityRunner",
+            Self::Atalanta => "AtalantaRunner",
         }
     }
 
@@ -1414,7 +1414,7 @@ impl RunnerKind {
     fn bundle_id(self) -> &'static str {
         match self {
             Self::Wda => "com.facebook.WebDriverAgentRunner.xctrunner",
-            Self::Velocity => "dev.velocity.runner.xctrunner",
+            Self::Atalanta => "dev.atalanta.runner.xctrunner",
         }
     }
 }
@@ -1425,32 +1425,32 @@ struct DeviceSigning {
     bundle_id: String,
 }
 
-/// `VELOCITY_IOS_TEAM_ID` (required) and `VELOCITY_WDA_BUNDLE_ID` (default
-/// `com.<team>.velocity.WebDriverAgentRunner`).
+/// `ATALANTA_IOS_TEAM_ID` (required) and `ATALANTA_WDA_BUNDLE_ID` (default
+/// `com.<team>.atalanta.WebDriverAgentRunner`).
 fn device_signing() -> Result<DeviceSigning> {
-    let team = velocity_common::env::var("VELOCITY_IOS_TEAM_ID").map_err(|_| {
+    let team = atalanta_common::env::var("ATALANTA_IOS_TEAM_ID").map_err(|_| {
         config(
             "a real iPhone needs WebDriverAgent signed with your Apple team: \
-             set VELOCITY_IOS_TEAM_ID (Xcode → Settings → Accounts → Team ID); \
-             with no Apple ID in Xcode, also set VELOCITY_ASC_KEY_PATH / _KEY_ID / \
+             set ATALANTA_IOS_TEAM_ID (Xcode → Settings → Accounts → Team ID); \
+             with no Apple ID in Xcode, also set ATALANTA_ASC_KEY_PATH / _KEY_ID / \
              _ISSUER_ID (an App Store Connect API key)"
                 .to_string(),
         )
     })?;
-    let bundle_id = velocity_common::env::var("VELOCITY_WDA_BUNDLE_ID")
-        .unwrap_or_else(|_| format!("com.{}.velocity.WebDriverAgentRunner", team.to_lowercase()));
+    let bundle_id = atalanta_common::env::var("ATALANTA_WDA_BUNDLE_ID")
+        .unwrap_or_else(|_| format!("com.{}.atalanta.WebDriverAgentRunner", team.to_lowercase()));
     Ok(DeviceSigning { team, bundle_id })
 }
 
-/// Leave WDA running at exit so the next run reattaches (`VELOCITY_KEEP_WDA=1`).
+/// Leave WDA running at exit so the next run reattaches (`ATALANTA_KEEP_WDA=1`).
 fn keep_wda() -> bool {
     matches!(
-        velocity_common::env::var("VELOCITY_KEEP_WDA").as_deref(),
+        atalanta_common::env::var("ATALANTA_KEEP_WDA").as_deref(),
         Ok("1") | Ok("true")
     )
 }
 
-/// Whether a `/status` body is WebDriverAgent's or VelocityRunner's: both
+/// Whether a `/status` body is WebDriverAgent's or AtalantaRunner's: both
 /// answer `{"value": {"ready": …, "build": {…}}}`; WDA's message names it.
 fn is_runner_status(body: &serde_json::Value) -> bool {
     let v = &body["value"];
@@ -1458,7 +1458,7 @@ fn is_runner_status(body: &serde_json::Value) -> bool {
         || v["build"].is_object()
         || v["message"]
             .as_str()
-            .is_some_and(|m| m.contains("WebDriverAgent") || m.contains("VelocityRunner"))
+            .is_some_and(|m| m.contains("WebDriverAgent") || m.contains("AtalantaRunner"))
 }
 
 /// First WDA port for simulators; simulator *n* gets `BASE_PORT + n`.
@@ -1507,7 +1507,7 @@ async fn describe_pids(pids: &[String]) -> String {
         let mut cmd = Command::new("ps");
         cmd.args(["-o", "command=", "-p", pid]).stdin(Stdio::null());
         let command =
-            velocity_common::process::output_with_timeout(&mut cmd, Duration::from_secs(5))
+            atalanta_common::process::output_with_timeout(&mut cmd, Duration::from_secs(5))
                 .await
                 .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                 .unwrap_or_default();
@@ -1530,7 +1530,7 @@ async fn listening_pids(port: u16) -> Vec<String> {
     let mut cmd = Command::new("lsof");
     cmd.args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])
         .stdin(Stdio::null());
-    velocity_common::process::output_with_timeout(&mut cmd, Duration::from_secs(5))
+    atalanta_common::process::output_with_timeout(&mut cmd, Duration::from_secs(5))
         .await
         .map(|o| {
             String::from_utf8_lossy(&o.stdout)
@@ -1548,7 +1548,7 @@ async fn owner_of(pids: &[String]) -> Option<String> {
         let mut cmd = Command::new("ps");
         cmd.args(["-o", "command=", "-p", pid]).stdin(Stdio::null());
         if let Ok(o) =
-            velocity_common::process::output_with_timeout(&mut cmd, Duration::from_secs(5)).await
+            atalanta_common::process::output_with_timeout(&mut cmd, Duration::from_secs(5)).await
         {
             if let Some(udid) = udid_in_path(&String::from_utf8_lossy(&o.stdout)) {
                 return Some(udid);
@@ -1668,7 +1668,7 @@ async fn xcode_info() -> Result<XcodeInfo> {
     let out = |args: &'static [&'static str]| async move {
         let mut cmd = Command::new(args[0]);
         cmd.args(&args[1..]).stdin(Stdio::null());
-        velocity_common::process::output_with_timeout(&mut cmd, Duration::from_secs(30))
+        atalanta_common::process::output_with_timeout(&mut cmd, Duration::from_secs(30))
             .await
             .ok()
             .filter(|o| o.status.success())
@@ -1704,14 +1704,14 @@ fn pick_wda_ref(developer_dir: &Path) -> &'static str {
     }
 }
 
-/// The simulator runner build cache for one Xcode, as `velocity doctor`
+/// The simulator runner build cache for one Xcode, as `atalanta doctor`
 /// reports it: which runner and ref the next run would use, and whether
 /// it is already built (else the first iOS run builds it once).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunnerCache {
-    /// `WebDriverAgent` or `VelocityRunner` (`VELOCITY_IOS_RUNNER=velocity`).
+    /// `WebDriverAgent` or `AtalantaRunner` (`ATALANTA_IOS_RUNNER=atalanta`).
     pub runner: &'static str,
-    /// The WDA tag (or `velocity-runner-<hash>`) the build is keyed by.
+    /// The WDA tag (or `atalanta-runner-<hash>`) the build is keyed by.
     pub wda_ref: String,
     /// `<cache>/build/<ref>-<xcode build>-<arch>`.
     pub dir: PathBuf,
@@ -1720,22 +1720,22 @@ pub struct RunnerCache {
     /// This Xcode's simulator platform ships `lib_TestingInterop.dylib`
     /// (so it needs the newer pinned tag).
     pub testing_interop: bool,
-    /// Whether the ref is one of Velocity's pins, and what is known about
-    /// it on Xcode (`None` for an unpinned `VELOCITY_WDA_REF`).
+    /// Whether the ref is one of Atalanta's pins, and what is known about
+    /// it on Xcode (`None` for an unpinned `ATALANTA_WDA_REF`).
     pub pin_note: Option<&'static str>,
 }
 
 /// [`RunnerCache`] for the Xcode at `developer_dir` (`xcode-select -p`)
 /// whose build is `xcode_build` (`17A400`), with the cache under
-/// `cache_dir` (`~/.velocity/wda`). Reads the file system only.
+/// `cache_dir` (`~/.atalanta/wda`). Reads the file system only.
 pub fn runner_cache(cache_dir: &Path, developer_dir: &Path, xcode_build: &str) -> RunnerCache {
     let testing_interop = pick_wda_ref(developer_dir) == WDA_REF_TESTING_INTEROP;
-    let (runner, wda_ref) = if velocity_runner() {
-        ("VelocityRunner", RunnerKind::current_build())
+    let (runner, wda_ref) = if atalanta_runner() {
+        ("AtalantaRunner", RunnerKind::current_build())
     } else {
         (
             "WebDriverAgent",
-            velocity_common::env::var("VELOCITY_WDA_REF")
+            atalanta_common::env::var("ATALANTA_WDA_REF")
                 .unwrap_or_else(|_| pick_wda_ref(developer_dir).to_string()),
         )
     };
@@ -1745,10 +1745,10 @@ pub fn runner_cache(cache_dir: &Path, developer_dir: &Path, xcode_build: &str) -
         sanitize(xcode_build),
         std::env::consts::ARCH
     ));
-    let trusted = velocity_runner() || build_matches_pin(&dir, &wda_ref);
+    let trusted = atalanta_runner() || build_matches_pin(&dir, &wda_ref);
     let built = trusted && find_xctestrun(&dir).is_some();
-    let pin_note = if velocity_runner() {
-        Some("built from the source embedded in this Velocity")
+    let pin_note = if atalanta_runner() {
+        Some("built from the source embedded in this Atalanta")
     } else if wda_ref == WDA_REF_LEGACY {
         Some("pinned; verified on Xcode 26.0.1 (no lib_TestingInterop.dylib)")
     } else if wda_ref == WDA_REF_TESTING_INTEROP {
@@ -1766,9 +1766,9 @@ pub fn runner_cache(cache_dir: &Path, developer_dir: &Path, xcode_build: &str) -
     }
 }
 
-/// `~/.velocity/wda`: where runner sources and builds are cached.
+/// `~/.atalanta/wda`: where runner sources and builds are cached.
 pub fn default_cache_dir() -> PathBuf {
-    dirs_home().join(".velocity").join("wda")
+    dirs_home().join(".atalanta").join("wda")
 }
 
 /// The build's `.xctestrun`, when the runner app it points at is there too
@@ -1830,11 +1830,11 @@ async fn cache_lock(cache_dir: &Path, key: &str) -> Result<std::fs::File> {
     .map_err(|e| config(format!("runner cache lock: {e}")))
 }
 
-/// Every VelocityRunner source changes its build key, so each Velocity
+/// Every AtalantaRunner source changes its build key, so each Atalanta
 /// update left a ~100 MB build behind (VEL-288). Remove the
-/// `velocity-runner-*` builds and sources of other runner versions than
+/// `atalanta-runner-*` builds and sources of other runner versions than
 /// `current` (any Xcode, any destination), unless touched within a day (a
-/// run of another Velocity version may be using one).
+/// run of another Atalanta version may be using one).
 fn prune_runner_builds(cache_dir: &Path, current: &str) {
     let day = Duration::from_secs(24 * 3600);
     let keep = sanitize(current);
@@ -1844,7 +1844,7 @@ fn prune_runner_builds(cache_dir: &Path, current: &str) {
         };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if !name.starts_with("velocity-runner-") || name.starts_with(&keep) {
+            if !name.starts_with("atalanta-runner-") || name.starts_with(&keep) {
                 continue;
             }
             let old = e
@@ -1873,12 +1873,12 @@ fn sanitize(s: &str) -> String {
         .collect()
 }
 
-fn config(msg: String) -> VelocityError {
-    VelocityError::Config(msg)
+fn config(msg: String) -> AtalantaError {
+    AtalantaError::Config(msg)
 }
 
 fn dirs_home() -> PathBuf {
-    velocity_common::host::home_dir()
+    atalanta_common::host::home_dir()
 }
 
 #[cfg(test)]
@@ -1900,14 +1900,14 @@ mod tests {
             .iter()
             .any(|(n, v)| *n == "TEST_RUNNER_MJPEG_SERVER_PORT" && v == "9201"));
         // Real devices bind every interface only when not `loopback`
-        // (VELOCITY_IOS_DEVICE_LOOPBACK=0, or a Wi-Fi-only phone).
+        // (ATALANTA_IOS_DEVICE_LOOPBACK=0, or a Wi-Fi-only phone).
         let dev = launch_env(8100, false);
         assert!(!dev.iter().any(|(n, _)| n.ends_with("USE_IP")), "{dev:?}");
         assert!(WdaBootstrap::new().with_port(8105).base_url() == "http://127.0.0.1:8105");
     }
 
     /// wifi-runner: a Wi-Fi-only iPhone fails with "connect a cable"
-    /// unless allowed, and allowing it needs VelocityRunner and a token.
+    /// unless allowed, and allowing it needs AtalantaRunner and a token.
     #[test]
     fn a_wifi_only_iphone_needs_a_cable_or_the_opt_in_with_a_token() {
         let token = "0123456789abcdef";
@@ -1916,10 +1916,10 @@ mod tests {
             wifi_policy("U", usb, false, None, false).unwrap();
         }
         let e = wifi_policy("U", Some(false), false, Some(token), true).unwrap_err();
-        assert!(matches!(e, VelocityError::Config(_)), "{e}");
+        assert!(matches!(e, AtalantaError::Config(_)), "{e}");
         assert!(e.to_string().contains("connect a cable"), "{e}");
         let e = wifi_policy("U", Some(false), true, Some(token), false).unwrap_err();
-        assert!(e.to_string().contains("ios.runner: velocity"), "{e}");
+        assert!(e.to_string().contains("ios.runner: atalanta"), "{e}");
         for bad in [None, Some("short")] {
             let e = wifi_policy("U", Some(false), true, bad, true).unwrap_err();
             assert!(e.to_string().contains("ios.runnerToken"), "{e}");
@@ -1927,7 +1927,7 @@ mod tests {
         wifi_policy("U", Some(false), true, Some(token), true).unwrap();
         assert_eq!(
             token_env(Some(token.into())),
-            [("TEST_RUNNER_VELOCITY_RUNNER_TOKEN", token.to_string())]
+            [("TEST_RUNNER_ATALANTA_RUNNER_TOKEN", token.to_string())]
         );
         assert!(token_env(None).is_empty());
     }
@@ -1935,7 +1935,7 @@ mod tests {
     #[tokio::test]
     async fn stopping_a_runner_is_bounded_and_uses_the_xcrun_override() {
         // VEL-350: `xcrun simctl terminate` had no deadline and ignored
-        // VELOCITY_XCRUN_PATH; a hung simctl kept the run from exiting.
+        // ATALANTA_XCRUN_PATH; a hung simctl kept the run from exiting.
         let dir = std::env::temp_dir().join(format!("vel-stop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("called");
@@ -1966,12 +1966,12 @@ mod tests {
     }
 
     #[test]
-    fn status_tells_velocity_runner_from_wda() {
-        let ours = serde_json::json!({"value": {"message": "VelocityRunner ready",
-            "build": {"version": "velocity-runner-1"}}});
+    fn status_tells_atalanta_runner_from_wda() {
+        let ours = serde_json::json!({"value": {"message": "AtalantaRunner ready",
+            "build": {"version": "atalanta-runner-1"}}});
         let wda = serde_json::json!({"value": {"ready": true,
             "build": {"productBundleIdentifier": "com.facebook.WebDriverAgentRunner"}}});
-        assert_eq!(RunnerKind::from_status(&ours), RunnerKind::Velocity);
+        assert_eq!(RunnerKind::from_status(&ours), RunnerKind::Atalanta);
         assert_eq!(RunnerKind::from_status(&wda), RunnerKind::Wda);
         assert_eq!(
             RunnerKind::from_status(&serde_json::Value::Null),
@@ -2006,14 +2006,14 @@ mod tests {
         assert_eq!(
             pinned_commit("v9.9.9"),
             None,
-            "a VELOCITY_WDA_REF tag of the user's own isn't checked"
+            "a ATALANTA_WDA_REF tag of the user's own isn't checked"
         );
         assert!(check_pinned_commit("v9.9.9", "anything").is_ok());
     }
 
     #[test]
     fn runner_cache_reports_the_ref_this_xcode_needs_and_whether_it_is_built() {
-        if velocity_runner() || velocity_common::env::var("VELOCITY_WDA_REF").is_ok() {
+        if atalanta_runner() || atalanta_common::env::var("ATALANTA_WDA_REF").is_ok() {
             return;
         }
         let root = std::env::temp_dir().join(format!("vel-runner-cache-{}", std::process::id()));
@@ -2095,7 +2095,7 @@ mod tests {
     }
 
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("velocity-boot-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("atalanta-boot-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -2107,9 +2107,9 @@ mod tests {
         let cache = scratch("src");
         let mut b = WdaBootstrap::new();
         b.cache_dir = cache.clone();
-        let dir = cache.join("src").join("velocity-runner-x");
-        std::fs::create_dir_all(dir.join("VelocityRunner.xcodeproj")).unwrap();
-        assert_eq!(b.ensure_runner_source("velocity-runner-x").unwrap(), dir);
+        let dir = cache.join("src").join("atalanta-runner-x");
+        std::fs::create_dir_all(dir.join("AtalantaRunner.xcodeproj")).unwrap();
+        assert_eq!(b.ensure_runner_source("atalanta-runner-x").unwrap(), dir);
         for (p, contents) in crate::runner_src::FILES {
             assert_eq!(
                 &std::fs::read_to_string(dir.join(p)).unwrap(),
@@ -2144,7 +2144,7 @@ mod tests {
         std::fs::create_dir_all(&products).unwrap();
         std::fs::write(products.join("R_iphonesimulator.xctestrun"), "x").unwrap();
         assert_eq!(find_xctestrun(&d), None);
-        std::fs::create_dir_all(products.join("Debug-iphonesimulator/VelocityRunner-Runner.app"))
+        std::fs::create_dir_all(products.join("Debug-iphonesimulator/AtalantaRunner-Runner.app"))
             .unwrap();
         assert_eq!(
             find_xctestrun(&d),
@@ -2180,12 +2180,12 @@ mod tests {
             }
             p
         };
-        let stale = mk("build", "velocity-runner-aaa-17A1-arm64", true);
-        let stale_src = mk("src", "velocity-runner-aaa", true);
-        let recent = mk("build", "velocity-runner-bbb-17A1-arm64", false);
-        let current = mk("build", "velocity-runner-ccc-17A1-iphoneos-T", true);
+        let stale = mk("build", "atalanta-runner-aaa-17A1-arm64", true);
+        let stale_src = mk("src", "atalanta-runner-aaa", true);
+        let recent = mk("build", "atalanta-runner-bbb-17A1-arm64", false);
+        let current = mk("build", "atalanta-runner-ccc-17A1-iphoneos-T", true);
         let wda = mk("build", "v9.3.2-17A1-arm64", true);
-        prune_runner_builds(&d, "velocity-runner-ccc");
+        prune_runner_builds(&d, "atalanta-runner-ccc");
         assert!(!stale.exists() && !stale_src.exists());
         assert!(recent.exists() && current.exists() && wda.exists());
         std::fs::remove_dir_all(d).unwrap();
@@ -2195,9 +2195,9 @@ mod tests {
     async fn a_second_bootstrap_waits_for_the_first() {
         // VEL-149: two processes bootstrapping at once raced on one cache.
         let d = scratch("lock");
-        let first = cache_lock(&d, "velocity-runner-x").await.unwrap();
+        let first = cache_lock(&d, "atalanta-runner-x").await.unwrap();
         let d2 = d.clone();
-        let second = tokio::spawn(async move { cache_lock(&d2, "velocity-runner-x").await });
+        let second = tokio::spawn(async move { cache_lock(&d2, "atalanta-runner-x").await });
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert!(!second.is_finished(), "waits while the first holds it");
         // Another key is independent.
@@ -2211,7 +2211,7 @@ mod tests {
         std::fs::remove_dir_all(d).unwrap();
     }
 
-    /// fi56: a kept WDA (`VELOCITY_KEEP_WDA`) that a run reattaches to
+    /// fi56: a kept WDA (`ATALANTA_KEEP_WDA`) that a run reattaches to
     /// is known by the ref its launching run recorded next to the cached
     /// build; one with no record is unknown (no default deadline).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2358,7 +2358,7 @@ mod tests {
         assert!(patch_mjpeg_bind(&src));
         let once = std::fs::read_to_string(&file).unwrap();
         assert!(once.contains(
-            "mjpegServerPort];\n  // Velocity: listen where USE_IP says (loopback on a simulator), as the HTTP server does.\n  self.screenshotsBroadcaster.interface = FBConfiguration.sharedInstance.bindingIPAddress;\n  self.mjpegServer.socket"
+            "mjpegServerPort];\n  // Atalanta: listen where USE_IP says (loopback on a simulator), as the HTTP server does.\n  self.screenshotsBroadcaster.interface = FBConfiguration.sharedInstance.bindingIPAddress;\n  self.mjpegServer.socket"
         ), "{once}");
         assert!(patch_mjpeg_bind(&src), "already patched");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), once, "not twice");
@@ -2400,7 +2400,7 @@ mod tests {
         assert!(!is_runner_status(&serde_json::json!({"status": "ok"})));
     }
 
-    /// A fake VelocityRunner started with `token`: 401 on any request
+    /// A fake AtalantaRunner started with `token`: 401 on any request
     /// without `Authorization: Bearer <token>`, `/status` otherwise.
     async fn fake_runner_with_token(token: &'static str) -> u16 {
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -2415,7 +2415,7 @@ mod tests {
                 let (status, body) = if head.contains(&want) {
                     (
                         "200 OK",
-                        r#"{"value":{"ready":true,"message":"VelocityRunner ready","build":{"version":"velocity-runner-x"}}}"#,
+                        r#"{"value":{"ready":true,"message":"AtalantaRunner ready","build":{"version":"atalanta-runner-x"}}}"#,
                     )
                 } else {
                     (
@@ -2447,8 +2447,8 @@ mod tests {
             .with_token(Some(token.into()));
         assert!(b.is_running().await, "readiness check sends the token");
         let (kind, version, runner_like) = b.running_kind().await.expect("reattach check");
-        assert_eq!(kind, RunnerKind::Velocity);
-        assert_eq!(version, "velocity-runner-x");
+        assert_eq!(kind, RunnerKind::Atalanta);
+        assert_eq!(version, "atalanta-runner-x");
         assert!(runner_like);
     }
 
@@ -2459,7 +2459,7 @@ mod tests {
         let tok = "0123456789abcdef".to_string();
         let has_token = |env: &[(&str, String)]| {
             env.iter()
-                .any(|(k, v)| *k == "TEST_RUNNER_VELOCITY_RUNNER_TOKEN" && *v == tok)
+                .any(|(k, v)| *k == "TEST_RUNNER_ATALANTA_RUNNER_TOKEN" && *v == tok)
         };
         assert!(has_token(&runner_env(
             DEVICE_WDA_PORT,
@@ -2513,7 +2513,7 @@ mod tests {
     }
 
     /// R-1: a runner answering 401 was started with a token this process
-    /// doesn't have: taken for a VelocityRunner of no known version, so it
+    /// doesn't have: taken for a AtalantaRunner of no known version, so it
     /// is replaced, never reused.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_runner_with_an_unknown_token_is_replaced() {
@@ -2525,7 +2525,7 @@ mod tests {
         assert!(b.answers().await);
         assert_eq!(
             b.running_kind().await,
-            Some((RunnerKind::Velocity, String::new(), true))
+            Some((RunnerKind::Atalanta, String::new(), true))
         );
     }
 
@@ -2543,7 +2543,7 @@ mod tests {
         b.launch_failures.push(std::time::Instant::now());
         b.last_failure = Some("WDA exited before becoming ready (signal: 6)".into());
         let e = b.check_crash_loop("SIM").unwrap_err();
-        assert!(matches!(e, VelocityError::RunnerFailing { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::RunnerFailing { .. }), "{e:?}");
         assert_eq!(e.exit_code(), 3);
         assert!(!e.is_transient());
         assert!(e.to_string().contains("signal: 6"), "{e}");
@@ -2560,7 +2560,7 @@ mod tests {
         let port = l.local_addr().unwrap().port();
         let mut b = WdaBootstrap::new().with_port(port);
         let e = b.free_port("SIM-UDID").await.unwrap_err();
-        assert!(matches!(e, VelocityError::RunnerFailing { .. }), "{e:?}");
+        assert!(matches!(e, AtalantaError::RunnerFailing { .. }), "{e:?}");
         let pid = std::process::id().to_string();
         assert!(e.to_string().contains(&format!("pid {pid}")), "{e}");
         drop(l);
@@ -2568,7 +2568,7 @@ mod tests {
     }
 
     /// R-4: a cabled iPhone's runner binds loopback unless
-    /// `VELOCITY_IOS_DEVICE_LOOPBACK=0` (it used to need `=1`).
+    /// `ATALANTA_IOS_DEVICE_LOOPBACK=0` (it used to need `=1`).
     #[test]
     fn device_loopback_is_the_default() {
         for (v, want) in [
@@ -2585,7 +2585,7 @@ mod tests {
     fn a_cabled_runner_without_a_token_warns_that_it_listens_everywhere() {
         let w = open_runner_warning(false, false, false, true).expect("warns");
         assert!(
-            w.contains("all of its interfaces") && w.contains("VELOCITY_IOS_DEVICE_LOOPBACK"),
+            w.contains("all of its interfaces") && w.contains("ATALANTA_IOS_DEVICE_LOOPBACK"),
             "{w}"
         );
         assert!(open_runner_warning(false, false, true, false)
@@ -2690,7 +2690,7 @@ mod tests {
                 use tokio::io::{AsyncReadExt, AsyncWriteExt};
                 let mut buf = vec![0u8; 4096];
                 let _ = s.read(&mut buf).await;
-                let body = r#"{"value":{"ready":true,"message":"VelocityRunner ready","build":{"version":"velocity-runner-x"}}}"#;
+                let body = r#"{"value":{"ready":true,"message":"AtalantaRunner ready","build":{"version":"atalanta-runner-x"}}}"#;
                 let out = format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
@@ -2740,6 +2740,6 @@ mod tests {
             .await
             .unwrap_err()
             .to_string();
-        assert!(e.contains("ios.runner: velocity"), "{e}");
+        assert!(e.contains("ios.runner: atalanta"), "{e}");
     }
 }

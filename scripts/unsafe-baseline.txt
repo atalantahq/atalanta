@@ -2,20 +2,20 @@
 # --check fails when a crate goes above its number; raise it only in
 # the same change as the reviewed unsafe code.
 fuzz 0
-velocity-adapter 3
-velocity-android 0
-velocity-api 0
-velocity-cli 21
-velocity-common 8
-velocity-core 1
-velocity-doctor 0
-velocity-explore 0
-velocity-flutter-bridge 0
-velocity-headless 0
-velocity-inspector 3
-velocity-ios 2
-velocity-mcp 7
-velocity-migrate 0
-velocity-nl 0
-velocity-runner 6
-velocity-web 0
+atalanta-adapter 3
+atalanta-android 0
+atalanta-api 0
+atalanta-cli 21
+atalanta-common 8
+atalanta-core 1
+atalanta-doctor 0
+atalanta-explore 0
+atalanta-flutter-bridge 0
+atalanta-headless 0
+atalanta-inspector 3
+atalanta-ios 2
+atalanta-mcp 7
+atalanta-migrate 0
+atalanta-nl 0
+atalanta-runner 6
+atalanta-web 0

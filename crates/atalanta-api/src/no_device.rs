@@ -3,9 +3,9 @@
 //! It lists one stand-in per `--parallel` slot, so the sequential and the
 //! parallel runner work unchanged; anything that needs a screen is refused.
 
-use velocity_common::{
-    DeviceInfo, DeviceState, DeviceType, Direction, Element, Key, Platform, PlatformDriver, Result,
-    Selector, VelocityError,
+use atalanta_common::{
+    AtalantaError, DeviceInfo, DeviceState, DeviceType, Direction, Element, Key, Platform,
+    PlatformDriver, Result, Selector,
 };
 
 pub struct NoDeviceDriver {
@@ -23,8 +23,8 @@ impl NoDeviceDriver {
     }
 }
 
-fn refuse(what: &str) -> VelocityError {
-    VelocityError::Config(format!(
+fn refuse(what: &str) -> AtalantaError {
+    AtalantaError::Config(format!(
         "{what} needs a device, and this run has none (its tests have only http, wait and setConfig steps)"
     ))
 }
@@ -34,7 +34,7 @@ impl PlatformDriver for NoDeviceDriver {
     async fn list_devices(&self) -> Result<Vec<DeviceInfo>> {
         Ok((0..self.slots)
             .map(|i| DeviceInfo {
-                id: velocity_common::no_device_id(i),
+                id: atalanta_common::no_device_id(i),
                 name: "no device (http steps only)".into(),
                 platform: self.platform,
                 state: DeviceState::Booted,
@@ -119,7 +119,7 @@ mod tests {
         let d = NoDeviceDriver::new(0, Platform::Android);
         let devices = d.list_devices().await.unwrap();
         assert_eq!(devices.len(), 1, "at least one slot");
-        assert!(velocity_common::is_no_device(&devices[0].id));
+        assert!(atalanta_common::is_no_device(&devices[0].id));
         let d = NoDeviceDriver::new(3, Platform::Ios);
         let ids: Vec<String> = d
             .list_devices()
@@ -135,7 +135,7 @@ mod tests {
             d.screenshot("http-0").await.unwrap_err(),
             d.press_key("http-0", Key::Back).await.unwrap_err(),
         ] {
-            assert!(matches!(e, VelocityError::Config(_)), "{e:?}");
+            assert!(matches!(e, AtalantaError::Config(_)), "{e:?}");
             assert_eq!(e.exit_code(), 2);
             assert!(e.to_string().contains("this run has none"), "{e}");
         }

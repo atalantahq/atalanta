@@ -1,4 +1,4 @@
-//! The suite YAML parser and validator: what `velocity run` / `validate`
+//! The suite YAML parser and validator: what `atalanta run` / `validate`
 //! do with a suite file, and what the MCP server does with an agent's
 //! inline `yaml`. Must never panic or hang, whatever the input.
 #![no_main]
@@ -10,8 +10,8 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     // The streaming header scan (`--list`, sharding) reads the same text.
-    let _ = velocity_core::parse_headers(yaml);
-    if let Ok(suite) = velocity_core::parser::parse_suite_from_str(yaml) {
-        let _ = velocity_core::validate_suite(&suite);
+    let _ = atalanta_core::parse_headers(yaml);
+    if let Ok(suite) = atalanta_core::parser::parse_suite_from_str(yaml) {
+        let _ = atalanta_core::validate_suite(&suite);
     }
 });

@@ -1,7 +1,7 @@
 //! Screen video from the on-device video server, scrcpy-style.
 //!
-//! The tree server's jar also carries `com.velocity.tree.VideoServer`
-//! (`probes/android/velocity-tree-server`). It runs as its own
+//! The tree server's jar also carries `com.atalanta.tree.VideoServer`
+//! (`probes/android/atalanta-tree-server`). It runs as its own
 //! `app_process` (as scrcpy's server does), mirrors the display onto a
 //! MediaCodec H.264 encoder's input surface and streams the encoded
 //! packets over an abstract socket that `adb forward` exposes. One
@@ -71,7 +71,7 @@ where
     let mac = |label: &str, cn: &str, sn: &str| {
         hex(&hmac_sha256(
             token.as_bytes(),
-            format!("velocity-video {label} {cn} {sn}").as_bytes(),
+            format!("atalanta-video {label} {cn} {sn}").as_bytes(),
         ))
     };
     let fut = async {
@@ -85,7 +85,7 @@ where
         let (sn, got) = (it.next().unwrap_or(""), it.next().unwrap_or(""));
         if sn.is_empty() || !constant_time_eq(got.as_bytes(), mac("server", &cn, sn).as_bytes()) {
             return Err(
-                "the video socket's server could not prove it is Velocity's; not streaming from it"
+                "the video socket's server could not prove it is Atalanta's; not streaming from it"
                     .to_string(),
             );
         }
@@ -145,23 +145,23 @@ impl Default for VideoOptions {
 }
 
 impl VideoOptions {
-    /// The defaults, overridden by `VELOCITY_ANDROID_VIDEO_SIZE`,
-    /// `VELOCITY_ANDROID_VIDEO_BITRATE` and `VELOCITY_ANDROID_VIDEO_FPS`.
+    /// The defaults, overridden by `ATALANTA_ANDROID_VIDEO_SIZE`,
+    /// `ATALANTA_ANDROID_VIDEO_BITRATE` and `ATALANTA_ANDROID_VIDEO_FPS`.
     pub fn from_env() -> Self {
         let mut o = Self::default();
         let num = |k: &str| {
-            velocity_common::env::var(k)
+            atalanta_common::env::var(k)
                 .ok()
                 .and_then(|v| v.trim().parse::<u32>().ok())
                 .filter(|v| *v > 0)
         };
-        if let Some(v) = num("VELOCITY_ANDROID_VIDEO_SIZE") {
+        if let Some(v) = num("ATALANTA_ANDROID_VIDEO_SIZE") {
             o.max_size = v.max(64);
         }
-        if let Some(v) = num("VELOCITY_ANDROID_VIDEO_BITRATE") {
+        if let Some(v) = num("ATALANTA_ANDROID_VIDEO_BITRATE") {
             o.bit_rate = v;
         }
-        if let Some(v) = num("VELOCITY_ANDROID_VIDEO_FPS") {
+        if let Some(v) = num("ATALANTA_ANDROID_VIDEO_FPS") {
             o.max_fps = v;
         }
         o
@@ -407,7 +407,7 @@ pub struct VideoStream {
     control: mpsc::UnboundedSender<u8>,
     shared: Arc<Shared>,
     started: Instant,
-    _child: Option<velocity_common::process::GroupChild>,
+    _child: Option<atalanta_common::process::GroupChild>,
     port: Option<u16>,
     adb_path: String,
 }
@@ -438,17 +438,17 @@ impl VideoStream {
         // Its own socket name per start: a server left by a killed run
         // (it exits within 15 s without a client) never collides.
         let socket = format!(
-            "velocity_video_{}_{}",
+            "atalanta_video_{}_{}",
             std::process::id(),
             NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         );
-        let mut child = velocity_common::process::spawn_group(
+        let mut child = atalanta_common::process::spawn_group(
             Command::new(adb_path)
                 .args(crate::adb::target_args(device_id))
                 .args([
                     "shell",
                     &format!(
-                        "CLASSPATH={remote} exec app_process / com.velocity.tree.VideoServer \
+                        "CLASSPATH={remote} exec app_process / com.atalanta.tree.VideoServer \
                          --max-size {} --bit-rate {} --max-fps {} --iframe {} --socket {socket}",
                         opts.max_size, opts.bit_rate, opts.max_fps, opts.key_frame_interval
                     ),
@@ -480,7 +480,7 @@ impl VideoStream {
                 if line.contains("listening") {
                     // The jar is pushed by content hash, so this is always
                     // the embedded server; say so plainly if it isn't.
-                    if !line.starts_with(&format!("velocity-video {VIDEO_VERSION} ")) {
+                    if !line.starts_with(&format!("atalanta-video {VIDEO_VERSION} ")) {
                         return Err(format!(
                             "video server speaks {line:?}, expected version {VIDEO_VERSION}"
                         ));
@@ -602,7 +602,7 @@ impl VideoStream {
         mut read: R,
         mut write: W,
         keep: Duration,
-        child: Option<velocity_common::process::GroupChild>,
+        child: Option<atalanta_common::process::GroupChild>,
         port: Option<u16>,
         adb_path: &str,
     ) -> Self
@@ -812,7 +812,7 @@ impl Drop for ScreenRecord {
 impl ScreenRecord {
     pub fn start(adb_path: &str, device_id: &str, opts: VideoOptions) -> Self {
         let tag = format!(
-            "velocity-rec-{}-{}",
+            "atalanta-rec-{}-{}",
             std::process::id(),
             NEXT_SOCKET.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         );
@@ -949,7 +949,7 @@ mod tests {
         };
         fake.stub(
             "app_process",
-            "echo 'velocity-video 2 listening on @test'; sleep 30",
+            "echo 'atalanta-video 2 listening on @test'; sleep 30",
         );
         fake.stub(
             "adb-forward",
@@ -957,7 +957,7 @@ mod tests {
         );
         fake.stub(
             "cat",
-            "case \"$1\" in /data/local/tmp/velocity_video_*.token) echo 0123456789abcdef0123456789abcdef;; *) exec /bin/cat \"$@\";; esac",
+            "case \"$1\" in /data/local/tmp/atalanta_video_*.token) echo 0123456789abcdef0123456789abcdef;; *) exec /bin/cat \"$@\";; esac",
         );
         let started = VideoStream::start(
             &fake.path(),
@@ -1037,7 +1037,7 @@ mod tests {
         let mac = |label: &str, cn: &str, sn: &str| {
             hex(&hmac_sha256(
                 token.as_bytes(),
-                format!("velocity-video {label} {cn} {sn}").as_bytes(),
+                format!("atalanta-video {label} {cn} {sn}").as_bytes(),
             ))
         };
         // A server that knows the token (as VideoServer.authenticated).
@@ -1217,7 +1217,7 @@ mod tests {
         assert_eq!((p.width, p.height), (584, 1280));
     }
 
-    /// Runs against a real device when one is named in VELOCITY_TEST_ANDROID:
+    /// Runs against a real device when one is named in ATALANTA_TEST_ANDROID:
     /// the stream starts, a clip muxes, and (if ffprobe is installed) the
     /// file probes as H.264 of the stream's size.
     #[tokio::test]
@@ -1225,7 +1225,7 @@ mod tests {
         let Some(device) = crate::test_support::device_under_test() else {
             return;
         };
-        let adb = velocity_common::env::var("VELOCITY_ADB_PATH").unwrap_or_else(|_| "adb".into());
+        let adb = atalanta_common::env::var("ATALANTA_ADB_PATH").unwrap_or_else(|_| "adb".into());
         let begun = Instant::now();
         let stream = VideoStream::start(
             &adb,
@@ -1250,7 +1250,7 @@ mod tests {
         assert!(w.max(h) <= 1280 && w % 8 == 0 && h % 8 == 0, "{w}x{h}");
         let mp4 = clip.to_mp4().unwrap();
         crate::mp4::parse(&mp4).unwrap();
-        let path = std::env::temp_dir().join(format!("velocity-video-{}.mp4", std::process::id()));
+        let path = std::env::temp_dir().join(format!("atalanta-video-{}.mp4", std::process::id()));
         std::fs::write(&path, &mp4).unwrap();
         eprintln!(
             "started in {started:?}; {} frames, {} bytes -> {}",

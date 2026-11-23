@@ -1,9 +1,9 @@
-use velocity_common::{Element, Rect};
+use atalanta_common::{Element, Rect};
 
 use crate::render_tree::{ComputedLayout, RenderNode};
 use crate::scroll::{scroll_axes, Clip};
 
-/// Convert a render tree to a velocity-common Element tree.
+/// Convert a render tree to a atalanta-common Element tree.
 ///
 /// Maps RenderNode properties to Element fields:
 /// - RenderNode.id → Element.platform_id as `headless:id/<id>`: the same
@@ -163,7 +163,7 @@ fn render_node_to_element(
     }
 }
 
-/// Convert a ComputedLayout to a velocity-common Rect (f32 → i32).
+/// Convert a ComputedLayout to a atalanta-common Rect (f32 → i32).
 fn layout_to_rect(layout: &ComputedLayout) -> Rect {
     Rect {
         x: layout.x.round() as i32,
@@ -340,9 +340,9 @@ mod tests {
         }
         let tree = render_tree_to_element(&root);
         for id in ["node_1", "1", "0.0", "0"] {
-            let found = velocity_common::selector_match::find_in_tree(
+            let found = atalanta_common::selector_match::find_in_tree(
                 &tree,
-                &velocity_common::Selector::Id(id.into()),
+                &atalanta_common::Selector::Id(id.into()),
                 None,
             );
             match id {
@@ -362,7 +362,7 @@ mod tests {
             label: None,
             text: None,
             element_type: "Button".into(),
-            bounds: velocity_common::Rect {
+            bounds: atalanta_common::Rect {
                 x: 0,
                 y: 0,
                 width: 10,
@@ -373,9 +373,9 @@ mod tests {
             children: vec![],
             ..Default::default()
         };
-        let found = velocity_common::selector_match::find_in_tree(
+        let found = atalanta_common::selector_match::find_in_tree(
             &el,
-            &velocity_common::Selector::Id("login".into()),
+            &atalanta_common::Selector::Id("login".into()),
             None,
         );
         assert!(found.is_some(), "{}", el.platform_id);

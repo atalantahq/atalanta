@@ -1,4 +1,4 @@
-package com.velocity.sync;
+package com.atalanta.sync;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -67,7 +67,7 @@ public final class LooperTimers implements Tracker {
             "android.widget.Editor$Blink",
             "android.view.Choreographer",
             "android.widget.TextView$Marquee");
-    /** Prefixes added process-wide ({@code VelocitySyncProbe.ignoreTimerCallbacks}), before or after start. */
+    /** Prefixes added process-wide ({@code AtalantaSyncProbe.ignoreTimerCallbacks}), before or after start. */
     private static final List<String> GLOBAL_IGNORED = new CopyOnWriteArrayList<>();
     /** How often an empty walk is checked against the dump. */
     static final long VERIFY_MS = 1_000;

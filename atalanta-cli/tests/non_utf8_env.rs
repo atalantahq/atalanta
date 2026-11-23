@@ -1,5 +1,5 @@
 //! A variable in the environment that is not UTF-8 must not panic the
-//! client of `velocity run --daemon`: it builds the request from the whole
+//! client of `atalanta run --daemon`: it builds the request from the whole
 //! environment with `std::env::vars()`, which panics on one.
 #![cfg(unix)]
 
@@ -15,13 +15,13 @@ fn a_non_utf8_variable_does_not_panic_the_daemon_client() {
         "appId: com.example.app\nconfig:\n  platform: android\ntests:\n  - name: quick\n    steps:\n      - wait: { ms: 1 }\n",
     )
     .unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_velocity"))
+    let out = Command::new(env!("CARGO_BIN_EXE_atalanta"))
         .args(["run", "suite.yaml", "--driver", "headless", "--daemon"])
         .current_dir(dir.path())
         .env("OLDPWD", OsString::from_vec(b"/tmp/caf\xe9".to_vec()))
         // No daemon there: the run happens in this process.
-        .env("VELOCITY_DAEMON_SOCKET", dir.path().join("none.sock"))
-        .env("VELOCITY_LEASE_DIR", dir.path().join("leases"))
+        .env("ATALANTA_DAEMON_SOCKET", dir.path().join("none.sock"))
+        .env("ATALANTA_LEASE_DIR", dir.path().join("leases"))
         .env("NO_COLOR", "1")
         .env_remove("GITHUB_ACTIONS")
         .output()

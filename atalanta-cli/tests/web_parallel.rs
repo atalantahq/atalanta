@@ -1,6 +1,6 @@
 //! D-48 (VEL-332): `--parallel N` on the web runs N browsers, the devices
 //! `web-0` … `web-{N-1}`. It silently ran every test on one browser.
-//! Needs a Chrome binary (skips without one, or with `VELOCITY_TEST_WEB=0`).
+//! Needs a Chrome binary (skips without one, or with `ATALANTA_TEST_WEB=0`).
 #![cfg(unix)]
 
 use std::path::PathBuf;
@@ -8,7 +8,7 @@ use std::process::Command;
 
 fn chrome() -> Option<String> {
     if matches!(
-        std::env::var("VELOCITY_TEST_WEB").as_deref(),
+        std::env::var("ATALANTA_TEST_WEB").as_deref(),
         Ok("0") | Ok("false")
     ) {
         return None;
@@ -44,7 +44,7 @@ fn scratch(name: &str) -> PathBuf {
 #[test]
 fn parallel_web_runs_one_browser_per_slot() {
     let Some(chrome) = chrome() else {
-        eprintln!("skipped: no Chrome binary (or VELOCITY_TEST_WEB=0)");
+        eprintln!("skipped: no Chrome binary (or ATALANTA_TEST_WEB=0)");
         return;
     };
     let dir = scratch("two");
@@ -70,10 +70,10 @@ fn parallel_web_runs_one_browser_per_slot() {
         ),
     )
     .unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_velocity"))
+    let out = Command::new(env!("CARGO_BIN_EXE_atalanta"))
         .args(["run", "suite.yaml", "--parallel", "2", "--report", "json"])
         .current_dir(&dir)
-        .env("VELOCITY_LEASE_DIR", dir.join("leases"))
+        .env("ATALANTA_LEASE_DIR", dir.join("leases"))
         .env("NO_COLOR", "1")
         .output()
         .unwrap();
@@ -87,7 +87,7 @@ fn parallel_web_runs_one_browser_per_slot() {
     // W3: by default they are two contexts of one Chrome.
     assert!(text.contains("contexts of one Chrome"), "{text}");
     let results: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(dir.join("velocity-results/results.json")).unwrap(),
+        &std::fs::read_to_string(dir.join("atalanta-results/results.json")).unwrap(),
     )
     .unwrap();
     let mut devices: Vec<String> = results["tests"]

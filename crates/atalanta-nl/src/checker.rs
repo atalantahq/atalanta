@@ -9,12 +9,12 @@
 //! itself). "Does not hold" needs no evidence: the thing may be absent.
 //!
 //! [`verify_claim`] is the one entry point; the executor (and later
-//! `velocity explore`) call it with any [`ScreenChecker`].
+//! `atalanta explore`) call it with any [`ScreenChecker`].
 
 use async_trait::async_trait;
+use atalanta_common::{AtalantaError, Element, Platform, Rect, Result, VerifyCheck, VerifyOutcome};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use velocity_common::{Element, Platform, Rect, Result, VelocityError, VerifyCheck, VerifyOutcome};
 
 use crate::planner::{de_or_default, json_spans, ScreenIndex, Usage, UNPARSEABLE_REPLY};
 
@@ -56,7 +56,7 @@ impl CheckAnswer {
                 Err(e) => last = Some(format!("{e} in {json:?}")),
             }
         }
-        Err(VelocityError::Config(format!(
+        Err(AtalantaError::Config(format!(
             "{UNPARSEABLE_REPLY}: {}",
             last.unwrap_or_else(|| format!("no JSON object in {reply:?}"))
         )))
@@ -77,7 +77,7 @@ pub trait ScreenChecker: Send + Sync {
 
 /// The checker's instructions, shared by every provider. Byte-stable, so
 /// prompt caching applies, and they hold the rules for an end-state claim
-/// (`velocity explore`'s final check) so that the claim itself carries only
+/// (`atalanta explore`'s final check) so that the claim itself carries only
 /// data: the goal, the run log and the answer, each in a tagged block.
 pub const CHECK_SYSTEM_PROMPT: &str = r#"You check one claim about the current screen of an app under test.
 
@@ -253,8 +253,8 @@ pub async fn verify_end_state(
     log_turns: &[usize],
 ) -> (VerifyCheck, Option<HoldBasis>) {
     let index = ScreenIndex::build(hierarchy, screen, platform, query);
-    let rendered = velocity_common::redact::redact(&index.render()).into_owned();
-    let masked_claim = velocity_common::redact::redact(claim).into_owned();
+    let rendered = atalanta_common::redact::redact(&index.render()).into_owned();
+    let masked_claim = atalanta_common::redact::redact(claim).into_owned();
     let req = CheckRequest {
         claim: &masked_claim,
         platform,
@@ -266,7 +266,7 @@ pub async fn verify_end_state(
         Err(e) => (
             VerifyOutcome::Error,
             vec![],
-            velocity_common::redact::redact(&e.to_string()).into_owned(),
+            atalanta_common::redact::redact(&e.to_string()).into_owned(),
             None,
         ),
     };
@@ -278,7 +278,7 @@ pub async fn verify_end_state(
             reason,
             evidence: evidence
                 .into_iter()
-                .map(|e| velocity_common::redact::redact(&e).into_owned())
+                .map(|e| atalanta_common::redact::redact(&e).into_owned())
                 .collect(),
         },
         basis,
@@ -320,8 +320,8 @@ pub async fn verify_claim_query(
     screenshot: Option<&[u8]>,
 ) -> VerifyCheck {
     let index = ScreenIndex::build(hierarchy, screen, platform, query);
-    let rendered = velocity_common::redact::redact(&index.render()).into_owned();
-    let masked_claim = velocity_common::redact::redact(claim).into_owned();
+    let rendered = atalanta_common::redact::redact(&index.render()).into_owned();
+    let masked_claim = atalanta_common::redact::redact(claim).into_owned();
     let req = CheckRequest {
         claim: &masked_claim,
         platform,
@@ -333,7 +333,7 @@ pub async fn verify_claim_query(
         Err(e) => (
             VerifyOutcome::Error,
             vec![],
-            velocity_common::redact::redact(&e.to_string()).into_owned(),
+            atalanta_common::redact::redact(&e.to_string()).into_owned(),
         ),
     };
     VerifyCheck {
@@ -343,7 +343,7 @@ pub async fn verify_claim_query(
         reason,
         evidence: evidence
             .into_iter()
-            .map(|e| velocity_common::redact::redact(&e).into_owned())
+            .map(|e| atalanta_common::redact::redact(&e).into_owned())
             .collect(),
     }
 }
@@ -392,7 +392,7 @@ pub(crate) mod tests {
                 .push(format!("claim={} screen={}", req.claim, req.screen));
             match &self.answer {
                 Ok(a) => Ok(a.clone()),
-                Err(e) => Err(VelocityError::ServiceUnavailable {
+                Err(e) => Err(AtalantaError::ServiceUnavailable {
                     service: "fake".into(),
                     detail: e.to_string(),
                 }),
@@ -480,7 +480,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_failed_call_is_an_error_not_a_pass() {
         let mut checker = FakeChecker::new(true, &[1], "");
-        checker.answer = Err(VelocityError::Config("529 overloaded".into()));
+        checker.answer = Err(AtalantaError::Config("529 overloaded".into()));
         let c = run(&checker).await;
         assert_eq!(c.outcome, VerifyOutcome::Error);
         assert!(c.reason.contains("529"), "{c:?}");
@@ -489,7 +489,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn secrets_are_masked_in_what_the_checker_sees() {
         let canary = "S3CR3T-CHECK-1";
-        velocity_common::redact::register_secret(canary);
+        atalanta_common::redact::register_secret(canary);
         let screen = Element {
             children: vec![el("tok", "text", Some(canary), None)],
             ..el("hierarchy", "", None, None)

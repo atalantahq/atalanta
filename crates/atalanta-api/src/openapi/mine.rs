@@ -4,8 +4,8 @@
 //! where the implementation and the spec disagree. Only required fields
 //! are checked; an optional one may be absent from a correct response.
 
+use atalanta_common::{Checks, JsonType, Matcher};
 use serde_json::Value;
-use velocity_common::{Checks, JsonType, Matcher};
 
 use super::spec::Spec;
 use super::values::{nullable, required, type_of};
