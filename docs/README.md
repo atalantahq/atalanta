@@ -15,6 +15,4 @@
 | [AGENTS.md](AGENTS.md) | Atalanta from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does |
 | [MCP.md](MCP.md) | The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed) |
 | [STATUS.md](STATUS.md) | What has been verified on emulators, simulators, browsers and hardware, and what has not |
-| [research/](research/README.md) | Design rationale and the literature behind sync, healing, NL steps and scheduling |
-
-`rust-atalanta.html` is a tutorial that teaches Rust through this codebase. It is not a reference, and its code excerpts may lag behind the code.
+| [CHANGELOG-0.2.0.md](CHANGELOG-0.2.0.md) | The 0.2.0 changes in full: each behaviour change, why it was made and how to adapt a suite |

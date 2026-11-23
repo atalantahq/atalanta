@@ -11,8 +11,7 @@
 //! executor share them); this crate sends them ([`HttpSession`]), checks
 //! them before a run ([`validate()`]), and stands in for the device when a
 //! suite has nothing else ([`NoDeviceDriver`]). [`openapi`] writes a suite
-//! from an OpenAPI 3 document (`atalanta api scaffold`). Design notes and
-//! the tools compared: `docs/research/landscape-api-testing.md`.
+//! from an OpenAPI 3 document (`atalanta api scaffold`).
 #![forbid(unsafe_code)]
 
 pub mod check;

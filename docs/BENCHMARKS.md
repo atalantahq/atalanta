@@ -28,7 +28,7 @@ writes tests, driven by a small Python adapter in
 | `full-v7` | 2026-11-08 | 116 | 72.4% | bridge |
 | `full-v8` | 2026-11-08 | 116 | 78.4% | bridge |
 
-Run directories: `bench/androidworld/runs/full-v*/` (`run.json` holds each run's model, seed and binary SHA-256; `summary.md` the per-app tables). Two more things the later runs carry with them:
+Each run directory (written under `bench/androidworld/runs/`, which is not kept in the repository) holds `run.json` (the run's model, seed and binary SHA-256) and `summary.md` (the per-app tables). Two more things the later runs carry with them:
 
 - **Model route.** From `full-v2` on, the model was `openai-compatible:claude-sonnet-5-5`: an OpenAI-compatible endpoint backed by the Claude Code CLI (`bench/pilot/claude_bridge.py`), not the Anthropic API. Effort, caching and token accounting differ from a direct API call.
 - **The three Browser tasks** scored 0 in every full run but `full-v2` (1 of 3). Browser-only reruns (`browser-v8` to `browser-v10`) looked into why; the tree-server change made for it (protocol 16) works on API 34 and later only, so it does nothing on this API 33 emulator ([STATUS.md](STATUS.md), the protocol 16 row).

@@ -14,46 +14,46 @@ The project was called Velocity until 2026-11-23, and 0.1.0 was tagged under tha
 
 ### Behaviour changes that can fail existing suites
 
-- **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts** (and their dimming view) instead of dismissing the sheet. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#ios-sheets)
-- **[may fail suites]** **iOS `pressKey: back` taps only a real Back button**, else swipes from the left edge; closing a sheet matches whole names only. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#ios-back)
+- **[may fail suites]** **iOS refuses taps behind sheets, popovers and in-app alerts** (and their dimming view) instead of dismissing the sheet. Not yet run on a simulator or device. [Details](docs/CHANGELOG-0.2.0.md#ios-sheets)
+- **[may fail suites]** **iOS `pressKey: back` taps only a real Back button**, else swipes from the left edge; closing a sheet matches whole names only. Not yet run on a simulator or device. [Details](docs/CHANGELOG-0.2.0.md#ios-back)
 - **[may fail suites]** **MCP screenshots are files.** `screenshot` (and `observe {what: screenshot}`) saves the PNG and returns its path and size; the image is in the reply only with `inline: true`, and then downscaled below 2,000 px on its longest edge.
-- **[may fail suites]** **`atalanta explore` trusts a test only after its gates** (5 replays, a wrong-path replay that must fail, a goal assertion); an untrusted test exits 1. `--no-gates` skips them ([EXPLORE.md](docs/EXPLORE.md#trust-gates)). [Details](docs/research/changelog-0.2.0-details.md#explore-gates)
+- **[may fail suites]** **`atalanta explore` trusts a test only after its gates** (5 replays, a wrong-path replay that must fail, a goal assertion); an untrusted test exits 1. `--no-gates` skips them ([EXPLORE.md](docs/EXPLORE.md#trust-gates)). [Details](docs/CHANGELOG-0.2.0.md#explore-gates)
 - **[may fail suites]** **No silent passes.** A shard that owns no test (more shards than tests) exits 2, naming it, instead of passing empty. A planned test that ends with no result (a worker that stopped) is reported failed as an internal error (exit 5) instead of missing from the totals.
-- **[may fail suites]** **`atalanta mcp` serves five tools by default** (`observe`, `act`, `run`, `artifacts`, `verify_change`); a call to a full tool gets an error naming the core call. `--profile full` serves all 33 ([MCP.md](docs/MCP.md#core-tools)). [Details](docs/research/changelog-0.2.0-details.md#mcp-core)
-- **[may fail suites]** **`explore --values-from-goal` no longer copies screen text**; add `--values-from-screen` for the old behaviour. [Details](docs/research/changelog-0.2.0-details.md#values-goal)
-- **[may fail suites]** **The memory check fails the test** (was a warning) when peak PSS rises past `pssGrowthThresholdPct`, in both runners; `heapGrowthThresholdPct` still works with a warning. Android only. [Details](docs/research/changelog-0.2.0-details.md#memory-check)
-- **[may fail suites]** **Cabled iPhones bind loopback by default**; `ATALANTA_IOS_DEVICE_LOOPBACK=0` opts out if the runner never answers. Unchecked on a real iPhone. [Details](docs/research/changelog-0.2.0-details.md#iphone-loopback)
-- **[may fail suites]** **AtalantaRunner needs a token**: one you start yourself needs `ATALANTA_RUNNER_TOKEN` (and `ios.runnerToken`); direct callers send `Authorization: Bearer` and no `Origin`. [Details](docs/research/changelog-0.2.0-details.md#runner-token)
-- **[may fail suites]** **Tree-server protocol changes**: an older Atalanta replaces a newer server with its own; third-party tools on `@atalanta_tree` must do the protocol 18 `HELLO`/`PROOF`/`AUTH` handshake. [Details](docs/research/changelog-0.2.0-details.md#tree-protocol)
+- **[may fail suites]** **`atalanta mcp` serves five tools by default** (`observe`, `act`, `run`, `artifacts`, `verify_change`); a call to a full tool gets an error naming the core call. `--profile full` serves all 33 ([MCP.md](docs/MCP.md#core-tools)). [Details](docs/CHANGELOG-0.2.0.md#mcp-core)
+- **[may fail suites]** **`explore --values-from-goal` no longer copies screen text**; add `--values-from-screen` for the old behaviour. [Details](docs/CHANGELOG-0.2.0.md#values-goal)
+- **[may fail suites]** **The memory check fails the test** (was a warning) when peak PSS rises past `pssGrowthThresholdPct`, in both runners; `heapGrowthThresholdPct` still works with a warning. Android only. [Details](docs/CHANGELOG-0.2.0.md#memory-check)
+- **[may fail suites]** **Cabled iPhones bind loopback by default**; `ATALANTA_IOS_DEVICE_LOOPBACK=0` opts out if the runner never answers. Unchecked on a real iPhone. [Details](docs/CHANGELOG-0.2.0.md#iphone-loopback)
+- **[may fail suites]** **AtalantaRunner needs a token**: one you start yourself needs `ATALANTA_RUNNER_TOKEN` (and `ios.runnerToken`); direct callers send `Authorization: Bearer` and no `Origin`. [Details](docs/CHANGELOG-0.2.0.md#runner-token)
+- **[may fail suites]** **Tree-server protocol changes**: an older Atalanta replaces a newer server with its own; third-party tools on `@atalanta_tree` must do the protocol 18 `HELLO`/`PROOF`/`AUTH` handshake. [Details](docs/CHANGELOG-0.2.0.md#tree-protocol)
 
 Most suites that turn red here were passing by mistake. Each item gives the fix, and the opt-out where there is one.
 
 - **[may fail suites]** **`id:` no longer matches part of an id.** In 0.1.0, `id: "login"` matched any id that contained `login`, such as `com.app:id/login_button`. Now `id:` matches the whole id or its short form after `:id/`. Fix: write the full short id, or use `idMatches:` for a pattern.
-- **[may fail suites]** **`assertNotVisible` is stricter**: it fails when the screen can't be read, the app crashed or another app is in front. Fix: `appInFront: false` on a step that leaves the app on purpose. [Details](docs/research/changelog-0.2.0-details.md#assert-not-visible)
+- **[may fail suites]** **`assertNotVisible` is stricter**: it fails when the screen can't be read, the app crashed or another app is in front. Fix: `appInFront: false` on a step that leaves the app on purpose. [Details](docs/CHANGELOG-0.2.0.md#assert-not-visible)
 - **[may fail suites]** **App crashes fail the test.** In 0.1.0, a crash was noticed only when a later step failed. Now a test whose app crashed fails with "after the last step: App … crashed", even when the crash came after its last step. There is no opt-out; the crash is a real failure.
-- **[may fail suites]** **Actions wait for an actionable target** (enabled and still) and fail "not actionable" otherwise. Opt-out: `force: true`, or `actionability: lenient`. [Details](docs/research/changelog-0.2.0-details.md#actionable)
+- **[may fail suites]** **Actions wait for an actionable target** (enabled and still) and fail "not actionable" otherwise. Opt-out: `force: true`, or `actionability: lenient`. [Details](docs/CHANGELOG-0.2.0.md#actionable)
 - **[may fail suites]** **`inputText` checks where the focus went.** When the tap before typing leaves the focus on a different element, the step fails rather than typing into the wrong field. Opt-out: `ATALANTA_ANDROID_FOCUS_CHECK=off` or `ATALANTA_IOS_FOCUS_CHECK=off`.
-- **[may fail suites]** **iOS taps on covered elements fail** ("covered by …"); a partly covered one is tapped on its visible part. Opt-out: `ATALANTA_IOS_TAP_GUARD=off` or `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off`. [Details](docs/research/changelog-0.2.0-details.md#ios-covered)
-- **[may fail suites]** **`assertVisible` no longer matches part of a merged label**; assert the full label, or use `textContains:`/`textMatches:`. [Details](docs/research/changelog-0.2.0-details.md#merged-label)
+- **[may fail suites]** **iOS taps on covered elements fail** ("covered by …"); a partly covered one is tapped on its visible part. Opt-out: `ATALANTA_IOS_TAP_GUARD=off` or `ATALANTA_IOS_TAP_GUARD_STATUS_BAR=off`. [Details](docs/CHANGELOG-0.2.0.md#ios-covered)
+- **[may fail suites]** **`assertVisible` no longer matches part of a merged label**; assert the full label, or use `textContains:`/`textMatches:`. [Details](docs/CHANGELOG-0.2.0.md#merged-label)
 - **[may fail suites]** **Empty selector values match nothing.** `text: ""`, `textContains: ""` and `accessibilityId: ""` used to match elements with empty text or labels (and, for `textContains`, every element). Fix: remove the step, or use a real value.
 - **[may fail suites]** **`textContains:` ignores case.** It can now match more elements, so a bare selector may pick a different element (with a warning). Fix: narrow the selector with `text:`, `index:` or `childOf:`.
 - **[may fail suites]** **`index:` counts in reading order.** In 0.1.0 it counted in tree order, so `index: N` may now pick a different element in grids and centred rows. Fix: check each `index:` with `atalanta lint` or the console's element overlay.
-- **[may fail suites]** **Stricter suite parsing**: unknown keys, `runFlow` with `when:` and duplicate test names are errors. Fix: `atalanta validate` names each one. [Details](docs/research/changelog-0.2.0-details.md#strict-parsing)
+- **[may fail suites]** **Stricter suite parsing**: unknown keys, `runFlow` with `when:` and duplicate test names are errors. Fix: `atalanta validate` names each one. [Details](docs/CHANGELOG-0.2.0.md#strict-parsing)
 - **[may fail suites]** **Environment values are interpolated once.** A value that itself contains `${…}` (`BASE='${HOST}/api'`) is no longer expanded a second time. Fix: pass the final value. Use `$${` when you need a literal `${`.
 - **[may fail suites]** **`--env KEY` without a value exits 2.** In 0.1.0 the flag was silently dropped. A comma not followed by `KEY=` stays inside the value, and `A=1,B=2` in one flag still sets both. Fix: write `--env KEY=VALUE`.
-- **[may fail suites]** **Exit codes changed for CI scripts**: 2 config, 3 device, 5 internal, 129/130/143 signals (most were 1). [Details](docs/research/changelog-0.2.0-details.md#exit-codes-ci)
-- **[may fail suites]** **An empty selection exits 2**: `--tags`/`--filter` matching no test now fail and list the suite's tags. [Details](docs/research/changelog-0.2.0-details.md#empty-selection)
+- **[may fail suites]** **Exit codes changed for CI scripts**: 2 config, 3 device, 5 internal, 129/130/143 signals (most were 1). [Details](docs/CHANGELOG-0.2.0.md#exit-codes-ci)
+- **[may fail suites]** **An empty selection exits 2**: `--tags`/`--filter` matching no test now fail and list the suite's tags. [Details](docs/CHANGELOG-0.2.0.md#empty-selection)
 - **[may fail suites]** **Sharding flags are checked.** `--shard-index` and `--shard-total` must be given together, the total must be at least 1, and an out-of-range index exits 2; in 0.1.0 it ran zero tests and exited 0. Fix: pass both flags, or switch to `--shard M/N` (1-based).
 - **[may fail suites]** **An unknown `--device` exits 3 at once.** 0.1.0 spent about 30 s per test in retries before failing. Fix: pass an id from `atalanta device list`.
-- **[may fail suites]** **Android typing is checked**: text that reads back different (including a `maxLength` cut) fails the step; the `adb input text` fallback refuses non-ASCII, passwords and secrets. [Details](docs/research/changelog-0.2.0-details.md#android-typing)
+- **[may fail suites]** **Android typing is checked**: text that reads back different (including a `maxLength` cut) fails the step; the `adb input text` fallback refuses non-ASCII, passwords and secrets. [Details](docs/CHANGELOG-0.2.0.md#android-typing)
 - **[may fail suites]** **Android app ids are validated.** An `appId` that isn't at least two dot-separated segments of letters, digits and `_` is a configuration error (exit 2). Fix: use the real package name.
 - **[may fail suites]** **iOS `assertText` on an empty field reads `""`.** An empty text field, secure field, search field or text view no longer falls back to its placeholder or accessibility label. Fix: assert the placeholder with `assertVisible`, or assert `""`.
 - **[may fail suites]** **iOS simulator `clearState` fails when the app's data can't be wiped.** In 0.1.0 it warned and ran on the old state. Fix: check that the app is installed and the simulator is booted; `atalanta doctor` reports both.
 - **[may fail suites]** **WebDriverAgent and AtalantaRunner listen on loopback only on simulators.** A tool on another machine that reached a simulator's WDA over the LAN can no longer connect. Fix: run that tool on the Mac.
-- **[may fail suites]** **The inspector is local and token-protected**: it binds `127.0.0.1` and every API call needs the printed URL's token (401 otherwise). [Details](docs/research/changelog-0.2.0-details.md#inspector-token)
+- **[may fail suites]** **The inspector is local and token-protected**: it binds `127.0.0.1` and every API call needs the printed URL's token (401 otherwise). [Details](docs/CHANGELOG-0.2.0.md#inspector-token)
 - **[may fail suites]** **`atalanta migrate maestro` writes only suites that load.** `inputRandom*`, and an `inputText` with no literal text, become required variables, so a migrated run stops until you set them with `--env`. Fix: set the variables the migration report lists.
 - **[may fail suites]** **A Wi-Fi-only iPhone needs a cable.** Running on a physical iPhone over Wi-Fi fails with "connect a cable" unless `ios.allowWifiRunner: true` (AtalantaRunner with a runner token) is set.
-- **[may fail suites]** **Android dialog auto-dismiss covers only system packages**; tap an app's own dialog buttons in the test. [Details](docs/research/changelog-0.2.0-details.md#android-dialogs)
+- **[may fail suites]** **Android dialog auto-dismiss covers only system packages**; tap an app's own dialog buttons in the test. [Details](docs/CHANGELOG-0.2.0.md#android-dialogs)
 - **[may fail suites]** **Web `css:`, `id:` and `className:` with `index:` count only rendered, on-screen matches, in reading order**, as `explore` counted them when it wrote the test. A hidden or off-screen match no longer takes an index. Fix: re-check each such `index:`.
 - **[may fail suites]** **Web popups and new tabs are followed.** A click that opens a popup or tab drives it next; when it closes, the opener is driven again.
 - **[may fail suites]** **`atalanta devices down` stops only the caller's devices.** The owner is `--owner`, else `ATALANTA_OWNER`, else the CI job id; `--all` stops every device. CI scripts that relied on `down` stopping everything must pass `--all`.
@@ -66,11 +66,11 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Highlights
 
-- **`atalanta explore "<goal>" --app-id <id>`**: an AI agent reaches a goal once and writes a YAML test that replays with no model calls ([EXPLORE.md](docs/EXPLORE.md)). [Details](docs/research/changelog-0.2.0-details.md#hl-explore)
-- **The console (`atalanta inspect --open`)**: a live, clickable mirror of every booted device and browser, with selectors, suite runs, explore sessions and diagnostics. [Details](docs/research/changelog-0.2.0-details.md#hl-console)
-- **MCP server upgrade**: 14 → 32 tools (five by default), `@e` refs, background tasks, and `atalanta mcp install` for seven clients. [Details](docs/research/changelog-0.2.0-details.md#hl-mcp)
-- **Failure evidence**: a failed test keeps `video.mp4`, logs and a self-contained `trace.html`; `--pause-on-failure` stops at the failing step. [Details](docs/research/changelog-0.2.0-details.md#hl-evidence)
-- **AI steps from 19 provider presets** for `do:`/`assert:`, `verify:` and `explore`; model output never becomes a selector or typed value ([AI-PROVIDERS.md](docs/AI-PROVIDERS.md)). [Details](docs/research/changelog-0.2.0-details.md#hl-providers)
+- **`atalanta explore "<goal>" --app-id <id>`**: an AI agent reaches a goal once and writes a YAML test that replays with no model calls ([EXPLORE.md](docs/EXPLORE.md)). [Details](docs/CHANGELOG-0.2.0.md#hl-explore)
+- **The console (`atalanta inspect --open`)**: a live, clickable mirror of every booted device and browser, with selectors, suite runs, explore sessions and diagnostics. [Details](docs/CHANGELOG-0.2.0.md#hl-console)
+- **MCP server upgrade**: 14 → 32 tools (five by default), `@e` refs, background tasks, and `atalanta mcp install` for seven clients. [Details](docs/CHANGELOG-0.2.0.md#hl-mcp)
+- **Failure evidence**: a failed test keeps `video.mp4`, logs and a self-contained `trace.html`; `--pause-on-failure` stops at the failing step. [Details](docs/CHANGELOG-0.2.0.md#hl-evidence)
+- **AI steps from 19 provider presets** for `do:`/`assert:`, `verify:` and `explore`; model output never becomes a selector or typed value ([AI-PROVIDERS.md](docs/AI-PROVIDERS.md)). [Details](docs/CHANGELOG-0.2.0.md#hl-providers)
 - **`atalanta init` and `atalanta doctor`**: `init` goes from a running app to a first passing test plus a GitHub Actions example. `doctor` checks adb, Xcode, devices, runner builds, Chrome, AI keys and your suites, and `--fix` applies the safe fixes.
 - **New platforms and drivers**: web testing in Chrome over CDP, a headless driver, a Flutter bridge, an on-device Android tree server (a dump takes about 3 ms; `uiautomator dump` takes about 2 s), and AtalantaRunner, an alternative to WebDriverAgent on iOS.
 - **CI**: real multi-device `--parallel`, `--shard M/N` balanced by past durations, `--changed-since` impact selection, history shared between jobs, flaky detection, quarantine, and HTML, GitHub, Allure, JUnit and JSON reports. Exit codes are documented and stable.
@@ -93,7 +93,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - `launchApp` takes `arguments` (Maestro's form): Android intent extras and iOS launch arguments; `atalanta migrate maestro` carries them over. ([DSL.md](docs/DSL.md#launch-arguments)).
 - Actions: `assertScreenshot`, `saveState`/`restoreState`, `setConfig`, `assertSystemState`, `tapXY`, `inputRaw`, `openLink`. Web only: `goto`, `goBack`, `refresh`, `mockRequest`, `clearMocks`.
 - Natural-language steps: `do:`, `act:`, `assert:`, `expect:`, or a bare string, with `data:` and `waitUntil:`. AI verification with `verify: off|final|checkpoints|strict` and per-step `checkpoint:`.
-- Selectors: `role:`/`name:`, `textMatches:`/`idMatches:`, state filters, relations (`below`, `childOf`, …), and `css:`/`xpath:` on the web. [Details](docs/research/changelog-0.2.0-details.md#selectors)
+- Selectors: `role:`/`name:`, `textMatches:`/`idMatches:`, state filters, relations (`below`, `childOf`, …), and `css:`/`xpath:` on the web. [Details](docs/CHANGELOG-0.2.0.md#selectors)
 - Step modifiers: `timeoutMs`, `settle`, `optional`, `force` and `appInFront`. Test keys: `dependsOn`, `sideEffects` and `description`.
 - `runFlow: { flow: <id>, env: { <NAME>: <value> } }` passes parameters to one call of a flow (and the flows it runs), filled in when the suite loads; a parameter the call doesn't pass comes from the environment. Decimals must be quoted (`"1.50"`), and `flow` and `flowId` together are an error. MCP `run_flow` takes the same `env`. `atalanta migrate maestro` carries Maestro's `runFlow` `env` over. ([DSL.md](docs/DSL.md#parameters))
 - `${VAR:-default}` and `${VAR:?message}`. `$${` writes a literal `${`.
@@ -104,7 +104,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 - `--parallel N` across devices, with cross-process device leases, so runs, the console and MCP agents never drive the same device at once. On the web, N browser contexts.
 - `--shard M/N` (1-based), `--shard-timings` (from a history file or JUnit XML), `--changed-since REF` with `atalanta-impact.yaml`, `--fail-if-none`, `--last-failed`, `--failed-first`, and `--history-from`.
-- `atalanta run` flags: `--retries`, `--fail-on-flaky`, `--detect-new-flakes`, `--shuffle`, `--hunt`, `--quarantine`, `--cache-results`, `--set`, `--provision`, `--app`, `--update-baselines`, `--junit-classname`, `--profile`. [Details](docs/research/changelog-0.2.0-details.md#run-flags)
+- `atalanta run` flags: `--retries`, `--fail-on-flaky`, `--detect-new-flakes`, `--shuffle`, `--hunt`, `--quarantine`, `--cache-results`, `--set`, `--provision`, `--app`, `--update-baselines`, `--junit-classname`, `--profile`. [Details](docs/CHANGELOG-0.2.0.md#run-flags)
 - Reports: `html`, `github` (annotations and step summary; added automatically in GitHub Actions) and `allure`, alongside `junit` and `json`. Each links the failure evidence.
 - Self-healing of broken selectors, reported as `PASSED (healed n)`. `atalanta heal` reviews, accepts or rejects heals.
 - Automatic handling of system permission prompts (`config.dialog`).
@@ -127,39 +127,39 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 #### MCP and console
 
 - MCP `observe {what: a11y}` (full profile: `audit_accessibility`) audits the current screen with the accessibility rules and names each finding's element by its snapshot ref. Read-only.
-- MCP: 32 tools with read-only/destructive annotations, `--read-only`, `--notify`, `type_text` with `secret:`, session export, protocol versions up to 2025-11-25 and 2026-07-28. [Details](docs/research/changelog-0.2.0-details.md#mcp-added)
+- MCP: 32 tools with read-only/destructive annotations, `--read-only`, `--notify`, `type_text` with `secret:`, session export, protocol versions up to 2025-11-25 and 2026-07-28. [Details](docs/CHANGELOG-0.2.0.md#mcp-added)
 - Console: a mirror with input under the device's lease, an element overlay, flow recording, a Run panel, an Explore panel (steer the agent with *Inject*, then *Save to project*), task history, Diagnostics, and a `/review` page for screenshot baselines.
 
 #### Agents, API tests, CI and more
 
-- **Agent commands: drive a device from the shell, by ref** (`atalanta snapshot`, `tap @e7`, `export`, …), with settle, deltas and `--json` ([CLI.md](docs/CLI.md#agent-commands)). [Details](docs/research/changelog-0.2.0-details.md#agent-commands)
+- **Agent commands: drive a device from the shell, by ref** (`atalanta snapshot`, `tap @e7`, `export`, …), with settle, deltas and `--json` ([CLI.md](docs/CLI.md#agent-commands)). [Details](docs/CHANGELOG-0.2.0.md#agent-commands)
 - **Web agent commands run in `atalanta daemon`,** which keeps one Chrome between commands; the first web command starts the daemon if none answers, and `daemon stop` closes the browser. iOS agent commands leave WebDriverAgent running between commands (`snapshot` 3.7 s → 0.6 s on a simulator).
-- **An agent command holds the device for its whole length**; a second one waits, or gets `DEVICE_BUSY` after 10 s (`ATALANTA_LEASE_WAIT_MS`, which `atalanta run` also uses). [Details](docs/research/changelog-0.2.0-details.md#agent-lease)
+- **An agent command holds the device for its whole length**; a second one waits, or gets `DEVICE_BUSY` after 10 s (`ATALANTA_LEASE_WAIT_MS`, which `atalanta run` also uses). [Details](docs/CHANGELOG-0.2.0.md#agent-lease)
 - Failures report `delivered: yes` when the call changed the screen before failing (a `scroll` that never found its target).
-- **Failure codes for agents**: `structuredContent.error` with `code`, `retry`, `delivered` and `next` ([MCP.md](docs/MCP.md#failures)). [Details](docs/research/changelog-0.2.0-details.md#agent-codes)
+- **Failure codes for agents**: `structuredContent.error` with `code`, `retry`, `delivered` and `next` ([MCP.md](docs/MCP.md#failures)). [Details](docs/CHANGELOG-0.2.0.md#agent-codes)
 - **`snapshot` narrows:** `within: "@e12"` (only what lies inside that element), `find` (lines containing a text) and `limit` (with an `incomplete` header). The core `observe` takes `within` and `find`.
 - **`atalanta skills list|get <name>|stub`:** the agent guides compiled into the binary, so an agent reads the one matching the installed version.
 - The core `act` waits for the screen to settle before it reports what changed.
-- `bench/killtest/`: the kill test's pre-registration (`PREREG.md`, `prereg.json` with the GO thresholds) and `score.py`, which scores the runs for S0, S7, S_rel, cost and login secrecy and says GO or NO-GO. The apps, goals and model are left for the owner to choose and freeze.
-- **MCP calls can't wedge the session**: a 55 s deadline per device call (`ATALANTA_MCP_CALL_TIMEOUT_MS`), then the session is rebuilt. [Details](docs/research/changelog-0.2.0-details.md#mcp-deadline)
-- **`drag: { from, to, holdMs, moveMs }`** reorders lists on Android, iOS and the web ([DSL.md](docs/DSL.md#reordering-drag)). [Details](docs/research/changelog-0.2.0-details.md#drag)
-- **`exec` step**: run an allow-listed host program with no shell, check it, and `capture` its output ([DSL.md](docs/DSL.md#host-commands-exec)). [Details](docs/research/changelog-0.2.0-details.md#exec)
-- **`failures.md` on every run**: each failure with its step, `file:line`, log tail and evidence files, or "insufficient evidence". [Details](docs/research/changelog-0.2.0-details.md#failures-md)
-- **`atalanta verify-change "<description>"`** (and MCP `verify_change`): replays a trusted saved test, or explores a new gated one, and leaves PR evidence in one folder. [Details](docs/research/changelog-0.2.0-details.md#verify-change)
-- **Logins an agent can call without seeing the password**: `atalanta login`, `explore --after`, `${keychain:NAME}` and `${totp:NAME}` ([DSL.md](docs/DSL.md#logging-in)). [Details](docs/research/changelog-0.2.0-details.md#logins)
-- **Docs site and `llms.txt`**: mdBook build and GitHub Pages deploy (`docs.yml`), `docs/llms.txt`, and [docs/AGENTS.md](docs/AGENTS.md). [Details](docs/research/changelog-0.2.0-details.md#docs-site)
-- **The Atalanta GitHub Action** (`action.yml`) and **`atalanta init --ci github`**; `install.sh --sha256` pins the archive ([CI.md](docs/CI.md#the-atalanta-action)). [Details](docs/research/changelog-0.2.0-details.md#action)
+- `bench/killtest/`: the kill test's pre-registration (`PREREG.md`, `prereg.json` with the GO thresholds) and `score.py`, which scores the runs for S0, S7, S_rel, cost and login secrecy and says GO or NO-GO. The apps, goals and model are chosen and frozen before the run.
+- **MCP calls can't wedge the session**: a 55 s deadline per device call (`ATALANTA_MCP_CALL_TIMEOUT_MS`), then the session is rebuilt. [Details](docs/CHANGELOG-0.2.0.md#mcp-deadline)
+- **`drag: { from, to, holdMs, moveMs }`** reorders lists on Android, iOS and the web ([DSL.md](docs/DSL.md#reordering-drag)). [Details](docs/CHANGELOG-0.2.0.md#drag)
+- **`exec` step**: run an allow-listed host program with no shell, check it, and `capture` its output ([DSL.md](docs/DSL.md#host-commands-exec)). [Details](docs/CHANGELOG-0.2.0.md#exec)
+- **`failures.md` on every run**: each failure with its step, `file:line`, log tail and evidence files, or "insufficient evidence". [Details](docs/CHANGELOG-0.2.0.md#failures-md)
+- **`atalanta verify-change "<description>"`** (and MCP `verify_change`): replays a trusted saved test, or explores a new gated one, and leaves PR evidence in one folder. [Details](docs/CHANGELOG-0.2.0.md#verify-change)
+- **Logins an agent can call without seeing the password**: `atalanta login`, `explore --after`, `${keychain:NAME}` and `${totp:NAME}` ([DSL.md](docs/DSL.md#logging-in)). [Details](docs/CHANGELOG-0.2.0.md#logins)
+- **Docs site and `llms.txt`**: mdBook build and GitHub Pages deploy (`docs.yml`), `docs/llms.txt`, and [docs/AGENTS.md](docs/AGENTS.md). [Details](docs/CHANGELOG-0.2.0.md#docs-site)
+- **The Atalanta GitHub Action** (`action.yml`) and **`atalanta init --ci github`**; `install.sh --sha256` pins the archive ([CI.md](docs/CI.md#the-atalanta-action)). [Details](docs/CHANGELOG-0.2.0.md#action)
 - `device-smoke.yml` runs nightly (Android emulator and a new headless-Chrome smoke, `tests/smoke/web-smoke.yaml`) and weekly on the iOS simulator, then checks every job reported.
 - **`atalanta migrate maestro <dir> --dry-run`** converts every flow and writes nothing: how many flows convert cleanly, with steps skipped or changed, or not at all, and the Maestro commands that don't convert, ranked by the flows they affect (`--report-json` for JSON).
 - **`atalanta results check --expect-shards N <paths…>`**: run after a sharded CI matrix, it fails (exit 1) when a shard reported nothing, a shard number is missing or doubled, a shard ran no tests, or a `results.json` / `junit.xml` is damaged. See [docs/CI.md](docs/CI.md#no-silent-passes).
 - **The Atalanta GitHub Action's `check-shards` mode**: the Action runs no tests and, after a sharded matrix, downloads every shard's `atalanta-results-<platform>-shard-M-of-N` artifact and runs `atalanta results check --expect-shards N`, so a shard that died or uploaded nothing fails the run. `atalanta init --ci github` now uses it in the `results` job (no more download-artifact + curl|sh install).
-- **API testing: the `http` step** (request, `expect:` checks with JSONPath, `capture:`); an `http`-only suite needs no device ([DSL.md](docs/DSL.md#http-and-api-tests)). [Details](docs/research/changelog-0.2.0-details.md#http)
+- **API testing: the `http` step** (request, `expect:` checks with JSONPath, `capture:`); an `http`-only suite needs no device ([DSL.md](docs/DSL.md#http-and-api-tests)). [Details](docs/CHANGELOG-0.2.0.md#http)
 - `atalanta` now names the `http` step when a migrated Maestro flow uses `runScript`/`evalScript`.
-- `atalanta run --env-file PATH` (repeatable; also on `shard-plan`) reads `KEY=VALUE` files; `--env` wins over a file. [Details](docs/research/changelog-0.2.0-details.md#env-file)
-- **`atalanta explore` shows the model up to two of the project's tests most like the goal** as demonstrations (`--no-demos`, `--demos-from`); prompt `goal-3`. [Details](docs/research/changelog-0.2.0-details.md#demos)
+- `atalanta run --env-file PATH` (repeatable; also on `shard-plan`) reads `KEY=VALUE` files; `--env` wins over a file. [Details](docs/CHANGELOG-0.2.0.md#env-file)
+- **`atalanta explore` shows the model up to two of the project's tests most like the goal** as demonstrations (`--no-demos`, `--demos-from`); prompt `goal-3`. [Details](docs/CHANGELOG-0.2.0.md#demos)
 - `explore` tells the model when its last action changed nothing on the screen list, or when it is back on a screen it saw in the last 4 turns.
-- **Flakiness per failure kind**: history format 3 records each failure's kind, and flaky tests are reported with the split. [Details](docs/research/changelog-0.2.0-details.md#failure-kinds)
-- `atalanta migrate maestro`: `killApp`, `eraseText`, `clearState: { appId }` and absolute `tapOn` points convert; a point inside a selector is skipped with a warning. [Details](docs/research/changelog-0.2.0-details.md#migrate)
+- **Flakiness per failure kind**: history format 3 records each failure's kind, and flaky tests are reported with the split. [Details](docs/CHANGELOG-0.2.0.md#failure-kinds)
+- `atalanta migrate maestro`: `killApp`, `eraseText`, `clearState: { appId }` and absolute `tapOn` points convert; a point inside a selector is skipped with a warning. [Details](docs/CHANGELOG-0.2.0.md#migrate)
 - **Accessibility audit:** `config.accessibility: { audit: true }`. It checks each distinct screen a test reads once, with no extra device reads, for:
   - unnamed controls;
   - unlabeled image buttons;
@@ -175,7 +175,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - The prompt version is now `goal-4`.
 
   Source: Q-Reflector, arXiv 2608.05587.
-- **`--hunt` explains flakes**, ranking likely causes; `--suggest` tries the top fix in memory without editing the suite. [Details](docs/research/changelog-0.2.0-details.md#hunt)
+- **`--hunt` explains flakes**, ranking likely causes; `--suggest` tries the top fix in memory without editing the suite. [Details](docs/CHANGELOG-0.2.0.md#hunt)
 - **`atalanta api scaffold openapi.yaml`** writes an API-only suite from an OpenAPI 3 document:
   - requests ordered so producers come first;
   - one operation's response linked to another's parameters through `capture:`;
@@ -212,7 +212,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - `scrollUntilVisible` settles once instead of twice: with no swipe needed, 15 tree reads and 355 ms became 2 reads and 32 ms in the executor tests.
   - A configuration error from the driver fails a lookup or assertion at once instead of being retried until the step timeout (10.2 s on a headless suite without `launchApp`). `sync.mode: native` is unchanged.
 - **The headless and Flutter drivers report settled at once.** Their rendering is synchronous, so they no longer wait out the 300 ms reaction window: 20 headless taps went from 6.82 s to 0.022 s per test.
-- **Android `launchApp`** needs fewer adb round trips (9 → 7 first, 7 → 3 after another app). [Details](docs/research/changelog-0.2.0-details.md#launch-app)
+- **Android `launchApp`** needs fewer adb round trips (9 → 7 first, 7 → 3 after another app). [Details](docs/CHANGELOG-0.2.0.md#launch-app)
 - **iOS `launchApp`** stops the app through the runner session when there is one instead of spawning `xcrun simctl terminate`. Typing polls for focus every 40 ms instead of sleeping (AtalantaRunner, or with the focus check on); plain WebDriverAgent keeps its 100 ms wait. Not yet run on a simulator.
 - Selector matching prepares the selector once per lookup rather than once per element, and compares ASCII text without allocating: 2–3× faster per lookup on a 5,000-element tree (release build).
 - A test that history flags as flaky gets a warning with its per-kind score even when it passed, so it shows in the HTML, JUnit, GitHub and Allure reports.
@@ -244,7 +244,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - Explore on iOS matches against the app's frame, and swatch colours use one absolute scale. Not yet run on a simulator.
 - Benchmarks: every harness defaults to the same Sonnet price (2,10). The Claude bridge passes the request's `reasoning_effort` to `claude -p --effort` and logs hidden output tokens per call.
 
-- **Exit codes** follow one contract: 0 pass, 1 test failure, 2 config, 3 device, 4 suite timeout, 5 internal, 129/130/143 signals ([CLI.md](docs/CLI.md)). [Details](docs/research/changelog-0.2.0-details.md#exit-codes)
+- **Exit codes** follow one contract: 0 pass, 1 test failure, 2 config, 3 device, 4 suite timeout, 5 internal, 129/130/143 signals ([CLI.md](docs/CLI.md)). [Details](docs/CHANGELOG-0.2.0.md#exit-codes)
 - Ctrl-C and SIGTERM stop the run, write partial reports and clean up. A second signal exits at once. `--timeout` now interrupts the running test, writes reports and exits 4.
 - Every step waits for its element and for the screen to settle, and retry loops use the whole step timeout. A failing step can therefore take up to the full timeout before it fails.
 - Text matching is the same on every platform. Zero-width characters are dropped and whitespace and newlines are collapsed. `text:` tries an exact match first, then a case-insensitive one. `className:` accepts the short form (`Button`).
@@ -269,7 +269,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - **`results.json` `duration` as `{"secs", "nanos"}`.** Read the integer `duration_ms` (format 2); the object form will go in a later format.
 - **`atalanta inspect --flows-dir`** is now `--tests-dir` (it saves tests, not `flows:`); the old name still works.
 
-- **Ambiguous action selectors** warn that they will be an error in 1.0; `selectors.strict` (`1` error now, `0` silence). [Details](docs/research/changelog-0.2.0-details.md#ambiguous)
+- **Ambiguous action selectors** warn that they will be an error in 1.0; `selectors.strict` (`1` error now, `0` silence). [Details](docs/CHANGELOG-0.2.0.md#ambiguous)
 - **JUnit `classname`.** Every test currently has the classname `atalanta`. At 1.0 the default becomes the suite file's name; `--junit-classname suite` switches now. The change resets test history in CI tools once.
 - **Flutter `hierarchy: widgets`** (the widget tree in headless Flutter runs) still works with a warning. The semantics tree is the default.
 
@@ -316,29 +316,29 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 - **Android tree server protocol 19.** Another app's floating window (freeform, desktop windowing) no longer joins the dump as the app's popup, and the tap guard counts it as a cover; windows come from the active window's display; a resent request waits only as long as the host does. A step cancelled while the host reconnected or resent no longer kills the server or leaves an `adb forward` behind. Not run on a device.
 - **iOS: what is hidden behind a sheet no longer matches.** With a sheet, popover or in-app alert up, the step's lookup tree reads WebDriverAgent's `visible` (one more read; `ATALANTA_IOS_SHEET_VISIBILITY=off`). A row switch whose trailing-end tap changed nothing (an RTL row) is tapped at its leading end. The crash watcher no longer waits behind a slow request. Not run on a simulator.
-- **iOS picker wheels: a dead WebDriverAgent is a device error** (exit 3); under AtalantaRunner a picker-wheel step is a config error. Not yet run on a simulator or device. [Details](docs/research/changelog-0.2.0-details.md#picker-wheels)
-- **Explore reads a swatch's colour** from the screenshot in code, for unlabeled single-colour elements. [Details](docs/research/changelog-0.2.0-details.md#swatch)
-- **Pixel changes are judged in colour, on a finer grid**, so a thin stroke counts as a change and a blinking cursor still doesn't. [Details](docs/research/changelog-0.2.0-details.md#pixel-grid)
-- **Repeated swipes inside one element take new lanes** (code picks the lane). [Details](docs/research/changelog-0.2.0-details.md#swipe-lanes)
-- **A tap in a web page that shows no change is not doubted**: the model is told it may have set hidden state. [Details](docs/research/changelog-0.2.0-details.md#web-no-change)
-- **Explore waits up to 2 s for a result that comes after a return** to an earlier screen. [Details](docs/research/changelog-0.2.0-details.md#late-return)
-- **An empty Android field no longer reads as filled with its placeholder** (it stays the `hint`). Tree-server protocol 17. [Details](docs/research/changelog-0.2.0-details.md#placeholder)
-- **The final check confirms actions, not answers**: facts in an answer are grounded by code; asked-for actions must still be shown done. [Details](docs/research/changelog-0.2.0-details.md#check-actions)
-- **The final check no longer passes on an assumption** that an app saved or sent something by itself. [Details](docs/research/changelog-0.2.0-details.md#check-assumption)
-- **The final check sees what each action brought on screen** (up to ten texts per log line, redacted). [Details](docs/research/changelog-0.2.0-details.md#check-log)
-- **Android reads the screen from a cleared accessibility cache** on API 34+ only (a no-op before). Tree-server protocol 16. [Details](docs/research/changelog-0.2.0-details.md#clear-cache)
+- **iOS picker wheels: a dead WebDriverAgent is a device error** (exit 3); under AtalantaRunner a picker-wheel step is a config error. Not yet run on a simulator or device. [Details](docs/CHANGELOG-0.2.0.md#picker-wheels)
+- **Explore reads a swatch's colour** from the screenshot in code, for unlabeled single-colour elements. [Details](docs/CHANGELOG-0.2.0.md#swatch)
+- **Pixel changes are judged in colour, on a finer grid**, so a thin stroke counts as a change and a blinking cursor still doesn't. [Details](docs/CHANGELOG-0.2.0.md#pixel-grid)
+- **Repeated swipes inside one element take new lanes** (code picks the lane). [Details](docs/CHANGELOG-0.2.0.md#swipe-lanes)
+- **A tap in a web page that shows no change is not doubted**: the model is told it may have set hidden state. [Details](docs/CHANGELOG-0.2.0.md#web-no-change)
+- **Explore waits up to 2 s for a result that comes after a return** to an earlier screen. [Details](docs/CHANGELOG-0.2.0.md#late-return)
+- **An empty Android field no longer reads as filled with its placeholder** (it stays the `hint`). Tree-server protocol 17. [Details](docs/CHANGELOG-0.2.0.md#placeholder)
+- **The final check confirms actions, not answers**: facts in an answer are grounded by code; asked-for actions must still be shown done. [Details](docs/CHANGELOG-0.2.0.md#check-actions)
+- **The final check no longer passes on an assumption** that an app saved or sent something by itself. [Details](docs/CHANGELOG-0.2.0.md#check-assumption)
+- **The final check sees what each action brought on screen** (up to ten texts per log line, redacted). [Details](docs/CHANGELOG-0.2.0.md#check-log)
+- **Android reads the screen from a cleared accessibility cache** on API 34+ only (a no-op before). Tree-server protocol 16. [Details](docs/CHANGELOG-0.2.0.md#clear-cache)
 - **Explore waits for web content.** Chrome and WebViews update the accessibility tree 1 to 1.3 s after a click, later than the 0.6 s second look explore gave a screen that seemed unchanged. On a screen holding a web view, explore keeps looking for up to 2 s.
-- **A changed number is progress** in explore, and the history names it (`(text changed: …)`). [Details](docs/research/changelog-0.2.0-details.md#changed-number)
-- **Explore stops walking a loop through `back`**: one more `back` from that screen is refused once. [Details](docs/research/changelog-0.2.0-details.md#back-loop)
-- **An explore answer goes through the final check** before it ends the run (`--verify off` skips it). [Details](docs/research/changelog-0.2.0-details.md#answer-check)
+- **A changed number is progress** in explore, and the history names it (`(text changed: …)`). [Details](docs/CHANGELOG-0.2.0.md#changed-number)
+- **Explore stops walking a loop through `back`**: one more `back` from that screen is refused once. [Details](docs/CHANGELOG-0.2.0.md#back-loop)
+- **An explore answer goes through the final check** before it ends the run (`--verify off` skips it). [Details](docs/CHANGELOG-0.2.0.md#answer-check)
 - **iOS taps a settings-row switch on its knob.** A SwiftUI `Toggle` row is one `Switch` the width of the row; a tap at its centre lands on the label and does nothing. A switch more than three times as wide as tall is tapped on its knob first.
 - **iOS sets picker wheels.** `type` into an `XCUIElementTypePickerWheel` now sets it (an exact value, else stepping it to the value, numbers matched by their leading digits) instead of failing; date and time pickers in iOSWorld tasks stalled on it.
 - **iOS "back" closes a sheet.** With no navigation back button, `back` taps a Close, Cancel, Dismiss or ✕ button in the top quarter of the screen before falling back to the edge swipe, which never closes a sheet. Done and Save are never tapped: they commit.
 - **iOS taps into a sheet over a navigation bar.** The navigation bar of the screen under a presented sheet no longer blocks taps on the sheet's own elements (a bar whose container is not an ancestor of the target).
 
-- **A snapshot ref no longer moves to another element after a navigation**; it fails `STALE_REF`. [Details](docs/research/changelog-0.2.0-details.md#stale-ref)
+- **A snapshot ref no longer moves to another element after a navigation**; it fails `STALE_REF`. [Details](docs/CHANGELOG-0.2.0.md#stale-ref)
 - **A failed MCP step reports what failed it.** A `scroll` whose target never appeared, or a step the app crashed during, was reported as `INVALID_ARGS` ("fix the arguments"); it is now `NOT_FOUND`, `ASSERTION_FAILED`, `APP_CRASHED` and so on, from the kind of the error behind it.
-- **Exported sessions no longer assert on a container's joined text** (or iOS's `BackButton` id). [Details](docs/research/changelog-0.2.0-details.md#joined-text)
+- **Exported sessions no longer assert on a container's joined text** (or iOS's `BackButton` id). [Details](docs/CHANGELOG-0.2.0.md#joined-text)
 - **Found by the trust-benchmark pilot (`bench/pilot/`, 2026-11-07), in `explore` and its gates:**
   - The final AI check judged the goal text against the last screen alone, so every multi-step goal ("open Network & internet and then Internet") came out `unverified`: the last screen can't show an earlier one was opened. It now judges the end state with the runner's own log of the actions done (as benchmark runs already did); the trust gates still decide trust.
   - The wrong-path gate found no neighbour for an element with a label and no text (`None == None` ruled out every iOS cell), so it was skipped on iOS; it now compares text and label together.
@@ -363,9 +363,9 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - **`ATALANTA_EXPLORE_SHOTS_DIR`** saves each turn's screenshot, for an outside judge (iOSWorld).
   - **`--model openai-compatible:m` uses `ATALANTA_NL_API_URL`.** `--model` hid the environment's endpoint from every provider, so a provider with none of its own could never be used that way, and the error asked for the variable it ignored.
   - **`atalanta run` waits for a held device** (up to `ATALANTA_LEASE_WAIT_MS`, 10 s) instead of failing at once; agent commands wait as long.
-- **Web elements keep their `id` attribute apart from their label**: written tests use `id:` (`Element.dom_id`). [Details](docs/research/changelog-0.2.0-details.md#dom-id)
-- **A replugged iPhone no longer stays unreachable**: the USB forward looks the device up again. Not yet checked on hardware. [Details](docs/research/changelog-0.2.0-details.md#replug)
-- **Corporate proxies and custom CAs**: HTTPS trusts the OS store, or `SSL_CERT_FILE`/`SSL_CERT_DIR` ([CLI.md](docs/CLI.md#proxies-and-certificates)). [Details](docs/research/changelog-0.2.0-details.md#proxies)
+- **Web elements keep their `id` attribute apart from their label**: written tests use `id:` (`Element.dom_id`). [Details](docs/CHANGELOG-0.2.0.md#dom-id)
+- **A replugged iPhone no longer stays unreachable**: the USB forward looks the device up again. Not yet checked on hardware. [Details](docs/CHANGELOG-0.2.0.md#replug)
+- **Corporate proxies and custom CAs**: HTTPS trusts the OS store, or `SSL_CERT_FILE`/`SSL_CERT_DIR` ([CLI.md](docs/CLI.md#proxies-and-certificates)). [Details](docs/CHANGELOG-0.2.0.md#proxies)
 - The workspace builds on the newest Rust toolchains: `AtomicU32::fetch_update`, deprecated there, is replaced by a compare-exchange loop that also works on the 1.89 MSRV.
 - quick-xml 0.41 (RUSTSEC-2026-0194, -0195) and zip 9 (RUSTSEC-2026-0367, -0368, -0369). Since quick-xml 0.38, a text with an entity in it comes as separate events; the xib and storyboard parsers now keep `&amp;` and the like (`Line one & two` read as `Line one  two`).
 - **A secret leak in redaction.** A short secret (a PIN or OTP under 8 characters) written right next to a long secret or a token shape was left in clear: `LONGSECRETpin` became `[redacted]pin`. Found by new property tests.
@@ -376,9 +376,9 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 - Every web run printed chromiumoxide's `WARN WS Invalid message … untagged enum Message` with current Chrome. `RUST_LOG` still shows it.
 - A WebDriverAgent reply with no element id is a device command failure, retried once, not a configuration error.
 - A run with `--device` prepared the driver before taking the device's lease. On a simulator another Atalanta process was using, it stopped that process's WebDriverAgent and started a runner on its port. The lease is now taken first.
-- An iOS runner is never launched into a taken port; one failing 3 times in 2 minutes stops with `RunnerFailing` (exit 3). [Details](docs/research/changelog-0.2.0-details.md#runner-port)
+- An iOS runner is never launched into a taken port; one failing 3 times in 2 minutes stops with `RunnerFailing` (exit 3). [Details](docs/CHANGELOG-0.2.0.md#runner-port)
 - Tests no longer write `.atalanta/healer-snapshots.json` into the source tree: `RuntimeConfig::state_dir` and `TestExecutor::with_state_dir` put the self-healing state elsewhere.
-- `perf_budget` is no longer flaky: healing snapshot state is kept per test in a temp dir. [Details](docs/research/changelog-0.2.0-details.md#perf-budget)
+- `perf_budget` is no longer flaky: healing snapshot state is kept per test in a temp dir. [Details](docs/CHANGELOG-0.2.0.md#perf-budget)
 
 - A test whose app crashed after its last step passed.
 - `assertNotVisible` passed when the screen couldn't be read, or when the element was briefly visible but on its way out.
@@ -430,30 +430,30 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Security
 
-- **The Rule of Two for agent sessions**: the default and read-only MCP profiles list no tool that changes the machine ([SECURITY.md](docs/SECURITY.md#9-agents-the-rule-of-two)). [Details](docs/research/changelog-0.2.0-details.md#rule-of-two)
+- **The Rule of Two for agent sessions**: the default and read-only MCP profiles list no tool that changes the machine ([SECURITY.md](docs/SECURITY.md#9-agents-the-rule-of-two)). [Details](docs/CHANGELOG-0.2.0.md#rule-of-two)
 - **An explore task's `out` stays the agent's suite.** Running it later (`run_task suite`, or as an `after`) gets the checks an agent-written suite gets, so its `${…}` can't read the server's environment; the list of such files lives in the tasks folder (`agent-written.txt`) and survives a restart. Outside `--profile full`, an explored test that types `${EMAIL}` now needs `EMAIL` in `ATALANTA_SECRETS`, as a suite in the tasks folder already did.
-- **MCP `run_task` keeps model-chosen `out`/`script` paths inside the project.** [Details](docs/research/changelog-0.2.0-details.md#run-task-paths)
-- **AtalantaRunner refuses cross-site and unauthenticated requests**: a per-launch token, and 403 for an `Origin`, cross-site fetch or foreign `Host`. [Details](docs/research/changelog-0.2.0-details.md#runner-auth)
-- **A cabled iPhone's runner binds the phone's loopback (R-4)**, which the USB (usbmux) forward reaches, instead of every interface, Wi-Fi included.
-- **The Android tree server drops non-protocol input** and requires a per-start token (protocol 13). [Details](docs/research/changelog-0.2.0-details.md#tree-input)
+- **MCP `run_task` keeps model-chosen `out`/`script` paths inside the project.** [Details](docs/CHANGELOG-0.2.0.md#run-task-paths)
+- **AtalantaRunner refuses cross-site and unauthenticated requests**: a per-launch token, and 403 for an `Origin`, cross-site fetch or foreign `Host`. [Details](docs/CHANGELOG-0.2.0.md#runner-auth)
+- **A cabled iPhone's runner binds the phone's loopback**, which the USB (usbmux) forward reaches, instead of every interface, Wi-Fi included.
+- **The Android tree server drops non-protocol input** and requires a per-start token (protocol 13). [Details](docs/CHANGELOG-0.2.0.md#tree-input)
 
 - The inspector no longer accepts requests from any website or LAN host. It binds `127.0.0.1` and checks a per-session token, `Host` and `Origin` on every request and WebSocket. It sends no CORS headers, and it serves artifacts only from the run's folder, under a Content-Security-Policy.
-- On simulators, WebDriverAgent, its MJPEG stream and AtalantaRunner listen on loopback; cabled iPhones too, by default (`ATALANTA_IOS_DEVICE_LOOPBACK=0` opts out). [Details](docs/research/changelog-0.2.0-details.md#loopback)
-- Secrets come from environment variables, are masked everywhere, never sent to a model, and written into YAML only as `${NAME}`; MCP agents type only `ATALANTA_SECRETS`. [Details](docs/research/changelog-0.2.0-details.md#secrets)
+- On simulators, WebDriverAgent, its MJPEG stream and AtalantaRunner listen on loopback; cabled iPhones too, by default (`ATALANTA_IOS_DEVICE_LOOPBACK=0` opts out). [Details](docs/CHANGELOG-0.2.0.md#loopback)
+- Secrets come from environment variables, are masked everywhere, never sent to a model, and written into YAML only as `${NAME}`; MCP agents type only `ATALANTA_SECRETS`. [Details](docs/CHANGELOG-0.2.0.md#secrets)
 - Values are interpolated in one pass, so a variable's value can't inject another variable.
 - Device shell commands no longer interpolate unquoted app ids or typed text.
 - History, cache, lease and profile files are created `0600` (directories `0700`), and atomic writes replace a symlink instead of following it.
 - AI provider keys are read only from environment variables, never logged, and refused when a key value is put where a variable name belongs (`apiKeyEnv`).
-- **Android tree server protocol 18: mutual HMAC handshake**; the token never crosses the socket. Not run on a device. [Details](docs/research/changelog-0.2.0-details.md#tree-18)
+- **Android tree server protocol 18: mutual HMAC handshake**; the token never crosses the socket. Not run on a device. [Details](docs/CHANGELOG-0.2.0.md#tree-18)
 - **The Android video server authenticates both ways** (video server 2): a per-start token file and an HMAC handshake before the stream, so another local process can't watch the screen through its `adb forward` or hold its client slot (R-3 residual). iOS never pastes a secret or into a secure field (the simulator's pasteboard is the Mac's), and building an unpinned `ios.wdaRef` warns. Not run on a device.
-- **Agent-written suites over MCP** (outside `--profile full`) can't read arbitrary `${ENV}`/keychain values or send secrets anywhere but typed text. [Details](docs/research/changelog-0.2.0-details.md#mcp-suites)
+- **Agent-written suites over MCP** (outside `--profile full`) can't read arbitrary `${ENV}`/keychain values or send secrets anywhere but typed text. [Details](docs/CHANGELOG-0.2.0.md#mcp-suites)
 - **MCP tasks:** `run_task` suite paths must resolve inside the project; a task that panics ends as an error and frees its device; `notifications/cancelled` rebuilds the session.
 - **Explore and prompt injection:** screen titles and names are flattened to one line and quoted in the prompt. `--values-from-screenshots` accepts text only after a screenshot of a screen with pixel-only content (an image, a canvas).
 - **MCP `run_task {suite}` in the tasks folder** (a file an agent's task wrote, such as the `task_inject` lines) gets the checks an inline `yaml` gets: no `exec`, no host secrets.
 - **Console:** the explore goal is passed after `--`, so a goal starting with `-` is never read as a flag (I-2), and the console UI is served with a Content-Security-Policy (`script-src 'self'`, I-3).
 - **Automated security checks** (`.github/workflows/security.yml`, `scripts/security-check.sh` locally): RustSec advisories, OSV-Scanner over every lockfile, `npm audit`, gitleaks over the whole history, zizmor on the workflows, Semgrep SAST, an `unsafe` inventory per crate, CycloneDX SBOMs and weekly cargo-fuzz runs of six parsers; OpenSSF Scorecard; every workflow job under harden-runner with credentials not persisted. Releases add the SBOMs, a signed `SHA256SUMS.sigstore.json`, and `cargo auditable` dependency data in the binaries. hyper 1.12 (drops the unmaintained `pin-utils`, RUSTSEC-2026-0441), `rand` 0.9.5 (RUSTSEC-2026-0097), `memmap2` 0.9.12 (RUSTSEC-2026-0186), `grid` 1.0.1 and the frontend's build tooling (vite, postcss, nanoid and others, via `npm audit fix`) are updated. The Atalanta Action passes `platform` and `shard` to its scripts as variables and checks `shard` is `M/N`. [SECURITY.md](SECURITY.md#automated-security-checks)
 
-- **Security audit 2026-11** ([docs/research/security-audit-2026-11.md](docs/research/security-audit-2026-11.md)):
+- **Security audit 2026-11:**
   - MCP (outside `--profile full`): explore's and `verify_change`'s `after` file in the tasks folder gets the inline-suite checks; an agent-written suite may not set the browser binary, its flags, a mock file, a non-http start page, `app`, the headless/Flutter/React Native sources, `ios.wdaRef` or a non-http(s) `appId`/`goto` URL, nor read `${…}` in `tags`; its `http` steps can't reach link-local or cloud-metadata addresses; a plain `launch_app` takes only http(s) web URLs and `type_text` can't name a host file outside the project; the explore goal and the `verify_change` description go after `--`.
   - `atalanta explore` writes screen text and goal literals with `${` escaped, so a page showing `${AWS_SECRET_ACCESS_KEY}` can't make the replay read it.
   - The NL cache (`.atalanta/nl-cache.json`) replays only actions grounding can produce (no `http`, `launchApp`, `setConfig` from an edited cache).
@@ -480,7 +480,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
   - Android emulators and devices need `adb`; Java is not needed.
   - iOS simulators and devices need macOS with Xcode.
   - The web driver needs Chrome or Chromium.
-- **Verification:** Android 14 emulators, iOS 26 simulators and headless Chrome; one Android tablet (Settings only); real iPhones never ([STATUS.md](docs/STATUS.md)). [Details](docs/research/changelog-0.2.0-details.md#verification)
+- **Verification:** Android 14 emulators, iOS 26 simulators and headless Chrome; one Android tablet (Settings only); real iPhones never ([STATUS.md](docs/STATUS.md)). [Details](docs/CHANGELOG-0.2.0.md#verification)
 
 ### Migrating from 0.1.0
 

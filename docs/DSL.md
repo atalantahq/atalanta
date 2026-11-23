@@ -336,8 +336,6 @@ A matcher is a plain value, which must be equal (numbers by value, `1` = `1.0`),
 
 No response (connection refused, DNS, TLS, timeout) fails the test (exit 1), like a failed check. `optional: true` forgives both. `config.http.insecure: true` accepts any TLS certificate, for a dev server's self-signed one. `RUST_LOG=atalanta_api=debug` logs every request and the start of each response.
 
-Design notes and the tools compared: [research/landscape-api-testing.md](research/landscape-api-testing.md).
-
 ## Reordering (`drag`)
 
 `drag` presses one element and drops it on another, the way a person reorders a list.

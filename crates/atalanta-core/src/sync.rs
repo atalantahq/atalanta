@@ -1,7 +1,7 @@
 //! Waiting for the UI to settle after an action.
 //!
 //! The policy (constants from Playwright, Maestro 2026, UiAutomator 2.4
-//! `waitForStable` and Lighthouse; see `docs/research/PLAN.md`, A-1):
+//! `waitForStable` and Lighthouse):
 //!
 //! ```text
 //! after an action:

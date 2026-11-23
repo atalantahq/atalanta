@@ -105,7 +105,7 @@ The same rules apply for every provider:
 
 ## Measuring the defaults
 
-The defaults above were not measured: no keys were available when they were set. Before 1.0, a maintainer with keys runs the fixed task set across providers and records the table in [research/README.md](research/README.md#model-defaults-provisional):
+The defaults above were not measured: no keys were available when they were set. Before 1.0, a maintainer with keys runs the fixed task set across providers and records the results on this page:
 
 ```bash
 atalanta nl-eval -k 5 --tasks builtin --recommend --json nl-models.json \

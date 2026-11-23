@@ -165,7 +165,7 @@ After a repair, the test is written again, validated and replayed again. The rep
 
 ### Trust gates
 
-A test that replays is a cache of the run, and the cache must not lie. After the replays pass, two more checks decide whether the test is **trusted** (row 1.3 of the v4 plan; `--no-gates` skips them, and benchmarks never run them):
+A test that replays is a cache of the run, and the cache must not lie. After the replays pass, two more checks decide whether the test is **trusted** (`--no-gates` skips them, and benchmarks never run them):
 
 - **Wrong path.** On the device, the test runs up to its last tap. It then taps one of the two nearest neighbours of that element (the same kind of element, with real text of its own) and runs to the end. It must fail. If it still passes, its assertions can't tell the screen it should reach from a neighbouring one, for example two plans whose checkouts look the same. Each neighbour gets a fresh run from the launch. A tap with no neighbour is reported as not checked.
 - **Goal text.** At least one assertion must name a word of the goal (stop words like "open" and "page" don't count), so the test checks what the goal asked for and not only that some screen showed.

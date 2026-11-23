@@ -1,9 +1,9 @@
 # Atalanta vs Maestro, head to head
 
 Wall-clock time of one user-visible flow, run by each tool from its CLI, on
-the same Android emulator and the same app. It repeats the Android comparison
-in [docs/research/speed-profile-2026-10-06.md](../../docs/research/speed-profile-2026-10-06.md#head-to-head-with-maestro-230-same-flows-same-devices)
-(Maestro 26–27 s, Atalanta 3.7 s) as a script anyone can rerun.
+the same Android emulator and the same app. It repeats an earlier manual
+Android comparison (Maestro 26–27 s, Atalanta 3.7 s) as a script anyone
+can rerun.
 
 ## What is compared
 
