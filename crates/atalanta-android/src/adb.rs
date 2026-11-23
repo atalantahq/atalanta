@@ -187,11 +187,7 @@ impl Adb {
 
         // Typed text may be a password, and a launch argument or a link a
         // token: neither goes to the log, as it doesn't to an error.
-        debug!(
-            device = device_id,
-            command = %atalanta_common::redact::redact(&redact_typed_text(args)),
-            "adb command"
-        );
+        debug!(device = device_id, command = %logged_command(args), "adb command");
 
         let timeout = match args.first() {
             Some(&"install") | Some(&"install-multiple") | Some(&"push") | Some(&"pull") => {
@@ -867,6 +863,10 @@ pub(crate) fn classify_failure(device_id: &str, args: &[&str], stderr: &str) -> 
     }
 }
 
+fn logged_command(args: &[&str]) -> String {
+    atalanta_common::redact::redact(&redact_typed_text(args)).to_string()
+}
+
 /// `args` joined for an error message, with typed text (possibly a
 /// password) replaced: an `input text` script keeps only its first word, so
 /// the text never reaches reports, JUnit or MCP output.
@@ -947,9 +947,35 @@ mod tests {
     /// of an adb command masks registered secrets and typed text.
     #[test]
     fn adb_commands_are_logged_without_secrets() {
-        use crate::test_support::{capture_logs, FakeAdb};
+        use crate::test_support::FakeAdb;
         atalanta_common::redact::register_secret("adb-log-secret-4f81c9");
         let fake = FakeAdb::new("adb-log-secret");
+        let line = super::logged_command(&[
+            "shell",
+            "am start -n com.x/.A --es token adb-log-secret-4f81c9",
+        ]);
+        assert!(
+            line.contains("com.x/.A") && !line.contains("adb-log-secret-4f81c9"),
+            "{line}"
+        );
+        let line = super::logged_command(&["shell", "input text typed-pass-77"]);
+        assert!(!line.contains("typed-pass-77"), "{line}");
+        // A scoped capture is sometimes empty under `cargo test --workspace`.
+        let mut logs = String::new();
+        for _ in 0..5 {
+            logs = capture_once(&fake);
+            if !logs.is_empty() {
+                break;
+            }
+        }
+        assert!(logs.contains("adb command"), "{logs}");
+        assert!(logs.contains("com.x/.A"), "{logs}");
+        assert!(!logs.contains("adb-log-secret-4f81c9"), "{logs}");
+        assert!(!logs.contains("typed-pass-77"), "{logs}");
+    }
+
+    fn capture_once(fake: &crate::test_support::FakeAdb) -> String {
+        use crate::test_support::capture_logs;
         let (_, logs) = capture_logs(|| {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -971,10 +997,7 @@ mod tests {
                     .unwrap();
             })
         });
-        assert!(logs.contains("adb command"), "{logs}");
-        assert!(logs.contains("com.x/.A"), "{logs}");
-        assert!(!logs.contains("adb-log-secret-4f81c9"), "{logs}");
-        assert!(!logs.contains("typed-pass-77"), "{logs}");
+        logs
     }
 
     /// A missing adb is the user's setup (exit 2), not a lost connection
