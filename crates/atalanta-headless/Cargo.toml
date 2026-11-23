@@ -19,7 +19,7 @@ atalanta-common = { workspace = true }
 tiny-skia = "0.11.4"
 taffy = "0.9.2"
 cosmic-text = "0.16.0"
-fontdb = { version = "0.23", default-features = false }
+fontdb = { version = "0.24", default-features = false }
 
 # Android adapter
 zip = { version = "9", default-features = false, features = ["deflate"] }
