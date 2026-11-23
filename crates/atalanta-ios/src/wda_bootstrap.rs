@@ -874,15 +874,27 @@ impl WdaBootstrap {
         .map_err(|e| config(format!("Failed to run xcodebuild: {e}")))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let detail: Vec<&str> = stderr
+            // With -quiet, compiler errors go to stdout.
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail: Vec<&str> = stdout
                 .lines()
+                .chain(stderr.lines())
                 .filter(|l| l.contains("error"))
                 .take(5)
                 .collect();
+            let hint = if atalanta_runner() {
+                "ATALANTA_IOS_RUNNER=wda uses WebDriverAgent instead"
+            } else {
+                "set ATALANTA_WDA_REF to another tag"
+            };
             return Err(config(format!(
-                "WDA {wda_ref} failed to build with Xcode {} (set ATALANTA_WDA_REF to another tag):\n{}",
+                "WDA {wda_ref} failed to build with Xcode {} ({hint}):\n{}",
                 xcode.build,
-                if detail.is_empty() { stderr.trim().to_string() } else { detail.join("\n") }
+                if detail.is_empty() {
+                    stderr.trim().to_string()
+                } else {
+                    detail.join("\n")
+                }
             )));
         }
         let xctestrun = find_xctestrun(&derived)
