@@ -95,7 +95,7 @@ Crates listed: 363 (excluding the 16 workspace crates).
 | clap_lex | 1.0.0 | `MIT OR Apache-2.0` | https://github.com/clap-rs/clap |
 | colorchoice | 1.0.4 | `MIT OR Apache-2.0` | https://github.com/rust-cli/anstyle.git |
 | colored | 2.2.0 | `MPL-2.0` | https://github.com/mackwic/colored |
-| cookie | 0.18.2 | `MIT OR Apache-2.0` | https://github.com/SergioBenitez/cookie-rs |
+| cookie | 0.18.3 | `MIT OR Apache-2.0` | https://github.com/SergioBenitez/cookie-rs |
 | cookie_store | 0.22.1 | `MIT OR Apache-2.0` | https://github.com/pfernie/cookie_store |
 | core-foundation | 0.10.1 | `MIT OR Apache-2.0` | https://github.com/servo/core-foundation-rs |
 | core-foundation-sys | 0.8.7 | `MIT OR Apache-2.0` | https://github.com/servo/core-foundation-rs |
