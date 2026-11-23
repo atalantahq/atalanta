@@ -2195,7 +2195,11 @@ impl PlatformDriver for IosDriver {
             }
         }
         if clear_state {
-            self.clear_sim_data(device_id, app_id).await?;
+            if let Err(e) = self.clear_sim_data(device_id, app_id).await {
+                // Terminated and not relaunched: not a crash.
+                self.forget_launch(device_id, app_id);
+                return Err(e);
+            }
         }
 
         let env = self.app_env(device_id);
