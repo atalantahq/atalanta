@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review MINOR-10: the Chrome profile directory is ours alone (created
 //! here, 0700) and doesn't leak when `prepare` runs twice. Its own test
 //! binary: it counts this process's profile dirs.

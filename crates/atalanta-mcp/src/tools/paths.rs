@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Paths an agent passes to a tool, kept inside the places a tool may use.
 //!
 //! A model chooses these arguments, and a model reads untrusted screen text,

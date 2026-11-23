@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """An OpenAI-compatible endpoint backed by the Claude Code CLI (`claude -p`).
 
 For machines with Claude Code logged in but no API key: Atalanta's

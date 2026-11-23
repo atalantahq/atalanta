@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Change-based test selection that stays safe by default.
 //!
 //! Most UI test runs find nothing — at Google 1.23% of test targets ever

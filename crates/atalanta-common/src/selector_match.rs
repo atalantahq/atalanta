@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Matching selectors against an accessibility tree. One implementation for
 //! every platform (Android, iOS, headless, React Native, Flutter, web tree
 //! fallback), so a selector means the same thing everywhere.

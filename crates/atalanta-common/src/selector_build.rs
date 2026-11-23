@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The selector NL steps and MCP refs record for an element: one builder, so
 //! both pick the same, most stable selector (P-7).
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package com.facebook.react.fabric;
 
 import com.facebook.react.fabric.mounting.MountItemDispatcher;

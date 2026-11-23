@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Tool profiles (ENT-105, plan row 0.5).
 //!
 //! Every tool definition costs the agent context on every turn, and agent

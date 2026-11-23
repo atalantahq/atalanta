@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! End to end against the fake app: a scripted planner plays the model,
 //! the real executor acts, the YAML is written and replayed.
 //!

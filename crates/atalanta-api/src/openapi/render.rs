@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The scaffold as suite YAML: serde_yaml writes every value, so quoting is
 //! never hand-made; the lines around them carry the comments.
 

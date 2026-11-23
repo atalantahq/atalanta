@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta signing`: headless iOS provisioning through the App Store
 //! Connect API (an API key, never an Apple ID password).
 

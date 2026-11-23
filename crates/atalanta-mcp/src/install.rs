@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta mcp install` / `atalanta mcp config`: register Atalanta's MCP
 //! server with an agent client, and teach the agent the Atalanta workflow.
 //!

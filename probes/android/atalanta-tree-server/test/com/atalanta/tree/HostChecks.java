@@ -140,3 +140,6 @@ final class HostChecks {
         if (!ok) throw new AssertionError(what);
     }
 }
+
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only

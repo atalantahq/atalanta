@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A planner and checker on Amazon Bedrock's Converse API
 //! (`POST /model/{modelId}/converse`), which speaks one format for Claude,
 //! Llama, Mistral and Nova on AWS.

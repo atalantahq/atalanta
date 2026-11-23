@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Natural-language planner wiring for the runner.
 //!
 //! Builds a shared [`NaturalResolver`] when the environment is configured for it,

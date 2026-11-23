@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { useEffect, useMemo, useState } from "react";
 import * as api from "../api/console";
 import type { ArtifactFile, TaskEvent } from "../api/console";

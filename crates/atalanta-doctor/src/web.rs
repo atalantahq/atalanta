@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Web: a Chrome or Chromium for the CDP driver.
 
 use std::path::PathBuf;

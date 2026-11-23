@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Build the Atalanta Echo test app (tests/apps/android-echo) into an APK,
 # the same way as probes/android/atalanta-tree-server/build.sh: no Gradle.
 set -euo pipefail

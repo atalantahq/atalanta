@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Versioned hierarchy snapshots with stable node keys (research P-5).
 //!
 //! The WebSocket sends a device's hierarchy only when it changed, as a

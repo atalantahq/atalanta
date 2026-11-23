@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 [package]
 name = "atalanta-inspector"
 version.workspace = true

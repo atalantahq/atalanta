@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Layout fidelity against Android semantics (VEL-103, VEL-106, VEL-107, VEL-108, VEL-109).
 
 use std::sync::Arc;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Whether a screenshot changed where the accessibility tree can't see it.
 //!
 //! Explore decides whether an action did anything from the tree's hash. A

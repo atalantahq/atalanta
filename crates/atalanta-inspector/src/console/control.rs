@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Who drives a device from the console.
 //!
 //! Watching a device (the mirror, the tree) needs nothing: it doesn't

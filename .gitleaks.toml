@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # gitleaks configuration (scripts/security-check.sh, .github/workflows/security.yml).
 #
 # The default rule set, plus an allowlist of values that are known to be fake:

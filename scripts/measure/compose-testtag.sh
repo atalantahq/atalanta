@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # P5: what reading Compose testTags (android.composeTestTag) costs per full
 # tree dump. Runs suites/compose-testtag.yaml ROUNDS times with the setting
 # on and off and prints each assertVisible's median time side by side; the

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use async_trait::async_trait;
 use atalanta_common::{AtalantaError, Element, NaturalKind, Platform, Rect, Result};
 use serde::Deserialize;

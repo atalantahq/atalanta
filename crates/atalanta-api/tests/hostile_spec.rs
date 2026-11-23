@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A spec is someone else's text: its titles can't write YAML into the
 //! scaffolded suite, and its `${...}` can't read the environment, not when
 //! the suite runs and not under `--confirm`.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The part of the tap guard every platform shares: which points of a
 //! target to try, in which order (review 06 #4).
 //!

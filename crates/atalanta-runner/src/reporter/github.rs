@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! GitHub Actions output: an annotation per failed or flaky test (shown on
 //! the run and, with a file, on the PR diff), and a Markdown summary
 //! appended to `$GITHUB_STEP_SUMMARY`.

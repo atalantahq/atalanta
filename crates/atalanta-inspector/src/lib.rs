@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The Atalanta inspector and console: an axum server with a web UI and
 //! API for looking at a device's screen and element tree, building
 //! selectors, running and exploring tests as `atalanta` child processes

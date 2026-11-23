@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Planner consistency eval (pass^k).
 //!
 //! Caching makes replays deterministic, which also hides how consistent the

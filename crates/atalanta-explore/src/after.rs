@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta explore --after login.yaml` (row 1.5, AI-021): start from a
 //! stored flow, typically a login, replayed with no model, then explore.
 //!

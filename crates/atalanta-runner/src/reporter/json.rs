@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use atalanta_common::{AtalantaError, Result, SuiteResult};
 
 /// `"healed": n` and `"label": "PASSED (healed n)"` on each test whose

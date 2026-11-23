@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Screenshot review (U1): the failed `assertScreenshot` comparisons in the
 //! results dir, each with its expected, actual and diff image, and Accept /
 //! Reject buttons. Rendered here as plain HTML (no frontend build), so it

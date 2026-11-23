@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Failure evidence: a video of the test and the device's logs, captured
 //! while a test runs and kept when it fails (or always, when configured).
 //!

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use serde::{Deserialize, Serialize};
 use taffy::prelude::{AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent, JustifySelf};
 

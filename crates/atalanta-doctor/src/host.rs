@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Host: OS, Atalanta, memory and disk, state directories, leases.
 
 use std::path::{Path, PathBuf};

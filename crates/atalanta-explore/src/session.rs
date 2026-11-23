@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The agent loop: observe → plan → ground → act → record.
 //!
 //! Each turn the model sees the current screen in full, the earlier turns

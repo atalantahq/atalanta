@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta verify-change "<description>"` (row 1.4: AI-088, VOI-002,
 //! VOI-003): did this change do what it says on the device? It answers
 //! with evidence a reviewer can accept: pass/fail, a video and screenshots

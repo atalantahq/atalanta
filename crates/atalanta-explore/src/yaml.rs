@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Turning a session into a test: a plain, deterministic Atalanta suite.
 //!
 //! Rules (docs/EXPLORE.md has the long form):

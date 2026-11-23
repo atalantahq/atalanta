@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta gate <file> --goal "<text>"`: trust-gates any one-test suite
 //! YAML — hand-written or exported from an agent session — without exploring.
 //! It replays the test N times (the later ones with timing jitter), replays it

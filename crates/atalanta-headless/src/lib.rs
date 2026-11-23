@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Atalanta Headless Renderer
 //!
 //! CPU-only rendering engine for Android XML layouts and iOS XIB/Storyboard files.

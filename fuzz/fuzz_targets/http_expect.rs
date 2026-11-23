@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The `http` step: JSONPath expressions in `expect.json` / `capture`, and
 //! the step itself as written in a suite (its matchers and their checks).
 #![no_main]

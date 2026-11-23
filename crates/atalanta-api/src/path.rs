@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! JSONPath (RFC 9535) for `expect.json` and captures, through
 //! `serde_json_path`.
 //!

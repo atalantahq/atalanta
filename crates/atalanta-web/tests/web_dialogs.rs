@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review 10 #9 and #11: JavaScript dialogs follow `web.dialogs` /
 //! `web.promptText`, also in cross-origin frames, and downloads follow
 //! `web.downloads`. Its own test binary: it changes the process-wide

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A checked-in quarantine list: known failures that don't fail the build.
 //!
 //! `atalanta-quarantine.yaml` next to the suite:

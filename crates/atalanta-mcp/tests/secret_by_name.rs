@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `type_text {secret: NAME}` types the environment value, never returns
 //! it, and the export writes `${NAME}`. Its own test binary (review 07 M7):
 //! it sets process environment variables, which would race every other

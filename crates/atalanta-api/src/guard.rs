@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where an `http` step may go, and what a redirect may carry.
 //!
 //! Two rules (security audit 2026-11):

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Mobile-web device profiles for `web.device` (D-W3): Playwright's whole
 //! device descriptor list, each a viewport, a device pixel ratio, a user
 //! agent, and whether the page is laid out as mobile and takes touch. They

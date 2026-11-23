@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review MINOR 10: focus that stays inside a cross-origin frame after the
 //! click of an `inputText` is focus the click didn't move, against a real
 //! headless Chrome and a two-origin page.

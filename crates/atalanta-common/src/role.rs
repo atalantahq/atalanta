@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Roles and accessible names for `role:` / `name:` selectors (S1).
 //!
 //! Role names are Playwright's (the ARIA roles `getByRole` accepts). The web

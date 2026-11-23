@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;

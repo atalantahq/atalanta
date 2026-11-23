@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Host JVM checks for the sync probe's Java logic. Gradle isn't needed:
 # javac type-checks src/main/java against android.jar, then the checks run on
 # the host JVM (android.jar is on the classpath for type resolution only).

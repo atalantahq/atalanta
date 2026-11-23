@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `expect.json` checks read from a success response's schema, without
 //! running anything (SATORI, ASE 2025, infers its oracles the same way):
 //! what the spec promises about every response, so a check can only fail

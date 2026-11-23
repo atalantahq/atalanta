@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The Android UI-tree dump parsers: `uiautomator dump` XML and the tree
 //! server's DUMP reply, both produced on the device (an app controls the
 //! text, content descriptions and resource ids in them).

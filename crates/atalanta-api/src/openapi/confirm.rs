@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `--confirm`: send the scaffold's GET and HEAD requests to a real server
 //! and drop each mined check its response disproves. A dropped check is a
 //! finding, not noise: the server and its spec disagree there. Nothing

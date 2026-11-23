@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The iOS page-source parser (WebDriverAgent / AtalantaRunner XML, whose
 //! labels and values come from the app under test).
 #![no_main]

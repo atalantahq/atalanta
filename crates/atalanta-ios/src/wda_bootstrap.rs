@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! WebDriverAgent lifecycle: pinned source, cached build, launch, teardown.
 //!
 //! - **Pinned, never pulled.** WDA `master` moves fast (13 releases in three

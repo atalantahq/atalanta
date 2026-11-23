@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta inspect` on a port in use: a config error (exit 2) before any
 //! device work, and never a "running at" line (VEL-171, VEL-173).
 #![cfg(unix)]

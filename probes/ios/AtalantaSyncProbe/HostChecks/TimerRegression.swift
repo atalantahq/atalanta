@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import Foundation
 
 // Uses only API that exists before and after the P3 fix, so the same file

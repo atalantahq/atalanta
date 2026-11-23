@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Natural-language test steps for Atalanta.
 //!
 //! Lets tests be written in plain English (passmark-style) —

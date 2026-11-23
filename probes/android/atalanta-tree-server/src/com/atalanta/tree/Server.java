@@ -1569,3 +1569,6 @@ public final class Server {
         sb.append('"');
     }
 }
+
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where to tap an element (VEL-341).
 //!
 //! XCUITest frames are not clipped by the screen, and nothing in `/source`

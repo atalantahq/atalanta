@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // The mirror's wire format and the pure helpers around it (no DOM), so
 // they can be unit-tested with `node --test`.
 //

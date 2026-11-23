@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Duration flags (`--timeout`, `--lease-wait`) with one rule for every
 //! subcommand.
 //!

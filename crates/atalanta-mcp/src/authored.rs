@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Suites an agent wrote (`run_task {yaml}`), outside `--profile full`.
 //!
 //! The Rule of Two (docs/SECURITY.md §9) promises the default profile

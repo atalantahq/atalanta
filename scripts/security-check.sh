@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Run Atalanta's security checks locally, the same ones
 # .github/workflows/security.yml runs (it calls this script, one check per
 # job, so the flags and allowlists live in one place).

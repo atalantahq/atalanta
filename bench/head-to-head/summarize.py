@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Print a markdown table of wall-clock median and p90 per tool.
 
 Usage: summarize.py results.csv

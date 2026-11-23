@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta migrate waits`: delete fixed `wait:` steps that sit right
 //! before a step which already waits for its element (tap, assertVisible,
 //! inputText, …). Those waits are pure cost: the next step polls for its

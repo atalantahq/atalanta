@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import Foundation
 
 /// Tracks in-flight URLSession data tasks to detect pending network requests.

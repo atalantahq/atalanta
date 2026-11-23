@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta history`: share the run history (flaky flags, durations,
 //! last failures) between CI jobs without a server (C1). Each job uploads
 //! its `atalanta-history.json` as an artifact; `history merge` combines

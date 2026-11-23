@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! W4 (D-36 c′): cross-origin iframes, against a real headless Chrome and
 //! a two-origin fixture: the top page on `127.0.0.1:<a>`, the frame on
 //! `localhost:<b>` (another site, so Chrome runs it out of process).

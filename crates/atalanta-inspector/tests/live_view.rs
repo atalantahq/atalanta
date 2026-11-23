@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The live view: change-driven pushes, versioned snapshots and selector
 //! generation by node key (research P-5; VEL-116, VEL-260).
 

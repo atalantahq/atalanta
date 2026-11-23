@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! VEL-020: when Chrome dies mid-run, every driver call fails at once as a
 //! lost connection, and cleanup returns. Calls hung until the step watchdog
 //! and cleanup hung forever. Its own test binary: it kills a Chrome.

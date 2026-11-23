@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `docs/llms.txt` (llmstxt.org; row 0.8 of the v4 plan): an index of the
 //! docs an AI agent can read, made from `docs/README.md`'s table so the two
 //! can't drift. Each link is the page's raw Markdown, which a model reads

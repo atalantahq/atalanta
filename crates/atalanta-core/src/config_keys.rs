@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Keys in a suite's `config:` that Atalanta doesn't read.
 //!
 //! serde skips unknown keys, so a misspelt setting (`app_pth:`) would

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Environment diagnostics: the probes behind `atalanta doctor`.
 //!
 //! One typed API so the CLI and the MCP server (`diagnose`) report the same

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Tests for score.py: python3 -I bench/killtest/test_score.py"""
 
 import json

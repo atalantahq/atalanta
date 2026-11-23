@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `web.block`/mock rules must not fail open: if request interception can't
 //! start, a web launch with such rules fails instead of letting blocked
 //! requests reach the real network. Gated on Chrome like the other web tests

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Named driver and runtime settings: one table for every knob that used to
 //! be reachable only as a `ATALANTA_*` environment variable.
 //!

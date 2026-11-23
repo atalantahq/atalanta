@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // The live mirror: a WebSocket to /api/mirror/{device}, decoding H.264
 // with WebCodecs (or drawing pushed JPEG/PNG frames) onto a canvas.
 //

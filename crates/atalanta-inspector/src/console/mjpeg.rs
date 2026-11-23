@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A reader for an MJPEG stream over HTTP (`multipart/x-mixed-replace`),
 //! as WebDriverAgent's MJPEG server sends the iOS screen. Loopback only:
 //! the URL comes from the driver, never from the page.

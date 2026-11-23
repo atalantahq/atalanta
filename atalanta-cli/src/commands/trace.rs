@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta trace view <dir|report>`: open a test's `trace.html`, or an
 //! index of every kept trace of a run.
 

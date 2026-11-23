@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Maestro flow → Atalanta suite.
 //!
 //! A Maestro file is usually two YAML documents: a header (`appId`, `name`,

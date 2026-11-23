@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The Maestro converter (`atalanta migrate maestro`): reads a flow file
 //! someone else wrote, converts it, and parses the result as a suite.
 //! It works on files, so each input is written to a private temp folder.

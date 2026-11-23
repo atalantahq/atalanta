@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! JSON Schema (draft 2020-12) for Atalanta suite YAML, for editor
 //! completion and validation (`atalanta schema > atalanta.schema.json`, then
 //! `# yaml-language-server: $schema=./atalanta.schema.json` at the top of a

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { create } from "zustand";
 import { resolveKey } from "../tree";
 import type { DeviceInfo, Element, GenerateResponse, PerfSample, RecordedStep } from "../api/types";

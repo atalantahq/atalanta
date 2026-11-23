@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::collections::HashMap;
 
 use atalanta_common::selector_match::{find_all_in_tree, find_in_tree};

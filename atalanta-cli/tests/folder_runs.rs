@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta run <folder>`: tag selection across the folder (M-1) and
 //! Ctrl-C between and during suites (M-2). Headless driver, no device.
 #![cfg(unix)]

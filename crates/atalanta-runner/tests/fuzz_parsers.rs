@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! C8: property tests with hand-rolled random input (a fixed seed, so any
 //! failure reproduces; no fuzzing crate). They check that the suite YAML
 //! parser and `${}` interpolation never panic on any input, and that the

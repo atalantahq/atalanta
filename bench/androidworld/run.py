@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Run AndroidWorld with Atalanta as the agent, resumably, and score it.
 
   python run.py dry-run   [--model anthropic:claude-sonnet-5-5]

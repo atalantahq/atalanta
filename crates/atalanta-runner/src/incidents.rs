@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Group failures that share a cause.
 //!
 //! Flaky and environmental failures come in clusters — 75% of flaky tests

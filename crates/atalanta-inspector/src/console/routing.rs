@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! One driver over several platforms, for a console that lists Android,
 //! iOS and web devices together: every call goes to the driver of the
 //! device id's platform ([`Platform::of_device_id`]), and the device list

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # P5: settle time per action with the in-app sync probe against tree
 # polling and no sync. Runs suites/native-settle.yaml ROUNDS times with
 # sync.mode native, polling and none, and prints each step's median

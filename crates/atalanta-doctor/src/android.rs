@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Android: adb, its server, devices, the tree server, the emulator.
 
 use std::path::{Path, PathBuf};

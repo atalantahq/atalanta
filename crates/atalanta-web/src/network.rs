@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The page's network: requests in flight (for the settle's network-idle
 //! wait) and request mocking through CDP's Fetch domain.
 //!

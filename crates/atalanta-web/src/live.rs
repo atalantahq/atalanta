@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A live screencast of a page, for the inspector console's mirror.
 //!
 //! `Page.startScreencast` sends a JPEG each time the page repaints (and

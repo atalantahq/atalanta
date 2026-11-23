@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The agent commands: drive a device one shell command at a time.
 //!
 //! `atalanta snapshot`, `atalanta tap @e7`, `atalanta type @e3 "…"`, … are

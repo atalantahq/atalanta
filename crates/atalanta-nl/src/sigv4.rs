@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! AWS Signature Version 4 for Bedrock requests, and the standard
 //! credential chain (environment, then the shared `~/.aws` files).
 //!

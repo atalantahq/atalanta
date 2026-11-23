@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! System animations off for the run, restored however the run ends.
 //!
 //! Window, transition and animator scales go to 0 the first time a device

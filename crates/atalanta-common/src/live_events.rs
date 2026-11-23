@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Live events for whoever supervises a run: the MCP server's `run_task`
 //! and the inspector console's Run and Explore panels. One mechanism for
 //! both: the supervisor starts `atalanta run` (or `atalanta explore`) with

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! D-37: the session settings Atalanta sends through
 //! `POST /session/:id/appium/settings` right after the session starts,
 //! against a fake WDA on 127.0.0.1. Its own test binary: the override

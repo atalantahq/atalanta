@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Atalanta vs Maestro, head to head, on one Android emulator and the Settings
 # app. See README.md for the rules. Usage:
 #

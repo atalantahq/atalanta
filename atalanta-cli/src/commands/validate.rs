@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use atalanta_core::{parse_suite_with_positions, resolve_flows, validate_suite_at};
 use clap::Args;
 use colored::Colorize;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta settings`: every named setting, its variable, default and values.
 
 use atalanta_common::settings::SETTINGS;

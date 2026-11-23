@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Real iPhones and iPads through `xcrun devicectl` (Xcode 15+): listing,
 //! install, launch, and opening links. Simulators stay on `simctl`.
 //!

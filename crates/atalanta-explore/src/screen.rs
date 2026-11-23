@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! What the agent sees of a screen, and the code-side judgements about it:
 //! a structural hash (stuck detection, "seen before"), a title (history
 //! lines), and which texts are too volatile to assert on.

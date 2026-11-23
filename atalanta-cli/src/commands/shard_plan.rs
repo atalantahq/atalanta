@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta shard-plan`: the partition `run --shard M/N` uses, for every
 //! shard, without devices (D-49; Flank's `--dump-shards`, bktec's `plan`).
 //! Each CI shard computes its part independently; the `plan=` fingerprint

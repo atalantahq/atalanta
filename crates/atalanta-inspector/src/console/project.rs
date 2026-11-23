@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The project folder: which suites the Run panel offers, and path
 //! confinement for everything the console reads from disk.
 

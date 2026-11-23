@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Generate docs/licenses/THIRD-PARTY-RUST.md from Cargo.lock.
 
     scripts/third-party-rust.py            # print to stdout

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `describe_failure`: what an agent needs to fix a failed test, from the
 //! trace the run kept (`<artifacts>/traces/<test>/`): the failing step, its
 //! selector and line in the suite, the error, and the elements on the last

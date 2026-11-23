@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Turns a planner's choice into a concrete, checked [`Action`].
 //!
 //! The planner picks an op and an element number; everything that has to be

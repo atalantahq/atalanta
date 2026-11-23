@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import 'package:flutter/material.dart' show ButtonStyleButton;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';

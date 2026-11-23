@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Environment reads that a daemon run can redirect without `set_var`.
 //!
 //! `atalanta daemon` serves each `atalanta run` with the client's

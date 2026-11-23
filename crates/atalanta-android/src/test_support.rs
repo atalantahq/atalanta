@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A fake `adb` for tests: `adb shell <cmd>` runs `<cmd>` with the host's
 //! `/bin/sh`, as the device's shell would, with device tools (`input`,
 //! `am`, `pm`, `monkey`, `run-as`, `uiautomator`, …) replaced by scripts

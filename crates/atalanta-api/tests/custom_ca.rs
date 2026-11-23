@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! ENT-062: a CA the machine trusts through `SSL_CERT_FILE` (a corporate
 //! proxy's, mitmproxy's) is trusted by the `http` step; before, only
 //! Mozilla's bundled roots were.

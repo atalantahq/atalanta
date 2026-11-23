@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! D-1 on the web: visible for an assertion means rendered, a box, and on
 //! screen (in the viewport, not clipped away by an overflow ancestor), as on
 //! the devices. Its own test binary: it changes process-wide settings.

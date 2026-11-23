@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Install-by-hash on iOS (see `atalanta_common::install`).
 //!
 //! A simulator's apps live on this Mac, so the marker does too:

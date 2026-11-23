@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Round 2: what the web driver reads, matches and acts on, against a real
 //! headless Chrome and a local page (see `common` for the fixtures).
 

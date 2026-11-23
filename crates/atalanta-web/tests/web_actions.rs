@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Overnight-2: how the web driver acts (retargeting, the pointer's
 //! arrival, the hit target at dispatch time, input types, touch emulation,
 //! settles, captures), against a real headless Chrome and a local page

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Client for the on-device UI-tree server (`probes/android/atalanta-tree-server`).
 //!
 //! `uiautomator dump` starts a JVM, connects UiAutomation and waits for idle on

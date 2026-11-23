@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The accessibility audit during a run (`config.accessibility.audit`).
 //!
 //! The executor hands over the trees it has already read (a lookup's

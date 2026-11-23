@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where checks read variables and find tools, and how they run them.
 //!
 //! [`Env::process`] reads the process environment through

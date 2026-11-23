@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! review-i2 m4: with `web.frames: off` (no frames connection) a
 //! cross-origin iframe's document must not keep the network busy: the
 //! VEL-132 heuristic covers it. Its own test binary: it changes

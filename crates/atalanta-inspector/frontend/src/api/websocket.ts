@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import type { WsMessage } from "./types";
 
 export type WsListener = (msg: WsMessage) => void;

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! What can be checked in an `http` step before anything runs. A part
 //! with a `${…}` in it is checked when it runs, with the value in.
 

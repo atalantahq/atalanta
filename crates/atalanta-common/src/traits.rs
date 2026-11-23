@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use crate::error::Result;
 use crate::types::{DeviceInfo, Direction, Element, Key, LaunchArgs, Selector};
 use crate::AtalantaError;

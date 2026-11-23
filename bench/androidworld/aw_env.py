@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Connecting to an AndroidWorld emulator, shared by the bench scripts.
 
 AndroidWorld's own `run.py` hard-codes gRPC port 8554 and offers only a

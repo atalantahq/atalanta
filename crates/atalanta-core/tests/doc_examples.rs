@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Every complete suite example in the README must parse and validate. The
 //! Quick Start once didn't — the first thing a new user copies.
 

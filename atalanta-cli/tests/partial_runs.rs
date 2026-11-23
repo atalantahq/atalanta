@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta run` end to end with the headless driver (no device): a run
 //! cut short still writes its reports (VEL-044/188), a report that can't
 //! be written doesn't stop the others (VEL-034), one artifacts folder

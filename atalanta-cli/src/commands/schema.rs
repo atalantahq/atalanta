@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta schema`: the JSON Schema for suite YAML, for editors.
 
 use clap::Args;

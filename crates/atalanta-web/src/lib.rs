@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Atalanta's web driver: a `PlatformDriver` for Chrome over the DevTools
 //! Protocol (`chromiumoxide`), with cross-origin frames on their own
 //! connection, request mocking and network-idle sync, and evidence capture.

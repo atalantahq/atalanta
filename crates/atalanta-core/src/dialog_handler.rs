@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::collections::HashSet;
 
 use atalanta_common::{DialogConfig, Element, PlatformDriver, Selector};

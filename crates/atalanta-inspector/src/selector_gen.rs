@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Selector generation, after Playwright's `selectorGenerator.ts`: build
 //! candidates from cheapest to dearest, and keep the first that resolves to
 //! exactly this element on the current screen.

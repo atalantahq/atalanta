@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The console: `atalanta inspect` as a device console with a live mirror
 //! (in the spirit of ARTEMIS's web console).
 //!

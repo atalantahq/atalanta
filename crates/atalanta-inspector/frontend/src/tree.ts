@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Pure helpers for the element tree: node keys, flattening and windowing.
 // The server puts a `nodeKey` (tree path, "0/3/1") on every node of a
 // hierarchy snapshot, and selection is held by key so it survives refreshes.

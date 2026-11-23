@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::process::Stdio;
 
 use atalanta_common::{AtalantaError, DeviceInfo, DeviceState, Platform, Result};

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Simulator choices for `atalanta devices up --ios N`.
 //!
 //! A fresh simulator spends 135–259 s on first-boot migration, so Atalanta

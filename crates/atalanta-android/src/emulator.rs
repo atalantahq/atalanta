@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Headless emulators for `atalanta devices up --android N`.
 //!
 //! Since emulator 28.0.16 several instances of one AVD can run at once when

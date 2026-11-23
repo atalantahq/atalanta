@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta doctor`: is this machine ready to run Atalanta? The probes
 //! live in the `atalanta-doctor` crate (shared with the MCP server); this
 //! is the command around them.

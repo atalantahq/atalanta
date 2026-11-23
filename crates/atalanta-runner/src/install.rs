@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Installing the suite's `app:` build before the first test on a device,
 //! by hash (see `atalanta_common::install`): the sequential runner installs
 //! on its device, the parallel runner's actors each on the device they

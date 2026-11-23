@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! What a WDA answer means (P1): garbled bodies, W3C error codes, broken
 //! connections and lost sessions, against a fake WDA on 127.0.0.1.
 mod common;

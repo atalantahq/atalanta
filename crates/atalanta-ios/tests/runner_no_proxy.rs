@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! ENT-062: the iOS runner's traffic never goes through a proxy, even with
 //! `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` set for everything else.
 //!

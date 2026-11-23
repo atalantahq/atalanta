@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """AndroidWorld agent that drives the device through `atalanta explore`.
 
 Integration: one `atalanta explore --benchmark --json` child process per

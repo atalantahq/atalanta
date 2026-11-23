@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Screen video from the on-device video server, scrcpy-style.
 //!
 //! The tree server's jar also carries `com.atalanta.tree.VideoServer`

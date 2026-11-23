@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /// `bail!` for a usage or configuration error: exit 2, not the generic
 /// internal-error code.
 macro_rules! usage_bail {

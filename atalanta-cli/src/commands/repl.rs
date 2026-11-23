@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta repl`: run steps one at a time against a device.
 //!
 //! Each line is a step in suite syntax (`tap: { text: "Log in" }`) or plain

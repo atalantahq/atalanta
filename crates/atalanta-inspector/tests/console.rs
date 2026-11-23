@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The console's routes over real HTTP and WebSockets on 127.0.0.1: auth on
 //! every new route and upgrade, path confinement, device leases, the H.264
 //! mirror framing from a fake video stream, the frames fallback, suite runs

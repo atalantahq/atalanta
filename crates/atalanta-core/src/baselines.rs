@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where `assertScreenshot` baselines live, and reviewing the comparisons
 //! that failed (U1).
 //!

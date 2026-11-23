@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! iOS adapter: Parse XIB/Storyboard XML into RenderTree.
 
 pub mod constraints;

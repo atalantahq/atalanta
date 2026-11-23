@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! M-5: a daemon client that goes away stops its run, whenever it leaves:
 //! before the run has a stop handle (while it parses and builds its
 //! driver), or in the middle of a folder run, where each suite gets its own

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! An OpenAPI 3 document read into JSON, its local `$ref`s followed, and
 //! its operations in the order they are written.
 

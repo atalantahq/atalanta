@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The results of the run in progress, kept as each test finishes (C2,
 //! N-9). A stopped run normally returns its results itself; when it
 //! doesn't within the CLI's stop grace (a driver call blocked in a

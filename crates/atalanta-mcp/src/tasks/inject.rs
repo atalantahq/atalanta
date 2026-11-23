@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Instructions an agent injects into a running task (`task_inject`).
 //!
 //! Only tasks that steer themselves read them: `atalanta explore` takes an

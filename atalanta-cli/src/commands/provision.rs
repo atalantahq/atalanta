@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta devices up` / `down`, and `atalanta run --provision`: boot the
 //! devices a run needs, and stop only what Atalanta started.
 //!

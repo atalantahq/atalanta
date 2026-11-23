@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta daemon`: keep devices warm between runs.
 //!
 //! The daemon holds one driver per platform for its whole life, so what a

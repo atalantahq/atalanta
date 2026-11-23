@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Element } from "../api/types";
 import { useInspectorStore } from "../store/inspectorStore";

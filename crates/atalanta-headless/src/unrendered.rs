@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! D-47: headless is an approximate smoke renderer. It lays out and paints
 //! boxes, colours, text, opacity and corner radius; attributes it parses
 //! but can't draw (images, shadows, transforms, custom fonts...) produce one

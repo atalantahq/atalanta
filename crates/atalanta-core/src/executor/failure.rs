@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Crashes and failure evidence: crash checks, failure screenshots, the pause on failure.
 
 use super::*;

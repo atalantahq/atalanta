@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import Foundation
 
 // Host (macOS) checks for the AtalantaSyncProbe logic that doesn't need

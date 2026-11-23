@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Host (macOS) checks for AtalantaSyncProbe: compiles the UIKit-free sources
 # with swiftc and runs them. No simulator or Xcode project needed.
 #   ./run.sh                 run the checks

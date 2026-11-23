@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `GET /api/mirror/{device}` (WebSocket): the live screen.
 //!
 //! Text messages are JSON:

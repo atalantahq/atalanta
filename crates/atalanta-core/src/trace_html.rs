@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `trace.html`: a self-contained viewer for one test's trace.
 //!
 //! Written next to `steps.json` (`traces/<test>/trace.html`) and opened

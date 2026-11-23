@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Offline checks for the bench scripts (no device, no model).
 
   python -m pytest bench/androidworld/test_bench.py

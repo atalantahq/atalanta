@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Newline-delimited JSON client shared by the headless bridges (the Flutter
 //! bridge's in-app Dart server and the React Native sidecar).
 //!

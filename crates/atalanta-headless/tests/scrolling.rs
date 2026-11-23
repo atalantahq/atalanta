@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Headless scrolling: swipes and `scrollUntilVisible` move scroll containers, so
 //! content below the fold (not visible since VEL-109) can be reached.
 

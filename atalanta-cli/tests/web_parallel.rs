@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! D-48 (VEL-332): `--parallel N` on the web runs N browsers, the devices
 //! `web-0` … `web-{N-1}`. It silently ran every test on one browser.
 //! Needs a Chrome binary (skips without one, or with `ATALANTA_TEST_WEB=0`).

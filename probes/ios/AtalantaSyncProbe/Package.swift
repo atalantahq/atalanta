@@ -1,4 +1,7 @@
 // swift-tools-version:5.9
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import PackageDescription
 
 let package = Package(

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use taffy::prelude::*;
 
 use crate::render_tree::{Color, Dimension, EdgeSizes, NodeStyle};

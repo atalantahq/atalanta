@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Which model service plans and checks: named provider presets on top of
 //! three wire formats (Anthropic Messages, OpenAI Chat Completions, Bedrock
 //! Converse), so a user picks `provider: <name>` and sets only the key's

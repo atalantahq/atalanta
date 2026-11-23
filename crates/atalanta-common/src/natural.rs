@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The interface between the executor and the natural-language resolver.
 //!
 //! `atalanta-core` runs `do:`/`assert:` and bare-string steps through a

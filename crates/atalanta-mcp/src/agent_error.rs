@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Machine-readable failures for agents: a stable `code`, whether the call
 //! may simply be repeated (`retry`), and the next thing to do (`next`).
 //!

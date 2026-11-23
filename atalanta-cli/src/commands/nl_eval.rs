@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta nl-eval` — measure natural-language planner consistency (pass^k)
 //! on the traces saved by earlier runs, or compare models on a fixed task
 //! set (`--model provider:model`, repeatable) and recommend a default.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Running one action on the driver, and the exec and http steps.
 
 use super::lookup::{aim_at, under_bottom_bar, ACTED_ANYWAY};

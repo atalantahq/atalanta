@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use atalanta_common::{Element, Rect};
 
 /// Deepest element nesting kept from a page.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta api scaffold`: an API test suite from an OpenAPI 3 document.
 //!
 //! One test per resource (`/pets`, `/pets/{petId}` → `pets`), its requests

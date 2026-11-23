@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Expected post-conditions (Q-Reflector, arXiv 2608.05587): before acting,
 //! the model says what should hold afterwards; code judges the transition
 //! against the next screen.

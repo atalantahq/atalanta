@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Score the kill test (row 1.1) against its frozen pre-registration.
 
 Input: runs.jsonl, one JSON object per line:

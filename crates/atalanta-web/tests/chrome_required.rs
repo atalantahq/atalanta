@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review 07 M6: on CI (or with `ATALANTA_TEST_STRICT=1`) the Chrome
 //! tests must run. Without Chrome they used to report PASS, so a runner
 //! that lost Chrome made the web crate green and empty. This test fails

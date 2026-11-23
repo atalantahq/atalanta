@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Replaying a generated test: the deterministic executor alone, with no
 //! planner attached, so no model can be called (and the caller checks the
 //! usage counters stayed put).

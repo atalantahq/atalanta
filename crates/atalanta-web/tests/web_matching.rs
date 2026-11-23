@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Decisions run d2: text matching (D-10, D-11, tc-case), visibility (D-1)
 //! and the accessible name (D-W2) on the web, against a real headless
 //! Chrome (see `common`).

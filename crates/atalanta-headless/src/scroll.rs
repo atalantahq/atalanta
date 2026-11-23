@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Headless scrolling.
 //!
 //! Layout places content at its unscrolled position. A drag moves the scroll offset of

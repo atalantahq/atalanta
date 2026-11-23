@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where a login's secrets come from besides the environment (row 1.5,
 //! AI-021 / API-079): the OS keychain, and one-time codes from a TOTP
 //! secret. Both are written in YAML like any variable, never as values:

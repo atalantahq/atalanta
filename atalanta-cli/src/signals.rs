@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Ctrl-C / SIGTERM / SIGHUP for the whole process, armed once and kept
 //! armed.
 //!

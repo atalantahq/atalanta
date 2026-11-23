@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A minimal MP4 muxer for one H.264 track, in pure Rust.
 //!
 //! The on-device video server sends Annex-B H.264 (start codes, SPS/PPS in

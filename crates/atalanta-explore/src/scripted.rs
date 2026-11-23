@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A scripted planner and checker: no model, a fixed plan.
 //!
 //! For tests, demos and device checks without API keys (`atalanta explore

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Sharding end to end with the headless driver: `--shard M/N` (D-22),
 //! timings loaded once and fatal when unreadable, JUnit timings and the
 //! plan fingerprint (D-23), and `atalanta shard-plan` (D-49).

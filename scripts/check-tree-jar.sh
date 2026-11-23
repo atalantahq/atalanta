@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Reproducibility check for crates/atalanta-android/assets/atalanta-tree.jar.
 #
 # The jar is a d8 dex jar built from probes/android/atalanta-tree-server by

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // The console's API: control, input, tasks, suites, diagnostics.
 
 export interface ControlStatus {

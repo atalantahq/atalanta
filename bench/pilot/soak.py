@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Soak: every agent path and the pilot's saved tests, in parallel, for N minutes.
 
 Lanes (one thread each, its own device):

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review MINOR-8: elements Atalanta has looked at don't outlive the page's
 //! own use of them. Its own binary: it runs Chrome with `--expose-gc`.
 

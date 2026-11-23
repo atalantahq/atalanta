@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Per-test traces: what each step did and saw.
 //!
 //! The executor already reads trees, bounds and settle timings on every

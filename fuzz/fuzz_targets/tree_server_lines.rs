@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The host's parsers for tree-server reply lines (PONG, SETTEXT,
 //! ENCODERS, WINDOWS). The server runs on the device; a squatting or
 //! compromised one must not be able to crash the host with a reply.

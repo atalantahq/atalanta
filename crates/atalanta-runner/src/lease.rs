@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Device leases shared across processes.
 //!
 //! The farm already hands each device to one test at a time *within* a run.

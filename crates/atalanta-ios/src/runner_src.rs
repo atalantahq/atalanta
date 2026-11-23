@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Atalanta's own iOS runner (`probes/ios/AtalantaRunner`, reached through
 //! the `runner` symlink so the files ship inside the published crate), embedded so it
 //! can be built on any Mac with Xcode, without the repository or xcodegen.

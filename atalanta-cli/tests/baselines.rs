@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta baselines review|accept|reject` (U1) over a results dir laid
 //! out the way a failed `assertScreenshot` leaves it.
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The `exec` step (row 3.2, AUT-017; Maestro #1682): run a program on the
 //! host (an `adb` command, a seed script), check how it ended, and keep its
 //! output for later steps. Off unless the suite allows the program:

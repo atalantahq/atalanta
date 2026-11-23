@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! C6: a performance budget in driver calls. Each action type runs through
 //! the real executor against a counting fake driver, and the calls it
 //! makes (tree reads, element lookups, input) are checked against a

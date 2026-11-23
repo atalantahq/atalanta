@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package android.os;
 
 /** Host-check fake with AOSP's {@code mMessages} list, sorted by {@code when}. */

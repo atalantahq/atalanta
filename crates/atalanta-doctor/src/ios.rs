@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! iOS (macOS only): Xcode, its license, simctl, simulators, the runner
 //! build cache, devicectl and signing for real devices.
 

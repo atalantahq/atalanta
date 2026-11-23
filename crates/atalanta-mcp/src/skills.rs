@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Agent guides compiled into the binary, so the one an agent reads always
 //! matches the `atalanta` it drives (`atalanta skills get <name>`). A skill
 //! file installed into an agent client can go stale on upgrade; this can't.

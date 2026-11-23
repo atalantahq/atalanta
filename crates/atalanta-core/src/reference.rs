@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The DSL reference (`docs/DSL-REFERENCE.md`), generated from the JSON
 //! Schema in [`crate::schema`], the parser's config structs and the
 //! settings table, so the doc lists every action, selector key, config key

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Headless driver regressions: shared ids, password fields, stopApp, a missing
 //! launchApp, the per-process device id, and layouts with runtime-only content.
 

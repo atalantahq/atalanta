@@ -1,178 +1,151 @@
 # Atalanta
 
-**Mobile UI tests in YAML, one static binary, written in Rust.**
+[![npm](https://img.shields.io/npm/v/@atalantahq/cli?label=npm&color=blue)](https://www.npmjs.com/package/@atalantahq/cli)
+[![Android](https://img.shields.io/badge/android-API_33--34-blue?logo=android)](docs/DRIVERS.md)
+[![iOS](https://img.shields.io/badge/ios-26-blue?logo=apple)](docs/DRIVERS.md)
+[![Chromium](https://img.shields.io/badge/chromium-headless-blue?logo=googlechrome)](docs/DRIVERS.md)
 
-Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome. It is one static binary: no JVM, no Node, no Appium server. Real Android hardware has been used once (one tablet, the Settings app); real iPhones are supported in the code but have never been run ([STATUS.md](docs/STATUS.md)).
+**Mobile, web and API tests in YAML.** Atalanta runs test suites on Android emulators, iOS simulators and Chrome from one static binary written in Rust. No JVM, no Node, no Appium server.
 
-Three things set it apart:
+An AI agent can write the tests. Each one is checked before it is saved, and it replays in CI without calling a model.
 
-- **An AI-written test must fail when the feature is broken, and that is checked before the test is saved.** `atalanta explore` replays the test it wrote 5 times with no model, then replays it with the last tap moved to a neighbouring element (it must fail), and requires an assertion that names the goal. Only then is the test marked trusted ([trust gates](docs/EXPLORE.md#trust-gates)). In a small pilot (11 goals, 4 rounds with fixes between them; not the pre-registered test in [bench/killtest/](bench/killtest/PREREG.md)), the final round caught 6 of 6 seeded regressions with no false passes ([bench/pilot/](bench/pilot/README.md)). The wrong-path check has not yet been seen catching a weak test on its own.
-- **The model is never on the critical path.** A saved test replays in CI with zero model calls (a call during replay is an internal error). Model output never becomes a selector or a secret, and by default never a typed value: the model names an element number, code builds the selector, and text is typed only by name (`${NAME}`). Opt-ins widen that: `explore --values-from-goal` and `--values-from-screen` (code checks the text is in the goal or on a screen seen), and `--values-from-screenshots` and `--values-from-model`, which code cannot check. In the pilot a goal cost about $0.08 to explore once; each CI run after that costs nothing in model calls.
-- **Failure evidence on your own machine.** A failed test keeps a video cut from a ring buffer, the device and app logs with crashes named, and one `trace.html` with each step's screenshot, tap point, selector and matched element. No cloud account. Measured overhead with video and logs on: about 15% per step on an Android emulator.
+Atalanta is pre-release: 0.2.0 has not been published yet. [docs/STATUS.md](docs/STATUS.md) lists what has been verified, and on which devices.
 
-[Install](#install) · [The story](#from-zero-to-ci) · [Console](#the-console) · [Agents (MCP)](#agents-mcp) · [API tests](#api-tests) · [Failure evidence](#failure-evidence) · [AI providers](#ai-providers) · [Security](#security-notes) · [Glossary](docs/GUIDE.md#glossary) · [Docs](docs/README.md)
+## Features
+
+- Write tests in YAML. Every step waits for its element and for the screen to settle, so suites need no sleeps.
+- Let an agent write them: `atalanta explore "<goal>"` drives the app and saves the session as a YAML test.
+- An agent-written test is kept only if it passes five replays with no model and fails when its last tap is moved to a neighbouring element.
+- Saved tests make no model calls. The model picks an operation and an element number; code builds every selector and fills every value.
+- Test APIs in the same suites. An `http` step checks the response and captures values for later UI steps.
+- A failed test keeps a video, the device and app logs, and one `trace.html` with each step's screenshot and selector. No cloud account.
+- A local console mirrors every device and browser, shows the selector under the cursor, and runs suites and agent sessions.
+- Agents can drive devices through an MCP server or plain shell commands.
+- Run in parallel across devices, shard by past durations, or run only the tests a change can affect.
+- Use any of 19 AI providers, local models included.
+
+### Platforms
+
+| Platform | Driven with | Requires | Verified on |
+|---|---|---|---|
+| Android | adb and Atalanta's on-device UI server | Android SDK platform-tools | Emulators (API 33, 34); one Android 14 tablet (Settings) |
+| iOS | WebDriverAgent or Atalanta's own XCUITest runner | macOS with Xcode | iOS 26 simulators; one wired iPhone 12 |
+| Web | Chrome DevTools Protocol | Chrome or Chromium | Headless Chrome on macOS and Linux |
+| API | HTTP | Nothing | |
+
+Windows is not supported. WSL2 works as Linux.
 
 ## Install
 
-> **Pre-release.** Atalanta has not been published yet (0.2.0 is unreleased); on 2026-11-10 all four routes below returned 404. Until then, build from a checkout: `cargo install --path atalanta-cli --locked` (see [Install details](#install-details) for the console UI).
-
-Pick one:
+Until the first release, build from a checkout:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh   # macOS / Linux, x86_64 / arm64
+cargo install --path atalanta-cli --locked
+```
+
+Once released:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh   # macOS / Linux
 brew install atalantahq/tap/atalanta
 npm install --save-dev @atalantahq/cli
 cargo install atalanta-cli --locked
 ```
 
-Then check the machine with `atalanta doctor`. Every route installs the same release. Windows is not supported (WSL2 works as Linux). Installer flags, release archives, signature checks and building from source: [Install details](#install-details).
+Every route installs the same release. The first iOS run builds WebDriverAgent, which takes about a minute once per Xcode version.
 
-| To test | You need |
-|---|---|
-| Android | Android SDK platform-tools (`adb` on `PATH`) and a running emulator or device |
-| iOS | macOS with Xcode and a booted simulator. The first iOS run clones and builds WebDriverAgent (needs git and network, about a minute, once per Xcode) |
-| Web | Chrome (runs headless by default) |
+## Quick start
 
-## From zero to CI
-
-### 1. Check the machine, write a first test
-
-With an emulator or simulator running and your app on it (`atalanta devices up --android 1` or `--ios 1` boots one from an existing AVD or simulator):
+Start an emulator or simulator with your app installed, then:
 
 ```bash
-atalanta doctor            # adb, Xcode, devices, runner builds, Chrome, AI keys, your suites; --fix applies the safe fixes
-atalanta init --run        # reads the app's launch screen, writes atalanta/<app>.yaml and a CI example, runs it
+atalanta doctor          # checks adb, Xcode, devices, Chrome and AI keys; --fix applies the safe fixes
+atalanta init --run      # writes a first test from the app's launch screen and runs it
 ```
 
-`atalanta init` asserts one or two stable elements of the first screen (an id first, else a short unique text). It asks what it needs on a terminal; in CI pass everything: `atalanta init --platform android --app-id com.example.app --yes --run`. It never overwrites a file without `--force`.
-
-### 2. Let an agent explore a goal
+Let an agent write a test for a goal, then run it:
 
 ```bash
 atalanta explore "open Network & internet" --app-id com.android.settings
-```
-
-An agent works through the goal on the device, one operation per turn. The model only picks an operation and an element number; code builds every selector and fills every value. The session is written as plain YAML with an `assertVisible` after each screen change and assertions on the evidence the checker cited for the goal. Volatile text (times, prices, counters) is never asserted and `--secret` values are written only as `${NAME}`. The test is then replayed with **zero model calls** to prove it holds, and repaired once if a replay fails. `--script plan.json` plays a fixed plan instead of a model. Details: [docs/EXPLORE.md](docs/EXPLORE.md).
-
-### 3. Run it, review it, commit it
-
-```bash
 atalanta run open-network-internet.yaml
 ```
 
-The test is ordinary YAML; you can also write one by hand:
+Run in CI:
+
+```bash
+atalanta run tests/ --parallel 4 --report junit,github --retries 1
+atalanta run tests/ --shard 2/4 --shard-timings history/
+atalanta run tests/ --changed-since origin/main
+```
+
+`atalanta init` also writes a sharded GitHub Actions example to `atalanta/ci/`. See [docs/CI.md](docs/CI.md).
+
+## Example
 
 ```yaml
 appId: com.example.app
 tests:
-  - name: Log in
+  - name: Log in and open an order
     steps:
       - launchApp: { clearState: true }
       - inputText: { selector: { id: email }, text: "qa@example.com" }
       - inputText: { selector: { id: password }, text: "${LOGIN_PASSWORD}" }
       - tap: { id: login_button }
       - assertVisible: { text: "Welcome" }
-      - do: "open the first order"          # a natural-language step, resolved by a model and cached once verified
+      - do: "open the first order"          # natural language, cached once verified
+      - http:
+          method: GET
+          url: https://api.example.com/orders/latest
+          expect: { status: 200 }
+          capture: { ORDER_ID: id }
+      - assertVisible: { text: "${ORDER_ID}" }
 ```
 
-Every step waits for its element and for the screen to *settle*, that is, stop changing (no sleeps); a target must be enabled and still before it is tapped. Failures point at `file:line`. A test that passes only on a retry is reported as flaky. Suite format: [docs/DSL.md](docs/DSL.md) and the generated [DSL reference](docs/DSL-REFERENCE.md).
+Secrets are typed by name (`${LOGIN_PASSWORD}`) and masked in every report, log and trace. The full format is in [docs/DSL.md](docs/DSL.md).
 
-### 4. CI
-
-```bash
-atalanta run tests/ --parallel 4 --report junit,github --retries 1   # every booted device, failed tests retried on another device
-atalanta run tests/ --shard 2/4 --shard-timings history/             # one CI shard, balanced by past durations
-atalanta run tests/ --changed-since origin/main                      # only the tests a change can affect
-```
-
-Each device is *leased* (a per-device lock file under `~/.atalanta/leases`), so parallel runs, the console and an MCP agent never drive the same device. `atalanta init` writes a sharded GitHub Actions example to `atalanta/ci/`. Exit codes: 0 passed, 1 a test failed, 2 configuration, 3 device, 4 suite timeout, 5 internal. Sharing history between jobs, cancelled jobs, secrets and baselines: [docs/CI.md](docs/CI.md).
-
-## The console
+## Console
 
 ```bash
 atalanta inspect --open
 ```
 
-One browser page for every booted Android device, iOS simulator and the web browser:
+One browser page for every booted device and the web browser. It has a live mirror you can click and type on, an element overlay that shows the selector Atalanta would use, and panels to run suites, watch an agent explore and read a failure's trace. See [docs/CLI.md](docs/CLI.md#inspect).
 
-- **Live mirror.** Android streams H.264 from Atalanta's on-device encoder (~30 fps, decoded by WebCodecs); iOS simulators stream WebDriverAgent's MJPEG (~26 fps); the web streams Chrome's screencast. Click, drag, scroll and type on it; driving takes the device's lease, watching doesn't.
-- **Element overlay.** Hover the mirror to see the element and the selector Atalanta would use, with "copy as YAML".
-- **Run panel.** Run a suite or one test from the project; steps stream in live, and a failure's `trace.html`, video and logs are a click away.
-- **Explore panel.** Type a goal, watch the agent's turns, steer it with an instruction, then read the YAML it wrote, its replays (no model calls) and the tokens it spent, and save it into the project.
-- **Diagnostics.** `atalanta doctor`'s checks, with their fixes.
-
-Flags and the HTTP API: [docs/CLI.md](docs/CLI.md#inspect).
-
-## Agents (MCP)
+## AI coding agents
 
 ```bash
-atalanta mcp install         # registers the server with every client found (Claude Code, Cursor, Codex, Windsurf, VS Code, Cline, Gemini CLI) and installs the agent rules
+atalanta mcp install
 ```
 
-The server (`atalanta mcp`, JSON-RPC over stdio) serves five tools by default (`observe`, `act`, `run`, `artifacts`, `verify_change`); `--profile full` serves all 33. An agent reads the screen with `snapshot` (one line per element with a ref like `@e12`; `mode: "delta"` returns only what changed), acts by ref, exports what it did as YAML with assertions, and debugs with `describe_failure`, `inspect_trace` and `diagnose`. `run_task` runs a suite in the background, or with a `goal` runs `atalanta explore`: the agent steers it with `task_inject`, polls `task_status` for the turn, then reviews the YAML it wrote and runs it. Passwords are typed by environment variable name and never returned. [docs/MCP.md](docs/MCP.md).
+This registers the MCP server with Claude Code, Cursor, Codex, Windsurf, VS Code, Cline and Gemini CLI. An agent reads the screen as one line per element, acts by reference, and exports what it did as a YAML test. See [docs/MCP.md](docs/MCP.md).
 
-Agents with a shell can skip MCP: `atalanta snapshot`, `atalanta tap @e7`, `atalanta type @e3 "…"`, `atalanta export --out flow.yaml`. Each action waits for the screen to settle and prints what changed; a stale ref fails with `STALE_REF` instead of tapping something else; `--json` gives a code and a retry rule on failure. `atalanta skills get cli` prints the guide for the installed version. [docs/CLI.md](docs/CLI.md#agent-commands).
+Agents with a shell can skip MCP: `atalanta snapshot`, `atalanta tap @e7`, `atalanta export --out flow.yaml`. See [docs/CLI.md](docs/CLI.md#agent-commands).
 
-## API tests
+## Documentation
 
-An `http` step sends a request, checks the response (status, headers, JSONPath values, body, time), and captures values as `${NAME}` for later steps, UI steps included:
+- [Guide](docs/GUIDE.md): selectors, natural-language steps, visual checks, sharding, configuration and troubleshooting.
+- [Explore](docs/EXPLORE.md): how agent-written tests are checked.
+- [AI providers](docs/AI-PROVIDERS.md): models, keys and local models.
+- [Drivers](docs/DRIVERS.md): what each platform needs and supports.
+- [Security](docs/SECURITY.md): the threat model. Report vulnerabilities through [SECURITY.md](SECURITY.md).
+- [Status](docs/STATUS.md): what has been verified, and on what.
+- [All docs](docs/README.md).
 
-```yaml
-- http:
-    method: POST
-    url: /orders                    # after config.http.baseUrl
-    json: { sku: "A1", qty: 2 }
-    expect: { status: 201, json: { items[0].sku: A1, total: { gt: 0 } } }
-    capture: { ORDER_ID: id }
-- tap: { text: "Orders" }
-- assertVisible: { text: "${ORDER_ID}" }
-```
-
-A suite with only `http` steps is an API test suite: it runs without a device, in parallel with `--parallel`, into the same reports. A failure lists every check that failed and the start of the body. [docs/DSL.md](docs/DSL.md#http-and-api-tests).
-
-## Failure evidence
-
-A failed test keeps, next to its trace in `atalanta-results/traces/<test>/`:
-
-- **`video.mp4`**: on Android from Atalanta's own scrcpy-style encoder, muxed in Atalanta (no ffmpeg), cut from a ring buffer of the last 30 s; on iOS simulators from `simctl io recordVideo`; on the web the screencast frames.
-- **Logs**: logcat (the device's and the app's own lines; crashes and ANRs are named in the failure), the simulator's log stream for the app, or the browser console and failed requests. Secrets are masked.
-- **`trace.html`**: one self-contained page with every step, its screenshot with the tap point marked, the selector and the element it resolved to, the video seeked to the selected step and the log lines around it. `atalanta trace view atalanta-results` opens an index.
-
-A passing test keeps nothing (`--video always`/`--logs always` keeps them anyway). `--pause-on-failure` stops at the first failing step with the device untouched: Enter goes on, `r` retries the step, `q` aborts. Reports (`html`, `junit`, `json`, `allure`) link it all. [docs/CLI.md](docs/CLI.md#failure-evidence).
-
-## AI providers
-
-Natural-language steps, `verify:` checks and `atalanta explore` use one model service, chosen by name: 19 presets over three wire formats, including Anthropic, OpenAI, Azure OpenAI, Gemini, Bedrock, Vertex, OpenRouter, Groq, Mistral, DeepSeek, xAI, Ollama, LM Studio, vLLM and any OpenAI-compatible endpoint.
-
-```bash
-ATALANTA_NL_MODEL=gemini:gemini-3.8-flash atalanta run app.yaml   # set only that provider's key variable
-atalanta explore "add a card" --app-id com.example.app --model anthropic:claude-sonnet-5-5
-```
-
-Whatever the provider, model output never becomes a selector or a typed value: code builds and checks both. Plans are cached once a run verifies them, so a stable screen replays without calling the model. The default models are provisional (unmeasured); `atalanta nl-eval --model … --recommend` compares models on a fixed task set. [docs/AI-PROVIDERS.md](docs/AI-PROVIDERS.md).
-
-## Security notes
-
-- **The console** listens on 127.0.0.1 by default. Every request and WebSocket needs the per-session token from the printed URL, and `Host`/`Origin` are checked, so other sites and DNS rebinding can't reach it. `--host 0.0.0.0` exposes the device to the network behind the token, with a warning.
-- **WebDriverAgent on simulators.** A simulator shares the Mac's network. Atalanta binds WDA's HTTP server to loopback (`USE_IP`), and patches its WDA clone so the MJPEG screen stream, which upstream opens on every interface without authentication, listens on loopback too. A WDA you start yourself (`ATALANTA_WDA_URL`), or one an older Atalanta launched and kept running (`ATALANTA_KEEP_WDA`), still serves the simulator's screen to the LAN on its MJPEG port until it is restarted.
-- **Real iPhones.** The runner and WDA's stream bind the phone's loopback, reached through the USB forward (`ATALANTA_IOS_DEVICE_LOOPBACK=0` binds every interface). A Wi-Fi-only iPhone needs `ios.allowWifiRunner` with AtalantaRunner, which requires its per-launch token on every request ([docs/DRIVERS.md](docs/DRIVERS.md)).
-- **Secrets** are read from environment variables, masked in every report, log and trace, never sent to a model, and written into generated YAML only as `${NAME}`. Over MCP an agent can type only the names listed in `ATALANTA_SECRETS`.
-
-## More
-
-- [docs/GUIDE.md](docs/GUIDE.md): the long form (selectors and roles, natural-language steps, visual checks, healing, sharding, app state and caching, headless, configuration, a command cheat sheet).
-- [docs/](docs/README.md): architecture, drivers, CLI and exit codes, CI, MCP, explore, AI providers.
-- [docs/GUIDE.md#glossary](docs/GUIDE.md#glossary): the terms these docs use (settle, lease, ref, grounding, trust gates, …).
-- [docs/GUIDE.md#troubleshooting](docs/GUIDE.md#troubleshooting): first-run failures and what to do next.
-- [docs/STATUS.md](docs/STATUS.md): what has been verified on emulators, simulators, browsers and hardware, and what has not. Real Android hardware: one tablet, Settings only (2026-11-08). Real iPhones: never run.
-- `atalanta migrate maestro ./flows/` converts Maestro flows. Commands with no Atalanta equivalent (`runScript`, `evalScript`, `copyTextFrom`, `setLocation` and others) are skipped and listed in its report, and a `runFlow` with `when:` always runs, with a warning.
+Coming from Maestro? `atalanta migrate maestro ./flows/` converts your flows and lists anything it skipped.
 
 ## Install details
 
-- **Install script.** Downloads the binary for your machine, checks it against the release's `SHA256SUMS`, and installs into `~/.atalanta/bin` without sudo. Options: `--dir DIR`; `--version X.Y.Z` (or `ATALANTA_VERSION`); `--no-modify-path` to leave your shell profile alone; `--keep-quarantine` (macOS, below).
-- **macOS signing.** Release binaries are ad-hoc signed, not Developer ID signed or notarised. `curl` does not quarantine what it downloads, so usually nothing happens. If the installed binary does carry the `com.apple.quarantine` flag, the script removes it after the `SHA256SUMS` check and says so. `--keep-quarantine` (or `ATALANTA_KEEP_QUARANTINE=1`) leaves the flag on; then approve the binary in System Settings > Privacy & Security on first run.
-- **Release archives.** `atalanta-<version>-<target>.tar.gz` for `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` (static). Each has a build provenance attestation: `gh attestation verify <file> --repo atalantahq/atalanta`.
-- **npm.** `npx @atalantahq/cli --version` runs it without installing.
-- **From source.** `brew install --HEAD atalantahq/tap/atalanta` builds `main` with the console UI. A plain `cargo build` from a checkout has no console UI until you run `npm ci && npm run build` in `crates/atalanta-inspector/frontend`; until then it serves the API and a page saying so.
+- **Install script.** Checks the download against the release's `SHA256SUMS` and installs into `~/.atalanta/bin` without sudo. Flags: `--dir DIR`, `--version X.Y.Z`, `--no-modify-path`, `--keep-quarantine`.
+- **macOS signing.** Release binaries are ad-hoc signed, not notarised. If the binary carries the quarantine flag, the script removes it after the checksum check. With `--keep-quarantine`, approve it in System Settings > Privacy & Security on first run.
+- **Release archives.** Built for macOS (arm64, x86_64) and static Linux (arm64, x86_64), each with a build provenance attestation: `gh attestation verify <file> --repo atalantahq/atalanta`.
+- **Console UI from source.** `brew install --HEAD atalantahq/tap/atalanta` includes it. A plain `cargo build` does not; run `npm ci && npm run build` in `crates/atalanta-inspector/frontend` first.
 
-Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). License: GNU AGPL v3 ([LICENSE](LICENSE)).
+## Acknowledgements
+
+Atalanta's Android screen streaming is adapted from [scrcpy](https://github.com/Genymobile/scrcpy). Its iOS runner speaks the API of [WebDriverAgent](https://github.com/appium/WebDriverAgent). The YAML format takes ideas from [Maestro](https://github.com/mobile-dev-inc/maestro). Visual diffs use the anti-aliasing detector from [pixelmatch](https://github.com/mapbox/pixelmatch). Web device profiles come from [Playwright](https://github.com/microsoft/playwright). Details are in [NOTICE](NOTICE).
+
+## Licence
+
+Atalanta is licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`): see [LICENSE](LICENSE), and [NOTICE](NOTICE) for third-party material. Using the binary to test your own apps puts no obligations on those apps or their tests. Copying or adapting Atalanta's code into another project, or running a modified version as a network service, means releasing that work's source under the AGPL-3.0 and keeping the copyright notices. AI agents: read [AGENTS.md](AGENTS.md) before copying code from this repository.
+
+Questions and bugs: [GitHub Issues](https://github.com/atalantahq/atalanta/issues). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md).

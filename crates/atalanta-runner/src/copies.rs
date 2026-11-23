@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Copies of one test spread over the device pool: parallel flaky hunting
 //! (`--hunt N --parallel M`) and preventive copies of tests history flags
 //! as flaky (`--flaky-confidence P`).

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Android failure evidence: video from the device's video server (or
 //! `adb shell screenrecord` when its encoder can't be used) and logcat.
 //!

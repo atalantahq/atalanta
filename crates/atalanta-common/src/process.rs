@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Running external commands (adb, simctl, xcodebuild, git) safely.
 //!
 //! Every call gets a deadline and is killed if it passes: a wedged `adb`

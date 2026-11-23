@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Pilot of the trust benchmark: one lane (web, android or ios) of goals.json.
 
 For each goal: `atalanta explore` with a real model writes a test (5 replays,

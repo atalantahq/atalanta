@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Cross-origin iframes (W4, D-36 c′): a minimal flat-session CDP layer.
 //!
 //! With site isolation a cross-origin `<iframe>` (a Stripe card field, an

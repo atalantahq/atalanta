@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta history flaky`: per-test flake rate over the last N runs
 //! (C4: the rolling flake rate CI can gate on).
 #![cfg(unix)]

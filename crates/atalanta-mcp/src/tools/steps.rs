@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Tools that run one suite step through the executor, so they behave
 //! exactly as the same step in a suite: `launch_app`, `stop_app`, `scroll`
 //! (until an element is visible) and `assert_not_visible`.

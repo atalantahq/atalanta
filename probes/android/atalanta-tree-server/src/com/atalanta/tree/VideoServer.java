@@ -523,3 +523,6 @@ public final class VideoServer {
         writeInt(out, (int) v);
     }
 }
+
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only

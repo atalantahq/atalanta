@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Atalanta installer: downloads a prebuilt release binary, checks it against
 # the release's SHA256SUMS, and puts it in a directory you own (no sudo).
 #

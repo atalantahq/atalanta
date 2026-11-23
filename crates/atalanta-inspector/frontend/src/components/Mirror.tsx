@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as consoleApi from "../api/console";
 import type { ControlStatus, InputMsg } from "../api/console";

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! W2: swipes on a touch profile (`web.device`) are finger strokes
 //! (`Input.dispatchTouchEvent` moves), against a real headless Chrome.
 

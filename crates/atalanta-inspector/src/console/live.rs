@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where the mirror's pictures come from, and how they are framed.
 //!
 //! A device has at most one live feed, shared by every viewer:

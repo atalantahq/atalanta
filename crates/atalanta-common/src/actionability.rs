@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The actionability rule for the action running now (D-3), for drivers
 //! that check actionability themselves (the web driver's `act`).
 //!

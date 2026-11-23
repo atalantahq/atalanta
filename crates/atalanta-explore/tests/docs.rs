@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Every flag of `atalanta explore` is documented in docs/EXPLORE.md
 //! (review 06 #11): the two widest opt-ins once were not.
 

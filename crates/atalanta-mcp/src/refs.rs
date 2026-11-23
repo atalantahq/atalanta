@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Element refs (`e12`) handed out by `list_elements`, so an agent can act
 //! on what it saw without inventing a selector (Playwright MCP's model). Each
 //! ref stands for a selector built here, from the tree, and an exported flow

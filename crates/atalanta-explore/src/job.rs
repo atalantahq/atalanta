@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The whole `atalanta explore` pipeline as one library call: explore,
 //! write the test, replay it N times with no model, and on a failed replay
 //! try one repair round. The CLI, the MCP server (`run_task(kind=explore)`)

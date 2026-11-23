@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Web failure evidence: the page's screencast and its console.
 //!
 //! - **Video.** `Page.startScreencast` sends JPEG frames as the page

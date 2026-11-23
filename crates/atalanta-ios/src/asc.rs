@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! App Store Connect API client for headless iOS provisioning.
 //!
 //! Only Apple's public, documented API (`api.appstoreconnect.apple.com`,

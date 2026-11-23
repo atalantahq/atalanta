@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // The suite JSON schema is one large `json!` literal (schema.rs).
 #![recursion_limit = "256"]
 

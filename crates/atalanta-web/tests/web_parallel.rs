@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! W3: `--parallel N` on the web is N browser contexts in one Chrome
 //! (`web.parallelMode: contexts`, the default), each with its own
 //! cookies, storage and mocks, against a real headless Chrome.

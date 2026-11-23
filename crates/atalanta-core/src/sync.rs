@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Waiting for the UI to settle after an action.
 //!
 //! The policy (constants from Playwright, Maestro 2026, UiAutomator 2.4

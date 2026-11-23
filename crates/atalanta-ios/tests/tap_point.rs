@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where taps land (VEL-341, VEL-344), against a fake WDA on 127.0.0.1:
 //! screen 402×874, keyboard from y 538, status bar 62 pt (from /wda/screen).
 mod common;

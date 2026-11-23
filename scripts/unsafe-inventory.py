@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Count `unsafe` code per crate and compare with the pinned baseline.
 
     scripts/unsafe-inventory.py            # print the per-crate report

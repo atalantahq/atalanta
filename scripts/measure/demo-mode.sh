@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # P5: verify screenshots.freezeStatusBar on a real device. Runs
 # suites/demo-mode.yaml (two exact compares of the status bar a minute
 # apart) frozen and, as a control, unfrozen, while reading the device's

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta doctor --fix`: apply the fixes marked `safe_auto`.
 
 use std::time::Duration;

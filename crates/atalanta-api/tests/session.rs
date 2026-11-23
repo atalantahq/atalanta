@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `HttpSession` against a real HTTP server on 127.0.0.1: what goes on the
 //! wire, the cookie jar, captures, every failed check at once, `retry:`,
 //! redirects, timeouts and a server that isn't there.

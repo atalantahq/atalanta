@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The human report.
 
 use crate::{Area, FixKind, Report, Status, Verdict};

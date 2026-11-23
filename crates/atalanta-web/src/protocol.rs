@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The `BrowserProtocol` seam (W5, D-W1): what the driver's logic needs
 //! from a browser page, apart from how it is spoken to.
 //!

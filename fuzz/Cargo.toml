@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Fuzz targets for the parsers that read untrusted or hand-written input
 # (cargo-fuzz, libFuzzer). Not a member of the main workspace: `cargo build`,
 # clippy, the tests and the MSRV job never see it, and it keeps its own

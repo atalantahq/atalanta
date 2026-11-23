@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! D-25: `--device` is checked up front (exit 3, at once), and the
 //! cross-process lease policy (`ATALANTA_LEASES=off`, a fatal lease dir
 //! error with a hint).

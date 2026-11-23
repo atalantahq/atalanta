@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! One colour switch for everything Atalanta prints (C4, VEL-174).
 //!
 //! The CLI printed through `colored` (which only looked at `NO_COLOR`,

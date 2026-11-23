@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Golden render: one representative layout (colours, alpha, bold, text alpha,
 //! wrapping) must render pixel-identically on every machine. The renderer is
 //! CPU-only with bundled fonts, so any difference is a renderer change.

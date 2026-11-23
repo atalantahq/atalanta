@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use crate::render_tree::RenderNode;
 
 use super::axml::{AxmlElement, AxmlParser};

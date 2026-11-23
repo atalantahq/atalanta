@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta login <suite>` (row 1.5, AI-021 / VOI-001): run a stored login
 //! flow so an agent can start from a logged-in app without ever handling
 //! the password. claude-code #78160: agents refuse to type passwords, and

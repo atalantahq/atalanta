@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! NEW-001: a run reports every test it planned, once.
 //!
 //! A worker that died (a panicked actor, a lost task) or a bookkeeping bug

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A planner and checker for any OpenAI-compatible Chat Completions API
 //! (`POST {base}/chat/completions`): OpenAI, Google Gemini's OpenAI
 //! endpoint, OpenRouter, Ollama, vLLM, LM Studio, Groq and the like, chosen

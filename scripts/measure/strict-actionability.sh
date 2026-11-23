@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # P5: what the pre-action checks cost per action. Runs
 # suites/strict-actionability.yaml ROUNDS times in three variants and
 # prints each tap's median time side by side:

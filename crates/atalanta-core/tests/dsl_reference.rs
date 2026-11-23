@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `docs/DSL-REFERENCE.md` is generated from the schema (U2): this fails
 //! when the checked-in file differs from what the code would write, so the
 //! reference can't drift from the DSL again. `ATALANTA_BLESS=1` rewrites it.

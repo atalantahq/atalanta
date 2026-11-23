@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Install-by-hash: reinstall an app only when its build changed.
 //!
 //! A reinstall is the most expensive way to reset an app (SwiftHand

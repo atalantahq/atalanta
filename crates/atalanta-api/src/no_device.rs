@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The driver of a run whose steps are all `http` (with `wait` and
 //! `setConfig`): there is no device to find, lease, prepare or install on.
 //! It lists one stand-in per `--parallel` slot, so the sequential and the

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Atalanta's own iOS runner: an XCUITest bundle that serves the subset of
 // WebDriverAgent's HTTP API Atalanta's client uses, over Network.framework,
 // with public XCTest APIs only. Atalanta's WDA client and iOS driver work

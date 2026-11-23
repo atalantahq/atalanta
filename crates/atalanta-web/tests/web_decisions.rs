@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Decisions round: `<select>` (D-14), device profiles (D-W3), swipe
 //! direction (D-W4) and parallel browsers (D-48), against a real headless
 //! Chrome and a local page (see `common` for the fixtures).

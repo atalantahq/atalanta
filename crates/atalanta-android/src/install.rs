@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Install-by-hash on Android (see `atalanta_common::install`).
 //!
 //! The marker lives on the device, in

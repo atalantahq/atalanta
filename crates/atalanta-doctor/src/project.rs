@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Project: the suites parse and validate, their apps are installed on a
 //! device, and `atalanta-impact.yaml` reads.
 

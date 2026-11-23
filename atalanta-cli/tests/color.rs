@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! C4 (VEL-174): one colour switch for everything `atalanta` prints. The
 //! runner wrote raw ANSI escapes whatever `NO_COLOR` or the terminal said.
 #![cfg(unix)]

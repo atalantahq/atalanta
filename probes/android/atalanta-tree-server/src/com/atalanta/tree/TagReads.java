@@ -91,3 +91,6 @@ final class TagReads {
         return ((long) windowId << 32) ^ (nodeHash & 0xffffffffL);
     }
 }
+
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only

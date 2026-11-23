@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `run-metrics.json`: the numbers a farm operator graphs, next to
 //! `results.json`. Per device: how many tests it ran, how long it was busy
 //! with them, retries and infrastructure failures; for the run: wall time,

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import Foundation
 
 /// URLs whose requests never count as pending work. A WebSocket or a

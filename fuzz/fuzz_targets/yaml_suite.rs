@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The suite YAML parser and validator: what `atalanta run` / `validate`
 //! do with a suite file, and what the MCP server does with an agent's
 //! inline `yaml`. Must never panic or hang, whatever the input.

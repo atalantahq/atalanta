@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Runs Atalanta for the GitHub Action (action.yml). Inside the Android
 # emulator step it proves the emulator booted, so the next step can tell a
 # boot failure (infrastructure, exit 3) from a failing test.

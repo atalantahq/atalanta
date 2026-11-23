@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A variable in the environment that is not UTF-8 must not panic the
 //! client of `atalanta run --daemon`: it builds the request from the whole
 //! environment with `std::env::vars()`, which panics on one.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Secret redaction for everything Atalanta writes or prints: reports,
 //! traces, the live console, MCP replies, natural-language traces.
 //!

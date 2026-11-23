@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The console's task queue: suite runs and explore sessions.
 //!
 //! A task is a [`ConsoleTask`] on one device. Tasks on the same device run

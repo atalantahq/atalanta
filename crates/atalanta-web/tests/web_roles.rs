@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! S1/S2: `role:` + `name:` and state filters on the web, computed in the
 //! page by Playwright's rules, against a real headless Chrome.
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Completion notifiers (`atalanta mcp --notify …`): told once when a task
 //! ends, with the task as JSON.
 //!

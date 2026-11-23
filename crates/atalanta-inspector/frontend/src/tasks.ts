@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Folding a task's events into what the task view shows (pure, tested).
 import type { TaskEvent, TaskStatus } from "./api/console";
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Summarise atalanta results.json files written by scripts/measure/*.sh.
 
 Usage: summarize.py DIR LABEL [LABEL...] [--steps PATTERN] [--by test|action]

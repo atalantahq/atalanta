@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The `http` step (API testing): a request, what its response must show,
 //! and the values to take from it for later steps. `atalanta-api` sends
 //! it; these are the types the parser, the schema and the executor share.

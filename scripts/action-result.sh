@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # The GitHub Action's last step (action.yml): Atalanta's exit code, or 3
 # (infrastructure) when the device never came up, so a pipeline can retry
 # 3 and treat everything else as the tests' verdict. Reads the markers

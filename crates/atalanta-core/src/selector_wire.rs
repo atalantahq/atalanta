@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The one JSON form a [`Selector`] takes outside the process (review 02
 //! M5): the DSL's flat map, `{"text": "Pay", "index": 1}` or `{"role":
 //! "button", "name": "Pay", "below": {"id": "total"}}`, as a suite writes

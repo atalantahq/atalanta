@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 [package]
 # Published as `atalanta-mcp-server`; the library keeps the name `atalanta_mcp`.
 name = "atalanta-mcp-server"

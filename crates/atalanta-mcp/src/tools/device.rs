@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use std::sync::Arc;
 
 use atalanta_common::{AtalantaError, PlatformDriver, Result};

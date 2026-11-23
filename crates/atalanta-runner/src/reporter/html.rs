@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A single self-contained HTML report: every test with its steps (time,
 //! settle time, error, line in the suite), warnings, earlier failed
 //! attempts and failure screenshots. No scripts or external assets, so it

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { useEffect, useRef } from "react";
 import { InspectorSocket } from "../api/websocket";
 import { useInspectorStore } from "../store/inspectorStore";

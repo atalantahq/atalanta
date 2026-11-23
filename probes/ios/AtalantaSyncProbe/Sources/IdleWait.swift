@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import Foundation
 
 /// Answers "idle" only once idle has *held*: every sample over at least

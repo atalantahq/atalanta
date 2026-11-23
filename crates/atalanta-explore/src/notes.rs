@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! What the runner tells the model at the start of a turn, as decisions.
 //!
 //! Each turn's notes are values of [`TurnNote`]: code's decision ("the last

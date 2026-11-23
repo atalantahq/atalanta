@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Print one version's section of CHANGELOG.md (without its heading): the
 # body between `## [X.Y.Z]` and the next `## [` heading. The release
 # workflow uses it as the GitHub release notes.

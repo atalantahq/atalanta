@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta results check`: after a sharded CI run, check that every shard
 //! reported (NEW-001). The rules are in `atalanta_runner::results_check`.
 

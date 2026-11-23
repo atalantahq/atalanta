@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Where each test and step is written in a suite file.
 //!
 //! serde_yaml parses the suite but keeps no spans, so this module makes a

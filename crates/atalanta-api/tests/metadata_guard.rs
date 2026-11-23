@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `ATALANTA_HTTP_BLOCK_METADATA=1` end to end: the guard's pieces are unit
 //! tested in `guard.rs`, but nothing showed a step is actually refused, or a
 //! redirect into the metadata address stopped. Its own test binary: it sets

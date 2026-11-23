@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `snapshot`: the screen as few tokens as an agent can act on.
 //!
 //! One line per element worth seeing (visible, on screen, with text, a

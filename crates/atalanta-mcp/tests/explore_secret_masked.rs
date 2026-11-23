@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! An explore task's `secret` is typed by the `atalanta explore` child, which
 //! reads the value from its own environment. This server must mask the value
 //! in what it returns too (a later `snapshot` of the field the child typed it

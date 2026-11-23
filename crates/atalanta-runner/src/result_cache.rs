@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `--cache-results`: skip a test that already passed when nothing it
 //! depends on changed (emulator.wtf does this by default).
 //!

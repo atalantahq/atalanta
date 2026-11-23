@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! iOS simulator failure evidence: `simctl io recordVideo` for the video
 //! and `log stream` for the app's log, both started with the test.
 //!

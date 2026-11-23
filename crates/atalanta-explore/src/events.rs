@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! What an explore session reports while it runs, and how instructions
 //! reach it from outside (the MCP server's `task_inject`, a console).
 //!

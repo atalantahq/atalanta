@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A driver with no device, for an inspector that only serves the
 //! screenshot review page (`atalanta baselines review --serve`): listing
 //! devices returns none and every device action is a config error.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A fake app for tests: screens of named elements and the taps that move
 //! between them, behind a real [`PlatformDriver`]. The executor runs
 //! against it unchanged (selectors, actionability, settle), so an explore

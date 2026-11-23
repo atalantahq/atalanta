@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta init`: from nothing to a first passing test.
 //!
 //! Finds a running device, picks the app (the one in front, or the user's

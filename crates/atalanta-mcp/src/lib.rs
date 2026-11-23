@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Atalanta's MCP server: JSON-RPC over stdio that gives AI agents the
 //! device tools (look at the screen, act, assert), suite runs and
 //! `atalanta explore` sessions as background tasks, and `atalanta doctor`'s

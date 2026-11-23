@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Demonstrations from the project's own tests.
 //!
 //! LearnAct (Liu et al. 2025, arXiv 2504.13805) showed one demonstration

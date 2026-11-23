@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Building command lines for the device shell.
 //!
 //! `adb shell a b c` joins its arguments with spaces and the device runs the

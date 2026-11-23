@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use atalanta_core::{parse_suite, selector_lint};
 use clap::Args;
 use colored::Colorize;

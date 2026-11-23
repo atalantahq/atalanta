@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta run --env-file`: variable overrides from a dotenv file
 //! (Maestro #2817). Read only when named: a `.env` lying in the project is
 //! never picked up on its own, so a run gets only the values asked for.

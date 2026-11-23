@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! XML entities, XIB colours and button titles (VEL-104, VEL-105).
 
 use atalanta_headless::android::resources::ResourceTable;

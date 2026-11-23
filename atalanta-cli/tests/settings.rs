@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta settings` shows the value each setting's variable has now: a
 //! secret's must not be among them (its help says it is masked).
 

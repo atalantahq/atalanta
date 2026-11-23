@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 package com.facebook.react.runtime;
 
 import com.facebook.react.modules.core.JavaTimerManager;

@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Render the Homebrew formula for one release, for the atalantahq/atalanta
 # tap (github.com/atalantahq/homebrew-tap, file Formula/atalanta.rb).
 #

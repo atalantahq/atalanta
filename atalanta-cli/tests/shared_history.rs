@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! C1: history shared across CI jobs without a server: `atalanta history
 //! merge` and `atalanta run --history-from`.
 #![cfg(unix)]

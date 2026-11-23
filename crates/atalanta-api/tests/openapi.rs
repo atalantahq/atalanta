@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta api scaffold` on a petstore-like spec: the suite's shape,
 //! links between requests, mined checks, `$ref`s, and `--confirm` against
 //! a server on 127.0.0.1 that breaks one promise of its spec.

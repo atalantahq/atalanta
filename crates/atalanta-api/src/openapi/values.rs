@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A value a schema accepts: its example if it has one, else the least
 //! that is valid (required fields only, an enum's first value, a value of
 //! the right format).

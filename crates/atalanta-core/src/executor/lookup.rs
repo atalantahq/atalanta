@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Finding elements: smart lookup, healing, actionability, ambiguity, scroll areas.
 
 use super::actions::to_i32;

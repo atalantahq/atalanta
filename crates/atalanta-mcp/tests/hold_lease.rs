@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `McpServer::hold_lease`: one lease for several calls (an agent command's
 //! action, settle and delta). Its own test binary: it points the
 //! process-wide ATALANTA_LEASE_DIR at a scratch directory.

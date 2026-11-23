@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Build the Atalanta tree server into a dex jar and copy it where the Rust
 # Android driver embeds it (crates/atalanta-android/assets/atalanta-tree.jar).
 #

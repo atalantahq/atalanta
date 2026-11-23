@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The inspector over real HTTP on 127.0.0.1, with a fake driver.
 
 use std::path::PathBuf;

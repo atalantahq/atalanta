@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `screenshots.freezeStatusBar` on Android (D-V4): SystemUI demo mode, so
 //! the status bar shows the same clock, battery, signal and no
 //! notifications in every capture, and can be compared instead of masked.

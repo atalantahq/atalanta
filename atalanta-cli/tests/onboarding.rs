@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta doctor` and `atalanta init` end to end, against fake tools on
 //! PATH (no device is touched). The checks and the generated files have
 //! their own unit tests (`atalanta-doctor`, `commands/init.rs` goldens).

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Harness sanity check: AndroidWorld's own suite runner with a no-op agent.
 
 Proves initialize -> success check -> teardown works on this machine

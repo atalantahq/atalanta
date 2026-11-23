@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A suite run (`atalanta run`) or an exploration (`atalanta explore`) as
 //! a child process (see the module docs of [`super`] for why a child).
 //!

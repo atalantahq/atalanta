@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! AI: which provider keys are set (names only, never values), the
 //! provider and models natural-language steps resolve to, and (`--deep`)
 //! whether the API host answers.

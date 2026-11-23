@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! FlutterDriver against a fake Dart bridge on 127.0.0.1.
 
 use std::sync::{Arc, Mutex};

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! History shared across CI jobs without a server (C1).
 //!
 //! Each CI job (a shard, a device in a matrix) writes its own

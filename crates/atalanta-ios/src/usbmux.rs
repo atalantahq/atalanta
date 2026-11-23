@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A local TCP port forwarded to a port on a USB-connected iPhone through
 //! `usbmuxd` (what libimobiledevice's `iproxy` does). WebDriverAgent listens
 //! on the device; the driver talks to `localhost:<port>` as for a simulator.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta run --profile <file>`: a Chrome trace of the run.
 //!
 //! Every span (test, step, settle, …) becomes a "complete" event with its

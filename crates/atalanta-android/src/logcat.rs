@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A test's logcat: started at the test's start with `logcat -T <device
 //! time>`, so only that test's lines come, read in the background, and
 //! written on failure as the whole device log and the app's own lines (its

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import type { DeviceInfo, Direction, Element, GenerateResponse, Selector } from "./types";
 
 const BASE = "/api";

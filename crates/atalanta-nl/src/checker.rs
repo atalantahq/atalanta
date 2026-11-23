@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! AI verification (`verify:`): does a claim hold on the current screen?
 //!
 //! The same rule as planning: the model picks, code decides. The checker

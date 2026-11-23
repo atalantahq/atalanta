@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Opt in to Atalanta's git hooks (scripts/hooks/): pre-commit runs gitleaks
 # on the staged changes plus the fast format/lint/unsafe checks; pre-push
 # runs gitleaks on the commits being pushed and, when a lockfile changed,

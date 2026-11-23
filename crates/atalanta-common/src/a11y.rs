@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Accessibility audit: deterministic rules over a screen's element tree.
 //!
 //! Rules are the cheap, deterministic base, not the whole answer:

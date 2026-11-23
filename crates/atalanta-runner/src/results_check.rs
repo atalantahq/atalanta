@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta results check`: did every job of a sharded run report? (NEW-001)
 //!
 //! A shard whose job died before uploading, uploaded an empty folder or

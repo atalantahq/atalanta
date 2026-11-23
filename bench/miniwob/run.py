@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """MiniWoB++ through Atalanta's web agent.
 
 MiniWoB++ (Farama-Foundation/miniwob-plusplus, the commit BrowserGym pins)

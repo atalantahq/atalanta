@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Goal-level planning for `atalanta explore`: one turn of an agent that
 //! works through a goal ("open Network & internet") on a live screen.
 //!

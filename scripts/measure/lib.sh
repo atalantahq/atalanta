@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # shellcheck shell=bash
 # Shared by the scripts in scripts/measure/ (sourced, not run).
 #

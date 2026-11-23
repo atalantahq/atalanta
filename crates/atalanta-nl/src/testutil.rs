@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A local HTTP server for provider tests: answers each request with the
 //! next scripted reply and records what it was sent.
 

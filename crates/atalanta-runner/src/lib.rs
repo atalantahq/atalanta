@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 /// `println!` for lines that carry ANSI colour escapes: they are stripped
 /// when colour is off (`--color never`, `NO_COLOR`, not a terminal; see
 /// `atalanta_common::color`, C4).

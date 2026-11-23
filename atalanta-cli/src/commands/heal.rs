@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta heal`: review the selectors that self-healing fixed during
 //! passing tests, and accept them into the suite or discard them.
 //!

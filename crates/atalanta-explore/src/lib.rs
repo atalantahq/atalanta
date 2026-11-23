@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta explore`: AI explores once, deterministic replay runs CI.
 //!
 //! An agent works through a goal ("open Network & internet") on a real

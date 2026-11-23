@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review 10 (web/DOM): the index explore writes resolves to the same
 //! element in the page, a page overlay over a same-origin frame takes no
 //! click unnoticed, `aria-hidden` decoration stays out of text and names,

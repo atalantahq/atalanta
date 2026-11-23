@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Shared fixtures for the headless-Chrome tests: a tiny HTTP server on
 //! 127.0.0.1 serving fixed pages, and a driver launched against it.
 //!

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Allure results: one `<uuid>-result.json` per test in `allure-results/`,
 //! with steps, failure details, flaky marking and screenshots attached
 //! (copied next to the results, as Allure expects). Feed the directory to

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The connection wizard's checks: `GET /api/diagnostics`.
 //!
 //! The CLI's `inspect` plugs in `atalanta doctor`'s checks

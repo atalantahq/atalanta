@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `failures.md` (row 2.2: REP-080, VOI-007), written by every run: each
 //! failed test with the step that failed, the error, the errors the app
 //! logged during that step, and the files that show it. The explanation only says what the evidence

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Free memory and disk on this host, and the bar a device boot must clear
 //! (`atalanta devices up` refuses below it; `atalanta doctor` reports
 //! against it): at least ~35% and 3 GB of memory free, and 3 GB of disk.

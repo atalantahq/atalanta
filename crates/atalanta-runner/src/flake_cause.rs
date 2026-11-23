@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Why a test flakes: where its passing and failing hunt rounds diverge,
 //! the candidate causes ranked, and (`--suggest`) the YAML change for the
 //! top one.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Background tasks (`run_task`, `task_status`, `task_stop`, `task_inject`).
 //!
 //! A task runs in a tokio task inside the server, so `run_task` answers at

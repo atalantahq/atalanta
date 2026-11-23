@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! VEL-031: SIGTERM stops the daemon through its cleanup (socket removed),
 //! both fresh and after it has served a run — once a run had installed
 //! tokio's handlers, the daemon ignored SIGTERM and SIGINT for good.

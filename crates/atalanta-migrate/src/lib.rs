@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Maestro flows to Atalanta suites: converts each command to the Atalanta
 //! DSL, turns `runFlow` files into the suite's `flows:`, and reports what
 //! it couldn't convert, with the line. Internal to the `atalanta` CLI

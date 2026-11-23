@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 import { useState } from "react";
 import * as api from "../api/client";
 import { useInspectorStore } from "../store/inspectorStore";

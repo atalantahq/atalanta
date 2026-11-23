@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The agent commands (`atalanta snapshot`, `tap`, `type`, `export`, …),
 //! one process per command as an agent's shell runs them, against a
 //! headless render of an Android layout. Refs and the recording must carry

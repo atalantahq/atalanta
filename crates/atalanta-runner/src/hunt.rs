@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Flaky hunting: run the suite several times under perturbation and report
 //! the tests whose outcome changes.
 //!

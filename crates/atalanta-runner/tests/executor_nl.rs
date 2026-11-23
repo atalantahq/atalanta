@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The executor running natural-language steps through the real
 //! `atalanta_nl::NaturalResolver`: the cache contract (write only what the
 //! run confirmed), re-planning, the D-17 checks and `verify:`.

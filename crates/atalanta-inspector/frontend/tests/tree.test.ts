@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 // Run: node --test tests/*.test.ts  (Node >= 22.18 strips the TypeScript types)
 import { test } from "node:test";
 import assert from "node:assert/strict";

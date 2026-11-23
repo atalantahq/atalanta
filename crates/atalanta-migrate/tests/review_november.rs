@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Regressions found in the November 2026 review of `atalanta-migrate`,
 //! through the public API: each input is a Maestro flow a hostile or just
 //! unusual repository could hold.

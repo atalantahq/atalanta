@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta explore "<goal>"`: an AI agent works through the goal on a
 //! device once and writes a deterministic YAML test with assertions, which
 //! is then replayed (no model calls) to prove it holds.

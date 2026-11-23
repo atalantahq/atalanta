@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Set the workspace version everywhere it is written:
 #   scripts/bump-version.sh 0.3.0 [--date]
 # Cargo.toml's [workspace.package] version and the `=X.Y.Z` pins of the

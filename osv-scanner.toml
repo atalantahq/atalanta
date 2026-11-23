@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # OSV-Scanner configuration (scripts/security-check.sh,
 # .github/workflows/security.yml): `osv-scanner scan source --config osv-scanner.toml ...`.
 #

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Whether a value passes an `expect` matcher, and how it doesn't.
 
 use atalanta_common::{Checks, JsonType, Matcher};

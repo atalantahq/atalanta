@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """iOSWorld tasks through Atalanta's agent, written in iOSWorld's run format.
 
 For each task in iOSWorld's `tasks.json`:

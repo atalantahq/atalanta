@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Summarise a pilot round: python3 summarize.py out/runs.jsonl [out/calls.jsonl]
 
 Prints one row per goal and the totals the kill test scores (S0: trusted

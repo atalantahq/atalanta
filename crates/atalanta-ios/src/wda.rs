@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! HTTP client for WebDriverAgent.
 //!
 //! Speed choices, each measured on Xcode 26.0.1 / iOS 26.0:

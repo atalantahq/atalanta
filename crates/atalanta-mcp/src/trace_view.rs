@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `inspect_trace`: read a run's traces (`<artifacts>/traces/<test>/
 //! steps*.json`) a piece at a time.
 //!

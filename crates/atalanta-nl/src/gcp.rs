@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Google Cloud access tokens for Vertex AI, without the Google SDK.
 //!
 //! In order: the `GOOGLE_APPLICATION_CREDENTIALS` file (a service account,

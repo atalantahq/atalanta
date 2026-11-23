@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Code's check on text the model proposes itself: a value to type under
 //! `--values-from-goal` / `--values-from-screen`, and the answer to a
 //! question goal.

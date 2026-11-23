@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta run` of an API suite end to end, against an HTTP server on
 //! 127.0.0.1: no device, no `appId`, captures flowing between steps and
 //! through a flow, every failed check in the report, a secret captured

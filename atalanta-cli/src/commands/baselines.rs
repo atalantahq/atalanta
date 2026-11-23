@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! `atalanta baselines`: review the `assertScreenshot` comparisons the last
 //! run failed, and accept the actual screen as the new baseline (U1).
 //!

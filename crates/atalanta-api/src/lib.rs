@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! API testing for Atalanta: the `http` step.
 //!
 //! A step sends one request and checks the response: its status, headers,

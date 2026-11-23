@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Request guard for the inspector server.
 //!
 //! The inspector drives a real device and writes files, so a page the

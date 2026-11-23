@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Review 10 #8, #10 and #11: icon buttons are named from what they hold,
 //! not their utility classes; the hit-target check blocks touch events;
 //! file inputs take files and an `<option>` of a closed drop-down can be

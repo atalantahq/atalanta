@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! Screenshot assertions: baselines, crops, masks and the still frame.
 
 use super::*;

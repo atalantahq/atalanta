@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # CycloneDX SBOMs for what Atalanta ships, into OUT_DIR:
 #
 #   atalanta-cli.cdx.json         the `atalanta` binary: every crate in the

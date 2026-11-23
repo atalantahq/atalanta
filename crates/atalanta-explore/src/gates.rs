@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! The gates a written test passes before it is trusted (row 1.3:
 //! REL-108, AUT-106). A test that replays is a replay cache, and a cache
 //! must not lie: it has to fail when the app goes the wrong way, and it has

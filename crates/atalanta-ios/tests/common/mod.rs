@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: the Atalanta authors
+// SPDX-License-Identifier: AGPL-3.0-only
+
 //! A scriptable fake WebDriverAgent on 127.0.0.1 for the driver's tests:
 //! each request goes to a handler that answers JSON, raw bytes, a closed
 //! connection or nothing at all.
