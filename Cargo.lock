@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-android"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "async-trait",
  "atalanta-common",
@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-api"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "async-trait",
  "atalanta-common",
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-cli"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-common"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-core"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-doctor"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "atalanta-android",
  "atalanta-common",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-explore"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-flutter-bridge"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-headless"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-inspector"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -325,7 +325,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-ios"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "async-trait",
  "atalanta-common",
@@ -342,7 +342,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-mcp-server"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -368,7 +368,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-migrate"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "atalanta-common",
@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-nl"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -396,7 +396,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-runner"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "async-trait",
  "atalanta-common",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "atalanta-web"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
