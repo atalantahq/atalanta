@@ -6,7 +6,9 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-23
+## [0.2.0-rc.1] - 2026-11-24
+
+Release candidate for 0.2.0, published so the prebuilt binaries can be tried before the final release. Not published to crates.io or Homebrew.
 
 0.2.0 is a large release. Suites written for 0.1.0 keep their format (`appId`, `config`, `flows`, `tests`), but several checks are now stricter. Read [Behaviour changes that can fail existing suites](#behaviour-changes-that-can-fail-existing-suites) and [Migrating from 0.1.0](#migrating-from-010) before you upgrade a CI pipeline.
 
@@ -522,6 +524,6 @@ First public release.
 - `atalanta inspect`: an inspector web UI for the element tree and selectors.
 - An install script, a Homebrew formula, and CI and release workflows.
 
-[Unreleased]: https://github.com/atalantahq/atalanta/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/atalantahq/atalanta/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/atalantahq/atalanta/compare/v0.2.0-rc.1...HEAD
+[0.2.0-rc.1]: https://github.com/atalantahq/atalanta/compare/v0.1.0...v0.2.0-rc.1
 [0.1.0]: https://github.com/atalantahq/atalanta/releases/tag/v0.1.0
