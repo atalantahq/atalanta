@@ -189,9 +189,9 @@ jobs:
         shell: bash
         run: |
           python3 -m pip install --user ziglang==0.13.0.post1
-          cargo install --locked cargo-zigbuild@0.20.1
+          cargo install --locked cargo-zigbuild@0.24.1
           python3 -m ziglang version
-          cargo install --list | grep "^cargo-zigbuild v0.20.1"
+          cargo install --list | grep "^cargo-zigbuild v0.24.1"
 
       # `atalanta version` prints these on its second line (option_env!).
       - name: Build release binary
@@ -363,7 +363,7 @@ jobs:
             echo
             echo "The macOS binaries are ad-hoc signed, not Developer ID signed or notarised. Installed with install.sh, brew or npm they run as is; a tarball downloaded in a browser is quarantined, and macOS asks you to approve it (System Settings > Privacy & Security), or run \`xattr -d com.apple.quarantine atalanta\` once you have checked it against SHA256SUMS."
             echo
-            echo "Built with Rust ${RUST_VERSION} (the toolchain CI tests); the Linux binaries with zig 0.13.0 and cargo-zigbuild 0.20.1."
+            echo "Built with Rust ${RUST_VERSION} (the toolchain CI tests); the Linux binaries with zig 0.13.0 and cargo-zigbuild 0.24.1."
           } > notes.md
 
       # Provenance for the SBOMs (the archives were attested where they
