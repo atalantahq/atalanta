@@ -1,0 +1,42 @@
+# API tests need no device: `atalanta run examples/api-example --parallel 2`.
+# JSONPlaceholder is a public fake API; its writes are accepted but not kept.
+appId: jsonplaceholder
+config:
+  http:
+    baseUrl: https://jsonplaceholder.typicode.com
+    timeoutMs: 10000
+
+tests:
+  - name: Read a user
+    steps:
+      - http:
+          url: /users/1
+          expect:
+            status: 200
+            headers: { content-type: { contains: json } }
+            json:
+              id: 1
+              name: Leanne Graham
+              email: { matches: ".+@.+" }
+              address.geo.lat: { type: string }
+
+  - name: Create a post, then list the author's posts
+    steps:
+      - http:
+          method: POST
+          url: /posts
+          json: { userId: 1, title: "Hello from Atalanta", body: "..." }
+          expect:
+            status: 201
+            json:
+              id: { type: number }
+              title: Hello from Atalanta
+      - http:
+          url: /posts
+          query: { userId: 1 }
+          expect:
+            status: 2xx
+            maxMs: 5000
+            json:
+              $: { length: { gt: 0 } }
+              "$[*].userId": { contains: 1 }

@@ -1,0 +1,26 @@
+# Drives the emulator's own Settings app, so it needs no app build: start an
+# Android emulator (API 33 or 34) and run `atalanta run examples/android-example`.
+# Phone layout: on a two-pane tablet `back` leaves Settings.
+appId: com.android.settings
+
+config:
+  platform: android
+
+tests:
+  - name: Open Network & internet and go back
+    tags: [smoke]
+    steps:
+      - launchApp: { clearState: false }
+      - assertVisible: { textContains: "Network" }
+      - tap: { textContains: "Network" }
+      - assertVisible: { text: "Airplane mode" }
+      - screenshot: { filename: "network.png" }
+      - pressKey: { key: back }
+      - assertNotVisible: { text: "Airplane mode" }
+
+  - name: Scroll to About
+    steps:
+      - launchApp: { clearState: false }
+      - scrollUntilVisible: { selector: { textContains: "About" } }
+      - tap: { textContains: "About" }
+      - assertVisible: { textContains: "Android version" }
