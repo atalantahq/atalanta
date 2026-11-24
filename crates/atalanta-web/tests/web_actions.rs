@@ -304,7 +304,7 @@ customElements.define('x-tabs', class extends HTMLElement {
   constructor() { super(); var r = this.attachShadow({ mode: 'open' });
     r.innerHTML = '<button id="b">Tab B</button><div id="panel">Panel A</div>';
     var p = r.getElementById('panel');
-    r.getElementById('b').onclick = function () { setTimeout(function () { p.textContent = 'Panel B'; }, 300); };
+    r.getElementById('b').onclick = function () { setTimeout(function () { p.textContent = 'Panel B'; }, 1200); };
   }
 });
 </script></body></html>"#;
@@ -325,8 +325,10 @@ async fn settle_waits_for_a_render_inside_a_web_component() {
         .await
         .unwrap();
     d.tap("web", &b).await.unwrap();
+    // The render lands 1.2 s after the click, after the settle's observer
+    // is attached even on a loaded CI runner.
     let r = d
-        .settle_on_device("web", 1500, 100, 3000)
+        .settle_on_device("web", 3000, 100, 5000)
         .await
         .expect("the web driver settles on the page");
     assert!(r.settled && r.reacted, "{r:?}");
@@ -338,10 +340,10 @@ async fn settle_waits_for_a_render_inside_a_web_component() {
 }
 
 // #root churns on 12 consecutive frames when #hydrate is clicked (like a
-// framework hydrating), then is still; #go swaps its child 60 ms later.
+// framework hydrating), then is still; #go swaps its child 1.2 s later.
 const CHURN: &str = r#"<!doctype html><html><body>
 <button id="hydrate" onclick="churn(12)">Hydrate</button>
-<button id="go" onclick="setTimeout(function(){document.getElementById('root').innerHTML='<p>Route B</p>'},60)">Go</button>
+<button id="go" onclick="setTimeout(function(){document.getElementById('root').innerHTML='<p>Route B</p>'},1200)">Go</button>
 <div id="root"><p>Route A</p></div>
 <script>
 function churn(n) { if (n <= 0) return;
@@ -366,7 +368,11 @@ async fn a_container_that_churned_once_is_watched_again() {
     assert!(r.settled, "{r:?}");
     let go = find(&d, "#go").await;
     d.tap("web", &go).await.unwrap();
-    let r = d.settle_on_device("web", 1000, 100, 3000).await.unwrap();
+    // The swap lands 1.2 s after the click, after the settle's observer is
+    // attached even on a loaded CI runner (at 60 ms it sometimes landed
+    // during the tap's own checks, and `reacted` was false); a 3 s reaction
+    // window still has to see it.
+    let r = d.settle_on_device("web", 3000, 100, 5000).await.unwrap();
     assert!(r.settled && r.reacted, "the swap was not seen: {r:?}");
     assert_eq!(text(&d, "#root").await, "Route B");
     d.cleanup().await;
