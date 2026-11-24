@@ -286,6 +286,7 @@ Most suites that turn red here were passing by mistake. Each item gives the fix,
 
 ### Fixed
 
+- **Web: a Chrome that exits while starting is started again** (up to three tries, each with a fresh profile) instead of failing the run with "Failed to launch Chrome".
 - **Web: a click that closes its own popup** (a "Done" button running `window.close()`) passes at once instead of failing as an internal error after the 10 s DevTools limit.
 - **`atalanta doctor --platform android` (or a project with only Android suites) is no longer blocked by iOS:** an iOS problem, such as a slow CoreSimulator, is a warning when iOS isn't one of the run's platforms.
 - **Second independent review (Android, iOS):** iOS clearState refuses a data-container path that isn't one (an empty answer from simctl would have cleared the host's `/Library` and `/tmp`); simctl refuses option-like bundle ids; only the word "locked" means a locked iPhone; float window sizes are read instead of becoming 390x844; App Store Connect queries are encoded. Android: punctuation-only text is checked as typed; `hideKeyboard` doesn't report success after a failed read; a tree read before an action is no longer cached after it; drags on large coordinates don't overflow.

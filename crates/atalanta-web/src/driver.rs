@@ -1345,24 +1345,41 @@ impl WebDriver {
         // A profile of its own: chromiumoxide's default is one fixed
         // `$TMPDIR/chromiumoxide-runner`, and Chrome's singleton lock on it
         // made a second concurrent run fail to launch (VEL-117).
-        let profile_dir = new_profile_dir().map_err(|e| AtalantaError::DeviceBootFailed {
-            id: device_id.into(),
-            reason: format!("cannot create a Chrome profile directory: {e}"),
-        })?;
-        builder = builder.user_data_dir(&profile_dir);
-
-        let cfg = builder
-            .build()
-            .map_err(|e| AtalantaError::Config(format!("Chrome config error: {e}")))?;
-
-        let (mut browser, mut handler) = match Browser::launch(cfg).await {
-            Ok(b) => b,
-            Err(e) => {
-                let _ = std::fs::remove_dir_all(&profile_dir);
-                return Err(AtalantaError::DeviceBootFailed {
-                    id: device_id.into(),
-                    reason: format!("Failed to launch Chrome: {e}"),
-                });
+        //
+        // Up to three tries, each with a fresh profile: a Chrome that exits
+        // before printing its DevTools URL ("unexpected end of stream",
+        // seen on loaded macOS runners) usually starts on the next try. A
+        // missing executable is not retried.
+        const LAUNCH_TRIES: u32 = 3;
+        let mut attempt = 0;
+        let (profile_dir, mut browser, mut handler) = loop {
+            attempt += 1;
+            let profile_dir = new_profile_dir().map_err(|e| AtalantaError::DeviceBootFailed {
+                id: device_id.into(),
+                reason: format!("cannot create a Chrome profile directory: {e}"),
+            })?;
+            let cfg = builder
+                .clone()
+                .user_data_dir(&profile_dir)
+                .build()
+                .map_err(|e| AtalantaError::Config(format!("Chrome config error: {e}")))?;
+            match Browser::launch(cfg).await {
+                Ok((browser, handler)) => break (profile_dir, browser, handler),
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&profile_dir);
+                    let missing = matches!(&e, chromiumoxide::error::CdpError::Io(io)
+                        if io.kind() == std::io::ErrorKind::NotFound);
+                    if missing || attempt >= LAUNCH_TRIES {
+                        return Err(AtalantaError::DeviceBootFailed {
+                            id: device_id.into(),
+                            reason: format!("Failed to launch Chrome: {e}"),
+                        });
+                    }
+                    tracing::warn!(
+                        "atalanta-web: Chrome did not start ({e}); trying again ({attempt}/{LAUNCH_TRIES})"
+                    );
+                    tokio::time::sleep(Duration::from_millis(250 * u64::from(attempt))).await;
+                }
             }
         };
         let registered = browser
