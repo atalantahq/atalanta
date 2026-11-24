@@ -474,7 +474,7 @@ jobs:
           want=$(sed -n 's/^  RUST_VERSION: "\(.*\)"$/\1/p' .github/workflows/ci.yml)
           [ -n "$want" ] || { echo "::error::no RUST_VERSION in ci.yml"; exit 1; }
           bad=0
-          for f in release.yml device-smoke.yml docs.yml flutter-bridge.yml security.yml; do
+          for f in release.yml publish-crates.yml device-smoke.yml docs.yml flutter-bridge.yml security.yml; do
             got=$(sed -n 's/^  RUST_VERSION: "\(.*\)"$/\1/p' ".github/workflows/$f")
             if [ "$got" != "$want" ]; then
               echo "::error file=.github/workflows/$f::RUST_VERSION '$got', ci.yml has '$want'"; bad=1
