@@ -1,0 +1,30 @@
+# One test that checks an API, captures a value from the response and finds it
+# on a web page. Needs Chrome and network access:
+# `atalanta run examples/hybrid-example`. Unauthenticated GitHub API calls are
+# limited to 60 an hour per IP.
+appId: https://github.com/atalantahq/atalanta
+config:
+  platform: web
+  web:
+    headless: true
+  http:
+    baseUrl: https://api.github.com
+    headers: { Accept: application/vnd.github+json }
+
+tests:
+  - name: The repo page shows what the API says
+    steps:
+      - http:
+          url: /repos/atalantahq/atalanta
+          expect:
+            status: 200
+            json:
+              full_name: atalantahq/atalanta
+              license.spdx_id: AGPL-3.0
+              archived: false
+          capture:
+            DESCRIPTION: description
+            DEFAULT_BRANCH: default_branch
+      - goto: { url: "https://github.com/atalantahq/atalanta/tree/${DEFAULT_BRANCH}" }
+      - assertVisible: { text: "${DESCRIPTION}" }
+      - screenshot: { filename: "repo.png" }

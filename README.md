@@ -1,10 +1,13 @@
-<p align="center"><img src="logo/logo.png" alt="Atalanta logo" width="96" height="94"></p>
-
-<h1 align="center">Atalanta</h1>
-
-<p align="center"><img src="logo/banner.png" width="100%" alt="Atalanta: mobile, web and API tests in YAML, on Android, iOS and Chrome"></p>
+<h1 align="center"><img src="logo/logo.png" alt="" width="36" height="35" align="center"> Atalanta</h1>
 
 **Mobile, web and API tests in YAML, from one static binary.**
+
+[![CI](https://github.com/atalantahq/atalanta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/atalantahq/atalanta/actions/workflows/ci.yml)
+[![Security](https://github.com/atalantahq/atalanta/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/atalantahq/atalanta/actions/workflows/security.yml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/17034/badge)](https://www.bestpractices.dev/projects/17034)
+[![Licence](https://img.shields.io/badge/licence-AGPL--3.0--only-blue)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Android%20%C2%B7%20iOS%20%C2%B7%20Chrome-blue)](docs/DRIVERS.md)
+[![Rust](https://img.shields.io/badge/rust-1.89%2B-blue?logo=rust)](Cargo.toml)
 
 **[Docs](docs/README.md) · [How it works](#how-it-works) · [Example](#example) · [FAQ](#faq) · [Status](docs/STATUS.md) · [Changelog](CHANGELOG.md)**
 
@@ -15,13 +18,6 @@ Atalanta runs test suites on Android emulators, iOS simulators and Chrome. It is
   <br>
   <sub>A real run on an iOS 26 simulator. The phone is the video Atalanta recorded of the test.</sub>
 </p>
-
-[![CI](https://github.com/atalantahq/atalanta/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/atalantahq/atalanta/actions/workflows/ci.yml)
-[![Security](https://github.com/atalantahq/atalanta/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/atalantahq/atalanta/actions/workflows/security.yml)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/17034/badge)](https://www.bestpractices.dev/projects/17034)
-[![Licence](https://img.shields.io/badge/licence-AGPL--3.0--only-blue)](LICENSE)
-[![Platforms](https://img.shields.io/badge/platforms-Android%20%C2%B7%20iOS%20%C2%B7%20Chrome-blue)](docs/DRIVERS.md)
-[![Rust](https://img.shields.io/badge/rust-1.89%2B-blue?logo=rust)](Cargo.toml)
 
 The latest release is [0.2.0](https://github.com/atalantahq/atalanta/releases/latest). [docs/STATUS.md](docs/STATUS.md) lists what has been verified, and on which devices.
 
@@ -78,7 +74,7 @@ atalanta run tests/ --changed-since origin/main
 
 ## Install
 
-Once released, every route installs the same binary:
+Every route installs the same binary:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh   # macOS / Linux
@@ -114,7 +110,7 @@ tests:
       - assertVisible: { text: "${ORDER_ID}" }
 ```
 
-Secrets are typed by name (`${LOGIN_PASSWORD}`) and masked in every report, log and trace. The full format is in [docs/DSL.md](docs/DSL.md).
+Secrets are typed by name (`${LOGIN_PASSWORD}`) and masked in every report, log and trace. The full format is in [docs/DSL.md](docs/DSL.md), and [examples/](examples/README.md) has suites you can run as they are: Android, web, API only, and API plus web.
 
 ## When a test fails
 
@@ -163,9 +159,9 @@ No. A model is used to write a test with `atalanta explore` and to resolve a `do
 
 Only for `explore` and `do:` steps. Plain YAML tests need none. Local models work too: see [AI providers](docs/AI-PROVIDERS.md).
 
-### What does the AGPL mean for my app?
+### Can my company use it? It's AGPL.
 
-Using the binary to test your own apps puts no obligations on those apps or their tests. See [Licence](#licence).
+Yes. Running `atalanta` against your app, locally or in CI, puts no AGPL obligations on your app, your tests or your pipeline: they are not derived from Atalanta's code. The AGPL applies only if you change Atalanta itself and ship it or offer it as a network service. See [Licence](#licence).
 
 ## Documentation
 
