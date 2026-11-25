@@ -1,6 +1,6 @@
 # @atalantahq/cli
 
-This package installs the `atalanta` command-line tool from npm, for projects that already use Node. [Atalanta](https://github.com/atalantahq/atalanta) runs YAML UI tests on Android emulators, iOS simulators and Chrome. It also provides a console (`atalanta inspect`), an MCP server for AI agents, and `atalanta explore`, which turns a goal into a test. It is pre-release: this package has not been published yet.
+This package installs the `atalanta` command-line tool from npm, for projects that already use Node. [Atalanta](https://github.com/atalantahq/atalanta) runs YAML UI tests on Android emulators, iOS simulators and Chrome. It also provides a console (`atalanta inspect`), an MCP server for AI agents, and `atalanta explore`, which turns a goal into a test.
 
 ```sh
 npx @atalantahq/cli --version

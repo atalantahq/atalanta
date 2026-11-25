@@ -107,8 +107,8 @@ Each feature has one of four states:
 |---|---|---|
 | Opt-in CI workflows (device smoke, Flutter bridge, probes) | Syntax checked | Never run on GitHub |
 | GitHub Action (`action.yml`) | Host tests | Never run on GitHub |
-| Release binaries, install script, Homebrew | Released in 0.2.0 | |
-| npm and crates.io packages | Not published | Publishing |
+| Release binaries, install script, Homebrew | Released (0.2.0, 0.2.1) | |
+| npm and crates.io packages | Published (crates.io 0.2.0 and 0.2.1, npm 0.2.1) | The npm install on each platform |
 
 ## Real hardware
 
