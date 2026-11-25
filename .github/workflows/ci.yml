@@ -151,11 +151,14 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The site's playground runs the suite validator as WebAssembly.
+      - run: cargo clippy -p atalanta-wasm --target wasm32-unknown-unknown --locked -- -D warnings
 
   rustdoc:
     name: Rustdoc

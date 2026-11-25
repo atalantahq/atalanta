@@ -58,7 +58,7 @@ pub fn action_doc(action: &str) -> &'static str {
 /// `docs/DSL-REFERENCE.md`.
 pub fn dsl_reference() -> String {
     let schema = crate::schema::suite_schema();
-    let defs = &schema["$defs"];
+    let defs = &schema["definitions"];
     let mut out = String::new();
     out.push_str(
         "# Atalanta DSL reference\n\n\
@@ -319,10 +319,10 @@ fn cell(s: &str) -> String {
 
 /// A short human form of a schema: `selector`, `string`, `one of a, b`, …
 fn shape(v: &Value) -> String {
-    if v.get("$ref").and_then(Value::as_str) == Some("#/$defs/selector") {
+    if v.get("$ref").and_then(Value::as_str) == Some("#/definitions/selector") {
         return "selector".into();
     }
-    if v.get("$ref").and_then(Value::as_str) == Some("#/$defs/step") {
+    if v.get("$ref").and_then(Value::as_str) == Some("#/definitions/step") {
         return "step".into();
     }
     if let Some(values) = v.get("enum").and_then(Value::as_array) {

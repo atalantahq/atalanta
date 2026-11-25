@@ -5,13 +5,17 @@
 #![recursion_limit = "256"]
 
 pub mod a11y_run;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod baselines;
 pub mod config_keys;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod dialog_handler;
 pub mod env;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod executor;
 pub mod healing;
 pub mod impact;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod native_sync;
 pub mod parser;
 pub mod profiler;
@@ -22,17 +26,23 @@ pub mod selector;
 pub mod selector_lint;
 pub mod selector_wire;
 pub mod source_map;
+mod step_info;
 pub mod streaming;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sync;
 pub mod trace;
 pub mod trace_html;
 pub mod tree_diff;
 pub mod validator;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod visual;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use dialog_handler::DialogHandler;
+#[cfg(not(target_arch = "wasm32"))]
 pub use executor::TestExecutor;
 pub use healing::{HealingConfig, SelectorHealer};
+#[cfg(not(target_arch = "wasm32"))]
 pub use native_sync::{NativeSyncClient, SyncManager};
 pub use parser::{
     is_suite_file, parse_suite, parse_suite_from_str, parse_suite_with_positions, NOT_SUITES,
@@ -40,7 +50,9 @@ pub use parser::{
 pub use profiler::ResourceProfiler;
 pub use resolver::resolve_flows;
 pub use selector::SelectorEngine;
+pub use step_info::step_label;
 pub use streaming::{parse_headers, ParserMode, TestHeader};
+#[cfg(not(target_arch = "wasm32"))]
 pub use sync::{AdaptiveSyncEngine, SmartPollingSyncEngine};
 pub use tree_diff::TreeDiff;
 pub use validator::{check_capabilities, validate_structure_at, validate_suite, validate_suite_at};

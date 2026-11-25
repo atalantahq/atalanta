@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: the Atalanta authors
+# SPDX-License-Identifier: AGPL-3.0-only
+
+[package]
+name = "atalanta-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+authors.workspace = true
+publish = false
+description = "Atalanta's suite validator for the browser (WebAssembly), used by the website playground"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+atalanta-api = { workspace = true }
+atalanta-common = { workspace = true }
+atalanta-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = "0.2"
+
+[lints]
+workspace = true

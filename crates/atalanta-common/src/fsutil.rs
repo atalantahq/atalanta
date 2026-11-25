@@ -104,6 +104,8 @@ fn write_with_mode(
     if let Some(mode) = mode {
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, mode);
     }
+    #[cfg(not(unix))]
+    let _ = mode;
     // A fresh name on the (unlikely) clash with a leftover.
     let mut attempt = 0;
     let (tmp, file) = loop {

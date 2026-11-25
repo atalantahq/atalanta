@@ -19,6 +19,7 @@ members = [
     "crates/atalanta-doctor",
     "crates/atalanta-explore",
     "crates/atalanta-api",
+    "crates/atalanta-wasm",
     "atalanta-cli",
 ]
 # cargo-fuzz targets: their own workspace and lockfile, built with nightly

@@ -147,10 +147,12 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_path",
+ "serde_urlencoded",
  "serde_yaml",
  "tokio",
  "tokio-rustls",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -412,6 +414,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "atalanta-wasm"
+version = "0.2.0"
+dependencies = [
+ "atalanta-api",
+ "atalanta-common",
+ "atalanta-core",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

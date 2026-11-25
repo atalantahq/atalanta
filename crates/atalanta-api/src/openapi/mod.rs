@@ -14,6 +14,7 @@
 //! its mined constraints). Bodies, links and checks never invent a secret:
 //! security schemes become `${API_TOKEN}`-style variables.
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod confirm;
 pub mod mine;
 mod render;
@@ -23,6 +24,7 @@ pub mod values;
 use atalanta_common::{Capture, HttpConfig, HttpExpect, HttpRequest};
 use serde_json::Value;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use confirm::{confirm, ConfirmReport};
 pub use render::render;
 pub use spec::Spec;

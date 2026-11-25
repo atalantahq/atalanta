@@ -1,13 +1,18 @@
 // SPDX-FileCopyrightText: the Atalanta authors
 // SPDX-License-Identifier: AGPL-3.0-only
 
-//! `docs/llms.txt` (llmstxt.org; row 0.8 of the v4 plan): an index of the
-//! docs an AI agent can read, made from `docs/README.md`'s table so the two
-//! can't drift. Each link is the page's raw Markdown, which a model reads
-//! better than the site's HTML. `ATALANTA_BLESS=1 cargo test -p
-//! atalanta-core --test llms_txt` rewrites it.
+//! `docs/llms.txt` (llmstxt.org): an index of the docs an AI agent can read,
+//! made from `docs/README.md`'s table so the two can't drift. Each link is
+//! `https://atalanta.sh/docs/<slug>.md`, the page's Markdown on the site,
+//! where the slug is the file stem lowercased with `.` replaced by `-`.
+//! `ATALANTA_BLESS=1 cargo test -p atalanta-core --test llms_txt` rewrites it.
 
-const RAW: &str = "https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/";
+const SITE: &str = "https://atalanta.sh/docs/";
+
+fn slug_of(target: &str) -> String {
+    let stem = target.strip_suffix(".md").unwrap_or(target);
+    stem.to_lowercase().replace('.', "-")
+}
 
 fn generate(index: &str) -> String {
     let mut out = String::from(
@@ -40,8 +45,18 @@ fn generate(index: &str) -> String {
             .trim()
             .trim_end_matches('|')
             .trim();
-        out.push_str(&format!("- [{title}]({RAW}{target}): {what}\n"));
+        out.push_str(&format!(
+            "- [{title}]({site}{slug}.md): {what}\n",
+            title = title,
+            site = SITE,
+            slug = slug_of(target),
+            what = what
+        ));
     }
+    out.push_str(
+        "\n## Optional\n\n\
+         - [All docs in one file](https://atalanta.sh/llms-full.txt): every page above as one Markdown file\n",
+    );
     out
 }
 
@@ -59,10 +74,21 @@ fn llms_txt_lists_every_doc_page() {
         have, want,
         "docs/llms.txt is out of date: ATALANTA_BLESS=1 to rewrite"
     );
-    // Every page the index lists exists, and the agents page is in it.
-    for line in want.lines().filter(|l| l.starts_with("- [")) {
-        let file = line.split(RAW).nth(1).unwrap().split(')').next().unwrap();
-        assert!(std::path::Path::new(dir).join(file).is_file(), "{file}");
+    // Every page the index lists exists as a file in docs/.
+    for line in index.lines() {
+        let Some(rest) = line.strip_prefix("| [") else {
+            continue;
+        };
+        let Some((_title, rest)) = rest.split_once("](") else {
+            continue;
+        };
+        let Some((target, _rest)) = rest.split_once(')') else {
+            continue;
+        };
+        if !target.ends_with(".md") || target.contains('/') {
+            continue;
+        }
+        assert!(std::path::Path::new(dir).join(target).is_file(), "{target}");
     }
     assert!(want.contains("AGENTS.md") && want.contains("MCP.md"));
 }

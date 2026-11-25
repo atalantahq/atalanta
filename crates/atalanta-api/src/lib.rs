@@ -18,13 +18,23 @@
 #![forbid(unsafe_code)]
 
 pub mod check;
-pub mod client;
-pub mod guard;
+pub mod exchange;
 pub mod no_device;
 pub mod openapi;
 pub mod path;
 pub mod validate;
 
-pub use client::{resolve_url, HttpSession, Passed, DEFAULT_RETRY_INTERVAL_MS, DEFAULT_TIMEOUT_MS};
+#[cfg(not(target_arch = "wasm32"))]
+pub mod client;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod guard;
+
+pub use exchange::{
+    build, evaluate, resolve_url, Evaluation, Prepared, Response, DEFAULT_RETRY_INTERVAL_MS,
+    DEFAULT_TIMEOUT_MS,
+};
 pub use no_device::NoDeviceDriver;
 pub use validate::{is_var_name, validate};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use client::{HttpSession, Passed};

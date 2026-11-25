@@ -21,21 +21,26 @@ serde_json = { workspace = true, features = ["unbounded_depth"] }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
 sha2 = { workspace = true }
-ring = { workspace = true }
 regex = { workspace = true }
 # `natural::check_goto` (D-17): the same URL parser reqwest uses.
 url = "2.5"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+ring = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "rt"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 serde_yaml = { workspace = true }
 proptest = "1"
-
-[target.'cfg(unix)'.dependencies]
-libc = { workspace = true }
 
 [lints]
 workspace = true

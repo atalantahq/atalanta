@@ -102,6 +102,34 @@ pub fn bind_captured(
     Ok(result)
 }
 
+/// `input` with its `${VAR}`s filled from `overrides` and the environment,
+/// leaving the placeholders of `deferred` names as written.
+pub fn interpolate_deferring(
+    input: &str,
+    overrides: &HashMap<String, String>,
+    deferred: &BTreeSet<String>,
+) -> Result<String> {
+    interpolate_except(input, overrides, deferred)
+}
+
+/// [`interpolate_deferring`] over every string of one step's action: what
+/// [`interpolate_suite`] does to each step, for a caller that fills them
+/// one at a time.
+pub fn interpolate_step(
+    step: &atalanta_common::Step,
+    overrides: &HashMap<String, String>,
+    deferred: &BTreeSet<String>,
+) -> Result<atalanta_common::Step> {
+    let mut action = step.action.clone();
+    interpolate_action(&mut action, &mut |s: &str| {
+        interpolate_except(s, overrides, deferred)
+    })?;
+    Ok(atalanta_common::Step {
+        action,
+        ..step.clone()
+    })
+}
+
 /// Deepest nesting of placeholders in defaults (`${A:-${B:-…}}`) a string
 /// may have. Expansion recurses once per level, so a megabyte of nested
 /// defaults overflowed the stack (a SIGSEGV, not an error; audit 2026-11
@@ -311,7 +339,14 @@ fn totp_value(name: &str) -> Option<String> {
         .as_ref()?
         .get(name)?
         .clone();
-    match atalanta_common::secrets::totp_now(&secret) {
+    #[cfg(not(target_arch = "wasm32"))]
+    let code = atalanta_common::secrets::totp_now(&secret);
+    #[cfg(target_arch = "wasm32")]
+    let code = {
+        let _ = &secret;
+        Err::<String, _>("no secrets store in the browser")
+    };
+    match code {
         Ok(code) => Some(code),
         Err(e) => {
             tracing::warn!("{name}: {e}");
@@ -323,7 +358,14 @@ fn totp_value(name: &str) -> Option<String> {
 fn lookup_var(name: &str, overrides: &HashMap<String, String>) -> Option<String> {
     // `${keychain:NAME}` (row 1.5): the OS keychain, always a secret.
     if let Some(account) = name.strip_prefix(KEYCHAIN) {
-        return match atalanta_common::secrets::keychain(account) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let found = atalanta_common::secrets::keychain(account);
+        #[cfg(target_arch = "wasm32")]
+        let found = {
+            let _ = account;
+            Err::<String, _>("no keychain in the browser")
+        };
+        return match found {
             Ok(v) => Some(v),
             Err(e) => {
                 tracing::warn!("{e}");

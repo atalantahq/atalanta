@@ -70,12 +70,12 @@ fn selector_fields() -> Value {
         "index": { "type": "integer", "minimum": 0, "description": "Nth match in reading order" },
         "css": { "type": "string", "description": "Web only" },
         "xpath": { "type": "string", "description": "Web only" },
-        "below": { "$ref": "#/$defs/selector" },
-        "above": { "$ref": "#/$defs/selector" },
-        "leftOf": { "$ref": "#/$defs/selector" },
-        "rightOf": { "$ref": "#/$defs/selector" },
-        "containsChild": { "$ref": "#/$defs/selector" },
-        "childOf": { "$ref": "#/$defs/selector" },
+        "below": { "$ref": "#/definitions/selector" },
+        "above": { "$ref": "#/definitions/selector" },
+        "leftOf": { "$ref": "#/definitions/selector" },
+        "rightOf": { "$ref": "#/definitions/selector" },
+        "containsChild": { "$ref": "#/definitions/selector" },
+        "childOf": { "$ref": "#/definitions/selector" },
     })
 }
 
@@ -94,7 +94,7 @@ fn any_value() -> Value {
 
 /// The schema for one action's argument.
 fn action_arg(action: &str) -> Value {
-    let sel = json!({ "$ref": "#/$defs/selector" });
+    let sel = json!({ "$ref": "#/definitions/selector" });
     let key =
         json!({ "enum": atalanta_common::Key::ALL.iter().map(|k| k.name()).collect::<Vec<_>>() });
     let direction = json!({ "enum": ["up", "down", "left", "right"] });
@@ -269,7 +269,7 @@ fn scalar_map() -> Value {
 
 /// The `http` step (atalanta-common's `HttpRequest`).
 fn http_request() -> Value {
-    let matcher = json!({ "$ref": "#/$defs/matcher" });
+    let matcher = json!({ "$ref": "#/definitions/matcher" });
     let matchers = json!({ "type": "object", "additionalProperties": matcher });
     let status = json!({ "anyOf": [
         { "type": "integer", "minimum": 100, "maximum": 599 },
@@ -327,7 +327,7 @@ fn matcher_schema() -> Value {
             "matches": { "type": "string", "description": "Regex the whole value must match" },
             "exists": { "type": "boolean" },
             "type": { "enum": atalanta_common::JsonType::ALL },
-            "length": { "$ref": "#/$defs/matcher" },
+            "length": { "$ref": "#/definitions/matcher" },
             "oneOf": { "type": "array" }
         }),
         &[],
@@ -433,7 +433,7 @@ fn step() -> Value {
 /// The whole schema.
 pub fn suite_schema() -> Value {
     json!({
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "$id": "https://atalanta.sh/schema/suite.json",
         "title": "Atalanta test suite",
         "type": "object",
@@ -646,7 +646,7 @@ pub fn suite_schema() -> Value {
                 "type": "array",
                 "items": obj(json!({
                     "id": { "type": "string" },
-                    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+                    "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } }
                 }), &["id", "steps"])
             },
             "tests": {
@@ -660,11 +660,11 @@ pub fn suite_schema() -> Value {
                     "sideEffects": { "type": "boolean", "description": "Never skip this test from the result cache" },
                     "description": { "type": "string", "description": "What the test shows; verify: final checks it on the last screen (the name stands in without it)" },
                     "verify": { "enum": atalanta_common::VerifyLevel::NAMES, "description": "This test's AI verification level, over config.verify" },
-                    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+                    "steps": { "type": "array", "items": { "$ref": "#/definitions/step" } }
                 }), &["name", "steps"])
             }
         },
-        "$defs": {
+        "definitions": {
             "selector": selector_schema(),
             "matcher": matcher_schema(),
             "step": step()
@@ -676,13 +676,13 @@ pub fn suite_schema() -> Value {
 pub(crate) mod validate {
     //! The subset of JSON Schema the suite schema uses: type, enum,
     //! properties, required, additionalProperties: false, items, oneOf,
-    //! $ref into $defs, minimum/maximum, minProperties, pattern.
+    //! $ref into definitions, minimum/maximum, minProperties, pattern.
     use serde_json::Value;
 
     pub fn errors(schema: &Value, root: &Value, v: &Value, path: &str, out: &mut Vec<String>) {
         if let Some(r) = schema.get("$ref").and_then(Value::as_str) {
-            let name = r.trim_start_matches("#/$defs/");
-            return errors(&root["$defs"][name], root, v, path, out);
+            let name = r.trim_start_matches("#/definitions/");
+            return errors(&root["definitions"][name], root, v, path, out);
         }
         if let Some(any) = schema.get("anyOf").and_then(Value::as_array) {
             let ok = any.iter().any(|s| {

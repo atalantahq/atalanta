@@ -21,3 +21,22 @@ fn the_checked_in_dsl_reference_is_current() {
          (or `atalanta schema --markdown > docs/DSL-REFERENCE.md`)"
     );
 }
+
+/// The site serves this file at the schema's `$id`, https://atalanta.sh/schema/suite.json.
+#[test]
+fn the_checked_in_suite_schema_is_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../site/public/schema/suite.json");
+    let want = serde_json::to_string_pretty(&atalanta_core::schema::suite_schema()).unwrap() + "\n";
+    if std::env::var_os("ATALANTA_BLESS").is_some() {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &want).unwrap();
+        return;
+    }
+    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        have == want,
+        "site/public/schema/suite.json is out of date with the schema; regenerate it with \
+         `ATALANTA_BLESS=1 cargo test -p atalanta-core --test dsl_reference`"
+    );
+}

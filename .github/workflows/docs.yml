@@ -10,7 +10,7 @@ name: Docs
 
 on:
   pull_request:
-    paths: ["docs/**", "site/**", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "Cargo.toml", "crates/atalanta-core/src/schema.rs", ".github/workflows/docs.yml"]
+    paths: ["docs/**", "site/**", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "Cargo.toml", "Cargo.lock", "crates/atalanta-core/src/schema.rs", "crates/atalanta-wasm/**", ".github/workflows/docs.yml"]
   release:
     types: [published]
   workflow_dispatch:
@@ -41,6 +41,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
+          targets: wasm32-unknown-unknown
       # Pull requests only: the site a release deploys is built cold, never
       # from a cache another workflow could have written.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 # zizmor: ignore[cache-poisoning] -- skipped on release
@@ -58,6 +59,18 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 # zizmor: ignore[cache-poisoning] -- v4 caches only with `cache:`, unset
         with:
           node-version: "24"
+      # The playground's validator: atalanta-core as WebAssembly. The
+      # wasm-bindgen CLI must match the crate version in Cargo.lock.
+      - name: Read the wasm-bindgen version
+        id: wbg
+        run: echo "version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: wasm-bindgen@${{ steps.wbg.outputs.version }}
+      - name: Build the playground validator
+        run: |
+          cargo build -p atalanta-wasm --target wasm32-unknown-unknown --release --locked
+          wasm-bindgen --target web --out-dir site/public/playground/wasm target/wasm32-unknown-unknown/release/atalanta_wasm.wasm
       # A relative link to a file that does not exist, or a docs page missing
       # from the sidebar config, fails this build.
       - name: Build the site
@@ -68,6 +81,19 @@ jobs:
         run: |
           npm ci
           npm run build
+      # External links only (the build already fails on broken internal ones).
+      # Reported in the job summary; a dead third-party link never blocks a PR.
+      - name: Check external links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          fail: false
+          jobSummary: true
+          args: >-
+            --no-progress --scheme https --max-concurrency 8
+            --accept 200..=299,403,429
+            --exclude '^https://atalanta\.sh'
+            --exclude '^https://github\.com/atalantahq/atalanta/(edit|issues/new)'
+            'site/dist/**/*.html'
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: site/dist
