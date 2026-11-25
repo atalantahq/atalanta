@@ -1,0 +1,30 @@
+# Run through the repo's own Action (.github/workflows/dogfood-action.yml).
+# The pages are data: URLs, so nothing depends on the network, and there is
+# no chromePath, so it runs wherever Chrome is on PATH.
+appId: "data:text/html,%3Ch1%3EDogfood%3C%2Fh1%3E%3Cp%3EA%20page%20for%20the%20Action.%3C%2Fp%3E"
+config:
+  platform: web
+  web:
+    width: 1280
+    height: 800
+    headless: true
+
+tests:
+  - name: The heading is visible
+    steps:
+      - launchApp
+      - assertVisible: { css: "h1" }
+      - assertText:
+          selector: { css: "h1" }
+          expected: Dogfood
+
+  - name: Text matches by xpath
+    steps:
+      - launchApp
+      - assertVisible: { xpath: "//p[contains(., 'the Action')]" }
+
+  - name: A click changes the page
+    steps:
+      - goto: { url: "data:text/html,%3Cbutton%20onclick%3D%22document.body.innerHTML%3D%27%3Ch1%3EClicked%3C%2Fh1%3E%27%22%3EPress%3C%2Fbutton%3E" }
+      - tap: { text: Press }
+      - assertVisible: { text: Clicked }

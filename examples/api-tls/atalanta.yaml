@@ -1,0 +1,58 @@
+# API tests over HTTPS against any httpbin-compatible server:
+#   API_URL=https://httpbin.org atalanta run examples/api-tls
+# CI runs it against go-httpbin behind Caddy with a mkcert certificate
+# (.github/workflows/api-tls.yml), trusting the CA through SSL_CERT_FILE.
+appId: api-tls
+config:
+  http:
+    baseUrl: "${API_URL}"
+    timeoutMs: 15000
+
+tests:
+  - name: GET with a query
+    steps:
+      - http:
+          url: /get
+          query: { a: "1" }
+          expect:
+            status: 200
+            headers: { content-type: { contains: json } }
+            json:
+              url: { contains: "a=1" }
+
+  - name: POST JSON is echoed back
+    steps:
+      - http:
+          method: POST
+          url: /post
+          json: { name: atalanta, n: 2 }
+          expect:
+            status: 200
+            json:
+              json.name: atalanta
+              json.n: 2
+
+  - name: A status the server picks
+    steps:
+      - http:
+          url: /status/418
+          expect:
+            status: 418
+
+  - name: Request headers arrive
+    steps:
+      - http:
+          url: /headers
+          headers: { X-Atalanta-Check: tls-dogfood }
+          expect:
+            status: 200
+            body: { contains: tls-dogfood }
+
+  - name: A redirect is followed
+    steps:
+      - http:
+          url: /redirect/1
+          expect:
+            status: 200
+            json:
+              url: { contains: /get }

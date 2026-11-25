@@ -18,7 +18,7 @@ Each feature has one of four states:
 | Web | Verified with headless Chrome on macOS, and on Linux in CI. Firefox and Safari are not supported yet; they are planned for 0.3.0 ([ROADMAP.md](ROADMAP.md)). |
 | Android hardware | One tablet (Android 14): the Settings app and the trust gates. |
 | iPhone hardware | One iPhone 12 (iOS 26.5, wired): Settings, a test app and the trust gates. The Wi-Fi runner and AtalantaRunner have not been run on a phone. |
-| API tests | Verified against local HTTP servers and a public server over TLS (macOS); expired and wrong-host certificates are refused. |
+| API tests | Verified against local HTTP servers and a public server over TLS (macOS), and in CI on Linux over TLS to a server with a private CA and to a public one; expired and wrong-host certificates are refused. |
 | Device clouds | Not run. |
 
 ## By feature
@@ -30,7 +30,7 @@ Each feature has one of four states:
 | Parser, validator, schema, selectors, settle, healing, visual comparison | Host tests | Covered on devices indirectly by the smoke and test-app suites |
 | `launchApp` arguments reaching the app | Hardware (iPhone 12), Verified (Android emulator) | — |
 | Parallel runs, sharding, retries on another device | Verified | Large device pools |
-| `http` steps and API-only suites | Verified (local servers and TLS to a public server, macOS) | Linux |
+| `http` steps and API-only suites | Verified (local servers and TLS, macOS and Linux) | — |
 | Proxies and custom certificates | Host tests | A real proxy |
 | Memory check (`config.performance`) | Host tests | The profiler on a device; Android only |
 | `exec` step, `drag`, login with keychain and TOTP secrets | Verified (headless Chrome) | Android and iOS |
