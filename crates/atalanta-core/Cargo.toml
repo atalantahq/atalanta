@@ -19,7 +19,6 @@ description = "Core engine for Atalanta: YAML parser, validator, sync engine, ex
 atalanta-common = { workspace = true }
 atalanta-api = { workspace = true }
 anyhow = { workspace = true }
-tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -30,6 +29,12 @@ unsafe-libyaml = "0.2.11"
 tracing = { workspace = true }
 chrono = { workspace = true }
 png = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "rt"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

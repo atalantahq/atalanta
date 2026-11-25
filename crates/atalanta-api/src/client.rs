@@ -6,18 +6,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use atalanta_common::{AtalantaError, Capture, HttpConfig, HttpExpect, HttpRequest, Result};
+use atalanta_common::{AtalantaError, HttpConfig, HttpRequest, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
-use serde_json::Value;
 
-use crate::check::{self, Source};
-use crate::path::{Path, Selected};
+use crate::exchange::{self, Response};
 
-/// How long a request may take when neither the step nor the suite says.
-pub const DEFAULT_TIMEOUT_MS: u64 = 30_000;
-/// The pause between `retry:` attempts when `intervalMs` isn't given.
-pub const DEFAULT_RETRY_INTERVAL_MS: u64 = 1_000;
+pub use crate::exchange::{resolve_url, DEFAULT_RETRY_INTERVAL_MS, DEFAULT_TIMEOUT_MS};
 /// Most of a response body a failure shows (reports keep it short; the
 /// whole body is in the debug log).
 const BODY_EXCERPT: usize = 512;
@@ -74,11 +69,7 @@ impl HttpSession {
     /// How long one request may take: the step's `timeoutMs`, else
     /// `config.http.timeoutMs`, else 30 s.
     pub fn request_timeout(&self, step_timeout_ms: Option<u64>) -> Duration {
-        Duration::from_millis(
-            step_timeout_ms
-                .or(self.config.timeout_ms)
-                .unwrap_or(DEFAULT_TIMEOUT_MS),
-        )
+        Duration::from_millis(exchange::timeout_ms(&self.config, step_timeout_ms))
     }
 
     /// Send `req` until its expectations pass: once, or with `retry:` up to
@@ -108,7 +99,7 @@ impl HttpSession {
 
     async fn once(&self, req: &HttpRequest, timeout: Duration) -> Result<Passed> {
         let (exchange, label) = self.send(req, timeout).await?;
-        exchange.judge(req, label)
+        judge(exchange, req, label)
     }
 
     /// Send `req` once and read the whole response, judging nothing: what
@@ -117,15 +108,11 @@ impl HttpSession {
         &self,
         req: &HttpRequest,
         timeout: Duration,
-    ) -> Result<(Exchange, String)> {
-        let method_name = req.method();
-        let method = reqwest::Method::from_bytes(method_name.as_bytes()).map_err(|e| {
-            AtalantaError::Config(format!(
-                "http: `{method_name}` is not an HTTP method ({})",
-                refused(e, &method_name, is_token_char)
-            ))
-        })?;
-        let url = resolve_url(self.config.base_url.as_deref(), &req.url)?;
+    ) -> Result<(Response, String)> {
+        let prepared = exchange::build(&self.config, req, None)?;
+        let method = reqwest::Method::from_bytes(prepared.method.as_bytes())
+            .map_err(|e| AtalantaError::Config(format!("http: {}: {e}", prepared.method)))?;
+        let url = prepared.url.as_str();
         // Headers of its own, or a body, may hold a secret (an API key, a
         // login's password): such a request follows redirects on its own
         // origin only (a 307/308 would replay the body elsewhere).
@@ -141,19 +128,21 @@ impl HttpSession {
         } else {
             &self.follow
         };
-        let mut b = client
-            .request(method.clone(), &url)
-            .timeout(timeout)
-            .headers(self.headers(req)?);
-        if !req.query.is_empty() {
-            b = b.query(&req.query);
+        let mut headers = HeaderMap::new();
+        for (name, value) in &prepared.headers {
+            if let (Ok(n), Ok(v)) = (
+                HeaderName::from_bytes(name.as_bytes()),
+                HeaderValue::from_str(value),
+            ) {
+                headers.insert(n, v);
+            }
         }
-        if let Some(json) = &req.json {
-            b = b.json(json);
-        } else if let Some(text) = &req.body {
-            b = b.body(text.clone());
-        } else if !req.form.is_empty() {
-            b = b.form(&req.form);
+        let mut b = client
+            .request(method.clone(), url)
+            .timeout(timeout)
+            .headers(headers);
+        if let Some(body) = prepared.body {
+            b = b.body(body);
         }
         let request = b
             .build()
@@ -200,42 +189,27 @@ impl HttpSession {
             }
             bytes.extend_from_slice(&chunk);
         }
-        let exchange = Exchange {
+        let exchange = Response::new(
             status,
-            headers,
-            body: String::from_utf8_lossy(&bytes).into_owned(),
-            elapsed_ms: started.elapsed().as_millis() as u64,
-            stopped,
-            json: None,
-        };
+            headers
+                .iter()
+                .map(|(n, v)| {
+                    (
+                        n.as_str().to_string(),
+                        String::from_utf8_lossy(v.as_bytes()).into_owned(),
+                    )
+                })
+                .collect(),
+            String::from_utf8_lossy(&bytes).into_owned(),
+            started.elapsed().as_millis() as u64,
+        )
+        .stopped(stopped);
         tracing::debug!(
             "http {label} answered {status} in {} ms: {}",
             exchange.elapsed_ms,
             excerpt(&exchange.body)
         );
         Ok((exchange, label))
-    }
-
-    /// `config.http.headers`, then the step's (same name, any case: the
-    /// step's wins).
-    fn headers(&self, req: &HttpRequest) -> Result<HeaderMap> {
-        let mut map = HeaderMap::new();
-        for (name, value) in self.config.headers.iter().chain(&req.headers) {
-            let n = HeaderName::from_bytes(name.as_bytes()).map_err(|e| {
-                AtalantaError::Config(format!(
-                    "http: bad header name `{name}` ({})",
-                    refused(e, name, is_token_char)
-                ))
-            })?;
-            let v = HeaderValue::from_str(value).map_err(|e| {
-                AtalantaError::Config(format!(
-                    "http: header `{name}` has a value HTTP can't carry ({})",
-                    refused(e, value, |c| c == '\t' || !c.is_ascii_control())
-                ))
-            })?;
-            map.insert(n, v);
-        }
-        Ok(map)
     }
 }
 
@@ -244,223 +218,30 @@ fn origin(u: &reqwest::Url) -> String {
     u.origin().ascii_serialization()
 }
 
-/// A url with a scheme as written; any other appended to `base` (one `/`
-/// between them, so `/orders` keeps the base's own path).
-pub fn resolve_url(base: Option<&str>, url: &str) -> Result<String> {
-    let has_scheme = |u: &str| {
-        let lower = u.get(..8).unwrap_or(u).to_ascii_lowercase();
-        lower.starts_with("http://") || lower.starts_with("https://")
-    };
-    if has_scheme(url) {
-        return Ok(url.to_string());
-    }
-    match base.map(str::trim).filter(|b| !b.is_empty()) {
-        Some(b) if has_scheme(b) => {
-            let rest = url.trim_start_matches('/');
-            let base = b.trim_end_matches('/');
-            Ok(if rest.is_empty() {
-                base.to_string()
-            } else {
-                format!("{base}/{rest}")
-            })
-        }
-        Some(b) => Err(AtalantaError::Config(format!(
-            "http: config.http.baseUrl `{b}` needs http:// or https://"
-        ))),
-        None => Err(AtalantaError::Config(format!(
-            "http: `{url}` has no http:// or https://, and the suite has no config.http.baseUrl to put before it"
-        ))),
-    }
-}
-
-/// One response, read whole.
-pub(crate) struct Exchange {
-    pub(crate) status: u16,
-    headers: HeaderMap,
-    pub(crate) body: String,
-    elapsed_ms: u64,
-    /// `A to B` (origins) for a redirect the guard did not follow.
-    stopped: Option<String>,
-    /// The body parsed as JSON, once something asks.
-    json: Option<std::result::Result<Value, String>>,
-}
-
-impl Exchange {
-    fn judge(mut self, req: &HttpRequest, label: String) -> Result<Passed> {
-        let mut failures = self.check(&req.expect);
-        let mut captured = Vec::new();
-        for (name, from) in &req.capture {
-            match self.capture(from) {
-                Ok(v) => captured.push((name.clone(), v)),
-                Err(e) => failures.push(format!("capture {name}: {e}")),
-            }
-        }
-        // A token taken from a login response is as secret as one from
-        // the environment. Registered before a failure is reported too: its
-        // message quotes the start of this very body.
-        for (name, value) in &captured {
-            if atalanta_common::redact::is_secret_name(name) {
-                atalanta_common::redact::register_secret(value);
-                atalanta_common::redact::register_secret_name(name);
-            }
-        }
-        if !failures.is_empty() {
-            return Err(AtalantaError::HttpCheckFailed {
-                request: label,
-                status: self.status,
-                failures,
-                body: excerpt(&self.body),
-            });
-        }
-        Ok(Passed {
-            captured,
-            summary: format!("{label} answered {} in {} ms", self.status, self.elapsed_ms),
-        })
-    }
-
-    pub(crate) fn check(&mut self, expect: &HttpExpect) -> Vec<String> {
-        let mut out = Vec::new();
-        match &expect.status {
-            Some(want) if !want.accepts(self.status) => {
-                out.push(format!("status: expected {want}, got {}", self.status))
-            }
-            None if self.status >= 400 => out.push(format!(
-                "status: expected below 400 (no expect.status), got {}",
-                self.status
-            )),
-            // Not a pass: the request never reached what it was written for.
-            None if self.stopped.is_some() => out.push(format!(
-                "status: got {}, a redirect {} that was not followed (a request with headers \
-                 or a body follows redirects on its own origin only, and https never to http); \
-                 give expect.status to check it",
-                self.status,
-                self.stopped.as_deref().unwrap_or_default(),
-            )),
-            _ => {}
-        }
-        for (name, m) in &expect.headers {
-            let values: Vec<String> = self
-                .headers
-                .get_all(name.as_str())
-                .iter()
-                .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned())
-                .collect();
-            let got = (!values.is_empty()).then(|| Value::String(values.join(", ")));
-            label(
-                &mut out,
-                &format!("header {name}"),
-                check::failures(m, got.as_ref(), Source::Text),
-            );
-        }
-        if !expect.json.is_empty() {
-            match self.doc() {
-                Err(e) => out.push(e),
-                Ok(doc) => {
-                    for (written, m) in &expect.json {
-                        let fails = match Path::parse(written) {
-                            Err(e) => vec![e],
-                            Ok(p) => match p.select(doc) {
-                                Selected::Missing => check::failures(m, None, Source::Json),
-                                Selected::One(v) => check::failures(m, Some(v), Source::Json),
-                                Selected::Many(nodes) => {
-                                    let list = Value::Array(nodes.into_iter().cloned().collect());
-                                    check::failures(m, Some(&list), Source::Nodes)
-                                }
-                            },
-                        };
-                        label(&mut out, written, fails);
-                    }
-                }
-            }
-        }
-        if let Some(m) = &expect.body {
-            let body = Value::String(self.body.clone());
-            label(
-                &mut out,
-                "body",
-                check::failures(m, Some(&body), Source::Text),
-            );
-        }
-        if let Some(max) = expect.max_ms.filter(|max| self.elapsed_ms > *max) {
-            out.push(format!(
-                "took {} ms, more than maxMs {max}",
-                self.elapsed_ms
-            ));
-        }
-        out
-    }
-
-    pub(crate) fn capture(&mut self, from: &Capture) -> std::result::Result<String, String> {
-        match from {
-            Capture::Json(written) => {
-                let path = Path::parse(written)?;
-                let doc = self.doc()?;
-                let v = path.select_one(doc)?;
-                // serde_json reads an integer beyond u64 as a float, and
-                // `${NAME}` would insert its rounded form: say so instead.
-                if v.as_f64().is_some_and(|f| {
-                    v.is_f64()
-                        && f.is_finite()
-                        && f.fract() == 0.0
-                        && f.abs() >= 18446744073709551616.0
-                }) {
-                    return Err(format!(
-                        "`{written}` is a number too large to capture exactly ({v}); have the API send it as a string"
-                    ));
-                }
-                Ok(text_of(v))
-            }
-            Capture::Header(name) => self
-                .headers
-                .get(name.as_str())
-                .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned())
-                .ok_or_else(|| format!("no `{name}` header")),
-            Capture::Regex(pattern) => {
-                let re = regex::Regex::new(pattern)
-                    .map_err(|e| format!("bad regular expression /{pattern}/: {e}"))?;
-                let caps = re
-                    .captures(&self.body)
-                    .ok_or_else(|| format!("/{pattern}/ found nothing in the body"))?;
-                let m = caps
-                    .get(1)
-                    .or_else(|| caps.get(0))
-                    .map_or("", |m| m.as_str());
-                Ok(m.to_string())
-            }
+/// The verdict on one response: what it captured, or the checks it failed.
+fn judge(mut res: Response, req: &HttpRequest, label: String) -> Result<Passed> {
+    let exchange::Evaluation { failures, captured } = exchange::evaluate(req, &mut res);
+    // A token taken from a login response is as secret as one from
+    // the environment. Registered before a failure is reported too: its
+    // message quotes the start of this very body.
+    for (name, value) in &captured {
+        if atalanta_common::redact::is_secret_name(name) {
+            atalanta_common::redact::register_secret(value);
+            atalanta_common::redact::register_secret_name(name);
         }
     }
-
-    fn doc(&mut self) -> std::result::Result<&Value, String> {
-        // A byte order mark ahead of the JSON (some servers write one) is
-        // allowed by RFC 8259 §8.1 but is no JSON text for serde_json.
-        let body = self.body.strip_prefix('\u{feff}').unwrap_or(&self.body);
-        self.json
-            .get_or_insert_with(|| {
-                serde_json::from_str(body).map_err(|e| {
-                    let kind = self
-                        .headers
-                        .get(reqwest::header::CONTENT_TYPE)
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("no content-type");
-                    format!("the body is not JSON ({kind}): {e}")
-                })
-            })
-            .as_ref()
-            .map_err(Clone::clone)
+    if !failures.is_empty() {
+        return Err(AtalantaError::HttpCheckFailed {
+            request: label,
+            status: res.status,
+            failures,
+            body: excerpt(&res.body),
+        });
     }
-}
-
-fn label(out: &mut Vec<String>, what: &str, failures: Vec<String>) {
-    out.extend(failures.into_iter().map(|f| format!("{what}: {f}")));
-}
-
-/// A captured value as `${NAME}` inserts it: a string as is, anything else
-/// as compact JSON (`42`, `true`, `{"a":1}`).
-fn text_of(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
+    Ok(Passed {
+        captured,
+        summary: format!("{label} answered {} in {} ms", res.status, res.elapsed_ms),
+    })
 }
 
 /// The start of a body, on one line.
@@ -475,21 +256,6 @@ pub(crate) fn excerpt(body: &str) -> String {
     }
     let cut: String = one_line.chars().take(BODY_EXCERPT).collect();
     format!("{cut}…")
-}
-
-/// The http crate's refusal of `s` and the first character `ok` rejects,
-/// which its errors leave out: a value interpolated from a file often
-/// ends in a newline. Never `s` itself (a header value is often a token).
-fn refused(e: impl std::fmt::Display, s: &str, ok: impl Fn(char) -> bool) -> String {
-    match s.chars().find(|c| !ok(*c)) {
-        Some(c) => format!("{e}: {c:?} is not allowed"),
-        None => e.to_string(),
-    }
-}
-
-/// A character of an HTTP token (a method or a header name, RFC 9110).
-fn is_token_char(c: char) -> bool {
-    c.is_ascii() && crate::validate::is_token_byte(c as u8)
 }
 
 /// An error and its causes, without reqwest's repeated url.

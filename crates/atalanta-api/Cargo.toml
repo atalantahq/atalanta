@@ -17,20 +17,25 @@ description = "API testing for Atalanta: runs `http` steps (request, JSONPath ch
 
 [dependencies]
 atalanta-common = { workspace = true }
-# A cookie jar per test: a login's session cookie reaches the next request.
-reqwest = { workspace = true, features = ["cookies"] }
 serde_json = { workspace = true }
 # RFC 9535 JSONPath, checked against the standard's compliance suite; uses
 # the `regex` crate for `match()`/`search()` filters.
 serde_json_path = "0.7"
 regex = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 # `atalanta api scaffold` reads OpenAPI documents (YAML or JSON) and
 # writes suites.
 serde_yaml = { workspace = true }
 serde = { workspace = true }
+# `exchange` builds the request: the url's query string and a form body.
+url = "2"
+serde_urlencoded = "0.7"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# A cookie jar per test: a login's session cookie reaches the next request.
+reqwest = { workspace = true, features = ["cookies"] }
+tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

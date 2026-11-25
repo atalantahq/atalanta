@@ -13,15 +13,11 @@ pub mod fsutil;
 pub mod host;
 pub mod http;
 pub mod install;
-pub mod jsonline;
 pub mod live_events;
 pub mod natural;
-pub mod process;
 pub mod redact;
-pub mod resilience;
 pub mod result;
 pub mod role;
-pub mod secrets;
 pub mod selector_build;
 pub mod selector_match;
 pub mod settings;
@@ -30,6 +26,15 @@ pub mod test_types;
 pub mod traits;
 pub mod types;
 pub mod web_devices;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jsonline;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod process;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod resilience;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod secrets;
 
 pub use config::*;
 pub use error::{AtalantaError, ErrorKind, Result};
@@ -41,6 +46,7 @@ pub use http::{
     Capture, Checks, HttpConfig, HttpExpect, HttpRequest, HttpRetry, JsonType, Matcher, StatusCheck,
 };
 pub use install::InstallOutcome;
+#[cfg(not(target_arch = "wasm32"))]
 pub use resilience::{CircuitBreaker, ProbePermit, ResilientDriver, RetryPolicy};
 pub use result::*;
 pub use test_types::*;

@@ -26,7 +26,9 @@ mod failure;
 mod lookup;
 mod natural;
 mod screenshot;
-use actions::set_sync_field;
+use crate::step_info::set_sync_field;
+pub(crate) use crate::step_info::{action_name, action_selector, step_label};
+pub use crate::step_info::{check_set_config, selector_fields};
 use screenshot::in_ci_env;
 
 /// How long an `exec` step may run without its own `timeoutMs`.
@@ -288,16 +290,6 @@ fn next_pause(n: usize, deadline: Instant, timeout: Duration) -> Option<Duration
     }
     let cap = (timeout / 5).max(Duration::from_millis(20));
     Some(retry_delay(n).min(cap).min(left))
-}
-
-/// Whether `setConfig` can change `key` to `value` mid-test: a named
-/// setting, or one of the sync timings.
-pub fn check_set_config(key: &str, value: &str) -> std::result::Result<(), String> {
-    if atalanta_common::settings::find(key).is_some() {
-        return Ok(());
-    }
-    let mut probe = atalanta_common::SyncConfig::default();
-    set_sync_field(&mut probe, key, value)
 }
 
 /// When the post-action settle starts watching the crash log, and how often.
@@ -1640,53 +1632,6 @@ async fn write_artifact(path: &std::path::Path, data: Vec<u8>) -> bool {
     .unwrap_or(false)
 }
 
-fn action_name(action: &Action) -> String {
-    match action {
-        Action::LaunchApp { .. } => "launchApp".to_string(),
-        Action::StopApp { .. } => "stopApp".to_string(),
-        Action::AssertSystemState { .. } => "assertSystemState".to_string(),
-        Action::SetConfig { .. } => "setConfig".to_string(),
-        Action::MockRequest { .. } => "mockRequest".to_string(),
-        Action::ClearMocks => "clearMocks".to_string(),
-        Action::Http(req) => format!("http({} {})", req.method(), req.url),
-        Action::Exec(e) => format!(
-            "exec({})",
-            e.run.argv().first().map(String::as_str).unwrap_or("")
-        ),
-        Action::Tap { .. } => "tap".to_string(),
-        Action::DoubleTap { .. } => "doubleTap".to_string(),
-        Action::LongPress { .. } => "longPress".to_string(),
-        Action::Drag { .. } => "drag".to_string(),
-        Action::InputText { .. } => "inputText".to_string(),
-        Action::ClearText { .. } => "clearText".to_string(),
-        Action::AssertVisible { .. } => "assertVisible".to_string(),
-        Action::AssertNotVisible { .. } => "assertNotVisible".to_string(),
-        Action::AssertText { .. } => "assertText".to_string(),
-        Action::ScrollUntilVisible { .. } => "scrollUntilVisible".to_string(),
-        Action::Swipe { .. } => "swipe".to_string(),
-        Action::Screenshot { .. } => "screenshot".to_string(),
-        Action::AssertScreenshot { name, .. } => format!("assertScreenshot({name})"),
-        Action::SaveState { name } => format!("saveState({name})"),
-        Action::RestoreState { name } => format!("restoreState({name})"),
-        Action::PressKey { .. } => "pressKey".to_string(),
-        Action::HideKeyboard => "hideKeyboard".to_string(),
-        Action::Wait { .. } => "wait".to_string(),
-        Action::RunFlow { .. } => "runFlow".to_string(),
-        Action::TapXY { x, y } => format!("tapXY({x},{y})"),
-        Action::InputRaw { .. } => "inputRaw".to_string(),
-        Action::Goto { url } => format!("goto({url})"),
-        Action::GoBack => "goBack".to_string(),
-        Action::Refresh => "refresh".to_string(),
-        Action::Natural { intent, kind, .. } => {
-            let verb = match kind {
-                atalanta_common::NaturalKind::Act => "do",
-                atalanta_common::NaturalKind::Assert => "assert",
-            };
-            format!("{verb}({intent})")
-        }
-    }
-}
-
 /// `artifacts.onFailure: false` turns off failure artifacts, the trace
 /// included; `--trace always` still asks for one.
 fn trace_mode(
@@ -1709,51 +1654,6 @@ fn located(step: &Step, e: &AtalantaError) -> String {
     }
 }
 
-/// An action as it reads in YAML, short: `tap { text: "Pay" }`.
-pub(crate) fn step_label(action: &Action) -> String {
-    match action_selector(action) {
-        Some(sel) => format!("{} {{ {} }}", action_name(action), selector_fields(sel)),
-        None => action_name(action),
-    }
-}
-
-/// A selector's YAML fields: `text: "Pay", index: 1`.
-/// `v` as a YAML double-quoted scalar. Rust's `{:?}` wrote `\u{301}` for a
-/// combining accent, and a JSON string leaves DEL, C1 controls and U+FFFE
-/// raw, which YAML rejects even inside quotes (VEL-242): every character
-/// outside YAML's printable set (and the line/paragraph separators and BOM,
-/// which some readers mangle) is escaped.
-fn yaml_quoted(v: &str) -> String {
-    use std::fmt::Write;
-    let mut out = String::with_capacity(v.len() + 2);
-    out.push('"');
-    for c in v.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            c if c.is_control()
-                || matches!(
-                    c,
-                    '\u{2028}' | '\u{2029}' | '\u{feff}' | '\u{fffe}' | '\u{ffff}'
-                ) =>
-            {
-                let n = u32::from(c);
-                if n <= 0xff {
-                    let _ = write!(out, "\\x{n:02x}");
-                } else {
-                    let _ = write!(out, "\\u{n:04x}");
-                }
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
 /// How to reject the heal of `from` (report mode): by its selector, which
 /// `--reject` takes (m6), shell-quoted; by its number in the listing when
 /// the selector holds a masked value, since the masked text would match no
@@ -1774,44 +1674,6 @@ fn reject_hint(from: &str, suite: &str) -> String {
 /// (S3): strict becomes the default in 1.0. There is no flip now.
 pub const STRICT_STAGING: &str =
     "This will be an error in 1.0; set `selectors.strict: false` to keep today's behaviour.";
-
-pub fn selector_fields(sel: &Selector) -> String {
-    let q = |v: &str| yaml_quoted(v);
-    match sel {
-        Selector::Id(v) => format!("id: {}", q(v)),
-        Selector::Text(v) => format!("text: {}", q(v)),
-        Selector::TextContains(v) => format!("textContains: {}", q(v)),
-        Selector::TextMatches(v) => format!("textMatches: {}", q(v)),
-        Selector::IdMatches(v) => format!("idMatches: {}", q(v)),
-        Selector::AccessibilityId(v) => format!("accessibilityId: {}", q(v)),
-        Selector::ClassName(v) => format!("className: {}", q(v)),
-        Selector::Css(v) => format!("css: {}", q(v)),
-        Selector::XPath(v) => format!("xpath: {}", q(v)),
-        Selector::Role(v) => format!("role: {}", q(v)),
-        Selector::Name(v) => format!("name: {}", q(v)),
-        Selector::Checked(b) => format!("checked: {b}"),
-        Selector::Focused(b) => format!("focused: {b}"),
-        Selector::Selected(b) => format!("selected: {b}"),
-        Selector::Enabled(b) => format!("enabled: {b}"),
-        Selector::Index { selector, index } => {
-            format!("{}, index: {index}", selector_fields(selector))
-        }
-        Selector::Compound(parts) => parts
-            .iter()
-            .map(selector_fields)
-            .collect::<Vec<_>>()
-            .join(", "),
-        Selector::Relative {
-            target,
-            relation,
-            anchor,
-        } => format!(
-            "{}, {relation}: {{ {} }}",
-            selector_fields(target),
-            selector_fields(anchor)
-        ),
-    }
-}
 
 fn chrono_millis() -> u128 {
     std::time::SystemTime::now()
@@ -1920,22 +1782,6 @@ fn with_timeout(e: AtalantaError, timeout_ms: u64) -> AtalantaError {
             hierarchy_snapshot,
         },
         other => other,
-    }
-}
-
-fn action_selector(action: &Action) -> Option<&Selector> {
-    match action {
-        Action::Tap { selector }
-        | Action::DoubleTap { selector }
-        | Action::LongPress { selector, .. }
-        | Action::Drag { from: selector, .. }
-        | Action::InputText { selector, .. }
-        | Action::ClearText { selector }
-        | Action::AssertVisible { selector }
-        | Action::AssertNotVisible { selector }
-        | Action::AssertText { selector, .. }
-        | Action::ScrollUntilVisible { selector, .. } => Some(selector),
-        _ => None,
     }
 }
 

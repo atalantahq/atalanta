@@ -478,7 +478,7 @@ fn at_source(step: &Step, e: AtalantaError) -> AtalantaError {
     match &step.source {
         Some(pos) => AtalantaError::AtSource {
             pos: pos.clone(),
-            step: crate::executor::step_label(&step.action),
+            step: crate::step_info::step_label(&step.action),
             inner: Box::new(e),
         },
         None => e,
@@ -575,7 +575,7 @@ fn validate_step(
         }
         Action::SetConfig { values } => {
             for (k, v) in values {
-                if let Err(e) = crate::executor::check_set_config(k, v) {
+                if let Err(e) = crate::step_info::check_set_config(k, v) {
                     return Err(AtalantaError::Config(format!(
                         "{context_name} step {step_index}: {e}"
                     )));
