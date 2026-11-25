@@ -98,9 +98,11 @@ skip = [
     # tiny-skia 0.11 (atalanta-headless) still uses png 0.17, and png 0.17 bitflags 1.
     { crate = "png@0.17", reason = "tiny-skia 0.11 (atalanta-headless)" },
     { crate = "bitflags@1", reason = "png 0.17 through tiny-skia 0.11" },
-    # cosmic-text 0.16 (atalanta-headless) pulls an older skrifa through swash.
-    { crate = "skrifa@0.37", reason = "swash 0.2 through cosmic-text 0.16 (atalanta-headless)" },
+    # cosmic-text 0.19 (atalanta-headless) pulls an older skrifa through swash.
+    { crate = "skrifa@0.37", reason = "swash 0.2 through cosmic-text 0.19 (atalanta-headless)" },
     { crate = "read-fonts@0.35", reason = "skrifa 0.37 through swash/cosmic-text" },
+    { crate = "font-types@0.10", reason = "read-fonts 0.35 through swash/cosmic-text" },
+    { crate = "quick-xml@0.41", reason = "plist 1.10 (atalanta-ios); Atalanta's own parsers are on 0.42" },
     # getrandom/rand: ring 0.17 is on 0.2; tungstenite 0.28 on rand 0.9
     # (getrandom 0.3, r-efi 5); proptest on rand 0.10 (getrandom 0.4).
     { crate = "getrandom@0.2", reason = "ring 0.17 (rustls)" },
