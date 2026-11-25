@@ -31,22 +31,21 @@ pub fn enter_commands() -> Vec<String> {
 
 /// Read back after entering (review-d5 m-1): `am broadcast` exits 0
 /// whether or not SystemUI acts on it, so success of the shell alone says
-/// nothing. First the setting that allows demo mode, then
-/// `sysui_tuner_demo_on`, which SystemUI's `DemoModeController` (Android
-/// 12+) writes itself when it enters demo mode (and clears on exit), so it
-/// shows that SystemUI acted on `enter`, not only that the shell could
-/// write a setting (review-fixes #8).
+/// nothing. First the setting that allows demo mode, then SystemUI's own
+/// state: `DemoModeController`'s dump, falling back to
+/// `sysui_tuner_demo_on` where that dump isn't there. Android 14's SystemUI
+/// enters demo mode but leaves `sysui_tuner_demo_on` at 0.
 pub const VERIFY: &str = "settings get global sysui_demo_allowed";
-pub const VERIFY_ON: &str = "settings get global sysui_tuner_demo_on";
+pub const VERIFY_ON: &str = "{ dumpsys activity service com.android.systemui/.SystemUIService DemoModeController | grep -o 'isInDemoMode=[a-z]*' || settings get global sysui_tuner_demo_on; }";
 
 /// What the read-back says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     /// SystemUI says it is in demo mode.
     Entered,
-    /// Allowed, but this SystemUI never writes `sysui_tuner_demo_on`
-    /// (`null`, before Android 12): the allowed setting is all there is
-    /// to read, so it counts (the known limit).
+    /// Allowed, but this SystemUI neither dumps its demo state nor writes
+    /// `sysui_tuner_demo_on` (`null`, before Android 12): the allowed
+    /// setting is all there is to read, so it counts (the known limit).
     Unknown,
     /// Allowed, but SystemUI isn't in demo mode yet: `enter` can arrive
     /// before SystemUI has seen `sysui_demo_allowed` and be ignored.
@@ -69,7 +68,7 @@ pub fn verdict(output: &str) -> Verdict {
         return Verdict::Refused;
     }
     match on {
-        "1" => Verdict::Entered,
+        "1" | "isInDemoMode=true" => Verdict::Entered,
         "null" => Verdict::Unknown,
         _ => Verdict::NotYet,
     }
@@ -220,12 +219,31 @@ mod tests {
         let _ = std::fs::remove_file(&marker);
     }
 
+    /// Android 14: SystemUI is in demo mode but `sysui_tuner_demo_on` stays 0.
+    #[tokio::test]
+    async fn systemui_dump_is_trusted_over_the_tuner_setting() {
+        let fake = FakeAdb::new("demo-mode-api34");
+        fake.stub(
+            "settings",
+            r#"case "$1 $3" in "get sysui_demo_allowed") echo 1;; "get sysui_tuner_demo_on") echo 0;; esac"#,
+        );
+        fake.stub(
+            "dumpsys",
+            "echo 'DemoModeController state -'; echo '  isInDemoMode=true'",
+        );
+        let d = AndroidDriver::for_tests(Box::new(Adb::with_path(fake.path())));
+        assert!(d.freeze_status_bar("emulator-5554").await);
+        assert!(fake.calls("settings").iter().all(|c| !c.contains("tuner")));
+    }
+
     #[test]
     fn an_old_systemui_that_never_writes_the_flag_counts_as_entered() {
         use super::{verdict, Verdict};
         assert_eq!(verdict("1\nnull\n"), Verdict::Unknown);
         assert_eq!(verdict("1\n1"), Verdict::Entered);
         assert_eq!(verdict("1\n0"), Verdict::NotYet);
+        assert_eq!(verdict("1\nisInDemoMode=true"), Verdict::Entered);
+        assert_eq!(verdict("1\nisInDemoMode=false"), Verdict::NotYet);
         assert_eq!(verdict("0\n1"), Verdict::Refused);
         assert_eq!(verdict(""), Verdict::Refused);
     }
