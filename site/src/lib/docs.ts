@@ -14,10 +14,39 @@ export interface DocPage {
   ids: Set<string>;
 }
 
+export interface ResolvedHref {
+  kind: 'external' | 'anchor' | 'root' | 'page' | 'file' | 'error';
+  url?: string;
+  slug?: string;
+  target?: string;
+  hash?: string;
+}
+
 import { shikiThemes } from './shiki';
 
 const routeOf = (slug: string) => (slug ? `/docs/${slug}/` : '/docs/');
 const posix = (p: string) => p.split(path.sep).join('/');
+
+export const published = new Map<string, { slug: string }>();
+for (const g of GROUPS) for (const p of g.pages) published.set(p.source, { slug: p.slug });
+
+export function resolveHref(href: string, source: string): ResolvedHref {
+  if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) return { kind: 'external' };
+  if (href.startsWith('#')) return { kind: 'anchor', hash: href.slice(1) };
+  if (href.startsWith('/')) return { kind: 'root' };
+  const m = href.match(/^([^#?]*)(\?[^#]*)?(#.*)?$/)!;
+  const rel = decodeURIComponent(m[1]);
+  const hash = m[3] || '';
+  const abs = path.resolve(REPO_ROOT, path.dirname(source), rel);
+  const inRepo = posix(path.relative(REPO_ROOT, abs));
+  if (inRepo.startsWith('..')) return { kind: 'error', url: `${source}: link leaves the repo: ${href}` };
+  const page = published.get(inRepo);
+  if (page) return { kind: 'page', slug: page.slug, target: inRepo, hash };
+  if (!fs.existsSync(abs)) return { kind: 'error', url: `${source}: broken relative link: ${href}` };
+  const isDir = fs.statSync(abs).isDirectory();
+  const clean = inRepo.replace(/\/+$/, '');
+  return { kind: 'file', url: `${REPO_URL}/${isDir ? 'tree' : 'blob'}/main/${clean}${isDir ? '' : hash}` };
+}
 
 function textOf(node: any): string {
   if (node.type === TEXT_NODE) return node.value;
@@ -60,27 +89,21 @@ async function build(): Promise<DocPage[]> {
 
   /** Returns the rewritten href (null = leave as is). */
   function rewrite(href: string, source: string): string | null {
-    if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) return null;
-    if (href.startsWith('#')) {
-      pending.push({ from: source, target: source, anchor: href.slice(1) });
-      return null;
+    const r = resolveHref(href, source);
+    switch (r.kind) {
+      case 'external': return null;
+      case 'anchor': {
+        pending.push({ from: source, target: source, anchor: r.hash! });
+        return null;
+      }
+      case 'root': return null;
+      case 'page': {
+        if (r.hash) pending.push({ from: source, target: r.target!, anchor: r.hash.slice(1) });
+        return url(routeOf(r.slug!)) + (r.hash || '');
+      }
+      case 'file': return r.url!;
+      case 'error': { errors.push(r.url!); return null; }
     }
-    if (href.startsWith('/')) return null;
-    const m = href.match(/^([^#?]*)(\?[^#]*)?(#.*)?$/)!;
-    const rel = decodeURIComponent(m[1]);
-    const hash = m[3] || '';
-    const abs = path.resolve(REPO_ROOT, path.dirname(source), rel);
-    const inRepo = posix(path.relative(REPO_ROOT, abs));
-    if (inRepo.startsWith('..')) { errors.push(`${source}: link leaves the repo: ${href}`); return null; }
-    const page = published.get(inRepo);
-    if (page) {
-      if (hash) pending.push({ from: source, target: inRepo, anchor: hash.slice(1) });
-      return url(routeOf(page.slug)) + hash;
-    }
-    if (!fs.existsSync(abs)) { errors.push(`${source}: broken relative link: ${href}`); return null; }
-    const isDir = fs.statSync(abs).isDirectory();
-    const clean = inRepo.replace(/\/+$/, '');
-    return `${REPO_URL}/${isDir ? 'tree' : 'blob'}/main/${clean}${isDir ? '' : hash}`;
   }
 
   const pages: DocPage[] = [];
@@ -147,7 +170,7 @@ async function build(): Promise<DocPage[]> {
       walkSync(root, (node: any) => { if (node.type === ELEMENT_NODE && node.name === 'table') tables.push(node); });
       for (const t of tables) {
         const parent = t.parent;
-        const wrap = parse('<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable table"></div>').children[0];
+        const wrap = parse(`<div class="table-wrap" tabindex="0" role="region" aria-label="Scrollable table ${tables.indexOf(t) + 1}"></div>`).children[0];
         const i = parent.children.indexOf(t);
         wrap.parent = parent;
         parent.children[i] = wrap;

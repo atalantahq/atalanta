@@ -3,9 +3,24 @@ import Base from '../layouts/Base.astro';
 import CodeWindow from '../components/CodeWindow.astro';
 import '../styles/landing.css';
 import { url } from '../lib/url';
-import { REPO_URL, VERSION } from '../lib/site';
+import { REPO_URL, VERSION, SITE_NAME, TAGLINE } from '../lib/site';
 
-const install = 'curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh';
+const jsonLd = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: SITE_NAME,
+  description: TAGLINE,
+  url: new URL(url('/'), Astro.site).href,
+  softwareVersion: VERSION,
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'macOS, Linux',
+  license: 'https://spdx.org/licenses/AGPL-3.0-only.html',
+  downloadUrl: `${REPO_URL}/releases/latest`,
+  sameAs: [REPO_URL],
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+});
+
+const install = 'curl -fsSL https://atalanta.sh/install.sh | sh';
 const brew = 'brew install atalantahq/tap/atalanta';
 const yamlSuite = `appId: com.example.shop
 tests:
@@ -36,6 +51,7 @@ atalanta tap @e7
 atalanta export --out flow.yaml`;
 ---
 <Base description="Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome, with API steps in the same file. Open source, one static binary.">
+  <Fragment slot="head"><script type="application/ld+json" set:html={jsonLd} /></Fragment>
   <canvas class="galaxy" aria-hidden="true"></canvas>
 
   <!-- 1 -->

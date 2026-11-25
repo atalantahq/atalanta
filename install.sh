@@ -5,8 +5,10 @@
 # Atalanta installer: downloads a prebuilt release binary, checks it against
 # the release's SHA256SUMS, and puts it in a directory you own (no sudo).
 #
-#   curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh
-#   curl -fsSL .../install.sh | sh -s -- --version 0.2.0 --dir ~/bin
+#   curl -fsSL https://atalanta.sh/install.sh | sh
+#   curl -fsSL https://atalanta.sh/install.sh | sh -s -- --version 0.2.0 --dir ~/bin
+#
+# The same file is at https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh.
 #
 # Options (each also has an environment variable):
 #   --version X.Y.Z     ATALANTA_VERSION      release to install (default: latest)

@@ -1,0 +1,4877 @@
+{
+  "$id": "https://atalanta.sh/schema/suite.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "matcher": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "contains": {
+              "description": "Substring, list element, or object subset"
+            },
+            "eq": {},
+            "exists": {
+              "type": "boolean"
+            },
+            "gt": {
+              "type": "number"
+            },
+            "gte": {
+              "type": "number"
+            },
+            "length": {
+              "$ref": "#/definitions/matcher"
+            },
+            "lt": {
+              "type": "number"
+            },
+            "lte": {
+              "type": "number"
+            },
+            "matches": {
+              "description": "Regex the whole value must match",
+              "type": "string"
+            },
+            "ne": {},
+            "oneOf": {
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "string",
+                "number",
+                "integer",
+                "boolean",
+                "object",
+                "array",
+                "null"
+              ]
+            }
+          },
+          "required": [],
+          "type": "object"
+        }
+      ]
+    },
+    "selector": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "css": {
+              "description": "Web only",
+              "type": "string"
+            }
+          },
+          "required": [
+            "css"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "xpath": {
+              "description": "Web only",
+              "type": "string"
+            }
+          },
+          "required": [
+            "xpath"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "id"
+              ]
+            },
+            {
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "required": [
+                "textContains"
+              ]
+            },
+            {
+              "required": [
+                "textMatches"
+              ]
+            },
+            {
+              "required": [
+                "idMatches"
+              ]
+            },
+            {
+              "required": [
+                "accessibilityId"
+              ]
+            },
+            {
+              "required": [
+                "className"
+              ]
+            },
+            {
+              "required": [
+                "role"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            }
+          ],
+          "properties": {
+            "above": {
+              "$ref": "#/definitions/selector"
+            },
+            "accessibilityId": {
+              "type": "string"
+            },
+            "below": {
+              "$ref": "#/definitions/selector"
+            },
+            "checked": {
+              "description": "State filter: a checkbox / switch / radio is checked (only checkable elements have the state)",
+              "type": "boolean"
+            },
+            "childOf": {
+              "$ref": "#/definitions/selector"
+            },
+            "className": {
+              "description": "Full (android.widget.Button) or short (Button)",
+              "type": "string"
+            },
+            "containsChild": {
+              "$ref": "#/definitions/selector"
+            },
+            "enabled": {
+              "description": "State filter: the element is enabled",
+              "type": "boolean"
+            },
+            "focused": {
+              "description": "State filter: the element has input focus. Never matches where the driver can't report focus (headless)",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "Whole id, or its short form after `:id/`",
+              "type": "string"
+            },
+            "idMatches": {
+              "description": "Regex the whole id (or its short form) matches, ignoring case (Maestro's id:)",
+              "type": "string"
+            },
+            "index": {
+              "description": "Nth match in reading order",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "leftOf": {
+              "$ref": "#/definitions/selector"
+            },
+            "name": {
+              "description": "Accessible name (label, else text, else the content of a button/link/…), compared like text:",
+              "type": "string"
+            },
+            "rightOf": {
+              "$ref": "#/definitions/selector"
+            },
+            "role": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "alert",
+                    "alertdialog",
+                    "application",
+                    "article",
+                    "banner",
+                    "blockquote",
+                    "button",
+                    "caption",
+                    "cell",
+                    "checkbox",
+                    "code",
+                    "columnheader",
+                    "combobox",
+                    "complementary",
+                    "contentinfo",
+                    "definition",
+                    "deletion",
+                    "dialog",
+                    "directory",
+                    "document",
+                    "emphasis",
+                    "feed",
+                    "figure",
+                    "form",
+                    "generic",
+                    "grid",
+                    "gridcell",
+                    "group",
+                    "heading",
+                    "img",
+                    "insertion",
+                    "link",
+                    "list",
+                    "listbox",
+                    "listitem",
+                    "log",
+                    "main",
+                    "marquee",
+                    "math",
+                    "meter",
+                    "menu",
+                    "menubar",
+                    "menuitem",
+                    "menuitemcheckbox",
+                    "menuitemradio",
+                    "navigation",
+                    "none",
+                    "note",
+                    "option",
+                    "paragraph",
+                    "presentation",
+                    "progressbar",
+                    "radio",
+                    "radiogroup",
+                    "region",
+                    "row",
+                    "rowgroup",
+                    "rowheader",
+                    "scrollbar",
+                    "search",
+                    "searchbox",
+                    "separator",
+                    "slider",
+                    "spinbutton",
+                    "status",
+                    "strong",
+                    "subscript",
+                    "superscript",
+                    "switch",
+                    "tab",
+                    "table",
+                    "tablist",
+                    "tabpanel",
+                    "term",
+                    "textbox",
+                    "time",
+                    "timer",
+                    "toolbar",
+                    "tooltip",
+                    "tree",
+                    "treegrid",
+                    "treeitem"
+                  ]
+                },
+                {
+                  "pattern": "\\$\\{",
+                  "type": "string"
+                }
+              ],
+              "description": "Role, by Playwright's role names (web: computed ARIA role; devices: the class or element type mapped, see the README's role table)"
+            },
+            "selected": {
+              "description": "State filter: the element is selected (tab, row, option). Never matches where the driver can't report selection (headless)",
+              "type": "boolean"
+            },
+            "text": {
+              "description": "Exact visible text or label",
+              "type": "string"
+            },
+            "textContains": {
+              "description": "Part of the text or label, ignoring case",
+              "type": "string"
+            },
+            "textMatches": {
+              "description": "Regex the whole text, label or hint matches (ignoring case, `.` matches newlines; Maestro's text:)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "step": {
+      "oneOf": [
+        {
+          "description": "A plain-English step",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Launch the app (or `appId`); `clearState: true` wipes its data first.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "launchApp": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "appId": {
+                      "type": "string"
+                    },
+                    "arguments": {
+                      "additionalProperties": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "number"
+                          }
+                        ]
+                      },
+                      "description": "Launch arguments passed to the app (name -> string | bool | number); names are `[A-Za-z0-9_.-]`, not starting with `-`",
+                      "type": "object"
+                    },
+                    "clearState": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "launchApp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Stop the app (or `appId`).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "stopApp": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "appId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "stopApp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Change named settings or `sync.*` timings for the rest of this test; the test's end restores them.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "setConfig": {
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              },
+              "description": "Change settings (`atalanta settings`) or sync.timeoutMs/reactionMs/quietMs/settleCapMs for the rest of this test",
+              "type": "object"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "setConfig"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Web only: answer requests matching `url` with a canned response, delay or block them, until `clearMocks` or the test ends.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "mockRequest": {
+              "additionalProperties": false,
+              "properties": {
+                "block": {
+                  "type": "boolean"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "delayMs": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "file": {
+                  "type": "string"
+                },
+                "headers": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "json": {
+                  "description": "JSON body"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "status": {
+                  "maximum": 599,
+                  "minimum": 100,
+                  "type": "integer"
+                },
+                "times": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "url": {
+                  "description": "Glob over the whole URL (with * or ?), else a substring of it",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "type": "object"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "mockRequest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Web only: drop the mocks this test added (the suite's `web.mocks` stay).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "clearMocks": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "clearMocks"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Android only: assert media playback (`mediaPlaying`, `mediaTitle`) or call state (`inCall`), polled until the step timeout.",
+          "properties": {
+            "assertSystemState": {
+              "additionalProperties": false,
+              "properties": {
+                "inCall": {
+                  "type": "boolean"
+                },
+                "mediaPlaying": {
+                  "type": "boolean"
+                },
+                "mediaTitle": {
+                  "type": "string"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "assertSystemState"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Tap the element, after it is visible, enabled, still and not covered (`force: true` skips the checks).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "tap": {
+              "$ref": "#/definitions/selector"
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "tap"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Double-tap the element.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "doubleTap": {
+              "$ref": "#/definitions/selector"
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "doubleTap"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Press and hold the element (`durationMs`, default 1000).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "longPress": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "durationMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "selector": {
+                      "$ref": "#/definitions/selector"
+                    }
+                  },
+                  "required": [
+                    "selector"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "anyOf": [
+                    {
+                      "required": [
+                        "id"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "text"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "textContains"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "textMatches"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "idMatches"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "accessibilityId"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "className"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "role"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "name"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "css"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "xpath"
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "above": {
+                      "$ref": "#/definitions/selector"
+                    },
+                    "accessibilityId": {
+                      "type": "string"
+                    },
+                    "below": {
+                      "$ref": "#/definitions/selector"
+                    },
+                    "checked": {
+                      "description": "State filter: a checkbox / switch / radio is checked (only checkable elements have the state)",
+                      "type": "boolean"
+                    },
+                    "childOf": {
+                      "$ref": "#/definitions/selector"
+                    },
+                    "className": {
+                      "description": "Full (android.widget.Button) or short (Button)",
+                      "type": "string"
+                    },
+                    "containsChild": {
+                      "$ref": "#/definitions/selector"
+                    },
+                    "css": {
+                      "description": "Web only",
+                      "type": "string"
+                    },
+                    "durationMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "enabled": {
+                      "description": "State filter: the element is enabled",
+                      "type": "boolean"
+                    },
+                    "focused": {
+                      "description": "State filter: the element has input focus. Never matches where the driver can't report focus (headless)",
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "description": "Whole id, or its short form after `:id/`",
+                      "type": "string"
+                    },
+                    "idMatches": {
+                      "description": "Regex the whole id (or its short form) matches, ignoring case (Maestro's id:)",
+                      "type": "string"
+                    },
+                    "index": {
+                      "description": "Nth match in reading order",
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "leftOf": {
+                      "$ref": "#/definitions/selector"
+                    },
+                    "name": {
+                      "description": "Accessible name (label, else text, else the content of a button/link/…), compared like text:",
+                      "type": "string"
+                    },
+                    "rightOf": {
+                      "$ref": "#/definitions/selector"
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "alert",
+                            "alertdialog",
+                            "application",
+                            "article",
+                            "banner",
+                            "blockquote",
+                            "button",
+                            "caption",
+                            "cell",
+                            "checkbox",
+                            "code",
+                            "columnheader",
+                            "combobox",
+                            "complementary",
+                            "contentinfo",
+                            "definition",
+                            "deletion",
+                            "dialog",
+                            "directory",
+                            "document",
+                            "emphasis",
+                            "feed",
+                            "figure",
+                            "form",
+                            "generic",
+                            "grid",
+                            "gridcell",
+                            "group",
+                            "heading",
+                            "img",
+                            "insertion",
+                            "link",
+                            "list",
+                            "listbox",
+                            "listitem",
+                            "log",
+                            "main",
+                            "marquee",
+                            "math",
+                            "meter",
+                            "menu",
+                            "menubar",
+                            "menuitem",
+                            "menuitemcheckbox",
+                            "menuitemradio",
+                            "navigation",
+                            "none",
+                            "note",
+                            "option",
+                            "paragraph",
+                            "presentation",
+                            "progressbar",
+                            "radio",
+                            "radiogroup",
+                            "region",
+                            "row",
+                            "rowgroup",
+                            "rowheader",
+                            "scrollbar",
+                            "search",
+                            "searchbox",
+                            "separator",
+                            "slider",
+                            "spinbutton",
+                            "status",
+                            "strong",
+                            "subscript",
+                            "superscript",
+                            "switch",
+                            "tab",
+                            "table",
+                            "tablist",
+                            "tabpanel",
+                            "term",
+                            "textbox",
+                            "time",
+                            "timer",
+                            "toolbar",
+                            "tooltip",
+                            "tree",
+                            "treegrid",
+                            "treeitem"
+                          ]
+                        },
+                        {
+                          "pattern": "\\$\\{",
+                          "type": "string"
+                        }
+                      ],
+                      "description": "Role, by Playwright's role names (web: computed ARIA role; devices: the class or element type mapped, see the README's role table)"
+                    },
+                    "selected": {
+                      "description": "State filter: the element is selected (tab, row, option). Never matches where the driver can't report selection (headless)",
+                      "type": "boolean"
+                    },
+                    "text": {
+                      "description": "Exact visible text or label",
+                      "type": "string"
+                    },
+                    "textContains": {
+                      "description": "Part of the text or label, ignoring case",
+                      "type": "string"
+                    },
+                    "textMatches": {
+                      "description": "Regex the whole text, label or hint matches (ignoring case, `.` matches newlines; Maestro's text:)",
+                      "type": "string"
+                    },
+                    "xpath": {
+                      "description": "Web only",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "longPress"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Reorder: press the `from` element, hold it (`holdMs`, default 700, past the long-press time), move onto the `to` element over `moveMs` (default 900), rest so it drops in place, and lift.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "drag": {
+              "additionalProperties": false,
+              "properties": {
+                "from": {
+                  "$ref": "#/definitions/selector"
+                },
+                "holdMs": {
+                  "description": "Hold before moving, so the list picks the row up (default 700)",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "moveMs": {
+                  "description": "How long the move takes (default 900)",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "to": {
+                  "$ref": "#/definitions/selector"
+                }
+              },
+              "required": [
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "drag"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Type `text` into the element (focusing it first).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "inputText": {
+              "additionalProperties": false,
+              "properties": {
+                "selector": {
+                  "$ref": "#/definitions/selector"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "selector",
+                "text"
+              ],
+              "type": "object"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "inputText"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Clear the element's text.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "clearText": {
+              "$ref": "#/definitions/selector"
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "clearText"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Pass once the element is on screen; fail at the step timeout.",
+          "properties": {
+            "assertVisible": {
+              "$ref": "#/definitions/selector"
+            },
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "assertVisible"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Pass once the element is gone; the app must be in front unless `appInFront: false`.",
+          "properties": {
+            "appInFront": {
+              "description": "false: may pass while another app is in front",
+              "type": "boolean"
+            },
+            "assertNotVisible": {
+              "$ref": "#/definitions/selector"
+            },
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "assertNotVisible"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The element's text equals `expected` (polled until the step timeout).",
+          "properties": {
+            "assertText": {
+              "additionalProperties": false,
+              "properties": {
+                "expected": {
+                  "type": "string"
+                },
+                "selector": {
+                  "$ref": "#/definitions/selector"
+                }
+              },
+              "required": [
+                "selector",
+                "expected"
+              ],
+              "type": "object"
+            },
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "assertText"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Scroll (`direction`, default down; `within` a container) until the element is on screen, up to `maxScrolls`.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "scrollUntilVisible": {
+              "additionalProperties": false,
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "up",
+                    "down",
+                    "left",
+                    "right"
+                  ]
+                },
+                "maxScrolls": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "selector": {
+                  "$ref": "#/definitions/selector"
+                },
+                "within": {
+                  "$ref": "#/definitions/selector"
+                }
+              },
+              "required": [
+                "selector"
+              ],
+              "type": "object"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "scrollUntilVisible"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Swipe in a `direction` (optionally `within` an element) or `from` one point `to` another.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "swipe": {
+              "additionalProperties": false,
+              "properties": {
+                "direction": {
+                  "enum": [
+                    "up",
+                    "down",
+                    "left",
+                    "right"
+                  ]
+                },
+                "from": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "x": {
+                      "type": "integer"
+                    },
+                    "y": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "type": "object"
+                },
+                "to": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "x": {
+                      "type": "integer"
+                    },
+                    "y": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "x",
+                    "y"
+                  ],
+                  "type": "object"
+                },
+                "within": {
+                  "$ref": "#/definitions/selector"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "swipe"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Save a screenshot to the artifacts folder.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "screenshot": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "description": "File name; .png is added when it has no extension",
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "filename": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "screenshot"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Compare the screen with the baseline `atalanta-baselines/<platform>[-headless]/<W>x<H>/<name>.png`; a missing baseline is written and the step fails.",
+          "properties": {
+            "assertScreenshot": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clusterPx": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "comparator": {
+                      "description": "strict (default): per-channel tolerance; perceptual: YIQ distance, threshold 0.1 (pixelmatch/Playwright)",
+                      "enum": [
+                        "strict",
+                        "perceptual"
+                      ]
+                    },
+                    "crop": {
+                      "description": "Compare only this part: an element (selector) or a rect in screen coordinates",
+                      "oneOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "height": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "width": {
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "x": {
+                              "type": "integer"
+                            },
+                            "y": {
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "$ref": "#/definitions/selector"
+                        }
+                      ]
+                    },
+                    "mask": {
+                      "items": {
+                        "$ref": "#/definitions/selector"
+                      },
+                      "type": "array"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "threshold": {
+                      "description": "Share of compared pixels that must match (default 0.98); not a colour tolerance",
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "tolerance": {
+                      "description": "comparator strict: largest per-channel difference that still matches (default 16)",
+                      "maximum": 255,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "assertScreenshot"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Save the app's data under a name (iOS simulator: data container clone; Android: run-as tar on debuggable builds, else an emulator snapshot).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "saveState": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "saveState"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Put back app data saved with `saveState`; the app is left stopped.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "restoreState": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "restoreState"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Press a key (`back`, `home`, `enter`, …).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "pressKey": {
+              "additionalProperties": false,
+              "properties": {
+                "key": {
+                  "enum": [
+                    "back",
+                    "home",
+                    "enter",
+                    "volumeUp",
+                    "volumeDown",
+                    "backspace",
+                    "tab",
+                    "escape",
+                    "delete",
+                    "arrowUp",
+                    "arrowDown",
+                    "arrowLeft",
+                    "arrowRight"
+                  ]
+                }
+              },
+              "required": [
+                "key"
+              ],
+              "type": "object"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pressKey"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Hide the soft keyboard if one is showing (Android only for now: Escape, then Back if it stays up); a no-op when none is.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "hideKeyboard": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "hideKeyboard"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sleep `ms` milliseconds. Prefer an assertion: it waits only as long as needed.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "wait": {
+              "additionalProperties": false,
+              "properties": {
+                "ms": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "ms"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "wait"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Run the steps of a flow from `flows:` (by id).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "runFlow": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "anyOf": [
+                    {
+                      "required": [
+                        "flowId"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "flow"
+                      ]
+                    }
+                  ],
+                  "properties": {
+                    "env": {
+                      "additionalProperties": {
+                        "type": [
+                          "string",
+                          "integer",
+                          "boolean"
+                        ]
+                      },
+                      "description": "Parameters for this call: `${NAME}` inside the flow (and flows it runs) takes the value. Values are strings, integers or booleans; quote a decimal such as \"1.50\" so it is typed exactly as written",
+                      "type": "object"
+                    },
+                    "flow": {
+                      "type": "string"
+                    },
+                    "flowId": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "runFlow"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Tap screen coordinates (no element lookup or actionability checks).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "tapXY": {
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "integer"
+                },
+                "y": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ],
+              "type": "object"
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "tapXY"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Type text into whatever has focus.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "inputRaw": {
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "inputRaw"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Open a URL: on the web, navigate the page; on a device, open it as a deep link.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "goto": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "link": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "link"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "goto"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Same as `goto` (Maestro's name).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "openLink": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "link": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "link"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "openLink"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Web only: the browser's back button (on a device use `pressKey: back`).",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "goBack": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "goBack"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Web only: reload the page.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "refresh": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {},
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "refresh"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Send an HTTP request; check `expect` (status, headers, JSONPath values, body, `maxMs`) and `capture` values as `${NAME}` for later steps. Needs no device.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "http": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "description": "Text body",
+                  "type": "string"
+                },
+                "capture": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "description": "JSONPath into the body",
+                        "type": "string"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "json": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "json"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "header": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "header"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "regex": {
+                            "description": "The first group (else the whole match) in the body",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "regex"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "description": "NAME → where its value comes from; used as ${NAME} in later steps",
+                  "type": "object"
+                },
+                "expect": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "$ref": "#/definitions/matcher"
+                    },
+                    "headers": {
+                      "additionalProperties": {
+                        "$ref": "#/definitions/matcher"
+                      },
+                      "type": "object"
+                    },
+                    "json": {
+                      "additionalProperties": {
+                        "$ref": "#/definitions/matcher"
+                      },
+                      "description": "JSONPath (RFC 9535; `$.` may be left out) → matcher",
+                      "type": "object"
+                    },
+                    "maxMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "maximum": 599,
+                          "minimum": 100,
+                          "type": "integer"
+                        },
+                        {
+                          "pattern": "^([1-5][xX][xX]|[1-5][0-9][0-9])$",
+                          "type": "string"
+                        },
+                        {
+                          "items": {
+                            "maximum": 599,
+                            "minimum": 100,
+                            "type": "integer"
+                          },
+                          "type": "array"
+                        }
+                      ],
+                      "description": "201, [200, 204] or 2xx; without it any status below 400 passes"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "followRedirects": {
+                  "type": "boolean"
+                },
+                "form": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "type": "object"
+                },
+                "headers": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "type": "object"
+                },
+                "json": {
+                  "description": "JSON body"
+                },
+                "method": {
+                  "description": "GET (default), POST, PUT, PATCH, DELETE, …",
+                  "type": "string"
+                },
+                "query": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "type": "object"
+                },
+                "retry": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count": {
+                      "maximum": 100,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "intervalMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "count"
+                  ],
+                  "type": "object"
+                },
+                "url": {
+                  "description": "Absolute, or appended to config.http.baseUrl",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "type": "object"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "http"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Run a program on the host (no shell; a string is split on spaces) that `config.exec.allow` lists; check its exit code (`expect.exitCode`, default 0) and output (`expect.contains`), and `capture` its trimmed output as `${NAME}`. Off unless allowed; `ATALANTA_DEVICE_ID` is set for it.",
+          "properties": {
+            "checkpoint": {
+              "description": "The claim an AI check confirms after this step under verify: checkpoints or strict (on natural-language steps also true: their own waitUntil or intent)",
+              "type": "string"
+            },
+            "exec": {
+              "additionalProperties": false,
+              "properties": {
+                "capture": {
+                  "description": "${NAME} for its trimmed standard output, for later steps",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                  "type": "string"
+                },
+                "cwd": {
+                  "description": "Its working directory",
+                  "type": "string"
+                },
+                "expect": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "contains": {
+                      "description": "Text its output must contain",
+                      "type": "string"
+                    },
+                    "exitCode": {
+                      "description": "The exit code it must end with (default 0)",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                },
+                "run": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "type": "array"
+                    }
+                  ],
+                  "description": "The program and its arguments: a string split on spaces (quotes keep a part whole; no shell) or a list. The program must be in config.exec.allow"
+                }
+              },
+              "required": [
+                "run"
+              ],
+              "type": "object"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "exec"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Natural-language action: a model picks one action and one element from the screen; the selector is built and checked in code.",
+          "properties": {
+            "checkpoint": {
+              "description": "An AI check after this step under verify: checkpoints or strict; true checks the step's own waitUntil or intent, a string is the claim to check",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "do": {
+              "type": "string"
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "waitUntil": {
+              "type": "string"
+            },
+            "wait_until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "do"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Natural-language action: a model picks one action and one element from the screen; the selector is built and checked in code.",
+          "properties": {
+            "act": {
+              "type": "string"
+            },
+            "checkpoint": {
+              "description": "An AI check after this step under verify: checkpoints or strict; true checks the step's own waitUntil or intent, a string is the claim to check",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "force": {
+              "description": "Act without the actionability checks (stable, enabled, hit target)",
+              "type": "boolean"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "waitUntil": {
+              "type": "string"
+            },
+            "wait_until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "act"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Natural-language assertion, checked against the element tree.",
+          "properties": {
+            "assert": {
+              "type": "string"
+            },
+            "checkpoint": {
+              "description": "An AI check after this step under verify: checkpoints or strict; true checks the step's own waitUntil or intent, a string is the claim to check",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "waitUntil": {
+              "type": "string"
+            },
+            "wait_until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "assert"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Natural-language assertion, checked against the element tree.",
+          "properties": {
+            "checkpoint": {
+              "description": "An AI check after this step under verify: checkpoints or strict; true checks the step's own waitUntil or intent, a string is the claim to check",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "expect": {
+              "type": "string"
+            },
+            "optional": {
+              "description": "A failure of this step is a warning; the test goes on. On runFlow: the flow stops at its first failing step and the test goes on after it",
+              "type": "boolean"
+            },
+            "settle": {
+              "description": "This step's settle: none (act and move on), auto, or its own timings",
+              "oneOf": [
+                {
+                  "enum": [
+                    "none",
+                    "off",
+                    "auto"
+                  ]
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "cap_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quietMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "quiet_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reactionMs": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reaction_ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [],
+                  "type": "object"
+                }
+              ]
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "timeout_ms": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "waitUntil": {
+              "type": "string"
+            },
+            "wait_until": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "expect"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "appId": {
+      "description": "Bundle id / package name (a suite of only http steps may leave it out)",
+      "type": "string"
+    },
+    "config": {
+      "properties": {
+        "accessibility": {
+          "additionalProperties": false,
+          "description": "Accessibility audit of the screens each test reads (docs/DSL.md#accessibility-audit)",
+          "properties": {
+            "audit": {
+              "description": "Audit each distinct screen once per test and report findings as warnings (default off)",
+              "type": "boolean"
+            },
+            "density": {
+              "description": "Android pixels per dp for the 48 dp target size (default: the screen's short side is 411 dp)",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "fail": {
+              "description": "Fail a test on an error-severity finding",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "actionability": {
+          "description": "strict (default): an action fails when its target never holds still, stays disabled or is covered; lenient: act anyway with a warning",
+          "enum": [
+            "strict",
+            "lenient"
+          ]
+        },
+        "ai": {
+          "additionalProperties": false,
+          "description": "The model service for natural-language steps and checks; ATALANTA_NL_* environment variables win over it",
+          "properties": {
+            "apiKeyEnv": {
+              "description": "Name of the environment variable holding the key (never the key itself)",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+              "type": "string"
+            },
+            "apiVersion": {
+              "description": "Azure OpenAI api-version (deployments URL); unset uses /openai/v1",
+              "type": "string"
+            },
+            "baseUrl": {
+              "description": "API base URL, e.g. http://localhost:11434/v1",
+              "type": "string"
+            },
+            "exploreModel": {
+              "description": "Model for goal-level planning (atalanta explore)",
+              "type": "string"
+            },
+            "images": {
+              "description": "Send screenshots to the checker (default: the provider's)",
+              "type": "boolean"
+            },
+            "model": {
+              "description": "Model for single steps and checks; may be provider:model",
+              "type": "string"
+            },
+            "project": {
+              "description": "Vertex Google Cloud project",
+              "type": "string"
+            },
+            "provider": {
+              "description": "A provider preset: the native APIs (anthropic, openai, azure-openai, gemini, bedrock, vertex), OpenAI-compatible services (openrouter, groq, mistral, deepseek, xai, together, fireworks, dashscope, perplexity), local servers (ollama, lmstudio, vllm) or openai-compatible with baseUrl; docs/AI-PROVIDERS.md",
+              "enum": [
+                "anthropic",
+                "openai",
+                "azure-openai",
+                "gemini",
+                "openrouter",
+                "groq",
+                "mistral",
+                "deepseek",
+                "xai",
+                "together",
+                "fireworks",
+                "dashscope",
+                "perplexity",
+                "bedrock",
+                "vertex",
+                "ollama",
+                "lmstudio",
+                "vllm",
+                "openai-compatible"
+              ]
+            },
+            "region": {
+              "description": "Bedrock AWS region or Vertex location",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "app": {
+          "description": "App build Atalanta installs before the first test (skipped when the device has this exact build): one path, or one per platform",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "android": {
+                  "description": ".apk",
+                  "type": "string"
+                },
+                "ios": {
+                  "description": ".app bundle, or .ipa for a device",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "artifacts": {
+          "properties": {
+            "logs": {
+              "description": "Capture device logs per test (logcat, simulator log stream, browser console), kept for failed tests by default; secrets are masked",
+              "enum": [
+                "off",
+                "on-failure",
+                "onFailure",
+                "always"
+              ]
+            },
+            "onFailure": {
+              "type": "boolean"
+            },
+            "on_failure": {
+              "type": "boolean"
+            },
+            "outputDir": {
+              "type": "string"
+            },
+            "output_dir": {
+              "type": "string"
+            },
+            "screenshots": {
+              "description": "screenshot: steps write at once, only for a failing test, or not at all",
+              "enum": [
+                "always",
+                "onFailure",
+                "on_failure",
+                "onfailure",
+                "never"
+              ]
+            },
+            "stepScreenshots": {
+              "description": "Screen after every step, written only for a failing test",
+              "type": "boolean"
+            },
+            "step_screenshots": {
+              "type": "boolean"
+            },
+            "video": {
+              "description": "Record each test's screen (Android: H.264 ring buffer; iOS simulator: simctl recordVideo; web: screencast frames), kept for failed tests by default, as traces/<test>/video.mp4",
+              "enum": [
+                "off",
+                "on-failure",
+                "onFailure",
+                "always"
+              ]
+            },
+            "videoSeconds": {
+              "description": "Android: seconds of video kept in memory per test (default 30)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "video_seconds": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "batch": {
+          "description": "Share one launch across consecutive tests",
+          "type": "boolean"
+        },
+        "dialog": {
+          "type": "object"
+        },
+        "driver": {
+          "enum": [
+            "device",
+            "headless"
+          ]
+        },
+        "exec": {
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "description": "Programs exec steps may run, exactly as a step names them (adb, ./scripts/seed.sh); exec is off without them",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "flutter": {
+          "properties": {
+            "hierarchy": {
+              "description": "semantics (default) or widgets (deprecated opt-out)",
+              "enum": [
+                "semantics",
+                "widgets"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "framework": {
+          "enum": [
+            "native",
+            "react_native",
+            "reactnative",
+            "rn",
+            "flutter"
+          ]
+        },
+        "headless": {
+          "properties": {
+            "appPath": {
+              "type": "string"
+            },
+            "app_path": {
+              "type": "string"
+            },
+            "density": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "devicePixelRatio": {
+              "description": "Physical px per logical px: native headless density, Flutter test surface ratio",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "device_pixel_ratio": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "fontScale": {
+              "description": "Text size multiplier for native headless renders (default 1)",
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "font_scale": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "height": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "initialLayout": {
+              "type": "string"
+            },
+            "initial_layout": {
+              "type": "string"
+            },
+            "width": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "healing": {
+          "properties": {
+            "confidenceThreshold": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "mode": {
+              "description": "auto: heal and pass; report: fail with the proposed patch (default in CI); off",
+              "enum": [
+                "auto",
+                "report",
+                "off"
+              ]
+            },
+            "persistHealed": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "http": {
+          "additionalProperties": false,
+          "properties": {
+            "baseUrl": {
+              "description": "Prefix of an http step's url without a scheme",
+              "type": "string"
+            },
+            "headers": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "insecure": {
+              "description": "Accept any TLS certificate (a dev server's self-signed one)",
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "description": "How long a request may take (default 30000); a step's timeoutMs overrides it",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "nl": {
+          "additionalProperties": false,
+          "properties": {
+            "allowCrossOrigin": {
+              "description": "A natural-language goto may leave the current page's origin",
+              "type": "boolean"
+            },
+            "dataPolicy": {
+              "description": "describe: the model sees only a description of each data value",
+              "enum": [
+                "verbatim",
+                "describe"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "performance": {
+          "description": "Opt-in memory profiling and the memory check (Android only: the other drivers report no memory)",
+          "properties": {
+            "enabled": {
+              "description": "Sample the app's memory and CPU during the run (default false)",
+              "type": "boolean"
+            },
+            "intervalMs": {
+              "description": "Sampling interval during long actions, in ms (default 500)",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "pssGrowthThresholdPct": {
+              "description": "Fail a test whose peak total PSS is more than this percent above its saved baseline (default 15). Only clean passes update the baseline. Was heapGrowthThresholdPct, which still works with a warning",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "platform": {
+          "enum": [
+            "ios",
+            "android",
+            "web"
+          ]
+        },
+        "reactNative": {
+          "deprecated": true,
+          "description": "Ignored: React Native has no headless renderer (run on a device or simulator)",
+          "type": "object"
+        },
+        "reset": {
+          "properties": {
+            "appPath": {
+              "type": "string"
+            },
+            "snapshot": {
+              "type": "string"
+            },
+            "strategy": {
+              "enum": [
+                "clear",
+                "reinstall",
+                "snapshot"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "retry": {
+          "properties": {
+            "count": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "flakyResult": {
+              "description": "fail: a test that passed only on retry exits 1 (as --fail-on-flaky)",
+              "enum": [
+                "pass",
+                "fail"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "screenshots": {
+          "additionalProperties": false,
+          "properties": {
+            "freezeStatusBar": {
+              "description": "Freeze the status bar (Android demo mode, iOS simulator simctl status_bar) before assertScreenshot and compare it instead of masking it",
+              "type": "boolean"
+            },
+            "freeze_status_bar": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "settings": {
+          "description": "Driver and runtime settings (`atalanta settings` lists them); flat `android.scroll:` or nested keys",
+          "type": "object"
+        },
+        "sync": {
+          "properties": {
+            "intervalMs": {
+              "deprecated": true,
+              "type": "integer"
+            },
+            "maxTimerMs": {
+              "description": "Native probe: one-shot timers due further out than this don't keep the app busy (default 1500; iOS probe)",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mode": {
+              "enum": [
+                "auto",
+                "polling",
+                "native",
+                "none"
+              ]
+            },
+            "quietMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reactionMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "settleCapMs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "stabilityCount": {
+              "deprecated": true,
+              "type": "integer"
+            },
+            "timeoutMs": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "verify": {
+          "description": "AI checks: off (default; deterministic assertions only), final (the test's description holds at the end), checkpoints (also after assert: and checkpoint: steps; failures reported at the end), strict (the first failed check fails the test)",
+          "enum": [
+            "off",
+            "final",
+            "checkpoints",
+            "strict"
+          ]
+        },
+        "web": {
+          "properties": {
+            "block": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "device": {
+              "description": "A mobile-web profile from Playwright's device list (any name, or \"<name> landscape\"): viewport, pixel ratio, user agent, mobile layout and touch (Chromium, not Safari)",
+              "examples": [
+                "iPhone 15",
+                "iPhone 15 Pro Max",
+                "iPhone SE",
+                "Pixel 7",
+                "Pixel 5",
+                "Galaxy S24",
+                "iPad",
+                "iPad Mini",
+                "iPad Pro 11"
+              ],
+              "type": "string"
+            },
+            "mocks": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "block": {
+                    "type": "boolean"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "delayMs": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "file": {
+                    "type": "string"
+                  },
+                  "headers": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "json": {
+                    "description": "JSON body"
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "maximum": 599,
+                    "minimum": 100,
+                    "type": "integer"
+                  },
+                  "times": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "description": "Glob over the whole URL (with * or ?), else a substring of it",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "url"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "parallelMode": {
+              "description": "What each --parallel browser is: contexts (default: browser contexts in one Chrome, each with its own cookies, storage and mocks) or processes (a Chrome process each)",
+              "enum": [
+                "contexts",
+                "processes"
+              ]
+            },
+            "settle": {
+              "additionalProperties": false,
+              "description": "Web-only settle timings; they win over sync.* on the web (defaults: 30 ms reaction, sync.quietMs, 1 s cap)",
+              "properties": {
+                "capMs": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "quietMs": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "reactionMs": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "flows": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/definitions/step"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "tests": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "dependsOn": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "depends_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "description": "What the test shows; verify: final checks it on the last screen (the name stands in without it)",
+            "type": "string"
+          },
+          "isolated": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sideEffects": {
+            "description": "Never skip this test from the result cache",
+            "type": "boolean"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/definitions/step"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "verify": {
+            "description": "This test's AI verification level, over config.verify",
+            "enum": [
+              "off",
+              "final",
+              "checkpoints",
+              "strict"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "tests"
+  ],
+  "title": "Atalanta test suite",
+  "type": "object"
+}

@@ -6,13 +6,13 @@ import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import Search from '../components/Search.astro';
 import { url, BASE } from '../lib/url';
-import { SITE_NAME, TAGLINE } from '../lib/site';
+import { SITE_NAME, TAGLINE, REPO_URL } from '../lib/site';
 
-interface Props { title?: string; description?: string; docs?: boolean; bodyClass?: string; noindex?: boolean }
-const { title, description = TAGLINE, docs = false, bodyClass = '', noindex = false } = Astro.props;
+interface Props { title?: string; description?: string; docs?: boolean; bodyClass?: string; noindex?: boolean; ogImage?: string }
+const { title, description = TAGLINE, docs = false, bodyClass = '', noindex = false, ogImage } = Astro.props;
 const full = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME}: UI and API tests from one binary`;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
-const og = new URL(url('/og.png'), Astro.site).href;
+const og = new URL(url(ogImage ?? '/og.png'), Astro.site).href;
 ---
 <!doctype html>
 <html lang="en" data-theme="dark" data-base={BASE}>
@@ -32,8 +32,12 @@ const og = new URL(url('/og.png'), Astro.site).href;
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta property="og:image" content={og} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="color-scheme" content="dark light" />
+    <link rel="alternate" type="application/atom+xml" title="Atalanta releases" href={`${REPO_URL}/releases.atom`} />
+    <slot name="head" />
     <script is:inline>
       (function () {
         try {

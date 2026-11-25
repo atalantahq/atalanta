@@ -6,6 +6,18 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- **A playground on the website** (`atalanta.sh/playground/`): edit a suite in the browser with completion and schema errors, plus the same checks as `atalanta validate`, run as WebAssembly. API-only suites run in the page (the API must allow cross-origin requests); other suites show their steps and the `atalanta run` command. Nothing is sent anywhere except the requests your API steps make.
+- **The JSON Schema is served at its `$id`**, `https://atalanta.sh/schema/suite.json`, so `# yaml-language-server: $schema=https://atalanta.sh/schema/suite.json` works without `atalanta schema -o`.
+- **`curl -fsSL https://atalanta.sh/install.sh | sh`**: the installer from the latest release, on the site.
+- Every docs page as Markdown at `atalanta.sh/docs/<page>.md`, and `atalanta.sh/llms-full.txt` with all of them in one file; `llms.txt` links to those instead of GitHub.
+
+### Changed
+
+- The suite JSON Schema declares draft-07 (it was 2020-12) and uses `definitions` instead of `$defs`, for editors and SchemaStore. The rules it checks are the same.
+- `atalanta-core`, `atalanta-common` and `atalanta-api` build for `wasm32-unknown-unknown` (parsing and validation only); a new unpublished crate, `atalanta-wasm`, wraps them for the browser. Native builds are unchanged.
+
 ## [0.2.1] - 2026-11-25
 
 ### Fixed
