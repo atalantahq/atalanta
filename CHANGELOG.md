@@ -6,6 +6,8 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-25
+
 ### Fixed
 
 - AtalantaRunner builds again. The rename turned XCTest's `withVelocity:` into `withAtalanta:`, so in 0.2.0 `ios.runner: atalanta` failed to build.

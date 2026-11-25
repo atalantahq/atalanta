@@ -2,8 +2,8 @@
 # Copy it to .github/workflows/atalanta.yml (or run `atalanta init --ci
 # github`). Two shards run through the Atalanta Action (docs/CI.md); the
 # results job fails the run when a shard reported nothing.
-# Pinned to v0.2.0, the Atalanta that wrote this file. Check the release
-# exists (gh release view v0.2.0 -R atalantahq/atalanta) before relying on it.
+# Pinned to v0.2.1, the Atalanta that wrote this file. Check the release
+# exists (gh release view v0.2.1 -R atalantahq/atalanta) before relying on it.
 
 name: atalanta
 
@@ -23,9 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # Build or download your app here and pass it with `args: --app <path>`.
-      - uses: atalantahq/atalanta@v0.2.0
+      - uses: atalantahq/atalanta@v0.2.1
         with:
-          version: 0.2.0
+          version: 0.2.1
           platform: android
           suite: atalanta
           shard: ${{ matrix.shard }}/2
@@ -36,8 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Fails the run when a shard reported nothing (docs/CI.md).
-      - uses: atalantahq/atalanta@v0.2.0
+      - uses: atalantahq/atalanta@v0.2.1
         with:
-          version: 0.2.0
+          version: 0.2.1
           platform: android
           check-shards: 2
