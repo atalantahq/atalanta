@@ -101,10 +101,9 @@ export function ConnectPanel() {
   const current = useInspectorStore((s) => s.currentDeviceId);
   const { select, selecting } = useSelect();
   const [busy, setBusy] = useState<Record<string, string | null>>({});
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
 
   const refresh = useCallback(async () => {
-    setRefreshing(true);
     try {
       const list = await listDevices();
       setDevices(list);
@@ -129,6 +128,8 @@ export function ConnectPanel() {
   }, [setDevices]);
 
   useEffect(() => {
+    // refresh sets state only after its first await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refresh();
   }, [refresh]);
 
@@ -136,7 +137,13 @@ export function ConnectPanel() {
     <div className="panel-body connect">
       <div className="row">
         <h3>Devices</h3>
-        <button onClick={() => void refresh()} disabled={refreshing}>
+        <button
+          onClick={() => {
+            setRefreshing(true);
+            void refresh();
+          }}
+          disabled={refreshing}
+        >
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </div>

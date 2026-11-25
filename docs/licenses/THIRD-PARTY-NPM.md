@@ -12,10 +12,10 @@ keep their license comments, so their notices are reproduced in `NOTICE`.
 
 | Package | Version | License | Copyright | Source |
 | --- | --- | --- | --- | --- |
-| react | 19.2.4 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebook/react |
-| react-dom | 19.2.4 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebook/react |
-| scheduler | 0.27.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebook/react |
-| zustand | 5.0.11 | MIT | Copyright (c) 2019 Paul Henschel | https://github.com/pmndrs/zustand |
+| react | 19.3.1 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebook/react |
+| react-dom | 19.3.1 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebook/react |
+| scheduler | 0.28.0 | MIT | Copyright (c) Meta Platforms, Inc. and affiliates. | https://github.com/facebook/react |
+| zustand | 5.1.0 | MIT | Copyright (c) 2019 Paul Henschel | https://github.com/pmndrs/zustand |
 
 Summary: 4 packages, all MIT.
 

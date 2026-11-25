@@ -104,10 +104,10 @@ This product includes an algorithm adapted from pixelmatch
 The inspector's web UI (crates/atalanta-inspector/frontend) is bundled by
 Vite and embedded in the binary. The bundle contains:
 
-  react 19.2.4, react-dom 19.2.4, scheduler 0.27.0
+  react 19.3.1, react-dom 19.3.1, scheduler 0.28.0
     Copyright (c) Meta Platforms, Inc. and affiliates.
     Licensed under the MIT License.
-  zustand 5.0.11
+  zustand 5.1.0
     Copyright (c) 2019 Paul Henschel
     Licensed under the MIT License.
 
