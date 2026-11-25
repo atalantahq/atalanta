@@ -35,6 +35,7 @@ export const GROUPS: GroupDef[] = [
   { title: 'Project', pages: [
     { label: 'Architecture', slug: 'architecture', source: 'docs/ARCHITECTURE.md' },
     { label: '0.2.0 changes', slug: 'changelog-0-2-0', source: 'docs/CHANGELOG-0.2.0.md' },
+    { label: 'Roadmap', slug: 'roadmap', source: 'docs/ROADMAP.md' },
     { label: 'Changelog', slug: 'changelog', source: 'CHANGELOG.md' },
     { label: 'Contributing', slug: 'contributing', source: 'CONTRIBUTING.md' },
     { label: 'Support', slug: 'support', source: 'SUPPORT.md' },

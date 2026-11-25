@@ -15,7 +15,7 @@ Each feature has one of four states:
 |---|---|
 | Android emulators (API 33 and 34, arm64) | Verified for most features. Some recent changes are host tests only; they are listed below. |
 | iOS simulators (iOS 26, Xcode 26) | Verified through WebDriverAgent and AtalantaRunner. Some recent changes are host tests only. |
-| Web | Verified with headless Chrome on macOS, and on Linux in CI. Firefox and Safari are not supported yet. |
+| Web | Verified with headless Chrome on macOS, and on Linux in CI. Firefox and Safari are not supported yet; they are planned for 0.3.0 ([ROADMAP.md](ROADMAP.md)). |
 | Android hardware | One tablet (Android 14): the Settings app and the trust gates. |
 | iPhone hardware | One iPhone 12 (iOS 26.5, wired): Settings, a test app and the trust gates. The Wi-Fi runner and AtalantaRunner have not been run on a phone. |
 | API tests | Verified against local HTTP servers and a public server over TLS (macOS); expired and wrong-host certificates are refused. |
@@ -45,7 +45,7 @@ Each feature has one of four states:
 | Video and logs for failures | Verified, including the video server's mutual handshake (API 34 emulator) | The handshake on hardware |
 | System dialogs and permission prompts | Verified | Localized permission prompts |
 | `hideKeyboard`, scrolling with the keyboard up | Verified | Hiding the keyboard before a covered tap; taps forced with `force: true`. iOS has no `hideKeyboard` |
-| Status bar freeze (`freezeStatusBar`) | Partly: on an API 34 emulator demo mode takes, but the read-back (`sysui_tuner_demo_on`, which this SystemUI leaves at 0) says it didn't, so Atalanta exits demo mode and masks the status bar | A read-back that works on Android 14 |
+| Status bar freeze (`freezeStatusBar`) | Verified (API 34 emulator, 2026-11-25: frozen at 12:00 and compared, demo mode left after the run) | API 33 and older, hardware |
 | In-app sync probe | Host tests | A real app on a device |
 
 ### iOS
@@ -69,7 +69,7 @@ Each feature has one of four states:
 |---|---|---|
 | Chrome driver: roles, frames, mocks, device profiles, parallel contexts | Verified (macOS and Linux) | — |
 | Popups and new tabs, iframe banners, per-key typing | Verified (macOS) | Linux |
-| Firefox and Safari | Not built | — |
+| Firefox and Safari | Not built; planned for 0.3.0 | — |
 
 ### Agents and AI
 
