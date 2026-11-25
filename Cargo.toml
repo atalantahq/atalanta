@@ -28,7 +28,7 @@ members = [
 exclude = ["fuzz", "crates/atalanta-adapter"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 # The oldest toolchain Atalanta builds with (`File::lock` needs 1.89; clippy's
 # incompatible_msrv lint flags newer std APIs);
@@ -80,21 +80,21 @@ ring = "0.17"
 # so each path dependency also carries the version crates.io resolves it to.
 # The MCP crate is published as `atalanta-mcp-server` and keeps its
 # `atalanta_mcp` library name.
-atalanta-common = { path = "crates/atalanta-common", version = "=0.2.0" }
-atalanta-android = { path = "crates/atalanta-android", version = "=0.2.0" }
-atalanta-ios = { path = "crates/atalanta-ios", version = "=0.2.0" }
-atalanta-core = { path = "crates/atalanta-core", version = "=0.2.0" }
-atalanta-runner = { path = "crates/atalanta-runner", version = "=0.2.0" }
-atalanta-mcp = { package = "atalanta-mcp-server", path = "crates/atalanta-mcp", version = "=0.2.0" }
-atalanta-migrate = { path = "crates/atalanta-migrate", version = "=0.2.0" }
-atalanta-headless = { path = "crates/atalanta-headless", version = "=0.2.0" }
-atalanta-inspector = { path = "crates/atalanta-inspector", version = "=0.2.0" }
-atalanta-flutter-bridge = { path = "crates/atalanta-flutter-bridge", version = "=0.2.0" }
-atalanta-web = { path = "crates/atalanta-web", version = "=0.2.0" }
-atalanta-nl = { path = "crates/atalanta-nl", version = "=0.2.0" }
-atalanta-doctor = { path = "crates/atalanta-doctor", version = "=0.2.0" }
-atalanta-explore = { path = "crates/atalanta-explore", version = "=0.2.0" }
-atalanta-api = { path = "crates/atalanta-api", version = "=0.2.0" }
+atalanta-common = { path = "crates/atalanta-common", version = "=0.2.1" }
+atalanta-android = { path = "crates/atalanta-android", version = "=0.2.1" }
+atalanta-ios = { path = "crates/atalanta-ios", version = "=0.2.1" }
+atalanta-core = { path = "crates/atalanta-core", version = "=0.2.1" }
+atalanta-runner = { path = "crates/atalanta-runner", version = "=0.2.1" }
+atalanta-mcp = { package = "atalanta-mcp-server", path = "crates/atalanta-mcp", version = "=0.2.1" }
+atalanta-migrate = { path = "crates/atalanta-migrate", version = "=0.2.1" }
+atalanta-headless = { path = "crates/atalanta-headless", version = "=0.2.1" }
+atalanta-inspector = { path = "crates/atalanta-inspector", version = "=0.2.1" }
+atalanta-flutter-bridge = { path = "crates/atalanta-flutter-bridge", version = "=0.2.1" }
+atalanta-web = { path = "crates/atalanta-web", version = "=0.2.1" }
+atalanta-nl = { path = "crates/atalanta-nl", version = "=0.2.1" }
+atalanta-doctor = { path = "crates/atalanta-doctor", version = "=0.2.1" }
+atalanta-explore = { path = "crates/atalanta-explore", version = "=0.2.1" }
+atalanta-api = { path = "crates/atalanta-api", version = "=0.2.1" }
 
 # Every crate opts in with `[lints] workspace = true`. Only lints with no
 # false positives here: CI runs clippy with `-D warnings`.
