@@ -10,7 +10,7 @@ import { SITE_NAME, TAGLINE, REPO_URL } from '../lib/site';
 
 interface Props { title?: string; description?: string; docs?: boolean; bodyClass?: string; noindex?: boolean; ogImage?: string }
 const { title, description = TAGLINE, docs = false, bodyClass = '', noindex = false, ogImage } = Astro.props;
-const full = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME}: UI and API tests from one binary`;
+const full = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME}: Fastest UI and API tests from one binary`;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const og = new URL(url(ogImage ?? '/og.png'), Astro.site).href;
 ---

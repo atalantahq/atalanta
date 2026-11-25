@@ -64,7 +64,7 @@ atalanta export --out flow.yaml`;
           <ul class="lanes rise" aria-label="Targets: each is a lane on the track">
             {lanes.map((l, i) => <li><button type="button" data-lane={i} data-info={l.info}>{l.name}</button></li>)}
           </ul>
-          <h1 class="rise">UI and API tests from one binary.</h1>
+          <h1 class="rise">Fastest UI and API tests from one binary.</h1>
           <p class="readout rise" data-readout aria-live="polite">Four lanes, one binary. Every build runs the race.</p>
           <p class="lede rise">Atalanta runs YAML test suites on Android emulators, iOS simulators and Chrome, with API steps in the same file. An agent can write a test once; it then replays in CI with no model. Every failure keeps its video, logs and trace on your machine.</p>
           <div class="actions rise">
