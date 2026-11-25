@@ -604,7 +604,7 @@ mod tests {
                 .any(|c| c < ' ' && !matches!(c, '\t' | '\n' | '\r')),
             "{xml:?}"
         );
-        assert!(xml.contains("Element not found: got x\ty"), "{xml}");
+        assert!(xml.contains("Element not found: got x&#9;y"), "{xml}");
         assert!(!xml.contains("[31m"), "{xml}");
     }
 

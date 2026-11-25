@@ -69,7 +69,7 @@ impl XibParser {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
                     let attrs = Self::parse_attributes(&e);
 
                     match tag.as_str() {
@@ -170,7 +170,7 @@ impl XibParser {
                     }
                 }
                 Ok(Event::Empty(e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
                     let attrs = Self::parse_attributes(&e);
 
                     match tag.as_str() {
@@ -270,10 +270,7 @@ impl XibParser {
                     if let (Some(parent), Some(key)) =
                         (stack.last_mut(), current_string_key.as_ref())
                     {
-                        let text = e
-                            .decode()
-                            .map(|t| t.into_owned())
-                            .unwrap_or_else(|_| String::from_utf8_lossy(e.as_ref()).to_string());
+                        let text = e.to_string();
                         if !text.is_empty() {
                             parent
                                 .properties
@@ -287,7 +284,7 @@ impl XibParser {
                     if let (Some(parent), Some(key)) =
                         (stack.last_mut(), current_string_key.as_ref())
                     {
-                        let name = String::from_utf8_lossy(e.as_ref()).to_string();
+                        let name = e.to_string();
                         let resolved = match e.resolve_char_ref() {
                             Ok(Some(c)) => c.to_string(),
                             _ => quick_xml::escape::resolve_predefined_entity(&name)
@@ -301,7 +298,7 @@ impl XibParser {
                     }
                 }
                 Ok(Event::End(e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
 
                     match tag.as_str() {
                         "string" => {
@@ -335,12 +332,12 @@ impl XibParser {
     fn parse_attributes(event: &quick_xml::events::BytesStart) -> HashMap<String, String> {
         let mut attrs = HashMap::new();
         for attr in event.attributes().flatten() {
-            let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+            let key = attr.key.as_ref().to_string();
             // `Terms &amp; Conditions` is the text `Terms & Conditions` (VEL-104).
             let val = attr
                 .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .map(|v| v.into_owned())
-                .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
+                .unwrap_or_else(|_| attr.value.to_string());
             attrs.insert(key, val);
         }
         attrs

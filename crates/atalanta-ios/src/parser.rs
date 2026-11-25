@@ -134,7 +134,7 @@ fn coord(v: &str) -> i32 {
 }
 
 fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
-    let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+    let tag_name = e.name().as_ref().to_string();
 
     let mut name: Option<String> = None;
     let mut label: Option<String> = None;
@@ -160,24 +160,24 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
         let key = attr.key.as_ref();
         if !matches!(
             key,
-            b"type"
-                | b"name"
-                | b"label"
-                | b"value"
-                | b"placeholderValue"
-                | b"x"
-                | b"y"
-                | b"width"
-                | b"height"
-                | b"visible"
-                | b"isVisible"
-                | b"enabled"
-                | b"focused"
-                | b"hasFocus"
-                | b"selected"
-                | b"isSelected"
-                | b"visibleFrame"
-                | b"visible-frame"
+            "type"
+                | "name"
+                | "label"
+                | "value"
+                | "placeholderValue"
+                | "x"
+                | "y"
+                | "width"
+                | "height"
+                | "visible"
+                | "isVisible"
+                | "enabled"
+                | "focused"
+                | "hasFocus"
+                | "selected"
+                | "isSelected"
+                | "visibleFrame"
+                | "visible-frame"
         ) {
             continue;
         }
@@ -185,37 +185,37 @@ fn parse_ios_node(e: &quick_xml::events::BytesStart) -> Result<Element> {
         let val = attr
             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map(|v| v.into_owned())
-            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
+            .unwrap_or_else(|_| attr.value.to_string());
 
         match key {
-            b"type" => element_type = simplify_ios_type(&val),
-            b"name" => {
+            "type" => element_type = simplify_ios_type(&val),
+            "name" => {
                 if !val.is_empty() {
                     name = Some(val);
                 }
             }
-            b"label" => {
+            "label" => {
                 if !val.is_empty() {
                     label = Some(val);
                 }
             }
-            b"value" => {
+            "value" => {
                 if !val.is_empty() {
                     value = Some(val);
                 }
             }
-            b"placeholderValue" => placeholder = Some(val),
-            b"x" => x = coord(&val),
-            b"y" => y = coord(&val),
-            b"width" => width = coord(&val),
-            b"height" => height = coord(&val),
-            b"visible" | b"isVisible" => is_visible = val == "true" || val == "1",
-            b"enabled" => enabled = val == "true" || val == "1",
+            "placeholderValue" => placeholder = Some(val),
+            "x" => x = coord(&val),
+            "y" => y = coord(&val),
+            "width" => width = coord(&val),
+            "height" => height = coord(&val),
+            "visible" | "isVisible" => is_visible = val == "true" || val == "1",
+            "enabled" => enabled = val == "true" || val == "1",
             // AtalantaRunner (hasKeyboardFocus) and WDA (`focused`) only
             // say it when true.
-            b"focused" | b"hasFocus" => focused = val == "true" || val == "1",
-            b"selected" | b"isSelected" => selected = val == "true" || val == "1",
-            b"visibleFrame" | b"visible-frame" => visible_bounds = frame(&val),
+            "focused" | "hasFocus" => focused = val == "true" || val == "1",
+            "selected" | "isSelected" => selected = val == "true" || val == "1",
+            "visibleFrame" | "visible-frame" => visible_bounds = frame(&val),
             _ => {}
         }
     }
