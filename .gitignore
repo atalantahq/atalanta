@@ -18,6 +18,8 @@ crates/atalanta-inspector/frontend/dist/
 site/dist/
 site/.astro/
 site/.screens/
+# Playground full-validator wasm: built by CI, loaded from site/public/playground/wasm/, never committed
+site/public/playground/wasm/
 # npm packages assembled by npm/assemble.mjs
 /npm/dist/
 /dist/

@@ -8,7 +8,7 @@ Crates whose choice includes a copyleft option Atalanta does not take: `r-efi 5.
 
 Crates under a copyleft licence only (used unmodified as libraries): `colored 2.2.0` (`MPL-2.0`).
 
-Crates listed: 363 (excluding the 16 workspace crates).
+Crates listed: 363 (excluding the 17 workspace crates).
 
 ## Count by license expression
 

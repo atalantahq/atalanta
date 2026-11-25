@@ -1,0 +1,77 @@
+---
+import Base from '../layouts/Base.astro';
+import { url } from '../lib/url';
+import { REPO_ROOT } from '../lib/site';
+import fs from 'node:fs';
+import path from 'node:path';
+import '../styles/playground.css';
+
+const local = (f: string) => fs.readFileSync(path.join(REPO_ROOT, 'site', 'src', 'playground', f), 'utf8');
+const repo = (f: string) => fs.readFileSync(path.join(REPO_ROOT, 'examples', f, 'atalanta.yaml'), 'utf8');
+const examples = [
+  { name: 'atalanta-sh', label: 'API: atalanta.sh', yaml: local('atalanta-sh.yaml') },
+  { name: 'ios', label: 'iOS: Settings', yaml: local('ios-settings.yaml') },
+  { name: 'android', label: 'Android: Settings', yaml: repo('android-example') },
+  { name: 'web', label: 'Web', yaml: repo('web-example') },
+  { name: 'hybrid', label: 'API + web', yaml: repo('hybrid-example') },
+  { name: 'jsonplaceholder', label: 'API: JSONPlaceholder', yaml: repo('api-example') },
+];
+---
+
+<Base title="Playground" description="Write an Atalanta test suite in your browser, run it, and watch it drive a device.">
+  <section class="playground" aria-label="Playground" data-view="code">
+    <h1 class="sr-only">Playground</h1>
+    <p class="playground-intro">Edit a suite and press Run. API tests send real requests from your browser; device and web tests play on a mock screen drawn from your selectors. <a href={url('/docs/dsl/')}>Writing suites</a></p>
+
+    <div class="playground-controls">
+      <label for="playground-examples">Example</label>
+      <select id="playground-examples"></select>
+      <div class="playground-actions">
+        <button type="button" id="playground-reset">Reset</button>
+        <button type="button" id="playground-copy">Copy</button>
+        <button type="button" id="playground-download">Download</button>
+        <button type="button" id="playground-run" class="playground-run" aria-keyshortcuts="Control+Enter Meta+Enter">Run</button>
+      </div>
+    </div>
+
+    <div class="pg-mbar" role="group" aria-label="Show">
+      <div class="pg-seg">
+        <button type="button" data-view-btn="code" aria-pressed="true">Code</button>
+        <button type="button" data-view-btn="device" aria-pressed="false">Device</button>
+        <button type="button" data-view-btn="output" aria-pressed="false">Output</button>
+      </div>
+      <button type="button" id="playground-run-m" class="playground-run">Run</button>
+    </div>
+
+    <div class="playground-grid">
+      <div class="pg-win pg-win-editor">
+        <div class="pg-win-bar"><span class="pg-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="pg-win-title">atalanta.yaml</span></div>
+        <div class="playground-editor" id="playground-editor" role="region" aria-label="Atalanta test suite editor"></div>
+      </div>
+
+      <div class="pg-win pg-win-term">
+        <div class="pg-win-bar" role="tablist" aria-label="Output">
+          <span class="pg-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <button type="button" role="tab" id="playground-tab-terminal" aria-selected="true" aria-controls="playground-panel-terminal">terminal</button>
+          <button type="button" role="tab" id="playground-tab-problems" aria-selected="false" aria-controls="playground-panel-problems" tabindex="-1">
+            problems <span class="playground-tab-badge" id="playground-tab-badge">0</span>
+          </button>
+        </div>
+        <pre class="pg-term" id="playground-panel-terminal" role="tabpanel" aria-labelledby="playground-tab-terminal" aria-live="polite" tabindex="0"></pre>
+        <section class="pg-problems" id="playground-panel-problems" role="tabpanel" aria-labelledby="playground-tab-problems" hidden>
+          <ul class="playground-problems-list" id="playground-problems-list"></ul>
+          <p class="playground-problems-empty" id="playground-problems-empty">No problems</p>
+        </section>
+      </div>
+
+      <div class="pg-stage" id="playground-stage" aria-label="Target"></div>
+    </div>
+
+    <p id="playground-status" class="playground-status muted">Loading validator&#8230;</p>
+  </section>
+
+  <script type="application/json" id="playground-examples-json" set:html={JSON.stringify(examples)} />
+  <script>
+    import '../scripts/playground.ts';
+  </script>
+</Base>

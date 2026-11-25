@@ -6,18 +6,22 @@ Exit codes: 0 passed, 1 a test failed, 2 usage or config, 3 device or infrastruc
 
 ## Docs
 
-- [GUIDE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/GUIDE.md): The long form of the README: a glossary, how it compares, selectors and roles, natural-language steps, visual checks, healing, sharding and parallel runs, app state and caching, headless, configuration, a command cheat sheet, troubleshooting
-- [ARCHITECTURE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/ARCHITECTURE.md): Crates, how a run and a step execute, live events, sync, selectors, dialogs, healing, natural-language steps, exploration and diagnostics, visual assertions, the console
-- [DSL.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/DSL.md): How to write suites, with examples
-- [DSL-REFERENCE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/DSL-REFERENCE.md): Every action, modifier, selector key, config key and setting. Generated from the schema (`atalanta schema --markdown`); a test fails when it is out of date
-- [DRIVERS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/DRIVERS.md): Android, iOS (simulators; one wired iPhone so far), web, headless, Flutter, the in-app probes
-- [CLI.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/CLI.md): Commands, `init`, `doctor`, `run`, `explore` and `inspect` flags, artifacts, failure evidence, exit codes
-- [CI.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/CI.md): Sharding and shared history, cancelled jobs, secrets, baselines, the opt-in device workflows
-- [AI-PROVIDERS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/AI-PROVIDERS.md): Model providers for natural-language steps, `verify:` checks and `atalanta explore`: presets, environment variables, default models, capabilities, fallbacks
-- [EXPLORE.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/EXPLORE.md): `atalanta explore`: an AI agent reaches a goal once and writes a deterministic test with assertions that replays with no model; the loop, the YAML rules, replay and repair, the library API
-- [BENCHMARKS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/BENCHMARKS.md): Public benchmarks Atalanta runs on: AndroidWorld (how the numbers were produced, how to run it, what is measured, the result, caveats)
-- [AGENTS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/AGENTS.md): Atalanta from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does
-- [MCP.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/MCP.md): The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed)
-- [STATUS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/STATUS.md): What has been verified on emulators, simulators, browsers and hardware, and what has not
-- [ROADMAP.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/ROADMAP.md): What's planned for the next releases: 0.2.1 fixes, Firefox and Safari in 0.3.0
-- [CHANGELOG-0.2.0.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/CHANGELOG-0.2.0.md): The 0.2.0 changes in full: each behaviour change, why it was made and how to adapt a suite
+- [GUIDE.md](https://atalanta.sh/docs/guide.md): The long form of the README: a glossary, how it compares, selectors and roles, natural-language steps, visual checks, healing, sharding and parallel runs, app state and caching, headless, configuration, a command cheat sheet, troubleshooting
+- [ARCHITECTURE.md](https://atalanta.sh/docs/architecture.md): Crates, how a run and a step execute, live events, sync, selectors, dialogs, healing, natural-language steps, exploration and diagnostics, visual assertions, the console
+- [DSL.md](https://atalanta.sh/docs/dsl.md): How to write suites, with examples
+- [DSL-REFERENCE.md](https://atalanta.sh/docs/dsl-reference.md): Every action, modifier, selector key, config key and setting. Generated from the schema (`atalanta schema --markdown`); a test fails when it is out of date
+- [DRIVERS.md](https://atalanta.sh/docs/drivers.md): Android, iOS (simulators; one wired iPhone so far), web, headless, Flutter, the in-app probes
+- [CLI.md](https://atalanta.sh/docs/cli.md): Commands, `init`, `doctor`, `run`, `explore` and `inspect` flags, artifacts, failure evidence, exit codes
+- [CI.md](https://atalanta.sh/docs/ci.md): Sharding and shared history, cancelled jobs, secrets, baselines, the opt-in device workflows
+- [AI-PROVIDERS.md](https://atalanta.sh/docs/ai-providers.md): Model providers for natural-language steps, `verify:` checks and `atalanta explore`: presets, environment variables, default models, capabilities, fallbacks
+- [EXPLORE.md](https://atalanta.sh/docs/explore.md): `atalanta explore`: an AI agent reaches a goal once and writes a deterministic test with assertions that replays with no model; the loop, the YAML rules, replay and repair, the library API
+- [BENCHMARKS.md](https://atalanta.sh/docs/benchmarks.md): Public benchmarks Atalanta runs on: AndroidWorld (how the numbers were produced, how to run it, what is measured, the result, caveats)
+- [AGENTS.md](https://atalanta.sh/docs/agents.md): Atalanta from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does
+- [MCP.md](https://atalanta.sh/docs/mcp.md): The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed)
+- [STATUS.md](https://atalanta.sh/docs/status.md): What has been verified on emulators, simulators, browsers and hardware, and what has not
+- [ROADMAP.md](https://atalanta.sh/docs/roadmap.md): What's planned for the next releases: 0.2.1 fixes, Firefox and Safari in 0.3.0
+- [CHANGELOG-0.2.0.md](https://atalanta.sh/docs/changelog-0-2-0.md): The 0.2.0 changes in full: each behaviour change, why it was made and how to adapt a suite
+
+## Optional
+
+- [All docs in one file](https://atalanta.sh/llms-full.txt): every page above as one Markdown file

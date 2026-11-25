@@ -13,10 +13,9 @@ function readVersion(): string {
 }
 
 export const REPO_URL = 'https://github.com/atalantahq/atalanta';
-export const RAW_URL = 'https://raw.githubusercontent.com/atalantahq/atalanta/main';
 export const VERSION = readVersion();
 export const RELEASE_STATE = 'released';
 export const CONTACT = 'atalanta@atomicmail.io';
-export const LICENSE = 'AGPL-3.0';
+export const LICENSE = 'AGPL-3.0-only';
 export const SITE_NAME = 'Atalanta';
 export const TAGLINE = 'Android, iOS, web and API tests in YAML, one static binary, written in Rust.';

@@ -3,8 +3,10 @@
 A suite is one YAML file: an `appId`, optional `config`, reusable `flows`, and `tests`. `atalanta validate` checks a suite without running it. For editor completion:
 
 ```bash
-atalanta schema -o atalanta.schema.json
-# first line of a suite:  # yaml-language-server: $schema=./atalanta.schema.json
+# first line of a suite:
+# yaml-language-server: $schema=https://atalanta.sh/schema/suite.json
+# or, to match your installed version: atalanta schema -o atalanta.schema.json
+#   and $schema=./atalanta.schema.json
 ```
 
 ## A suite

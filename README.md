@@ -48,10 +48,12 @@ Install on macOS or Linux:
 ```bash
 brew install atalantahq/tap/atalanta
 # or
-curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh
+curl -fsSL https://atalanta.sh/install.sh | sh
 ```
 
 Or build from a checkout: `cargo install --path atalanta-cli --locked`.
+
+To try the YAML first, the [playground](https://atalanta.sh/playground/) checks a suite in your browser and runs API tests there.
 
 Start an emulator or simulator with your app installed, then:
 
@@ -77,7 +79,7 @@ atalanta run tests/ --changed-since origin/main
 Every route installs the same binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/atalantahq/atalanta/main/install.sh | sh   # macOS / Linux
+curl -fsSL https://atalanta.sh/install.sh | sh   # macOS / Linux
 brew install atalantahq/tap/atalanta
 npm install --save-dev @atalantahq/cli
 cargo install atalanta-cli --locked

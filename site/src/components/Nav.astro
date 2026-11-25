@@ -4,7 +4,7 @@ import { url } from '../lib/url';
 import { VERSION, RELEASE_STATE, REPO_URL } from '../lib/site';
 const { docs = false } = Astro.props;
 const links = [
-  ['Docs', '/docs/'], ['DSL', '/docs/dsl/'], ['CLI', '/docs/cli/'], ['Agents', '/docs/agents/'], ['Status', '/docs/status/'],
+  ['Docs', '/docs/'], ['Playground', '/playground/'], ['DSL', '/docs/dsl/'], ['CLI', '/docs/cli/'], ['Agents', '/docs/agents/'], ['Status', '/docs/status/'],
 ];
 const path = Astro.url.pathname;
 const cur = (h: string) => (url(h) === path ? 'page' : undefined);
@@ -17,8 +17,9 @@ const cur = (h: string) => (url(h) === path ? 'page' : undefined);
       {links.map(([l, h]) => <a href={url(h)} aria-current={cur(h)}>{l}</a>)}
     </nav>
     <div class="nav-right">
-      <button class="search-btn" type="button" data-search-open aria-label="Search the docs" aria-haspopup="dialog">
+      <button class="search-btn" type="button" data-search-open aria-haspopup="dialog">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span class="sr-only">Search the docs</span>
         <kbd class="label" data-mod>⌘K</kbd>
       </button>
       <button class="icon-btn theme-btn" type="button" data-theme-toggle aria-label="Toggle light and dark theme">

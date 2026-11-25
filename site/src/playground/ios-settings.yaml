@@ -1,0 +1,13 @@
+# Drives the iOS Simulator's own Settings app, so it needs no app build. On a
+# Mac with Xcode and a booted simulator: `atalanta run atalanta.yaml`.
+appId: com.apple.Preferences
+config:
+  platform: ios
+
+tests:
+  - name: about_lists_ios_version
+    steps:
+      - launchApp: { appId: com.apple.Preferences }
+      - tap: { text: "General" }
+      - tap: { text: "About" }
+      - assertVisible: { textContains: "iOS Version" }

@@ -570,7 +570,7 @@ React Native: `framework: react_native` (`--framework rn`, or detected from the 
 
 Measurement scripts for real devices (Compose testTag cost, strict-actionability cost, native settle times, demo-mode verification): `scripts/measure/` (see its README).
 
-Editors: `atalanta schema -o atalanta.schema.json`, then `# yaml-language-server: $schema=./atalanta.schema.json` as a suite's first line.
+Editors: put `# yaml-language-server: $schema=https://atalanta.sh/schema/suite.json` on a suite's first line (the latest release's schema). To match the installed version instead, or offline: `atalanta schema -o atalanta.schema.json` and `$schema=./atalanta.schema.json`. To try a suite without installing anything, paste it into the [playground](https://atalanta.sh/playground/).
 
 Environment: `ATALANTA_ADB_SERVERS` (remote adb servers `host:port,…`; their devices join as `host:port/serial`), `ATALANTA_IOS_RUNNER=atalanta`, `ATALANTA_ANDROID_EVENT_SETTLE=1` (settle from accessibility events; measured slower than polling on an emulator, lighter on the device), `ATALANTA_COMMAND_TIMEOUT_MS` (device command deadline, default 60000), `ATALANTA_KEEP_WDA`, `ATALANTA_KEEP_ANIMATIONS`, `ATALANTA_IOS_TYPING_FREQUENCY` (keys/min, default 180), `ATALANTA_WDA_REF`, `ATALANTA_WDA_URL` (use your own WDA), `ATALANTA_NL_CACHE` (`read-only`, `frozen` or `prune` for natural-language steps in CI), `ATALANTA_MIN_FREE_MEMORY_PCT` / `ATALANTA_MIN_FREE_MEMORY_GB` / `ATALANTA_MIN_FREE_DISK_GB` (provisioning guards, default 35 / 3 / 3), `ATALANTA_AVD`, `ATALANTA_DEVICE_TYPE` and `ATALANTA_EMULATOR_PORT` (what `run --provision` boots).
 

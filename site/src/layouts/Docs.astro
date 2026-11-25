@@ -1,7 +1,7 @@
 ---
 import Base from './Base.astro';
 import { url } from '../lib/url';
-import { REPO_URL, RAW_URL } from '../lib/site';
+import { REPO_URL } from '../lib/site';
 import { GROUPS } from '../lib/docs-config';
 import '../styles/docs.css';
 import type { DocPage } from '../lib/docs';
@@ -13,8 +13,10 @@ const i = flat.findIndex((p) => p.source === page.source);
 const prev = flat[i - 1], next = flat[i + 1];
 const route = (slug: string) => url(slug ? `/docs/${slug}/` : '/docs/');
 const toc = page.headings;
+const mdUrl = url(`/docs/${page.slug || 'index'}.md`);
 ---
-<Base title={page.slug ? page.title : 'Documentation'} description={page.description} docs bodyClass="docs">
+<Base title={page.slug ? page.title : 'Documentation'} description={page.description} docs bodyClass="docs" ogImage={`/og/${page.slug || 'index'}.png`}>
+  <link slot="head" rel="alternate" type="text/markdown" href={mdUrl} />
   <div class="docs-shell wrap">
     <div class="scrim" data-scrim></div>
     <aside class="sidebar" aria-label="Documentation">
@@ -44,7 +46,7 @@ const toc = page.headings;
       <footer class="doc-foot" data-pagefind-ignore>
         <p class="doc-links">
           <a href={`${REPO_URL}/edit/main/${page.source}`}>Edit this page on GitHub</a>
-          <a href={`${RAW_URL}/${page.source}`}>View as Markdown</a>
+          <a href={mdUrl}>View as Markdown</a>
         </p>
         <nav class="pager" aria-label="Previous and next page">
           {prev ? <a class="prev" href={route(prev.slug)}><span>Previous</span>{prev.label}</a> : <span />}

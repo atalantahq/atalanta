@@ -1,0 +1,36 @@
+# These tests call atalanta.sh, the site you're on. Press Run, or download the
+# file and run `atalanta run atalanta.yaml`: same suite, same results.
+appId: atalanta.sh
+config:
+  http:
+    baseUrl: https://atalanta.sh
+    timeoutMs: 10000
+
+tests:
+  - name: llms.txt links the DSL guide
+    steps:
+      - http:
+          url: /llms.txt
+          expect:
+            status: 200
+            headers: { content-type: { contains: text/plain } }
+            body: { contains: "# Atalanta" }
+            maxMs: 3000
+          capture:
+            DSL_DOC: { regex: "\\((https://atalanta\\.sh/docs/dsl\\.md)\\)" }
+      - http:
+          url: ${DSL_DOC}
+          expect:
+            status: 200
+            body: { contains: "## HTTP and API tests" }
+
+  - name: The suite schema requires tests
+    steps:
+      - http:
+          url: /schema/suite.json
+          expect:
+            status: 200
+            json:
+              title: Atalanta test suite
+              required: { contains: tests }
+              properties.tests.type: array
