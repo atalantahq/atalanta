@@ -630,13 +630,13 @@ fn junit_seconds_ms(raw: &str) -> Option<u64> {
 /// `testcase@name` → `time` (seconds) in ms, from a JUnit report. Failed,
 /// errored and skipped cases are left out: a failure stops early, so its
 /// time says little about the test (Flank's rule), and a skip is free.
-/// The report is streamed, not read whole; an attribute that doesn't
-/// unescape (an entity XML doesn't define, bytes that aren't UTF-8) is
-/// taken as written instead of failing the whole run.
+/// The report is decoded lossily (other tools don't always write UTF-8), and
+/// an attribute that doesn't unescape (an entity XML doesn't define) is taken
+/// as written instead of failing the whole run.
 fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
     use quick_xml::events::Event;
     let bad = |e: String| AtalantaError::Config(format!("JUnit timings {}: {e}", path.display()));
-    let file = std::fs::File::open(path).map_err(|e| bad(e.to_string()))?;
+    let mut file = std::fs::File::open(path).map_err(|e| bad(e.to_string()))?;
     let size = file.metadata().map(|m| m.len()).unwrap_or(0);
     if size > MAX_JUNIT_BYTES {
         tracing::warn!(
@@ -647,22 +647,21 @@ fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
         );
         return Ok(HashMap::new());
     }
-    let mut reader = quick_xml::Reader::from_reader(std::io::BufReader::new(file));
-    let mut buf = Vec::new();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut bytes).map_err(|e| bad(e.to_string()))?;
+    let text = String::from_utf8_lossy(&bytes);
+    let mut reader = quick_xml::Reader::from_str(&text);
     let mut out = HashMap::new();
     // The open testcase: (name, ms, disqualified).
     let mut open: Option<(String, Option<u64>, bool)> = None;
     let mut cases = 0usize;
     loop {
-        buf.clear();
-        let ev = reader
-            .read_event_into(&mut buf)
-            .map_err(|e| bad(e.to_string()))?;
+        let ev = reader.read_event().map_err(|e| bad(e.to_string()))?;
         match ev {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 let empty = matches!(ev, Event::Empty(_));
                 match e.name().as_ref() {
-                    b"testcase" => {
+                    "testcase" => {
                         cases += 1;
                         let mut name = None;
                         let mut ms = None;
@@ -670,10 +669,10 @@ fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
                             let v = a
                                 .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                 .map(|v| v.into_owned())
-                                .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).into_owned());
+                                .unwrap_or_else(|_| a.value.to_string());
                             match a.key.as_ref() {
-                                b"name" => name = Some(v),
-                                b"time" => ms = junit_seconds_ms(&v),
+                                "name" => name = Some(v),
+                                "time" => ms = junit_seconds_ms(&v),
                                 _ => {}
                             }
                         }
@@ -684,7 +683,7 @@ fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
                             open = Some(case);
                         }
                     }
-                    b"failure" | b"error" | b"skipped" => {
+                    "failure" | "error" | "skipped" => {
                         if let Some(c) = open.as_mut() {
                             c.2 = true;
                         }
@@ -692,7 +691,7 @@ fn junit_durations(path: &std::path::Path) -> Result<HashMap<String, u64>> {
                     _ => {}
                 }
             }
-            Event::End(ref e) if e.name().as_ref() == b"testcase" => {
+            Event::End(ref e) if e.name().as_ref() == "testcase" => {
                 if let Some(c) = open.take() {
                     record_case(&mut out, c);
                 }

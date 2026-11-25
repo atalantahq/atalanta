@@ -49,12 +49,12 @@ impl StoryboardParser {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
                     if tag == "document" {
                         for attr in e.attributes().flatten() {
-                            let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+                            let key = attr.key.as_ref().to_string();
                             if key == "initialViewController" {
-                                return Ok(String::from_utf8_lossy(&attr.value).to_string());
+                                return Ok(attr.value.to_string());
                             }
                         }
                     }
@@ -91,15 +91,15 @@ impl StoryboardParser {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
                     if tag == "scene" {
                         in_scene = true;
                         scene_depth = 1;
                         scene_content.clear();
                         for attr in e.attributes().flatten() {
-                            let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+                            let key = attr.key.as_ref().to_string();
                             if key == "sceneID" {
-                                scene_id = String::from_utf8_lossy(&attr.value).to_string();
+                                scene_id = attr.value.to_string();
                             }
                         }
                     } else if in_scene {
@@ -107,7 +107,7 @@ impl StoryboardParser {
                         // Reconstruct XML for this element
                         scene_content.push_str(&format!("<{}", tag));
                         for attr in e.attributes().flatten() {
-                            let key = String::from_utf8_lossy(attr.key.as_ref());
+                            let key = attr.key.as_ref();
                             scene_content.push_str(&format!(
                                 " {}=\"{}\"",
                                 key,
@@ -118,10 +118,10 @@ impl StoryboardParser {
                     }
                 }
                 Ok(Event::Empty(e)) if in_scene => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
                     scene_content.push_str(&format!("<{}", tag));
                     for attr in e.attributes().flatten() {
-                        let key = String::from_utf8_lossy(attr.key.as_ref());
+                        let key = attr.key.as_ref();
                         scene_content.push_str(&format!(
                             " {}=\"{}\"",
                             key,
@@ -131,7 +131,7 @@ impl StoryboardParser {
                     scene_content.push_str("/>");
                 }
                 Ok(Event::End(e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let tag = e.name().as_ref().to_string();
                     if in_scene {
                         scene_depth -= 1;
                         if tag == "scene" && scene_depth == 0 {
@@ -145,17 +145,17 @@ impl StoryboardParser {
                 // Text content (`<string key="text">…</string>`) is copied as
                 // it was, still escaped, so it is unescaped once (VEL-104).
                 Ok(Event::Text(e)) if in_scene => {
-                    scene_content.push_str(&String::from_utf8_lossy(e.as_ref()));
+                    scene_content.push_str(&e);
                 }
                 // quick-xml 0.38+ reports `&amp;` and the like as their own
                 // events; this rebuilds the scene's XML, so write them back.
                 Ok(Event::GeneralRef(e)) if in_scene => {
                     scene_content.push('&');
-                    scene_content.push_str(&String::from_utf8_lossy(e.as_ref()));
+                    scene_content.push_str(&e);
                     scene_content.push(';');
                 }
                 Ok(Event::CData(e)) if in_scene => {
-                    scene_content.push_str(&escape_xml_attr(&String::from_utf8_lossy(e.as_ref())));
+                    scene_content.push_str(&escape_xml_attr(&e));
                 }
                 Ok(Event::Eof) => break,
                 Err(e) => return Err(StoryboardError::ParseError(e.to_string())),
@@ -172,7 +172,7 @@ impl StoryboardParser {
 fn attr_value(attr: &quick_xml::events::attributes::Attribute) -> String {
     attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)
         .map(|v| v.into_owned())
-        .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string())
+        .unwrap_or_else(|_| attr.value.to_string())
 }
 
 fn escape_xml_attr(value: &str) -> String {

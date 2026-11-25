@@ -53,59 +53,44 @@ pub fn parse_hierarchy_v2(xml: &str) -> Result<Element> {
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => match e.name().as_ref() {
-                b"hierarchy" if !opened => opened = true,
-                b"node" if opened && !closed => {
+                "hierarchy" if !opened => opened = true,
+                "node" if opened && !closed => {
                     if stack.len() > MAX_DEPTH {
                         return Err(bad_dump(format!("nodes nested deeper than {MAX_DEPTH}")));
                     }
                     let element = parse_node_attributes_from_bytes(e)?;
                     stack.push(element);
                 }
-                other => {
-                    return Err(bad_dump(format!(
-                        "unexpected <{}>",
-                        String::from_utf8_lossy(other)
-                    )))
-                }
+                other => return Err(bad_dump(format!("unexpected <{}>", other))),
             },
             Ok(Event::Empty(ref e)) => match e.name().as_ref() {
-                b"hierarchy" if !opened => {
+                "hierarchy" if !opened => {
                     opened = true;
                     closed = true;
                 }
-                b"node" if opened && !closed => {
+                "node" if opened && !closed => {
                     let element = parse_node_attributes_from_bytes(e)?;
                     if let Some(parent) = stack.last_mut() {
                         parent.children.push(element);
                     }
                 }
-                other => {
-                    return Err(bad_dump(format!(
-                        "unexpected <{}/>",
-                        String::from_utf8_lossy(other)
-                    )))
-                }
+                other => return Err(bad_dump(format!("unexpected <{}/>", other))),
             },
             Ok(Event::End(ref e)) => match e.name().as_ref() {
-                b"node" if stack.len() > 1 => {
+                "node" if stack.len() > 1 => {
                     let child = stack.pop().unwrap();
                     if let Some(parent) = stack.last_mut() {
                         parent.children.push(child);
                     }
                 }
-                b"hierarchy" if opened && !closed && stack.len() == 1 => closed = true,
-                other => {
-                    return Err(bad_dump(format!(
-                        "unexpected </{}>",
-                        String::from_utf8_lossy(other)
-                    )))
-                }
+                "hierarchy" if opened && !closed && stack.len() == 1 => closed = true,
+                other => return Err(bad_dump(format!("unexpected </{}>", other))),
             },
             Ok(Event::Eof) => break,
-            Ok(Event::Text(ref t)) if !t.iter().all(u8::is_ascii_whitespace) => {
+            Ok(Event::Text(ref t)) if !t.trim_ascii().is_empty() => {
                 return Err(bad_dump(format!(
                     "text outside the hierarchy: {}",
-                    String::from_utf8_lossy(&t[..t.len().min(80)])
+                    t.chars().take(80).collect::<String>()
                 )));
             }
             Err(e) => return Err(bad_dump(e.to_string())),
@@ -181,21 +166,21 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
         let key = attr.key.as_ref();
         if !matches!(
             key,
-            b"text"
-                | b"resource-id"
-                | b"content-desc"
-                | b"class"
-                | b"bounds"
-                | b"enabled"
-                | b"hint"
-                | b"test-tag"
-                | b"focused"
-                | b"password"
-                | b"checkable"
-                | b"checked"
-                | b"selected"
-                | b"role-desc"
-                | b"indeterminate"
+            "text"
+                | "resource-id"
+                | "content-desc"
+                | "class"
+                | "bounds"
+                | "enabled"
+                | "hint"
+                | "test-tag"
+                | "focused"
+                | "password"
+                | "checkable"
+                | "checked"
+                | "selected"
+                | "role-desc"
+                | "indeterminate"
         ) {
             continue;
         }
@@ -203,31 +188,31 @@ fn parse_node_attributes_from_bytes(e: &quick_xml::events::BytesStart) -> Result
         let val = attr
             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map(|v| v.into_owned())
-            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).into_owned());
+            .unwrap_or_else(|_| attr.value.to_string());
         let non_empty = |v: String| (!v.is_empty()).then_some(v);
 
         match key {
-            b"text" => text = non_empty(val),
-            b"resource-id" => resource_id = val,
-            b"content-desc" => content_desc = non_empty(val),
-            b"class" => class = val,
-            b"bounds" => bounds_str = val,
-            b"enabled" => enabled = val == "true",
+            "text" => text = non_empty(val),
+            "resource-id" => resource_id = val,
+            "content-desc" => content_desc = non_empty(val),
+            "class" => class = val,
+            "bounds" => bounds_str = val,
+            "enabled" => enabled = val == "true",
             // Protocol 9 tree server: an empty field's placeholder.
-            b"hint" => hint = non_empty(val),
+            "hint" => hint = non_empty(val),
             // Protocol 10: a Compose testTag the app didn't expose as a
             // resource-id (D-53).
-            b"test-tag" => test_tag = non_empty(val),
-            b"focused" => focused = Some(val == "true"),
-            b"password" => password = val == "true",
-            b"checkable" => checkable = Some(val == "true"),
-            b"checked" => checked = val == "true",
-            b"selected" => selected = Some(val == "true"),
+            "test-tag" => test_tag = non_empty(val),
+            "focused" => focused = Some(val == "true"),
+            "password" => password = val == "true",
+            "checkable" => checkable = Some(val == "true"),
+            "checked" => checked = val == "true",
+            "selected" => selected = Some(val == "true"),
             // Protocol 11: the node's role description (Compose's
             // `Role.Switch` / `Role.Tab` are a plain View with one).
-            b"role-desc" => role_desc = non_empty(val),
+            "role-desc" => role_desc = non_empty(val),
             // Protocol 18: a ProgressBar with no range, a spinner.
-            b"indeterminate" => indeterminate = val == "true",
+            "indeterminate" => indeterminate = val == "true",
             _ => {}
         }
     }

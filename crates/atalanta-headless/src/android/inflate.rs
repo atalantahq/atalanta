@@ -211,15 +211,15 @@ impl AndroidInflater {
                     if stack.len() >= MAX_VIEW_DEPTH {
                         return Err(InflateError::TooDeep(MAX_VIEW_DEPTH));
                     }
-                    let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let name = e.name().as_ref().to_string();
                     let mut attributes = std::collections::HashMap::new();
 
                     for attr in e.attributes().flatten() {
-                        let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+                        let key = attr.key.as_ref().to_string();
                         let val = attr
                             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                             .map(|v| v.into_owned())
-                            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
+                            .unwrap_or_else(|_| attr.value.to_string());
                         // Strip android: namespace prefix
                         let key = key.strip_prefix("android:").unwrap_or(&key).to_string();
                         attributes.insert(key, val);
@@ -233,15 +233,15 @@ impl AndroidInflater {
                     });
                 }
                 Ok(Event::Empty(e)) => {
-                    let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                    let name = e.name().as_ref().to_string();
                     let mut attributes = std::collections::HashMap::new();
 
                     for attr in e.attributes().flatten() {
-                        let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
+                        let key = attr.key.as_ref().to_string();
                         let val = attr
                             .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                             .map(|v| v.into_owned())
-                            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
+                            .unwrap_or_else(|_| attr.value.to_string());
                         let key = key.strip_prefix("android:").unwrap_or(&key).to_string();
                         attributes.insert(key, val);
                     }
