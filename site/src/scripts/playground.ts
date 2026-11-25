@@ -783,6 +783,7 @@ const DRIVER = `(() => {
   const rect = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + Math.min(r.width / 2, 40), y: r.top + r.height / 2 }; };
   const ring = (el) => { const o = el.style.outline, f = el.style.outlineOffset; el.style.outline = '2px solid #34c759'; el.style.outlineOffset = '3px'; setTimeout(() => { el.style.outline = o; el.style.outlineOffset = f; }, 900); };
   addEventListener('message', async (ev) => {
+    if (ev.source !== parent) return;
     const { id, op, sel, text, expected, act } = ev.data || {};
     if (id == null) return;
     let out;
@@ -798,7 +799,7 @@ const DRIVER = `(() => {
       else if (op === 'assertText') { const got = (el.innerText || el.textContent || '').trim(); if (got === expected) ring(el); out = got === expected ? { ok: true, at: rect(el) } : { ok: false, message: 'expected "' + expected + '", found "' + got + '"' }; }
       else { el.scrollIntoView({ block: 'center' }); ring(el); out = { ok: true, at: rect(el) }; }
     } catch (e) { out = { ok: false, message: String(e && e.message || e) }; }
-    parent.postMessage({ __pgDriver: true, id, ...out }, '*');
+    parent.postMessage({ __pgDriver: true, id, ...out }, PARENT_ORIGIN);
   });
 })();`;
 
@@ -922,7 +923,7 @@ class BrowserStage implements Stage {
     f.className = 'pg-frame';
     f.sandbox.add('allow-scripts');
     f.title = 'Page under test';
-    f.srcdoc = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;color:#14161a;background:#fff}h1{font-size:28px;letter-spacing:-.01em;margin:0 0 10px}a{color:#3b5bdb}</style>${this.html}<script>${DRIVER}<\/script>`;
+    f.srcdoc = `<!doctype html><meta charset="utf-8"><style>body{font:15px/1.5 system-ui,sans-serif;margin:24px;color:#14161a;background:#fff}h1{font-size:28px;letter-spacing:-.01em;margin:0 0 10px}a{color:#3b5bdb}</style>${this.html}<script>const PARENT_ORIGIN = ${JSON.stringify(location.origin)};${DRIVER}<\/script>`;
     const loaded = new Promise((r) => f.addEventListener('load', r, { once: true }));
     this.page.append(f);
     this.frame = f;
@@ -933,6 +934,8 @@ class BrowserStage implements Stage {
     const id = ++this.seq;
     return new Promise((resolve) => {
       this.waiting.set(id, resolve);
+      // The sandboxed frame's origin is opaque, so it can't be named.
+      // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
       this.frame!.contentWindow!.postMessage({ id, ...cmd }, '*');
       setTimeout(() => { if (this.waiting.delete(id)) resolve({ ok: false, message: 'the page did not answer' }); }, 8000);
     });
