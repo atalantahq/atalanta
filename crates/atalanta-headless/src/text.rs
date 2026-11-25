@@ -107,18 +107,12 @@ impl TextMeasurer {
 
         let mut buffer = Buffer::new(&mut inner.font_system, metrics);
 
-        buffer.set_size(&mut inner.font_system, width_limit(max_width), None);
+        buffer.set_size(width_limit(max_width), None);
 
         let attrs = Attrs::new()
             .family(Family::SansSerif)
             .weight(Weight(font_weight));
-        buffer.set_text(
-            &mut inner.font_system,
-            text,
-            &attrs,
-            Shaping::Advanced,
-            None,
-        );
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
 
         buffer.shape_until_scroll(&mut inner.font_system, false);
 
@@ -187,12 +181,12 @@ impl TextMeasurer {
         let metrics = Metrics::new(font_size, line_height);
 
         let mut buffer = Buffer::new(font_system, metrics);
-        buffer.set_size(font_system, width_limit(max_width), None);
+        buffer.set_size(width_limit(max_width), None);
 
         let attrs = Attrs::new()
             .family(Family::SansSerif)
             .weight(Weight(font_weight));
-        buffer.set_text(font_system, text, &attrs, Shaping::Advanced, None);
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
         buffer.shape_until_scroll(font_system, false);
 
         let mut glyphs = Vec::new();
