@@ -14,7 +14,7 @@ Crates listed: 363 (excluding the 17 workspace crates).
 
 | License expression | Crates |
 | --- | ---: |
-| `MIT OR Apache-2.0` | 192 |
+| `MIT OR Apache-2.0` | 193 |
 | `MIT` | 64 |
 | `Apache-2.0 OR MIT` | 18 |
 | `Unicode-3.0` | 18 |
@@ -38,7 +38,6 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | `Apache-2.0 AND ISC` | 1 |
 | `Apache-2.0 OR BSL-1.0` | 1 |
 | `Apache-2.0 OR GPL-2.0-only` | 1 |
-| `Apache-2.0/MIT` | 1 |
 | `BSD-2-Clause` | 1 |
 | `CC0-1.0 OR MIT-0 OR Apache-2.0` | 1 |
 | `CDLA-Permissive-2.0` | 1 |
@@ -101,7 +100,7 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | core-foundation-sys | 0.8.7 | `MIT OR Apache-2.0` | https://github.com/servo/core-foundation-rs |
 | core_detect | 1.0.0 | `MIT/Apache-2.0` | https://github.com/thomcc/core_detect |
 | core_maths | 0.1.1 | `MIT` | https://github.com/robertbastian/core_maths |
-| cosmic-text | 0.16.0 | `MIT OR Apache-2.0` | https://github.com/pop-os/cosmic-text |
+| cosmic-text | 0.19.0 | `MIT OR Apache-2.0` | https://github.com/pop-os/cosmic-text |
 | cpufeatures | 0.2.17 | `MIT OR Apache-2.0` | https://github.com/RustCrypto/utils |
 | cpufeatures | 0.3.1 | `MIT OR Apache-2.0` | https://github.com/RustCrypto/utils |
 | crc32fast | 1.5.0 | `MIT OR Apache-2.0` | https://github.com/srijs/rust-crc32fast |
@@ -123,6 +122,7 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | fnv | 1.0.7 | `Apache-2.0 / MIT` | https://github.com/servo/rust-fnv |
 | foldhash | 0.1.5 | `Zlib` | https://github.com/orlp/foldhash |
 | font-types | 0.10.1 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
+| font-types | 0.11.3 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
 | fontconfig-parser | 0.5.8 | `MIT` | https://github.com/Riey/fontconfig-parser |
 | fontdb | 0.23.0 | `MIT` | https://github.com/RazrFalcon/fontdb |
 | form_urlencoded | 1.2.3 | `MIT OR Apache-2.0` | https://github.com/servo/rust-url |
@@ -140,9 +140,8 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | getrandom | 0.2.17 | `MIT OR Apache-2.0` | https://github.com/rust-random/getrandom |
 | getrandom | 0.3.4 | `MIT OR Apache-2.0` | https://github.com/rust-random/getrandom |
 | getrandom | 0.4.2 | `MIT OR Apache-2.0` | https://github.com/rust-random/getrandom |
-| grid | 1.0.1 | `MIT` | https://github.com/becheran/grid |
 | h2 | 0.4.20 | `MIT` | https://github.com/hyperium/h2 |
-| harfrust | 0.4.1 | `MIT` | https://github.com/harfbuzz/harfrust |
+| harfrust | 0.5.2 | `MIT` | https://github.com/harfbuzz/harfrust |
 | hashbrown | 0.15.5 | `MIT OR Apache-2.0` | https://github.com/rust-lang/hashbrown |
 | hashbrown | 0.16.1 | `MIT OR Apache-2.0` | https://github.com/rust-lang/hashbrown |
 | heck | 0.5.0 | `MIT OR Apache-2.0` | https://github.com/withoutboats/heck |
@@ -219,6 +218,7 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | publicsuffix | 2.3.0 | `MIT/Apache-2.0` | https://github.com/rushmorem/publicsuffix |
 | quick-error | 1.2.3 | `MIT/Apache-2.0` | http://github.com/tailhook/quick-error |
 | quick-xml | 0.41.0 | `MIT` | https://github.com/tafia/quick-xml |
+| quick-xml | 0.42.0 | `MIT` | https://github.com/tafia/quick-xml |
 | quinn | 0.11.12 | `MIT OR Apache-2.0` | https://github.com/quinn-rs/quinn |
 | quinn-proto | 0.11.19 | `MIT OR Apache-2.0` | https://github.com/quinn-rs/quinn |
 | quinn-udp | 0.5.16 | `MIT OR Apache-2.0` | https://github.com/quinn-rs/quinn |
@@ -234,7 +234,7 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | rand_xorshift | 0.5.0 | `MIT OR Apache-2.0` | https://github.com/rust-random/rngs |
 | rangemap | 1.7.1 | `MIT/Apache-2.0` | https://github.com/jeffparsons/rangemap |
 | read-fonts | 0.35.0 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
-| read-fonts | 0.36.0 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
+| read-fonts | 0.37.0 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
 | redox_syscall | 0.5.18 | `MIT` | https://gitlab.redox-os.org/redox-os/syscall |
 | regex | 1.12.3 | `MIT OR Apache-2.0` | https://github.com/rust-lang/regex |
 | regex-automata | 0.4.14 | `MIT OR Apache-2.0` | https://github.com/rust-lang/regex |
@@ -246,7 +246,6 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | rust-embed | 8.11.0 | `MIT` | https://pyrossh.dev/repos/rust-embed |
 | rust-embed-impl | 8.11.0 | `MIT` | https://pyrossh.dev/repos/rust-embed |
 | rust-embed-utils | 8.11.0 | `MIT` | https://pyrossh.dev/repos/rust-embed |
-| rustc-hash | 1.1.0 | `Apache-2.0/MIT` | https://github.com/rust-lang-nursery/rustc-hash |
 | rustc-hash | 2.1.3 | `Apache-2.0 OR MIT` | https://github.com/rust-lang/rustc-hash |
 | rustix | 1.1.6 | `Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT` | https://github.com/bytecodealliance/rustix |
 | rustls | 0.23.46 | `Apache-2.0 OR ISC OR MIT` | https://github.com/rustls/rustls |
@@ -281,11 +280,11 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | signal-hook-registry | 1.4.8 | `MIT OR Apache-2.0` | https://github.com/vorner/signal-hook |
 | simd-adler32 | 0.3.8 | `MIT` | https://github.com/mcountryman/simd-adler32 |
 | skrifa | 0.37.0 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
-| skrifa | 0.39.0 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
+| skrifa | 0.40.0 | `MIT OR Apache-2.0` | https://github.com/googlefonts/fontations |
 | slab | 0.4.12 | `MIT` | https://github.com/tokio-rs/slab |
 | slotmap | 1.1.1 | `Zlib` | https://github.com/orlp/slotmap |
 | smallvec | 1.15.1 | `MIT OR Apache-2.0` | https://github.com/servo/rust-smallvec |
-| smol_str | 0.2.2 | `MIT OR Apache-2.0` | https://github.com/rust-analyzer/smol_str |
+| smol_str | 0.3.7 | `MIT OR Apache-2.0` | https://github.com/rust-lang/rust-analyzer/tree/master/lib/smol_str |
 | socket2 | 0.6.3 | `MIT OR Apache-2.0` | https://github.com/rust-lang/socket2 |
 | stable_deref_trait | 1.2.1 | `MIT OR Apache-2.0` | https://github.com/storyyeller/stable_deref_trait |
 | strict-num | 0.1.1 | `MIT` | https://github.com/RazrFalcon/strict-num |
@@ -297,7 +296,7 @@ Crates listed: 363 (excluding the 17 workspace crates).
 | sync_wrapper | 1.0.2 | `Apache-2.0` | https://github.com/Actyx/sync_wrapper |
 | synstructure | 0.13.2 | `MIT` | https://github.com/mystor/synstructure |
 | sys-locale | 0.3.2 | `MIT OR Apache-2.0` | https://github.com/1Password/sys-locale |
-| taffy | 0.9.2 | `MIT` | https://github.com/DioxusLabs/taffy |
+| taffy | 0.15.1 | `MIT` | https://github.com/DioxusLabs/taffy |
 | tempfile | 3.27.0 | `MIT OR Apache-2.0` | https://github.com/Stebalien/tempfile |
 | thiserror | 2.0.18 | `MIT OR Apache-2.0` | https://github.com/dtolnay/thiserror |
 | thiserror-impl | 2.0.18 | `MIT OR Apache-2.0` | https://github.com/dtolnay/thiserror |
