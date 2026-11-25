@@ -25,5 +25,4 @@ The web driver supports only Chrome and Chromium today. 0.3.0 adds Firefox and S
 - AtalantaRunner, Wi-Fi iPhones and crash detection on real iPhones.
 - Device clouds.
 - The GitHub Action and the opt-in device workflows run on GitHub.
-- The npm package.
 - API tests over TLS against a real server; AI providers other than Anthropic against their real APIs.

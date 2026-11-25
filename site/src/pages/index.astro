@@ -22,6 +22,7 @@ const jsonLd = JSON.stringify({
 
 const install = 'curl -fsSL https://atalanta.sh/install.sh | sh';
 const brew = 'brew install atalantahq/tap/atalanta';
+const npm = 'npm install --save-dev @atalantahq/cli';
 const yamlSuite = `appId: com.example.shop
 tests:
   - name: A new order shows in the app
@@ -74,6 +75,7 @@ atalanta export --out flow.yaml`;
           <div class="install rise">
             <div class="cmd" data-copy-target="code" data-copy-text={install}><span class="p" aria-hidden="true">$</span><code>{install}</code><span class="tag">macOS, Linux</span></div>
             <div class="cmd" data-copy-target="code" data-copy-text={brew}><span class="p" aria-hidden="true">$</span><code>{brew}</code><span class="tag">Homebrew</span></div>
+            <div class="cmd" data-copy-target="code" data-copy-text={npm}><span class="p" aria-hidden="true">$</span><code>{npm}</code><span class="tag">npm</span></div>
             <p class="note">{VERSION} binaries for macOS (Apple silicon, Intel) and Linux (x86_64, arm64), with checksums and provenance, are on the <a href={`${REPO_URL}/releases/latest`}>releases page</a>.</p>
           </div>
         </div>
