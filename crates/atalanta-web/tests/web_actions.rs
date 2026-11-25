@@ -344,9 +344,9 @@ async fn settle_waits_for_a_render_inside_a_web_component() {
 const CHURN: &str = r#"<!doctype html><html><body>
 <button id="hydrate" onclick="churn(12)">Hydrate</button>
 <button id="go" onclick="setTimeout(function(){document.getElementById('root').innerHTML='<p>Route B</p>'},1200)">Go</button>
-<div id="root"><p>Route A</p></div>
+<div id="root"><p>Route A</p></div><p id="state">idle</p>
 <script>
-function churn(n) { if (n <= 0) return;
+function churn(n) { if (n <= 0) { document.getElementById('state').textContent = 'done'; return; }
   var r = document.getElementById('root'); r.className = 'c' + n;
   requestAnimationFrame(function () { churn(n - 1); }); }
 </script></body></html>"#;
@@ -366,6 +366,9 @@ async fn a_container_that_churned_once_is_watched_again() {
     d.tap("web", &hydrate).await.unwrap();
     let r = d.settle_on_device("web", 300, 150, 3000).await.unwrap();
     assert!(r.settled, "{r:?}");
+    // On a loaded runner the churn can outlast that settle, and the next one
+    // would react to its tail instead of the swap.
+    assert_eq!(wait_text(&d, "#state", "done").await, "done");
     let go = find(&d, "#go").await;
     d.tap("web", &go).await.unwrap();
     // The swap lands 1.2 s after the click, after the settle's observer is
