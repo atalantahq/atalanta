@@ -6,6 +6,19 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Fixed
+
+- AtalantaRunner builds again. The rename turned XCTest's `withVelocity:` into `withAtalanta:`, so in 0.2.0 `ios.runner: atalanta` failed to build.
+- `freezeStatusBar` freezes the status bar on Android 14. Atalanta now reads SystemUI's demo-mode state from its dump; this SystemUI never sets `sysui_tuner_demo_on`, so the bar was masked instead.
+- iOS `clearState` on an app with no data container is no longer reported as a crash.
+- A failed iOS runner build shows the compiler's errors instead of pointing at `ATALANTA_WDA_REF`.
+- The Flutter bridge passes `flutter analyze` on Flutter 3.47 and later.
+- `atalanta doctor` gives the app check's `adb devices` as long as the Android check.
+
+### Added
+
+- [Roadmap](docs/ROADMAP.md): 0.2.1 fixes, and Firefox and Safari support planned for 0.3.0.
+
 ## [0.2.0] - 2026-11-23
 
 0.2.0 is a large release. Suites written for 0.1.0 keep their format (`appId`, `config`, `flows`, `tests`), but several checks are now stricter. Read [Behaviour changes that can fail existing suites](#behaviour-changes-that-can-fail-existing-suites) and [Migrating from 0.1.0](#migrating-from-010) before you upgrade a CI pipeline.

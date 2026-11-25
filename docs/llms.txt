@@ -19,4 +19,5 @@ Exit codes: 0 passed, 1 a test failed, 2 usage or config, 3 device or infrastruc
 - [AGENTS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/AGENTS.md): Atalanta from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does
 - [MCP.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/MCP.md): The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed)
 - [STATUS.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/STATUS.md): What has been verified on emulators, simulators, browsers and hardware, and what has not
+- [ROADMAP.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/ROADMAP.md): What's planned for the next releases: 0.2.1 fixes, Firefox and Safari in 0.3.0
 - [CHANGELOG-0.2.0.md](https://raw.githubusercontent.com/atalantahq/atalanta/main/docs/CHANGELOG-0.2.0.md): The 0.2.0 changes in full: each behaviour change, why it was made and how to adapt a suite

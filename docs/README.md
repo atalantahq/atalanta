@@ -15,4 +15,5 @@
 | [AGENTS.md](AGENTS.md) | Atalanta from a coding agent: the CLI and skill path next to MCP, what each costs, and what neither ever does |
 | [MCP.md](MCP.md) | The MCP server, `mcp install`, background tasks (suite runs and explorations), its five core tools and the full ones (a test checks that every tool is listed) |
 | [STATUS.md](STATUS.md) | What has been verified on emulators, simulators, browsers and hardware, and what has not |
+| [ROADMAP.md](ROADMAP.md) | What's planned for the next releases: 0.2.1 fixes, Firefox and Safari in 0.3.0 |
 | [CHANGELOG-0.2.0.md](CHANGELOG-0.2.0.md) | The 0.2.0 changes in full: each behaviour change, why it was made and how to adapt a suite |
