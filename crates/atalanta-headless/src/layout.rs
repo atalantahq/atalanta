@@ -62,13 +62,22 @@ impl LayoutEngine {
                 width: AvailableSpace::Definite(viewport_width),
                 height: AvailableSpace::Definite(viewport_height),
             },
-            |known, available, _node, context, _style| match context {
-                Some(NodeContext::Text {
-                    text,
-                    font_size,
-                    font_weight,
-                }) => measure_text(measurer, text, *font_size, *font_weight, known, available),
-                None => Size::ZERO,
+            |inputs, _node, context, style| {
+                taffy::compute_leaf_layout(
+                    inputs,
+                    style,
+                    |_, _| 0.0,
+                    |known, available| match context {
+                        Some(NodeContext::Text {
+                            text,
+                            font_size,
+                            font_weight,
+                        }) => {
+                            measure_text(measurer, text, *font_size, *font_weight, known, available)
+                        }
+                        None => Size::ZERO,
+                    },
+                )
             },
         )?;
 
@@ -185,8 +194,8 @@ fn convert_style(style: &NodeStyle) -> Style {
         flex_grow: style.flex_grow,
         flex_shrink: style.flex_shrink,
         flex_basis: convert_dimension(style.flex_basis),
-        justify_content: style.justify_content,
-        align_items: style.align_items,
+        justify_content: style.justify_content.unwrap_or_default(),
+        align_items: style.align_items.unwrap_or_default(),
         align_self: style.align_self,
         justify_self: style.justify_self,
         size: Size {
@@ -194,12 +203,12 @@ fn convert_style(style: &NodeStyle) -> Style {
             height: convert_dimension(style.height),
         },
         min_size: Size {
-            width: convert_dimension(style.min_width),
-            height: convert_dimension(style.min_height),
+            width: convert_limit(style.min_width),
+            height: convert_limit(style.min_height),
         },
         max_size: Size {
-            width: convert_dimension(style.max_width),
-            height: convert_dimension(style.max_height),
+            width: convert_limit(style.max_width),
+            height: convert_limit(style.max_height),
         },
         margin: convert_edges_auto(&style.margin),
         padding: convert_edges(&style.padding),
@@ -223,6 +232,14 @@ fn convert_dimension(dim: render_tree::Dimension) -> taffy::Dimension {
         render_tree::Dimension::Auto => taffy::Dimension::auto(),
         render_tree::Dimension::Length(px) => taffy::Dimension::length(px),
         render_tree::Dimension::Percent(fraction) => taffy::Dimension::percent(fraction),
+    }
+}
+
+fn convert_limit(dim: render_tree::Dimension) -> LengthPercentageAuto {
+    match dim {
+        render_tree::Dimension::Auto => LengthPercentageAuto::auto(),
+        render_tree::Dimension::Length(px) => LengthPercentageAuto::length(px),
+        render_tree::Dimension::Percent(fraction) => LengthPercentageAuto::percent(fraction),
     }
 }
 

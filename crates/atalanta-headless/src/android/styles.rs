@@ -213,34 +213,34 @@ impl AndroidStyleMapper {
             FlexDirection::Row | FlexDirection::RowReverse
         );
         let main_start = match style.flex_direction {
-            FlexDirection::RowReverse | FlexDirection::ColumnReverse => JustifyContent::FlexEnd,
-            _ => JustifyContent::FlexStart,
+            FlexDirection::RowReverse | FlexDirection::ColumnReverse => JustifyContent::FLEX_END,
+            _ => JustifyContent::FLEX_START,
         };
         let main_end = match style.flex_direction {
-            FlexDirection::RowReverse | FlexDirection::ColumnReverse => JustifyContent::FlexStart,
-            _ => JustifyContent::FlexEnd,
+            FlexDirection::RowReverse | FlexDirection::ColumnReverse => JustifyContent::FLEX_START,
+            _ => JustifyContent::FLEX_END,
         };
 
         let set_horizontal = |style: &mut NodeStyle, align_main: bool, value: &str| {
             if value.contains("center_horizontal") {
                 if align_main {
-                    style.justify_content = Some(JustifyContent::Center);
+                    style.justify_content = Some(JustifyContent::CENTER);
                 } else {
-                    style.align_items = Some(AlignItems::Center);
+                    style.align_items = Some(AlignItems::CENTER);
                 }
             }
             if value.contains("left") || value.contains("start") {
                 if align_main {
                     style.justify_content = Some(main_start);
                 } else {
-                    style.align_items = Some(AlignItems::FlexStart);
+                    style.align_items = Some(AlignItems::FLEX_START);
                 }
             }
             if value.contains("right") || value.contains("end") {
                 if align_main {
                     style.justify_content = Some(main_end);
                 } else {
-                    style.align_items = Some(AlignItems::FlexEnd);
+                    style.align_items = Some(AlignItems::FLEX_END);
                 }
             }
         };
@@ -248,23 +248,23 @@ impl AndroidStyleMapper {
         let set_vertical = |style: &mut NodeStyle, align_main: bool, value: &str| {
             if value.contains("center_vertical") {
                 if align_main {
-                    style.justify_content = Some(JustifyContent::Center);
+                    style.justify_content = Some(JustifyContent::CENTER);
                 } else {
-                    style.align_items = Some(AlignItems::Center);
+                    style.align_items = Some(AlignItems::CENTER);
                 }
             }
             if value.contains("top") {
                 if align_main {
                     style.justify_content = Some(main_start);
                 } else {
-                    style.align_items = Some(AlignItems::FlexStart);
+                    style.align_items = Some(AlignItems::FLEX_START);
                 }
             }
             if value.contains("bottom") {
                 if align_main {
                     style.justify_content = Some(main_end);
                 } else {
-                    style.align_items = Some(AlignItems::FlexEnd);
+                    style.align_items = Some(AlignItems::FLEX_END);
                 }
             }
         };
@@ -372,11 +372,11 @@ mod tests {
         // `center|top` in a column: top on the main axis, centred across.
         let attrs = make_attrs(&[("gravity", "center|top")]);
         let style = AndroidStyleMapper::map_attributes(&attrs, &ResourceTable::empty(), None);
-        assert_eq!(style.justify_content, Some(JustifyContent::FlexStart));
-        assert_eq!(style.align_items, Some(AlignItems::Center));
+        assert_eq!(style.justify_content, Some(JustifyContent::FLEX_START));
+        assert_eq!(style.align_items, Some(AlignItems::CENTER));
         let attrs = make_attrs(&[("gravity", "center")]);
         let style = AndroidStyleMapper::map_attributes(&attrs, &ResourceTable::empty(), None);
-        assert_eq!(style.justify_content, Some(JustifyContent::Center));
-        assert_eq!(style.align_items, Some(AlignItems::Center));
+        assert_eq!(style.justify_content, Some(JustifyContent::CENTER));
+        assert_eq!(style.align_items, Some(AlignItems::CENTER));
     }
 }

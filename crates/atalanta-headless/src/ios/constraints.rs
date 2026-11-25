@@ -72,9 +72,9 @@ impl SimpleConstraintSolver {
                         parent_flex_direction,
                         FlexDirection::Column | FlexDirection::ColumnReverse
                     ) {
-                        style.align_self = Some(AlignSelf::Center);
+                        style.align_self = Some(AlignSelf::CENTER);
                     } else {
-                        style.justify_self = Some(JustifySelf::Center);
+                        style.justify_self = Some(JustifySelf::CENTER);
                     }
                 }
                 // Center Y
@@ -83,9 +83,9 @@ impl SimpleConstraintSolver {
                         parent_flex_direction,
                         FlexDirection::Column | FlexDirection::ColumnReverse
                     ) {
-                        style.justify_self = Some(JustifySelf::Center);
+                        style.justify_self = Some(JustifySelf::CENTER);
                     } else {
-                        style.align_self = Some(AlignSelf::Center);
+                        style.align_self = Some(AlignSelf::CENTER);
                     }
                 }
                 // Pin to top
@@ -147,11 +147,11 @@ impl SimpleConstraintSolver {
         // Distribution -> justify_content
         if let Some(distribution) = properties.get("distribution") {
             style.justify_content = match distribution.as_str() {
-                "fillEqually" => Some(JustifyContent::SpaceEvenly),
-                "fillProportionally" => Some(JustifyContent::Start),
-                "equalSpacing" => Some(JustifyContent::SpaceBetween),
-                "equalCentering" => Some(JustifyContent::SpaceAround),
-                "fill" => Some(JustifyContent::Start),
+                "fillEqually" => Some(JustifyContent::SPACE_EVENLY),
+                "fillProportionally" => Some(JustifyContent::START),
+                "equalSpacing" => Some(JustifyContent::SPACE_BETWEEN),
+                "equalCentering" => Some(JustifyContent::SPACE_AROUND),
+                "fill" => Some(JustifyContent::START),
                 _ => None,
             };
 
@@ -164,10 +164,10 @@ impl SimpleConstraintSolver {
         // Alignment -> align_items
         if let Some(alignment) = properties.get("alignment") {
             style.align_items = match alignment.as_str() {
-                "center" => Some(AlignItems::Center),
-                "leading" | "top" => Some(AlignItems::FlexStart),
-                "trailing" | "bottom" => Some(AlignItems::FlexEnd),
-                "fill" => Some(AlignItems::Stretch),
+                "center" => Some(AlignItems::CENTER),
+                "leading" | "top" => Some(AlignItems::FLEX_START),
+                "trailing" | "bottom" => Some(AlignItems::FLEX_END),
+                "fill" => Some(AlignItems::STRETCH),
                 _ => None,
             };
         }
@@ -240,7 +240,7 @@ mod tests {
             &mut style,
         );
 
-        assert_eq!(style.align_self, Some(AlignSelf::Center));
+        assert_eq!(style.align_self, Some(AlignSelf::CENTER));
     }
 
     #[test]
@@ -256,7 +256,7 @@ mod tests {
 
         assert_eq!(style.flex_direction, FlexDirection::Row);
         assert_eq!(style.gap, 8.0);
-        assert_eq!(style.justify_content, Some(JustifyContent::SpaceEvenly));
-        assert_eq!(style.align_items, Some(AlignItems::Center));
+        assert_eq!(style.justify_content, Some(JustifyContent::SPACE_EVENLY));
+        assert_eq!(style.align_items, Some(AlignItems::CENTER));
     }
 }
