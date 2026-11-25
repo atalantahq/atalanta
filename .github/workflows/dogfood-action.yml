@@ -1,0 +1,61 @@
+# Runs this repo's own Action (`uses: ./`, the checked-out action.yml, not a
+# tag) on every pull request and nightly: a sharded headless-Chrome suite,
+# then the Action's check mode over the shards' results.
+name: Dogfood the Action
+
+on:
+  pull_request:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dogfood-action-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Action, web shard ${{ matrix.shard }}/2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./ # zizmor: ignore[self-repository] -- dogfoods the checked-out action.yml
+        with:
+          version: 0.2.1
+          platform: web
+          suite: tests/dogfood/web.yaml
+          shard: ${{ matrix.shard }}/2
+
+  results:
+    name: Action, check mode
+    needs: web
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./ # zizmor: ignore[self-repository] -- dogfoods the checked-out action.yml
+        with:
+          version: 0.2.1
+          platform: web
+          check-shards: 2
